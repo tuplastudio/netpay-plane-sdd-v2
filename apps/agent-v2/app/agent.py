@@ -16,13 +16,15 @@ Qué resuelve frente al v1:
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from deepagents import create_deep_agent
-from langchain.agents.middleware import SummarizationMiddleware, dynamic_prompt
+from langchain.agents.middleware import SummarizationMiddleware, dynamic_prompt, wrap_model_call
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.errors import GraphBubbleUp
 
 from .commerce import CommerceClient, CommerceError, CommerceUnavailable
 from .config import Settings, get_settings
@@ -32,26 +34,136 @@ from .prompts import turn_prompt
 from .state import SalesState, TurnContext, working_memory_block
 from .tools import SALES_TOOLS
 
+logger = logging.getLogger(__name__)
 
-def build_model(settings: Settings, *, model: str | None = None) -> ChatOpenAI:
+
+def build_model(
+    settings: Settings,
+    *,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> ChatOpenAI:
     """OpenRouter habla el protocolo de OpenAI: mismo cliente, otra base_url."""
+    model_id = model or settings.model
+    extra: dict[str, Any] = {}
+    # Serializar las tool calls evita que varias lean el mismo snapshot del
+    # estado en un turno (el orden importa, p. ej. cotizar después de agregar).
+    # La corrección de fondo del carrito vive en el reducer `_merge_cart`, así
+    # que esto es defensa en profundidad, no el único arreglo.
+    # OpenRouter rechaza el parámetro para la familia Anthropic
+    # ("tool_choice.auto.disable_parallel_tool_use: Extra inputs are not
+    # permitted"), y mandarlo haría fallar cada turno de un tenant que elija
+    # claude, degradando siempre al modelo por defecto.
+    if not model_id.startswith("anthropic/"):
+        extra["parallel_tool_calls"] = False
     return ChatOpenAI(
-        model=model or settings.model,
+        model=model_id,
         api_key=settings.openrouter_key,
         base_url=settings.openrouter_base_url,
-        temperature=settings.temperature,
-        max_completion_tokens=settings.max_tokens,
+        temperature=settings.temperature if temperature is None else temperature,
+        max_completion_tokens=settings.max_tokens if max_tokens is None else max_tokens,
         default_headers={
             "HTTP-Referer": settings.public_base_url,
             "X-Title": "NetPay Plane Agent v2",
         },
-        # Sin esto el modelo pide varias tools a la vez y todas leen el mismo
-        # snapshot del estado: dos `agregar_al_carrito` en un turno devolvían
-        # cada uno el carrito calculado sobre el carrito vacío, y el segundo
-        # Command pisaba al primero. Se perdía una línea y el total no cuadraba
-        # con lo que el agente le acababa de decir al cliente.
-        parallel_tool_calls=False,
+        **extra,
     )
+
+
+class _TenantModelCache:
+    """Un `ChatOpenAI` por combinación (modelo, temperatura, max_tokens).
+
+    El grafo se compila una sola vez y se reutiliza entre tenants (ver
+    `build_agent`), así que no podemos guardar "el modelo del tenant" en el
+    modelo del grafo. Lo que sí podemos cachear es el cliente HTTP de cada
+    combinación de parámetros: dos tenants con el mismo override comparten
+    instancia, y un mismo tenant no reconstruye su `ChatOpenAI` en cada turno.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._entries: dict[tuple[str, float, int], ChatOpenAI] = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, model: str, temperature: float, max_tokens: int) -> ChatOpenAI:
+        key = (model, temperature, max_tokens)
+        cached = self._entries.get(key)
+        if cached is not None:
+            return cached
+        async with self._lock:
+            cached = self._entries.get(key)
+            if cached is not None:
+                return cached
+            instance = build_model(
+                self._settings, model=model, temperature=temperature, max_tokens=max_tokens
+            )
+            self._entries[key] = instance
+            return instance
+
+
+def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
+    """Aplica el override de modelo/temperatura/max_tokens del tenant sin
+    recompilar el grafo.
+
+    `ModelRequest.override(model=...)` (langchain.agents.middleware) permite
+    sustituir el `ChatOpenAI` para una sola llamada, así que el grafo
+    compilado en `build_agent` sigue siendo uno solo, compartido y con el
+    mismo `checkpointer` para todos los tenants — cambiar de modelo no
+    interfiere con el hilo de la conversación porque el hilo vive en el
+    checkpoint, no en el modelo.
+
+    Se descartó cachear "un grafo por configuración de modelo": multiplicaría
+    checkpointers/middleware por cada combinación que un tenant pruebe en el
+    panel, y el ahorro de recompilar el grafo ya se logra igual con este
+    hook, que es la superficie que la librería expone justo para esto.
+
+    Si el modelo del tenant no existe o el proveedor lo rechaza, se reintenta
+    con la request original (que ya trae el modelo por defecto del proceso):
+    un nombre de modelo mal escrito en el panel no puede dejar mudo al
+    agente.
+    """
+
+    @wrap_model_call(name="tenant_model_override")
+    async def _override(request, handler):  # type: ignore[no-untyped-def]
+        context = dict(getattr(request, "runtime", None).context or {})  # type: ignore[union-attr]
+        tenant_id = context.get("tenant_id", "")
+        overrides = get_agent_settings(tenant_id) if tenant_id else None
+
+        model_name = overrides.effective_model(settings.model) if overrides else settings.model
+        temperature = (
+            overrides.temperature
+            if overrides and overrides.temperature is not None
+            else settings.temperature
+        )
+        max_tokens = (
+            overrides.max_tokens if overrides and overrides.max_tokens else settings.max_tokens
+        )
+
+        if (model_name, temperature, max_tokens) == (
+            settings.model,
+            settings.temperature,
+            settings.max_tokens,
+        ):
+            return await handler(request)  # sin override real, no toques la request
+
+        tenant_model = await cache.get(model_name, temperature, max_tokens)
+        try:
+            logger.info(
+                "tenant %s: usando modelo override %r (temp=%s, max_tokens=%s)",
+                tenant_id, model_name, temperature, max_tokens,
+            )
+            return await handler(request.override(model=tenant_model))
+        except GraphBubbleUp:
+            raise  # interrupts/control flow de LangGraph, no es una falla del modelo
+        except Exception:
+            logger.warning(
+                "tenant %s: modelo %r falló, degradando a %r",
+                tenant_id, model_name, settings.model, exc_info=True,
+            )
+            return await handler(request)  # request original = modelo por defecto
+
+    return _override
 
 
 class CatalogCache:
@@ -129,9 +241,17 @@ def build_agent(checkpointer: AsyncSqliteSaver, settings: Settings | None = None
     """Grafo compilado y listo para `ainvoke`."""
     settings = settings or get_settings()
     model = build_model(settings)
+    tenant_model_cache = _TenantModelCache(settings)
 
     middleware = [
         sales_prompt,
+        # Sustituye el modelo (y temperatura/max_tokens) por el del tenant en
+        # cada llamada al modelo principal. No toca SummarizationMiddleware:
+        # el resumen es una tarea interna (comprimir historial), no una
+        # respuesta que el cliente vea, así que se queda con el modelo fijo
+        # del proceso (env) en vez de heredar un override de "voz de venta"
+        # que el tenant eligió pensando en el chat, no en resumir.
+        _tenant_model_middleware(settings, tenant_model_cache),
         # El resumen lo redacta un modelo cuando el hilo crece; los hechos
         # comerciales no dependen de él porque viven en el estado.
         SummarizationMiddleware(

@@ -8,6 +8,7 @@ puente de WhatsApp.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hmac
 import json
@@ -16,7 +17,7 @@ import time
 from typing import Any
 
 import aiosqlite
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -26,8 +27,25 @@ from pydantic import BaseModel, Field, conlist
 from .agent import build_agent
 from .commerce import CommerceClient
 from .config import get_settings
-from .knowledge import load_knowledge, load_profile, reload_knowledge
+from .learning import (
+    SignalNotFoundError,
+    SignalTenantMismatchError,
+    get_learning_store,
+    looks_like_unanswered,
+)
+from .knowledge import (
+    KnowledgeUploadError,
+    delete_knowledge_doc,
+    knowledge_outline,
+    knowledge_stats,
+    load_knowledge,
+    load_profile,
+    reload_knowledge,
+    save_uploaded_doc,
+    search_knowledge,
+)
 from .agent_settings import DELIVERY_MODES, SALES_STYLES, get_settings_store
+from .audio import AudioTooLarge, AudioUnavailable, synthesize, transcribe
 from .security import image_size_error
 from .state import TurnContext, cart_summary
 from .text import format_for_whatsapp
@@ -383,6 +401,124 @@ async def reset_settings(tenantId: str = Query(...)) -> dict[str, Any]:
     return _settings_view(tenantId)
 
 
+# ---------------- aprendizaje ----------------
+
+
+class ApproveSignalRequest(BaseModel):
+    answer: str
+
+
+@app.get("/learning/signals")
+async def learning_signals(
+    tenantId: str | None = None, status: str | None = "pending"
+) -> dict[str, Any]:
+    signals = await get_learning_store().list_signals(tenant_id=tenantId, status=status)
+    return {"signals": [s.to_dict() for s in signals]}
+
+
+@app.post("/learning/signals/{signal_id}/approve")
+async def approve_signal(
+    signal_id: str, req: ApproveSignalRequest, tenantId: str | None = None
+) -> dict[str, Any]:
+    try:
+        signal = await get_learning_store().approve(
+            signal_id, answer=req.answer, tenant_id=tenantId
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SignalNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Señal no encontrada") from exc
+    except SignalTenantMismatchError as exc:
+        raise HTTPException(status_code=403, detail="Señal de otro negocio") from exc
+    # La respuesta aprobada se escribió al conocimiento: recargarlo para que
+    # entre al prompt del siguiente turno sin reiniciar el servicio.
+    reload_knowledge()
+    return signal.to_dict()
+
+
+@app.post("/learning/signals/{signal_id}/dismiss")
+async def dismiss_signal(signal_id: str, tenantId: str | None = None) -> dict[str, Any]:
+    try:
+        signal = await get_learning_store().dismiss(signal_id, tenant_id=tenantId)
+    except SignalNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Señal no encontrada") from exc
+    except SignalTenantMismatchError as exc:
+        raise HTTPException(status_code=403, detail="Señal de otro negocio") from exc
+    return signal.to_dict()
+
+
+# ---------------- conocimiento del negocio ----------------
+
+
+@app.get("/knowledge")
+async def knowledge_index() -> dict[str, Any]:
+    return {**knowledge_stats(), "outline": knowledge_outline()}
+
+
+@app.get("/knowledge/search")
+async def knowledge_search(q: str = Query(..., min_length=2)) -> dict[str, Any]:
+    return {"hits": search_knowledge(q)}
+
+
+@app.post("/knowledge/upload")
+async def knowledge_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+    content = await file.read()
+    try:
+        doc_id = save_uploaded_doc(file.filename or "", content)
+    except KnowledgeUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"docId": doc_id, "chars": len(reload_knowledge())}
+
+
+@app.delete("/knowledge/{doc_id:path}")
+async def knowledge_delete(doc_id: str) -> dict[str, Any]:
+    try:
+        removed = delete_knowledge_doc(doc_id)
+    except KnowledgeUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    return {"deleted": doc_id, "chars": len(reload_knowledge())}
+
+
+# ---------------- audio ----------------
+
+
+class SttRequest(BaseModel):
+    audioBase64: str
+    filename: str = "nota.ogg"
+
+
+class TtsRequest(BaseModel):
+    text: str
+    voice: str | None = None
+
+
+@app.post("/audio/stt")
+async def audio_stt(req: SttRequest) -> dict[str, Any]:
+    """Nota de voz -> texto. Lo llama commerce-api con el binario que baja de
+    Evolution (ver whatsapp.controller.ts) y el micrófono del chat web."""
+    try:
+        audio = base64.b64decode(req.audioBase64)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail="audioBase64 inválido") from exc
+    try:
+        return await transcribe(audio, filename=req.filename)
+    except AudioTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except AudioUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/audio/tts")
+async def audio_tts(req: TtsRequest) -> dict[str, Any]:
+    try:
+        return await synthesize(req.text, voice=req.voice)
+    except AudioUnavailable as exc:
+        # Degradación explícita: el canal manda el texto y ya.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 @app.get("/evals")
 async def evals(
     judge: bool = False,
@@ -588,11 +724,22 @@ async def chat(req: ChatRequest) -> ChatResponse:
             if m.__class__.__name__ == "ToolMessage"
         ][-20:]
 
+        handoff = bool(result.get("handoff"))
+        await _record_learning(
+            tenant_id=req.tenantId,
+            conversation_id=conversation_id,
+            question=text,
+            reply=reply,
+            handoff=handoff,
+            messages=messages,
+            handoff_reason=result.get("handoff_reason"),
+        )
+
         response = _response_from_values(
             conversation_id,
             result,
             reply=reply,
-            handoff=bool(result.get("handoff")),
+            handoff=handoff,
             intent=result.get("stage"),
             engine="langgraph",
             latency_ms=latency_ms,
@@ -600,6 +747,54 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
         await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
         return response
+
+
+async def _record_learning(
+    *,
+    tenant_id: str,
+    conversation_id: str,
+    question: str,
+    reply: str,
+    handoff: bool,
+    messages: list[Any],
+    handoff_reason: Any,
+) -> None:
+    """Deja la señal para que el dueño del negocio la revise en el panel.
+
+    Es best-effort: si el almacén falla, el cliente ya tiene su respuesta y no
+    se le va a romper la conversación por no poder registrar una señal.
+    """
+    store = get_learning_store()
+    try:
+        if handoff:
+            # El resumen real lo escribió el modelo al llamar la herramienta;
+            # en el estado solo sobrevive el motivo, así que se rescata del
+            # tool_call antes de que el Command lo colapse.
+            summary = ""
+            reason = str(handoff_reason or "") or None
+            for message in reversed(messages):
+                for call in getattr(message, "tool_calls", None) or []:
+                    if call.get("name") == "escalar_a_humano":
+                        args = call.get("args") or {}
+                        summary = str(args.get("resumen") or "")
+                        reason = str(args.get("motivo") or "") or reason
+                        break
+                if summary:
+                    break
+            await store.record_handoff(
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                summary=summary or question,
+                reason=reason,
+            )
+        elif reply and looks_like_unanswered(reply):
+            await store.record_unanswered_question(
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                question=question,
+            )
+    except Exception:  # noqa: BLE001 - registrar la señal nunca puede tumbar el turno
+        log.warning("no se pudo registrar la señal de aprendizaje", exc_info=True)
 
 
 @app.get("/conversations/{conversation_id}")

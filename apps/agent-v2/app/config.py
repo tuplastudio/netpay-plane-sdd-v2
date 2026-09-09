@@ -78,6 +78,23 @@ class Settings:
     max_image_bytes: int = field(
         default_factory=lambda: _env_int("AGENT_MAX_IMAGE_BYTES", 5 * 1024 * 1024)
     )
+
+    # ---- Audio: notas de voz de WhatsApp y micrófono del chat web ----
+    stt_model: str = field(default_factory=lambda: _env("STT_MODEL_ID", "openai/whisper-1"))
+    # OpenRouter NO expone /audio/speech: `openai/tts-1` responde "Model does
+    # not exist" (comprobado). El endpoint /audio/tts queda por paridad con v1
+    # y degrada a 503; para usarlo hay que apuntar OPENROUTER_BASE_URL a un
+    # proveedor que sí lo soporte (la API de OpenAI directa, por ejemplo).
+    tts_model: str = field(default_factory=lambda: _env("TTS_MODEL_ID", "openai/tts-1"))
+    tts_voice: str = field(default_factory=lambda: _env("TTS_VOICE", "alloy"))
+    max_audio_bytes: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_AUDIO_BYTES", 8 * 1024 * 1024)
+    )
+    max_tts_chars: int = field(default_factory=lambda: _env_int("AGENT_MAX_TTS_CHARS", 700))
+    # Transcribir una nota de voz tarda más que un turno de chat: timeout aparte.
+    audio_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_AUDIO_TIMEOUT_SECONDS", 60.0)
+    )
     # Tope genérico para argumentos de texto libre de las tools (consulta,
     # notas, motivo/resumen de escalamiento): sin esto, un mensaje puede
     # inflar indefinidamente el estado persistido y lo que se reinyecta en
