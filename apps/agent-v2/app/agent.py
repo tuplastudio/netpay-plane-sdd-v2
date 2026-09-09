@@ -218,6 +218,11 @@ class CatalogCache:
 _CATALOG = CatalogCache()
 
 
+async def warm_catalog(tenant_id: str = "") -> None:
+    """Precalienta la caché del catálogo al arrancar (ver _warmup en main.py)."""
+    await _CATALOG.get(tenant_id)
+
+
 @dynamic_prompt
 async def sales_prompt(request) -> SystemMessage:  # type: ignore[no-untyped-def]
     """Reinyecta el hilo comercial y el catálogo en cada llamada al modelo."""

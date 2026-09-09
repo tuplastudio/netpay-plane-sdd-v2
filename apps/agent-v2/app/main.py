@@ -24,7 +24,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, Field, conlist
 
-from .agent import build_agent
+from .agent import build_agent, warm_catalog
 from .commerce import CommerceClient
 from .config import get_settings
 from .learning import (
@@ -215,10 +215,26 @@ async def _lifespan(_: FastAPI):
     # "arriba" con `runtime.agent is None" respondiendo 503 a todo para
     # siempre sin que nadie lo note.
     await runtime.start()
+    # El primer turno tras arrancar tardaba ~28s (catálogo sin cachear,
+    # conocimiento sin leer, cliente del modelo sin inicializar) y el puente de
+    # commerce-api aborta a los 30s: justo después de un despliegue, el primer
+    # cliente de WhatsApp se quedaba sin respuesta. Precalentar deja ese turno
+    # en el rango normal de 3-5s.
+    await _warmup()
     try:
         yield
     finally:
         await runtime.stop()
+
+
+async def _warmup() -> None:
+    """Best-effort: si algo falla aquí el servicio arranca igual, solo pagará
+    el costo en el primer turno."""
+    try:
+        load_knowledge()
+        await warm_catalog()
+    except Exception:  # noqa: BLE001
+        log.warning("no se pudo precalentar el agente", exc_info=True)
 
 
 app = FastAPI(

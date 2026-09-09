@@ -119,8 +119,10 @@ services:
       API_SELF_URL: http://commerce-api:4000
       # Navegador -> web (CORS y enlaces públicos de cotización).
       PUBLIC_BASE_URL: http://localhost:3001
-      # commerce-api -> agent-service (WhatsAppBridge para responder inbound).
-      AGENT_URL: http://agent-service:8000
+      # commerce-api -> agente (WhatsAppBridge para responder inbound).
+      # Apunta al v2 (LangGraph). Para volver al v1 basta con cambiar esta
+      # línea a http://agent-service:8000: el contrato HTTP es el mismo.
+      AGENT_URL: ${AGENT_URL:-http://agent-v2:8010}
       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:-}
       PAYMENT_PROVIDER: DUMMY
       SESSION_SECRET_REF: ${SESSION_SECRET_REF:-session_secret_change_me_64_chars_minimum_pad_pad_pad_pad}
