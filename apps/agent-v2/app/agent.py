@@ -235,8 +235,8 @@ async def sales_prompt(request) -> SystemMessage:  # type: ignore[no-untyped-def
         turn_prompt(
             working_memory=working_memory_block(state),
             catalog=catalog,
-            knowledge=load_knowledge(),
-            profile=load_profile(),
+            knowledge=load_knowledge(tenant_id),
+            profile=load_profile(tenant_id),
             overrides=get_agent_settings(tenant_id) if tenant_id else None,
         )
     )

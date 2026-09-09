@@ -34,6 +34,7 @@ from .learning import (
     looks_like_unanswered,
 )
 from .knowledge import (
+    DEFAULT_TENANT_ID,
     KnowledgeUploadError,
     delete_knowledge_doc,
     knowledge_outline,
@@ -231,7 +232,7 @@ async def _warmup() -> None:
     """Best-effort: si algo falla aquí el servicio arranca igual, solo pagará
     el costo en el primer turno."""
     try:
-        load_knowledge()
+        load_knowledge(DEFAULT_TENANT_ID)
         await warm_catalog()
     except Exception:  # noqa: BLE001
         log.warning("no se pudo precalentar el agente", exc_info=True)
@@ -330,7 +331,7 @@ async def diagnostics() -> dict[str, Any]:
         "engine": "langgraph+deepagents",
         "model": settings.model,
         "tools": [t.name for t in SALES_TOOLS],
-        "knowledgeChars": len(load_knowledge()),
+        "knowledgeChars": len(load_knowledge(DEFAULT_TENANT_ID)),
         "budgets": {
             "recursionLimit": settings.recursion_limit,
             "turnTimeoutSeconds": settings.turn_timeout_seconds,
@@ -341,8 +342,8 @@ async def diagnostics() -> dict[str, Any]:
 
 
 @app.post("/knowledge/reload")
-async def knowledge_reload() -> dict[str, Any]:
-    return {"chars": len(reload_knowledge())}
+async def knowledge_reload(tenantId: str = DEFAULT_TENANT_ID) -> dict[str, Any]:
+    return {"chars": len(reload_knowledge(tenantId))}
 
 
 # ---------------- configuración por tenant ----------------
@@ -374,7 +375,7 @@ class AgentSettingsPayload(BaseModel):
 
 
 def _settings_view(tenant_id: str) -> dict[str, Any]:
-    profile = load_profile()
+    profile = load_profile(tenant_id)
     current = get_settings_store().get(tenant_id)
     return {
         "tenantId": tenant_id,
@@ -446,9 +447,9 @@ async def approve_signal(
         raise HTTPException(status_code=404, detail="Señal no encontrada") from exc
     except SignalTenantMismatchError as exc:
         raise HTTPException(status_code=403, detail="Señal de otro negocio") from exc
-    # La respuesta aprobada se escribió al conocimiento: recargarlo para que
-    # entre al prompt del siguiente turno sin reiniciar el servicio.
-    reload_knowledge()
+    # La respuesta aprobada se escribió al conocimiento del tenant dueño de la
+    # señal: recargarlo para que entre al prompt del siguiente turno.
+    reload_knowledge(signal.tenant_id)
     return signal.to_dict()
 
 
@@ -467,34 +468,38 @@ async def dismiss_signal(signal_id: str, tenantId: str | None = None) -> dict[st
 
 
 @app.get("/knowledge")
-async def knowledge_index() -> dict[str, Any]:
-    return {**knowledge_stats(), "outline": knowledge_outline()}
+async def knowledge_index(tenantId: str = DEFAULT_TENANT_ID) -> dict[str, Any]:
+    return {**knowledge_stats(tenantId), "outline": knowledge_outline(tenantId)}
 
 
 @app.get("/knowledge/search")
-async def knowledge_search(q: str = Query(..., min_length=2)) -> dict[str, Any]:
-    return {"hits": search_knowledge(q)}
+async def knowledge_search(
+    q: str = Query(..., min_length=2), tenantId: str = DEFAULT_TENANT_ID
+) -> dict[str, Any]:
+    return {"hits": search_knowledge(tenantId, q)}
 
 
 @app.post("/knowledge/upload")
-async def knowledge_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+async def knowledge_upload(
+    file: UploadFile = File(...), tenantId: str = DEFAULT_TENANT_ID
+) -> dict[str, Any]:
     content = await file.read()
     try:
-        doc_id = save_uploaded_doc(file.filename or "", content)
+        doc_id = save_uploaded_doc(tenantId, file.filename or "", content)
     except KnowledgeUploadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"docId": doc_id, "chars": len(reload_knowledge())}
+    return {"docId": doc_id, "chars": len(reload_knowledge(tenantId))}
 
 
 @app.delete("/knowledge/{doc_id:path}")
-async def knowledge_delete(doc_id: str) -> dict[str, Any]:
+async def knowledge_delete(doc_id: str, tenantId: str = DEFAULT_TENANT_ID) -> dict[str, Any]:
     try:
-        removed = delete_knowledge_doc(doc_id)
+        removed = delete_knowledge_doc(tenantId, doc_id)
     except KnowledgeUploadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not removed:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    return {"deleted": doc_id, "chars": len(reload_knowledge())}
+    return {"deleted": doc_id, "chars": len(reload_knowledge(tenantId))}
 
 
 # ---------------- audio ----------------

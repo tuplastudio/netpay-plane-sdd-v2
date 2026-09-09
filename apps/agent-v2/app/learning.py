@@ -27,11 +27,11 @@ Decisiones de este módulo (ver reporte de entrega para el detalle completo):
   (protege el disco), podando primero las más viejas ya resueltas
   (aprobadas/descartadas) antes que tocar una pendiente.
 - Multi-tenant: toda señal lleva `tenant_id` y el listado se puede filtrar
-  por tenant. La escritura a conocimiento (ver `approve`) es la excepción:
-  `knowledge_dir` en v2 todavía no está particionado por tenant (ver
-  `knowledge.py`, que hace `directory.glob("*.md")` sin subcarpetas), así
-  que el `.md` de aprendizajes es hoy un archivo compartido — ver nota en el
-  reporte de entrega.
+  por tenant. La escritura a conocimiento (ver `approve`) respeta la misma
+  partición: `_append_to_knowledge` vuelca al `aprendizajes.md` DENTRO del
+  subárbol del tenant dueño de la señal (`knowledge.tenant_knowledge_dir`,
+  ver `knowledge.py`), nunca a un archivo compartido — así lo que un negocio
+  aprueba jamás entra al prompt de otro.
 """
 
 from __future__ import annotations
@@ -45,6 +45,8 @@ from pathlib import Path
 from typing import Any
 
 import aiosqlite
+
+from .knowledge import invalidate_knowledge_cache, tenant_knowledge_dir
 
 _WS = re.compile(r"\s+")
 _PUNCT = re.compile(r"[¿?¡!.,;:]")
@@ -477,15 +479,17 @@ class LearningStore:
             return _row_to_signal(await cur.fetchone())
 
     async def _append_to_knowledge(self, sig: LearningSignal, answer: str) -> str:
-        """Vuelca la Q/A aprobada a un `.md` propio del ciclo de aprendizaje.
+        """Vuelca la Q/A aprobada al `aprendizajes.md` DEL TENANT dueño de la
+        señal (`sig.tenant_id`), nunca a un archivo global: es la escritura
+        que si se comparte entre negocios filtra información de un cliente
+        de la plataforma a otro (ver docstring del módulo).
 
-        NO se llama a `knowledge.py` (está en cambio en paralelo): se escribe
-        directo un archivo markdown que el loader existente de `knowledge.py`
-        ya recoge solo, porque itera `*.md` del directorio. Ver el reporte de
-        entrega sobre la limitación de que este archivo es compartido entre
-        tenants mientras `knowledge_dir` no esté particionado por tenant.
+        `directory` se resuelve con el mismo saneo de `tenant_id` que usa
+        `knowledge.py` para subidas del panel, así una señal con un
+        `tenant_id` corrupto no puede escribir fuera de `tenants/`.
         """
-        path = self._knowledge_dir / "aprendizajes.md"
+        directory = tenant_knowledge_dir(sig.tenant_id, root=self._knowledge_dir)
+        path = directory / "aprendizajes.md"
         stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(sig.last_seen_at))
         # La nota "> interno:" la separa `knowledge.py` del cuerpo público
         # (no se le cita al cliente) pero sí llega al modelo como contexto:
@@ -498,10 +502,15 @@ class LearningStore:
             "---\n\n"
         )
         async with self._file_lock:
-            self._knowledge_dir.mkdir(parents=True, exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(entry)
-        return f"aprendizajes.md#{sig.id[:8]}"
+        # El tenant dueño de la señal debe ver la respuesta aprobada desde el
+        # siguiente turno sin reiniciar el servicio; invalidar SOLO su caché
+        # (no la de ningún otro tenant) basta, aunque `main.py` además llame
+        # a `reload_knowledge(tenantId)` después de este `approve`.
+        invalidate_knowledge_cache(sig.tenant_id)
+        return f"tenants/{directory.name}/aprendizajes.md#{sig.id[:8]}"
 
 
 _STORE: LearningStore | None = None

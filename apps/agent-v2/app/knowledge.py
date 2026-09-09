@@ -1,4 +1,4 @@
-"""Conocimiento del negocio: markdown plano cargado a memoria.
+"""Conocimiento del negocio: markdown plano cargado a memoria, por tenant.
 
 Decisión: volcado completo, no recuperación por trigramas como v1
 (`agent-service/app/knowledge.py` + `matching.py`). Con el corpus actual (4
@@ -25,17 +25,42 @@ Gestión desde el panel (paridad con v1, ver `agent-service/app/knowledge.py`):
   - `knowledge_stats()` / `knowledge_outline()` listan qué hay indexado.
   - `search_knowledge()` prueba el índice sin gastar tokens del modelo.
   - `save_uploaded_doc()` / `delete_knowledge_doc()` administran SOLO
-    `knowledge/uploads/`: el contenido curado a mano (negocio.md, etc.) no se
+    `<tenant>/uploads/`: el contenido curado a mano (negocio.md, etc.) no se
     toca por HTTP, igual que en v1.
-  - Todo vive en un único directorio de conocimiento por servicio (no por
-    tenant), igual que v1. Si un tenant necesita su propio conocimiento habría
-    que particionar `knowledge_dir` por tenant_id; no se hace aquí porque hoy
-    no hay ninguna señal de que se necesite y sería complejidad sin dueño.
+
+Partición por tenant (layout en disco):
+  - `<knowledge_dir>/*.md` (nivel raíz, sin recursión) es la PLANTILLA BASE:
+    los documentos curados que hoy se copian a la imagen Docker (negocio.md,
+    productos.md, preguntas-frecuentes.md, sucursales.md). Es de solo lectura
+    para la API — ningún endpoint escribe ahí — y se comparte entre TODOS los
+    tenants a propósito: un negocio nuevo, sin un solo documento propio, debe
+    seguir teniendo identidad y catálogo desde el primer turno en vez de
+    arrancar con el prompt vacío.
+  - `<knowledge_dir>/tenants/<tenant_id>/**/*.md` es el conocimiento PROPIO
+    de cada tenant (subidas del panel en `uploads/`, aprendizajes aprobados
+    en `aprendizajes.md`). Un tenant solo lee su propio subárbol: nunca el de
+    otro. `tenant_id` se sanea igual que el `docId` de abajo (sin "../", sin
+    componentes de ruta) antes de tocar el filesystem.
+  - Compatibilidad con el despliegue actual: antes de particionar, todo vivía
+    plano en `<knowledge_dir>/` (incluye un `uploads/` y un `aprendizajes.md`
+    ya en producción). Ese layout viejo se trata como el del tenant
+    `DEFAULT_TENANT_ID` ("default", que es también a lo que sanea un
+    `tenant_id` vacío — el caso de `agent.py` antes de que se le pase un
+    tenant real): además de su plantilla base, ese tenant sigue leyendo el
+    `uploads/` y el `aprendizajes.md` de la raíz tal cual estaban, sin mover
+    ni migrar ningún archivo. Sus escrituras NUEVAS (subidas, aprendizajes)
+    van al árbol particionado `tenants/default/`, así que con el tiempo el
+    conocimiento del tenant por defecto queda repartido en dos ubicaciones
+    (la vieja, congelada; la nueva, la que crece) — deuda operativa aceptada
+    a cambio de no perder nada al desplegar este cambio y de no requerir un
+    script de migración. Si el tenant real de este despliegue no se llama
+    "default", quien opere el servicio debe o bien mandar ese tenant_id como
+    "default", o bien mover a mano `<knowledge_dir>/uploads/` y
+    `<knowledge_dir>/aprendizajes.md` dentro de `tenants/<su_tenant_id>/`.
 """
 
 from __future__ import annotations
 
-import functools
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -45,6 +70,17 @@ from typing import Any
 from .config import get_settings
 
 MAX_CHARS = 24_000
+
+UPLOADS_SUBDIR = "uploads"
+TENANTS_SUBDIR = "tenants"
+DEFAULT_TENANT_ID = "default"
+
+# Reutilizado tanto para sanear nombres de archivo subidos como tenant_id: el
+# criterio de "caracteres seguros para un componente de ruta" es el mismo.
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]")
+# ~300 KB de texto plano es de sobra para cualquier documento de negocio real;
+# tope defensivo contra un archivo gigante o un ataque de agotamiento de disco.
+MAX_UPLOAD_BYTES = 300_000
 
 _INTERNAL_NOTE = re.compile(r"^\s*>\s*interno\s*:\s*(.*)$", re.IGNORECASE | re.MULTILINE)
 
@@ -59,12 +95,51 @@ INJECTION_PATTERNS = re.compile(
 )
 
 
+def _sanitize_tenant_id(tenant_id: str) -> str:
+    """Nombre de directorio seguro para un tenant: sin ruta, sin traversal.
+
+    Mismo criterio que `_sanitize_upload_name` (abajo): `.name` descarta
+    cualquier componente de ruta, incluido "../"; lo que sobreviva se filtra
+    de caracteres no seguros y se recorta. Vacío, solo puntos (".", "..",
+    "...") o un tenant_id en blanco caen todos al tenant por defecto: es el
+    mismo bucket que ya usa el layout viejo (ver docstring del módulo), así
+    que un tenant_id ausente o malformado nunca cruza a los datos propios de
+    OTRO tenant real — en el peor caso ve la plantilla base + el legado.
+    """
+    raw = (tenant_id or "").strip()
+    if not raw:
+        return DEFAULT_TENANT_ID
+    name = Path(raw).name
+    safe = _SAFE_NAME.sub("_", name)[:80].strip(".")
+    return safe or DEFAULT_TENANT_ID
+
+
+def tenant_knowledge_dir(tenant_id: str, *, root: Path | None = None) -> Path:
+    """Directorio propio de un tenant, `<root>/tenants/<tenant_id-saneado>/`.
+
+    `root` es inyectable (lo usa `learning.py`, construido con su propio
+    `knowledge_dir`) para no acoplar este helper al singleton de settings;
+    por defecto usa `get_settings().knowledge_dir`, igual que el resto de
+    funciones públicas de este módulo.
+    """
+    base = root if root is not None else get_settings().knowledge_dir
+    tenants_root = base / TENANTS_SUBDIR
+    candidate = tenants_root / _sanitize_tenant_id(tenant_id)
+    # Defensa en profundidad: con _sanitize_tenant_id ya no debería poder
+    # resolver fuera de tenants_root, pero se verifica igual (mismo patrón
+    # que save_uploaded_doc) por si el filesystem tiene un symlink raro.
+    if tenants_root.resolve() not in candidate.resolve().parents:
+        return tenants_root / DEFAULT_TENANT_ID
+    return candidate
+
+
 @dataclass
 class BusinessProfile:
     """Identidad del negocio, leída del frontmatter de `negocio.md`.
 
     Todo campo vacío se resuelve con un valor por defecto genérico en
-    `prompts.py`; un tenant sin frontmatter sigue funcionando.
+    `prompts.py`; un tenant sin frontmatter propio sigue funcionando porque
+    hereda el de la plantilla base.
     """
 
     name: str = ""
@@ -258,32 +333,25 @@ class _Loaded:
     warnings: list[str] = field(default_factory=list)
 
 
-def _load() -> _Loaded:
-    directory: Path = get_settings().knowledge_dir
-    profile = BusinessProfile()
-    if not directory.is_dir():
-        return _Loaded(
-            text="", profile=profile, warnings=[f"el directorio de conocimiento no existe: {directory}"]
-        )
+def _load(tenant_id: str) -> _Loaded:
+    root: Path = get_settings().knowledge_dir
+    safe_id = _sanitize_tenant_id(tenant_id)
+    tenant_dir = tenant_knowledge_dir(tenant_id)
 
+    profile = BusinessProfile()
     doc_parts: list[str] = []
     all_notes: list[str] = []
     docs: list[str] = []
     chunks: list[KnowledgeChunk] = []
     warnings: list[str] = []
 
-    # "**/*.md" (no solo "*.md") a propósito: así los documentos subidos por
-    # el panel a knowledge/uploads/ entran al mismo volcado y al mismo índice
-    # que el contenido curado a mano, sin distinción para el modelo.
-    for path in sorted(directory.glob("**/*.md")):
-        if path.name.upper().startswith("README"):
-            continue
+    def consume(path: Path, doc_name: str) -> None:
+        nonlocal profile
         try:
             raw = path.read_text(encoding="utf-8")
         except OSError as exc:
             warnings.append(f"{path.name}: {exc}")
-            continue
-        doc_name = str(path.relative_to(directory))
+            return
         docs.append(doc_name)
         meta, body = _parse_frontmatter(raw)
         if meta:
@@ -293,10 +361,43 @@ def _load() -> _Loaded:
 
         public, notes = _split_internal_notes(body)
         if public:
-            doc_parts.append(f"--- {path.name} ---\n{public}")
-        all_notes.extend(f"({path.name}) {n}" for n in notes)
+            doc_parts.append(f"--- {doc_name} ---\n{public}")
+        all_notes.extend(f"({doc_name}) {n}" for n in notes)
 
         chunks.extend(_split_sections(doc_name, body))
+
+    if not root.is_dir():
+        warnings.append(f"el directorio de conocimiento no existe: {root}")
+    else:
+        # 1) Plantilla base: curada a mano, de solo lectura, compartida por
+        # TODOS los tenants (así uno nuevo sin documentos propios igual tiene
+        # identidad y catálogo). Sin recursión: "aprendizajes.md" y
+        # "uploads/" en la raíz son legado del tenant por defecto (paso 2),
+        # no plantilla — si se leyeran aquí también, se filtrarían al resto
+        # de tenants y se repetiría el bug que se está arreglando.
+        for path in sorted(root.glob("*.md")):
+            if path.name.upper().startswith("README") or path.name == "aprendizajes.md":
+                continue
+            consume(path, path.name)
+
+        # 2) Compatibilidad con el despliegue plano anterior a la partición
+        # (ver docstring del módulo): solo el tenant por defecto lo hereda.
+        if safe_id == DEFAULT_TENANT_ID:
+            legacy_uploads = root / UPLOADS_SUBDIR
+            if legacy_uploads.is_dir():
+                for path in sorted(legacy_uploads.glob("**/*.md")):
+                    consume(path, str(path.relative_to(root)))
+            legacy_learned = root / "aprendizajes.md"
+            if legacy_learned.is_file():
+                consume(legacy_learned, legacy_learned.name)
+
+    # 3) Conocimiento propio del tenant: aislado en su subárbol, nunca
+    # visible para otro tenant_id.
+    if tenant_dir.is_dir():
+        for path in sorted(tenant_dir.glob("**/*.md")):
+            if path.name.upper().startswith("README"):
+                continue
+            consume(path, str(Path(TENANTS_SUBDIR) / safe_id / path.relative_to(tenant_dir)))
 
     text = "\n\n".join(doc_parts)
     if all_notes:
@@ -308,32 +409,50 @@ def _load() -> _Loaded:
     return _Loaded(text=text[:MAX_CHARS], profile=profile, docs=docs, chunks=chunks, warnings=warnings)
 
 
-@functools.lru_cache(maxsize=1)
-def _cached() -> _Loaded:
-    return _load()
+# Caché por tenant (reemplaza el `lru_cache(maxsize=1)` de la versión sin
+# particionar): cada tenant se recalcula y se invalida por separado, así
+# subir/borrar/aprobar en el tenant A nunca fuerza una recarga ni afecta la
+# caché ya tibia del tenant B.
+_CACHE: dict[str, _Loaded] = {}
 
 
-def load_knowledge() -> str:
-    return _cached().text
+def _cached(tenant_id: str) -> _Loaded:
+    safe_id = _sanitize_tenant_id(tenant_id)
+    loaded = _CACHE.get(safe_id)
+    if loaded is None:
+        loaded = _load(tenant_id)
+        _CACHE[safe_id] = loaded
+    return loaded
 
 
-def load_profile() -> BusinessProfile:
-    return _cached().profile
+def invalidate_knowledge_cache(tenant_id: str) -> None:
+    """Descarta la caché de un solo tenant. Expuesta para `learning.py`:
+    tras aprobar una señal, su `aprendizajes.md` cambió y su próxima lectura
+    debe recalcularse — sin tocar la caché de ningún otro tenant."""
+    _CACHE.pop(_sanitize_tenant_id(tenant_id), None)
 
 
-def reload_knowledge() -> str:
-    _cached.cache_clear()
-    return load_knowledge()
+def load_knowledge(tenant_id: str) -> str:
+    return _cached(tenant_id).text
 
 
-def knowledge_stats() -> dict[str, Any]:
+def load_profile(tenant_id: str) -> BusinessProfile:
+    return _cached(tenant_id).profile
+
+
+def reload_knowledge(tenant_id: str) -> str:
+    invalidate_knowledge_cache(tenant_id)
+    return load_knowledge(tenant_id)
+
+
+def knowledge_stats(tenant_id: str) -> dict[str, Any]:
     """Para `GET /knowledge`: qué hay indexado, sin la lista de secciones
     (eso es `knowledge_outline()`, aparte, igual que en v1: `{**kb.stats(),
     "outline": kb.outline()}`)."""
-    loaded = _cached()
+    loaded = _cached(tenant_id)
     p = loaded.profile
     return {
-        "dir": str(get_settings().knowledge_dir),
+        "dir": str(tenant_knowledge_dir(tenant_id)),
         "docs": sorted(loaded.docs),
         "chunks": len(loaded.chunks),
         "profile": {
@@ -349,16 +468,16 @@ def knowledge_stats() -> dict[str, Any]:
     }
 
 
-def knowledge_outline() -> list[dict[str, Any]]:
+def knowledge_outline(tenant_id: str) -> list[dict[str, Any]]:
     """Para `GET /knowledge`: `{doc, sections}` por cada documento indexado."""
-    loaded = _cached()
+    loaded = _cached(tenant_id)
     return [
         {"doc": doc, "sections": [c.ref for c in loaded.chunks if c.doc == doc]}
         for doc in sorted(set(loaded.docs))
     ]
 
 
-def search_knowledge(query: str, *, top_k: int = 4) -> list[dict[str, Any]]:
+def search_knowledge(tenant_id: str, query: str, *, top_k: int = 4) -> list[dict[str, Any]]:
     """Para `GET /knowledge/search`: secciones relevantes a `query`, con score.
 
     Búsqueda por superposición de tokens sobre el mismo índice por sección
@@ -366,7 +485,7 @@ def search_knowledge(query: str, *, top_k: int = 4) -> list[dict[str, Any]]:
     consulta, cae a similitud difusa (trigramas) contra el título de la
     sección, para no devolver vacío ante errores de tecleo o singular/plural.
     """
-    loaded = _cached()
+    loaded = _cached(tenant_id)
     q_tokens = _tokenize(query)
     if not q_tokens or not loaded.chunks:
         return []
@@ -397,21 +516,15 @@ def search_knowledge(query: str, *, top_k: int = 4) -> list[dict[str, Any]]:
 
 # ---------------------------------------------------------------------------
 # Subir / borrar documentos desde el panel. Superficie peligrosa (HTTP escribe
-# y borra archivos): el docId lo manda el cliente, así que todo aquí asume que
-# es hostil hasta demostrar lo contrario (path traversal, tipo, tamaño).
+# y borra archivos): el tenant_id y el docId los manda el cliente, así que
+# todo aquí asume que son hostiles hasta demostrar lo contrario (path
+# traversal, tipo, tamaño).
 # ---------------------------------------------------------------------------
 
 
 class KnowledgeUploadError(ValueError):
     """`.md` subido inválido: nombre, tamaño, codificación o ruta fuera del
     directorio de conocimiento. `main.py` la traduce a HTTP 400."""
-
-
-UPLOADS_SUBDIR = "uploads"
-_SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]")
-# ~300 KB de texto plano es de sobra para cualquier documento de negocio real;
-# tope defensivo contra un archivo gigante o un ataque de agotamiento de disco.
-MAX_UPLOAD_BYTES = 300_000
 
 
 def _sanitize_upload_name(filename: str) -> str:
@@ -428,11 +541,16 @@ def _sanitize_upload_name(filename: str) -> str:
     return f"{safe_stem}.md"
 
 
-def save_uploaded_doc(filename: str, content: bytes, *, max_bytes: int = MAX_UPLOAD_BYTES) -> str:
-    """Guarda un `.md` subido en `<knowledge_dir>/uploads/`. Devuelve el docId
-    relativo (p. ej. `uploads/politica-envios.md`) que el panel usa luego para
-    borrarlo. Invalida la caché de `load_knowledge()`/`load_profile()`: el
-    documento nuevo se ve desde el siguiente turno, sin reiniciar el servicio.
+def save_uploaded_doc(
+    tenant_id: str, filename: str, content: bytes, *, max_bytes: int = MAX_UPLOAD_BYTES
+) -> str:
+    """Guarda un `.md` subido en `<knowledge_dir>/tenants/<tenant_id>/uploads/`.
+    Devuelve el docId relativo a ESE tenant (p. ej. `uploads/politica-envios.md`,
+    sin el prefijo `tenants/<id>/`) que el panel usa luego para borrarlo con
+    `delete_knowledge_doc(tenant_id, doc_id)` — el mismo tenant_id, siempre.
+    Invalida la caché de ese tenant: el documento nuevo se ve desde el
+    siguiente turno, sin reiniciar el servicio, y sin tocar la caché de
+    ningún otro tenant.
 
     El contenido se trata como dato del negocio, igual que cualquier otro
     Markdown de `knowledge/`: nunca como instrucción para el modelo.
@@ -449,7 +567,7 @@ def save_uploaded_doc(filename: str, content: bytes, *, max_bytes: int = MAX_UPL
     if "\x00" in text:
         raise KnowledgeUploadError("Archivo binario detectado, se esperaba Markdown")
 
-    directory = get_settings().knowledge_dir
+    directory = tenant_knowledge_dir(tenant_id)
     safe_name = _sanitize_upload_name(filename)
     uploads_dir = directory / UPLOADS_SUBDIR
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -461,21 +579,23 @@ def save_uploaded_doc(filename: str, content: bytes, *, max_bytes: int = MAX_UPL
         raise KnowledgeUploadError("Ruta de destino inválida")
     target.write_text(text, encoding="utf-8")
     doc_id = str(target.relative_to(directory))
-    _cached.cache_clear()
+    invalidate_knowledge_cache(tenant_id)
     return doc_id
 
 
-def delete_knowledge_doc(doc_id: str) -> bool:
-    """Borra un documento subido por su docId. Solo alcanza `uploads/`: el
-    contenido curado a mano (negocio.md, productos.md, ...) no se administra
-    por API, igual que en v1. Invalida la caché igual que `save_uploaded_doc`.
+def delete_knowledge_doc(tenant_id: str, doc_id: str) -> bool:
+    """Borra un documento subido por su docId, dentro del tenant dado.
+    Solo alcanza `<tenant>/uploads/`: el contenido curado a mano (negocio.md,
+    productos.md, ...) vive en la plantilla base y no se administra por API,
+    igual que en v1. Invalida la caché de ese tenant igual que
+    `save_uploaded_doc`.
 
     Devuelve `False` si el docId no corresponde a un archivo existente (para
     que `main.py` responda 404). Lanza `KnowledgeUploadError` si el docId
     intenta salirse de `uploads/` (path traversal): en ese caso NO se borra
-    nada, ni siquiera dentro del directorio de conocimiento.
+    nada, ni siquiera dentro del directorio del tenant.
     """
-    directory = get_settings().knowledge_dir
+    directory = tenant_knowledge_dir(tenant_id)
     uploads_dir = (directory / UPLOADS_SUBDIR).resolve()
     candidate = (directory / doc_id).resolve()
     if uploads_dir not in candidate.parents:
@@ -483,5 +603,5 @@ def delete_knowledge_doc(doc_id: str) -> bool:
     if not candidate.exists():
         return False
     candidate.unlink()
-    _cached.cache_clear()
+    invalidate_knowledge_cache(tenant_id)
     return True
