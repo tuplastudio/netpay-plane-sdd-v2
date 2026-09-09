@@ -26,6 +26,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = _env(name).lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(_env(name) or default)
@@ -78,6 +85,14 @@ class Settings:
     max_image_bytes: int = field(
         default_factory=lambda: _env_int("AGENT_MAX_IMAGE_BYTES", 5 * 1024 * 1024)
     )
+
+    # ---- Guardarraíl de tema ----
+    # Un clasificador barato decide si el mensaje va del negocio antes de
+    # gastar el bucle de herramientas. Apagable por si estorba en algún canal.
+    scope_guard_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_SCOPE_GUARD", True)
+    )
+    scope_guard_model: str = field(default_factory=lambda: _env("SCOPE_GUARD_MODEL_ID", ""))
 
     # ---- Audio: notas de voz de WhatsApp y micrófono del chat web ----
     stt_model: str = field(default_factory=lambda: _env("STT_MODEL_ID", "openai/whisper-1"))

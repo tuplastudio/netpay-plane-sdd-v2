@@ -71,6 +71,20 @@ def build_model(
     )
 
 
+def build_scope_model(settings: Settings) -> ChatOpenAI:
+    """Modelo del guardarraíl de tema: temperatura 0 y respuesta cortísima.
+
+    Va aparte del modelo conversacional porque solo emite un JSON de una
+    clave: pagar el `max_tokens` del agente por eso sería tirar dinero.
+    """
+    return build_model(
+        settings,
+        model=settings.scope_guard_model or settings.model,
+        temperature=0.0,
+        max_tokens=16,
+    )
+
+
 class _TenantModelCache:
     """Un `ChatOpenAI` por combinación (modelo, temperatura, max_tokens).
 

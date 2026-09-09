@@ -24,7 +24,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, Field, conlist
 
-from .agent import build_agent, warm_catalog
+from .agent import build_agent, build_scope_model, warm_catalog
 from .commerce import CommerceClient
 from .config import get_settings
 from .learning import (
@@ -47,6 +47,7 @@ from .knowledge import (
 )
 from .agent_settings import DELIVERY_MODES, SALES_STYLES, get_settings_store
 from .audio import AudioTooLarge, AudioUnavailable, synthesize, transcribe
+from .scope_guard import is_off_topic, redirect_reply
 from .security import image_size_error
 from .state import TurnContext, cart_summary
 from .text import format_for_whatsapp
@@ -187,6 +188,7 @@ class _Runtime:
         self.agent: Any = None
         self.checkpointer: AsyncSqliteSaver | None = None
         self.thread_locks = _ThreadLocks()
+        self.scope_model: Any = None
         self.idempotency = _IdempotencyStore(settings.data_dir / "idempotency.sqlite")
 
     async def start(self) -> None:
@@ -195,6 +197,7 @@ class _Runtime:
             AsyncSqliteSaver.from_conn_string(str(settings.checkpoint_path))
         )
         self.agent = build_agent(self.checkpointer, settings)
+        self.scope_model = build_scope_model(settings)
         await self.idempotency.start()
 
     async def stop(self) -> None:
@@ -684,6 +687,33 @@ async def chat(req: ChatRequest) -> ChatResponse:
             return response
 
         started = asyncio.get_running_loop().time()
+
+        # Guardarraíl de tema antes del grafo: un mensaje ajeno al negocio no
+        # debe pagar el bucle de herramientas ni quedar en el hilo como si
+        # fuera parte de la venta. Solo aplica a texto: una imagen o una nota
+        # de voz ya transcrita se dejan pasar al agente.
+        if not req.imageBase64 and await is_off_topic(
+            text,
+            model=runtime.scope_model,
+            settings=settings,
+            business=_business_name(req.tenantId),
+            forbidden_topics=get_settings_store().get(req.tenantId).forbidden_topics,
+            last_reply=_last_assistant_reply(state_values),
+        ):
+            log.info("mensaje fuera de tema en %s, no se invoca al agente", conversation_id)
+            reply = redirect_reply(_business_name(req.tenantId), text)
+            response = _response_from_values(
+                conversation_id,
+                state_values,
+                reply=format_for_whatsapp(reply) if req.channel == "whatsapp" else reply,
+                handoff=False,
+                intent="FUERA_DE_TEMA",
+                engine="scope-guard",
+                latency_ms=int((asyncio.get_running_loop().time() - started) * 1000),
+            )
+            await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
+            return response
+
         try:
             result = await asyncio.wait_for(
                 runtime.agent.ainvoke(
@@ -768,6 +798,20 @@ async def chat(req: ChatRequest) -> ChatResponse:
         )
         await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
         return response
+
+
+def _business_name(tenant_id: str) -> str:
+    overrides = get_settings_store().get(tenant_id)
+    return overrides.business_name or load_profile(tenant_id).name
+
+
+def _last_assistant_reply(state_values: dict[str, Any]) -> str:
+    """El último mensaje del agente es lo que hace interpretable un "sí" o un
+    "la segunda" sueltos para el guardarraíl."""
+    for message in reversed(state_values.get("messages") or []):
+        if isinstance(message, AIMessage) and isinstance(message.content, str) and message.content.strip():
+            return message.content.strip()
+    return ""
 
 
 async def _record_learning(
