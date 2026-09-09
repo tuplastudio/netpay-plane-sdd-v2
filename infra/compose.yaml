@@ -1,0 +1,205 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: netpay_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: netpay
+      POSTGRES_USER: netpay_app
+      POSTGRES_PASSWORD: netpay_app
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netpay_app -d netpay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres_dummy:
+    image: postgres:16-alpine
+    container_name: netpay_postgres_dummy
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: netpay_dummy
+      POSTGRES_USER: netpay_dummy
+      POSTGRES_PASSWORD: netpay_dummy
+    ports:
+      - "15433:5432"
+    volumes:
+      - postgres_dummy_data:/var/lib/postgresql/data
+      - ./initdb-dummy:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netpay_dummy -d netpay_dummy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: netpay_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: netpay
+      RABBITMQ_DEFAULT_PASS: netpay
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: netpay_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: netpay_minio
+      MINIO_ROOT_PASSWORD: netpay_minio_secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---- Apps (perfil "full": docker compose --profile full up) ----
+  # Uso normal de desarrollo sigue siendo `pnpm dev` sobre esta infra;
+  # este perfil es para levantar el stack completo en contenedores.
+  dummy-gateway:
+    build:
+      context: ..
+      dockerfile: apps/dummy-gateway/Dockerfile
+    container_name: netpay_dummy_gateway
+    profiles: ["full"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DUMMY_PORT: "4100"
+    ports:
+      - "4100:4100"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4100/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  commerce-api:
+    build:
+      context: ..
+      dockerfile: apps/commerce-api/Dockerfile
+    container_name: netpay_commerce_api
+    profiles: ["full"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dummy-gateway:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: "4000"
+      DATABASE_URL: postgresql://netpay_app:netpay_app@postgres:5432/netpay?schema=public
+      # Servidor-a-servidor (red interna de Docker): commerce-api -> dummy-gateway.
+      DUMMY_BASE_URL: http://dummy-gateway:4100
+      # Navegador -> dummy-gateway (link de pago que se abre en el cliente).
+      DUMMY_PUBLIC_URL: http://localhost:4100
+      # dummy-gateway -> commerce-api (callback del webhook de pago).
+      API_SELF_URL: http://commerce-api:4000
+      # Navegador -> web (CORS y enlaces públicos de cotización).
+      PUBLIC_BASE_URL: http://localhost:3001
+      # commerce-api -> agent-service (WhatsAppBridge para responder inbound).
+      AGENT_URL: http://agent-service:8000
+      AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:-}
+      PAYMENT_PROVIDER: DUMMY
+      SESSION_SECRET_REF: ${SESSION_SECRET_REF:-session_secret_change_me_64_chars_minimum_pad_pad_pad_pad}
+      TOKEN_ENCRYPTION_KEY_REF: ${TOKEN_ENCRYPTION_KEY_REF:-token_encryption_key_change_me_32_bytes}
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/v1/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  commerce-worker:
+    build:
+      context: ..
+      dockerfile: apps/commerce-worker/Dockerfile
+    container_name: netpay_commerce_worker
+    profiles: ["full"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      WORKER_PORT: "4101"
+      DATABASE_URL: postgresql://netpay_app:netpay_app@postgres:5432/netpay?schema=public
+      BROKER_URL: amqp://netpay:netpay@rabbitmq:5672
+    ports:
+      - "4101:4101"
+
+  agent-service:
+    build:
+      context: ../apps/agent-service
+      dockerfile: Dockerfile
+    container_name: netpay_agent_service
+    profiles: ["full"]
+    restart: unless-stopped
+    depends_on:
+      commerce-api:
+        condition: service_healthy
+    environment:
+      COMMERCE_API_URL: http://commerce-api:4000/api/v1
+      AGENT_API_KEY_REF: ${AGENT_API_KEY_REF:-}
+      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:-}
+      AGENT_PORT: "8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8000/healthz', timeout=3).status_code==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        API_INTERNAL_URL: http://commerce-api:4000
+    container_name: netpay_web
+    profiles: ["full"]
+    restart: unless-stopped
+    depends_on:
+      commerce-api:
+        condition: service_healthy
+      agent-service:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      # Route handler server-side (apps/web/src/app/agent/[...path]/route.ts):
+      # se lee en runtime, no en build, así que basta con env normal.
+      AGENT_INTERNAL_URL: http://agent-service:8000
+    ports:
+      - "3001:3000"
+
+volumes:
+  postgres_data:
+  postgres_dummy_data:
+  rabbitmq_data:
+  minio_data:

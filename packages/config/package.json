@@ -1,0 +1,17 @@
+{
+  "name": "@netpay/config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Configs compartidos (tsconfig, eslint, prettier)",
+  "type": "module",
+  "exports": {
+    "./tsconfig.lib.json": "./tsconfig.lib.json",
+    "./tsconfig.next.json": "./tsconfig.next.json",
+    "./tsconfig.nest.json": "./tsconfig.nest.json"
+  },
+  "scripts": {
+    "lint": "echo 'lint config: ok'",
+    "typecheck": "echo 'typecheck config: ok'",
+    "test": "echo 'test config: ok'"
+  }
+}

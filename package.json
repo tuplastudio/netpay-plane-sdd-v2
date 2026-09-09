@@ -1,0 +1,31 @@
+{
+  "name": "netpay-plane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NetPay Plane - Plataforma de catalogo, cotizaciones, pedidos y pagos dummy",
+  "packageManager": "pnpm@10.34.3",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "dev": "pnpm -r --parallel dev",
+    "compose:up": "docker compose -f infra/compose.yaml up -d",
+    "compose:down": "docker compose -f infra/compose.yaml down",
+    "compose:logs": "docker compose -f infra/compose.yaml logs -f",
+    "db:migrate": "pnpm --filter @netpay/commerce-api prisma:migrate",
+    "db:seed": "pnpm --filter @netpay/commerce-api prisma:seed",
+    "bootstrap": "pnpm --filter @netpay/commerce-api bootstrap",
+    "agent:setup": "cd apps/agent-service && python3 -m venv .venv && ./.venv/bin/pip install -r requirements-dev.txt",
+    "agent:dev": "pnpm --filter @netpay/agent-service dev",
+    "agent:evals": "pnpm --filter @netpay/agent-service evals",
+    "agent:test": "pnpm --filter @netpay/agent-service test"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3"
+  }
+}

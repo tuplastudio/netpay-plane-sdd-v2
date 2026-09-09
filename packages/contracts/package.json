@@ -1,0 +1,32 @@
+{
+  "name": "@netpay/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contratos compartidos: OpenAPI, JSON Schemas, tipos TS, modelos Python",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./openapi": "./openapi/openapi.yaml",
+    "./schemas/*": "./schemas/*.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'lint contracts: ok'",
+    "test": "echo 'test contracts: ok'",
+    "validate": "node scripts/validate.mjs",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "@apidevtools/swagger-parser": "10.1.0",
+    "yaml": "2.6.1"
+  }
+}

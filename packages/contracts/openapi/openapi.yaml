@@ -1,0 +1,374 @@
+openapi: 3.1.0
+info:
+  title: NetPay Plane Commerce API
+  version: 0.1.0
+  description: |
+    API comercial multi-tenant de NetPay Plane.
+    Esta especificación es canónica: tipos generados en TypeScript y modelos
+    Python derivan de aquí (ver docs/02-fnd.md T-FND-02).
+    Toda mutación requiere `Idempotency-Key` y `expectedVersion` cuando aplica.
+    Pasarela única: DUMMY. PAYMENT_PROVIDER=REAL falla al arranque.
+
+servers:
+  - url: http://localhost:4000/api/v1
+    description: Local dev
+
+security:
+  - cookieSession: []
+  - apiKey: []
+
+paths:
+  /auth/bootstrap:
+    post:
+      operationId: bootstrapTenant
+      summary: Crear tenant inicial + propietario
+      tags: [iam]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BootstrapTenantRequest"
+      responses:
+        "201":
+          description: Tenant creado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BootstrapTenantResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Iniciar sesión
+      tags: [iam]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Sesión abierta
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: "__Host-session cookie, HttpOnly, Secure, SameSite=Lax"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Cerrar sesión
+      tags: [iam]
+      responses:
+        "204":
+          description: Sesión invalidada
+
+  /pricing/preview:
+    post:
+      operationId: previewPricing
+      summary: Calcular totales sin crear nada (calculadora oficial)
+      description: >-
+        Única fuente de importes para el portal y para el agente IA. No crea
+        cotización ni pedido: solo totaliza líneas con descuento, impuestos y
+        envío según la configuración del tenant.
+      tags: [pricing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PricingPreviewRequest"
+      responses:
+        "200":
+          description: Totales calculados
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PricingPreviewResponse"
+        "400":
+          $ref: "#/components/responses/Validation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness probe
+      tags: [ops]
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  version:
+                    type: string
+                  uptime:
+                    type: number
+
+  /readyz:
+    get:
+      operationId: readyz
+      summary: Readiness probe (DB, broker)
+      tags: [ops]
+      security: []
+      responses:
+        "200":
+          description: Ready
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: __Host-session
+    apiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: Custom
+      description: "Prefijo npk_live_ o npk_test_"
+
+  responses:
+    Unauthorized:
+      description: Identidad inválida o membership deshabilitada
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+    Forbidden:
+      description: Permisos insuficientes
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+    NotFound:
+      description: Recurso no accesible (cross-tenant responde igual)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+    Conflict:
+      description: Conflicto de versión o idempotencia
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+    Validation:
+      description: Validación fallida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+    RateLimited:
+      description: Cuota excedida
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+    DependencyUnavailable:
+      description: Dependencia caída
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ApiErrorResponse"
+
+  schemas:
+    BootstrapTenantRequest:
+      type: object
+      additionalProperties: false
+      required: [tenantName, ownerEmail, ownerFullName, ownerPassword, timezone]
+      properties:
+        tenantName: { type: string, minLength: 1, maxLength: 200 }
+        ownerEmail: { type: string, format: email, maxLength: 254 }
+        ownerFullName: { type: string, minLength: 1, maxLength: 200 }
+        ownerPassword: { type: string, minLength: 12, maxLength: 256 }
+        timezone: { type: string, description: "IANA timezone" }
+
+    BootstrapTenantResponse:
+      type: object
+      additionalProperties: false
+      required: [tenantId, ownerUserId, invitationToken, configVersion]
+      properties:
+        tenantId: { $ref: "#/components/schemas/UuidV7" }
+        ownerUserId: { $ref: "#/components/schemas/UuidV7" }
+        invitationToken: { type: string }
+        configVersion: { type: integer, minimum: 1 }
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+        tenantSlug: { type: string }
+
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [userId, tenantId, role, mfaRequired, expiresAt]
+      properties:
+        sessionToken: { type: string }
+        userId: { $ref: "#/components/schemas/UuidV7" }
+        tenantId: { $ref: "#/components/schemas/UuidV7" }
+        role:
+          type: string
+          enum: [OWNER, ADMIN, VENDOR, FINANCE, CATALOG, SUPPORT, VIEWER]
+        mfaRequired: { type: boolean }
+        expiresAt: { type: string, format: date-time }
+
+    UuidV7:
+      type: string
+      pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-7[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+
+    Money:
+      type: string
+      pattern: "^[0-9]+(\\.[0-9]{2})?$"
+      description: "Decimal string con 2 decimales (MXN)"
+
+    Quantity:
+      type: string
+      pattern: "^[0-9]+(\\.[0-9]{3})?$"
+      description: "Decimal string con 3 decimales"
+
+    PricingLineInput:
+      type: object
+      additionalProperties: false
+      required: [variantId, quantity]
+      properties:
+        variantId: { $ref: "#/components/schemas/UuidV7" }
+        quantity: { $ref: "#/components/schemas/Quantity" }
+        discountPct:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: "Descuento por línea; el backend valida el máximo del tenant"
+
+    PricingPreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: "#/components/schemas/PricingLineInput" }
+        deliveryMode:
+          type: string
+          enum: [PICKUP, LOCAL_DELIVERY]
+
+    PricingTotals:
+      type: object
+      additionalProperties: false
+      required: [subtotal, discount, taxBase, tax, shipping, total]
+      properties:
+        subtotal: { $ref: "#/components/schemas/Money" }
+        discount: { $ref: "#/components/schemas/Money" }
+        taxBase: { $ref: "#/components/schemas/Money" }
+        tax: { $ref: "#/components/schemas/Money" }
+        shipping: { $ref: "#/components/schemas/Money" }
+        total: { $ref: "#/components/schemas/Money" }
+
+    PricingPreviewLine:
+      type: object
+      additionalProperties: false
+      required:
+        [variantId, sku, title, quantity, unitPrice, discountPct, lineSubtotal, satProductCode, satUnitCode]
+      properties:
+        variantId: { $ref: "#/components/schemas/UuidV7" }
+        sku: { type: string }
+        title: { type: string }
+        quantity: { $ref: "#/components/schemas/Quantity" }
+        unitPrice: { $ref: "#/components/schemas/Money" }
+        discountPct: { type: number }
+        lineSubtotal: { $ref: "#/components/schemas/Money" }
+        satProductCode: { type: string }
+        satUnitCode: { type: string }
+
+    PricingPreviewResponse:
+      type: object
+      additionalProperties: false
+      required: [data, requestId]
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+          required: [lines, totals, deliveryMode]
+          properties:
+            lines:
+              type: array
+              items: { $ref: "#/components/schemas/PricingPreviewLine" }
+            totals: { $ref: "#/components/schemas/PricingTotals" }
+            deliveryMode:
+              type: string
+              enum: [PICKUP, LOCAL_DELIVERY]
+        requestId: { type: string }
+
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [path, message, code]
+      properties:
+        path: { type: string }
+        message: { type: string }
+        code: { type: string }
+
+    ApiErrorBody:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable, traceId]
+      properties:
+        code:
+          type: string
+          enum:
+            - VALIDATION_FAILED
+            - UNAUTHORIZED
+            - FORBIDDEN
+            - NOT_FOUND
+            - CONFLICT
+            - IDEMPOTENCY_REPLAY
+            - RULE_VIOLATION
+            - RATE_LIMITED
+            - DEPENDENCY_UNAVAILABLE
+            - PAYMENT_PROVIDER_NOT_DUMMY
+            - TENANT_MISMATCH
+        message: { type: string }
+        fieldErrors:
+          type: array
+          items: { $ref: "#/components/schemas/FieldError" }
+        retryable: { type: boolean }
+        traceId: { type: string }
+
+    ApiErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error, requestId]
+      properties:
+        error: { $ref: "#/components/schemas/ApiErrorBody" }
+        requestId: { type: string }

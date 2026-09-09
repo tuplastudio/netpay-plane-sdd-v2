@@ -1,0 +1,10 @@
+{
+  "extends": "../../packages/config/tsconfig.nest.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./",
+    "baseUrl": "./",
+    "paths": { "@/*": ["src/*"] }
+  },
+  "include": ["src/**/*"]
+}

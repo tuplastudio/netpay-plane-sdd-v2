@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Sistema visual "Rausch" (seed Airbnb, ver docs/design/airbnb-seed.md).
+ * Un solo acento (--primary, #ff385c), radios suaves, una sola sombra.
+ * Sin dark mode: el sitio público de Airbnb tampoco lo tiene, y este es un
+ * panel operativo de alto contraste sobre blanco.
+ */
+@layer base {
+  :root {
+    --canvas: 0 0% 100%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 13%; /* ink #222 */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 13%;
+
+    --primary: 350 100% 61%; /* Rausch #ff385c */
+    --primary-active: 350 100% 46%; /* #e00b41 */
+    --primary-disabled: 350 100% 92%; /* #ffd1da */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 95%; /* surface-strong #f2f2f2 */
+    --secondary-foreground: 0 0% 13%;
+
+    --muted: 0 0% 97%; /* surface-soft #f7f7f7 */
+    --muted-foreground: 0 0% 42%; /* muted text #6a6a6a */
+    --muted-soft: 0 0% 57%; /* disabled text #929292 */
+
+    --accent: 0 0% 95%;
+    --accent-foreground: 0 0% 13%;
+
+    --destructive: 12 78% 42%; /* error #c13515 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 87%; /* hairline #ddd */
+    --border-soft: 0 0% 92%; /* hairline soft #ebebeb */
+    --border-strong: 0 0% 76%; /* #c1c1c1 */
+    --input: 0 0% 87%;
+    --ring: 0 0% 13%;
+
+    --body-text: 0 0% 25%; /* running text #3f3f3f */
+    --legal-link: 215 100% 65%; /* #428bff */
+
+    --radius: 0.5rem; /* 8px — botones */
+    --radius-card: 0.875rem; /* 14px — tarjetas */
+    --radius-pill: 9999px;
+
+    --shadow-airbnb: 0 0 0 1px rgb(0 0 0 / 0.02), 0 2px 6px rgb(0 0 0 / 0.04),
+      0 4px 8px rgb(0 0 0 / 0.1);
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}

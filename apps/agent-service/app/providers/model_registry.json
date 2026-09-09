@@ -1,0 +1,55 @@
+{
+  "$comment": "Registro normativo de modelos. Un modelo sin evaluación no se promueve a principal.",
+  "models": [
+    {
+      "id": "openai/gpt-4o-mini",
+      "role": "text",
+      "tool_calling": true,
+      "json_schema": true,
+      "languages": ["es", "en"],
+      "max_context": 128000,
+      "usd_per_1k_input": 0.00015,
+      "usd_per_1k_output": 0.0006,
+      "evaluated_at": "2026-09-07",
+      "notes": "Principal por defecto: barato y estable en tool calling en español."
+    },
+    {
+      "id": "anthropic/claude-3.5-haiku",
+      "role": "text",
+      "tool_calling": true,
+      "json_schema": true,
+      "languages": ["es", "en"],
+      "max_context": 200000,
+      "usd_per_1k_input": 0.0008,
+      "usd_per_1k_output": 0.004,
+      "evaluated_at": "2026-09-07",
+      "notes": "Fallback sugerido; mismo dataset de evaluación que el principal."
+    },
+    {
+      "id": "openai/gpt-4o",
+      "role": "text",
+      "tool_calling": true,
+      "json_schema": true,
+      "languages": ["es", "en"],
+      "max_context": 128000,
+      "usd_per_1k_input": 0.0025,
+      "usd_per_1k_output": 0.01,
+      "evaluated_at": "2026-09-07",
+      "notes": "Para tenants con conversaciones complejas; costo mayor."
+    },
+    {
+      "id": "openai/whisper-1",
+      "role": "stt",
+      "languages": ["es"],
+      "evaluated_at": "2026-09-07",
+      "notes": "Transcripción es-MX; cantidades dudosas siempre se confirman."
+    },
+    {
+      "id": "openai/tts-1",
+      "role": "tts",
+      "languages": ["es"],
+      "evaluated_at": "2026-09-07",
+      "notes": "Voz de salida; solo sobre texto ya validado."
+    }
+  ]
+}

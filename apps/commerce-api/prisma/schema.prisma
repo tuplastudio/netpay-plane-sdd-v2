@@ -1,0 +1,964 @@
+// NetPay Plane - Prisma schema
+// Ver docs/02-fnd.md T-FND-03: persistencia multi-tenant base.
+// Tenant en todas las filas. FK compuesta tenant_id + id. Money como Decimal.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Identidad, tenant y permisos (T-IAM-01..06)
+// ============================================================
+
+model Tenant {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug          String   @unique
+  name          String
+  status        TenantStatus @default(ACTIVE)
+  timezone      String   @default("America/Mexico_City")
+  configVersion Int      @default(1)
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+  version       Int      @default(1)
+
+  // Configuración empresarial versionada (T-IAM-04)
+  taxRatePct        Decimal  @default(16.00) @db.Decimal(5, 2)
+  shippingFlat      Decimal  @default(0.00) @db.Decimal(12, 2)
+  quoteValidityHours Int     @default(168)
+  quickPayValidityHours Int  @default(24)
+  checkoutReservationMinutes Int @default(15)
+  maxSellerDiscountPct Decimal @default(10.00) @db.Decimal(5, 2)
+
+  memberships  Membership[]
+  sessions     Session[]
+  apiKeys      ApiKey[]
+  invitations  Invitation[]
+  auditLog     AuditLog[]
+  products     Product[]
+  variants     ProductVariant[]
+  customers    Customer[]
+  quotes       Quote[]
+  orders       Order[]
+  payments     CheckoutSession[]
+  ledger       LedgerEntry[]
+  outbox       OutboxEvent[]
+  inbox        InboxEvent[]
+  storageObjects StorageObject[]
+  jobs         Job[]
+  notifications Notification[]
+  integrations Integration[]
+  whatsappConnections WhatsAppConnection[]
+}
+
+enum TenantStatus {
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique
+  fullName     String
+  passwordHash String
+  totpSecret   String?  // TOTP seed cifrado
+  totpEnabled  Boolean  @default(false)
+  recoveryCodesHash Json? // [hash] de un solo uso
+  createdAt    DateTime @default(now()) @db.Timestamptz
+  updatedAt    DateTime @updatedAt @db.Timestamptz
+  version      Int      @default(1)
+
+  memberships  Membership[]
+  sessions     Session[]
+  passwordResets PasswordResetToken[]
+  createdJobs  Job[]
+  auditLog     AuditLog[]
+}
+
+model Membership {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  userId    String   @db.Uuid
+  role      Role
+  status    MembershipStatus @default(ACTIVE)
+  joinedAt  DateTime @default(now()) @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+  version   Int      @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  VENDOR
+  FINANCE
+  CATALOG
+  SUPPORT
+  VIEWER
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+model Session {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @db.Uuid
+  userId       String   @db.Uuid
+  tokenHash    String   @unique // SHA256 del token opaco
+  issuedAt     DateTime @default(now()) @db.Timestamptz
+  lastActivityAt DateTime @default(now()) @db.Timestamptz
+  expiresAt    DateTime @db.Timestamptz
+  revokedAt    DateTime?
+  ipAddress    String?
+  userAgent    String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Invitation {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @db.Uuid
+  email        String
+  fullName     String
+  role         Role
+  tokenHash    String   @unique
+  expiresAt    DateTime @db.Timestamptz
+  acceptedAt   DateTime?
+  createdAt    DateTime @default(now()) @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String   @unique
+  expiresAt DateTime @db.Timestamptz
+  usedAt    DateTime?
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  prefix      String   @unique // npk_live_xxxx público
+  name        String
+  secretHash  String   // Argon2id del secret
+  scopes      String[] // ej: ["products.read", "orders.read"]
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  expiresAt   DateTime? @db.Timestamptz
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([prefix])
+}
+
+// ============================================================
+// Auditoría (T-IAM-06)
+// ============================================================
+
+model AuditLog {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  actorId   String?  @db.Uuid
+  action    String   // ej: "user.role_changed"
+  targetType String?
+  targetId   String?  @db.Uuid
+  metadata   Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([targetType, targetId])
+}
+
+// ============================================================
+// Catálogo (T-CAT-01..07)
+// ============================================================
+
+model Product {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  sku         String
+  title       String
+  description String?
+  status      CatalogStatus @default(DRAFT)
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @updatedAt @db.Timestamptz
+  createdById String?  @db.Uuid
+  version     Int      @default(1)
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variants ProductVariant[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, status])
+  @@index([tenantId, title])
+}
+
+enum CatalogStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+model ProductVariant {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @db.Uuid
+  productId       String   @db.Uuid
+  sku             String
+  title           String
+  price           Decimal  @db.Decimal(12, 2)
+  currency        String   @default("MXN")
+  stock           Decimal? @db.Decimal(18, 3) // null = EXTERNAL
+  satProductCode  String   // c_ClaveProdServ
+  satUnitCode     String   // c_ClaveUnidad
+  status          CatalogStatus @default(DRAFT)
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+  version         Int      @default(1)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, status])
+  @@index([productId])
+}
+
+// ============================================================
+// Clientes (T-CRM-01..05)
+// ============================================================
+
+model Customer {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  fullName    String
+  email       String?
+  phone       String?
+  taxId       String?  // RFC
+  notes       String?
+  status      CustomerStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @updatedAt @db.Timestamptz
+  version     Int      @default(1)
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  addresses CustomerAddress[]
+  identities CustomerIdentity[]
+  consents  CustomerConsent[]
+  quotes    Quote[]
+  orders    Order[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, fullName])
+}
+
+model CustomerAddress {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId String   @db.Uuid
+  label      String
+  line1      String
+  line2      String?
+  city       String
+  state      String
+  postalCode String
+  country    String   @default("MX")
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model CustomerIdentity {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId  String   @db.Uuid
+  channel     Channel
+  externalId  String   // ej. waId "52155..."
+  verifiedAt  DateTime?
+  createdAt   DateTime @default(now()) @db.Timestamptz
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([channel, externalId])
+  @@index([customerId])
+}
+
+enum Channel {
+  WHATSAPP_META
+  WHATSAPP_EVOLUTION
+}
+
+model CustomerConsent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId String   @db.Uuid
+  scope      ConsentScope
+  granted    Boolean
+  grantedAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, scope])
+}
+
+enum CustomerStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ConsentScope {
+  WHATSAPP
+  MARKETING
+  DATA_PROCESSING
+}
+
+// ============================================================
+// Cotizaciones (T-QTE-01..07)
+// ============================================================
+
+model Quote {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String      @db.Uuid
+  customerId    String      @db.Uuid
+  status        QuoteStatus @default(DRAFT)
+  configVersion Int
+  subtotal      Decimal     @db.Decimal(12, 2)
+  discount      Decimal     @db.Decimal(12, 2)
+  taxBase       Decimal     @db.Decimal(12, 2)
+  tax           Decimal     @db.Decimal(12, 2)
+  shipping      Decimal     @db.Decimal(12, 2)
+  total         Decimal     @db.Decimal(12, 2)
+  notes         String?
+  issuedAt      DateTime?
+  expiresAt     DateTime    @db.Timestamptz
+  acceptedAt    DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime    @default(now()) @db.Timestamptz
+  updatedAt     DateTime    @updatedAt @db.Timestamptz
+  createdById   String?     @db.Uuid
+  version       Int         @default(1)
+
+  tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer    @relation(fields: [customerId], references: [id])
+  lines    QuoteLine[]
+  shares   QuoteShareToken[]
+  order    Order?      @relation("QuoteToOrder")
+
+  @@index([tenantId, status])
+  @@index([tenantId, expiresAt])
+}
+
+enum QuoteStatus {
+  DRAFT
+  ISSUED
+  EXPIRED
+  ACCEPTED
+  CANCELLED
+}
+
+model QuoteLine {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quoteId         String  @db.Uuid
+  variantId       String  @db.Uuid
+  sku             String
+  title           String
+  quantity        Decimal @db.Decimal(18, 3)
+  unitPrice       Decimal @db.Decimal(12, 2)
+  discountPct     Decimal @db.Decimal(5, 2)
+  lineSubtotal    Decimal @db.Decimal(12, 2)
+  satProductCode  String
+  satUnitCode     String
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+}
+
+model QuoteShareToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  quoteId   String   @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([quoteId])
+}
+
+// ============================================================
+// Pedidos y checkout (T-ORD-01..06)
+// ============================================================
+
+model Order {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String      @db.Uuid
+  customerId          String      @db.Uuid
+  quoteId             String?     @unique @db.Uuid
+  source              OrderSource @default(DIRECT)
+  status              OrderStatus @default(DRAFT)
+  configVersion       Int
+  subtotal            Decimal     @db.Decimal(12, 2)
+  discount            Decimal     @db.Decimal(12, 2)
+  taxBase             Decimal     @db.Decimal(12, 2)
+  tax                 Decimal     @db.Decimal(12, 2)
+  shipping            Decimal     @db.Decimal(12, 2)
+  total               Decimal     @db.Decimal(12, 2)
+  checkoutRevision    Int         @default(0)
+  currentRevisionId   String?     @db.Uuid @unique
+  placedAt            DateTime?
+  paidAt              DateTime?
+  fulfilledAt         DateTime?
+  cancelledAt         DateTime?
+  expiresAt           DateTime?   @db.Timestamptz
+  createdById         String?     @db.Uuid
+  description         String?     // concepto libre (cobro rápido); null en pedidos de catálogo
+  idempotencyKey      String?     @unique
+  createdAt           DateTime    @default(now()) @db.Timestamptz
+  updatedAt           DateTime    @updatedAt @db.Timestamptz
+  version             Int         @default(1)
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer   Customer        @relation(fields: [customerId], references: [id])
+  quote      Quote?          @relation("QuoteToOrder", fields: [quoteId], references: [id])
+  revisions  OrderRevision[]
+  revisionsRel OrderRevision? @relation("CurrentRevision", fields: [currentRevisionId], references: [id])
+  payments   CheckoutSession[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([quoteId])
+}
+
+enum OrderSource {
+  QUOTE
+  DIRECT
+  CHAT
+  QUICK_CHARGE
+}
+
+enum OrderStatus {
+  DRAFT
+  CHECKOUT_OPEN
+  AWAITING_PAYMENT
+  PAID
+  FULFILLED
+  CANCELLED
+  EXPIRED
+  REFUNDED
+}
+
+model OrderRevision {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId        String      @db.Uuid
+  revisionNumber Int
+  status         RevisionStatus @default(OPEN)
+  total          Decimal     @db.Decimal(12, 2)
+  deliveryMode   DeliveryMode
+  addressId      String?     @db.Uuid
+  acceptedAt     DateTime?
+  expiresAt      DateTime    @db.Timestamptz
+  createdAt      DateTime    @default(now()) @db.Timestamptz
+
+  order    Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  asCurrent Order? @relation("CurrentRevision")
+  accessTokens CheckoutAccessToken[]
+  lines    OrderRevisionLine[]
+
+  @@unique([orderId, revisionNumber])
+  @@index([orderId])
+}
+
+// Líneas reservadas por una revisión de checkout (T-ORD-03/04). Persisten
+// qué variantId+quantity se descontaron de stock en reserveStock, para que
+// cancel()/expireCheckout() puedan revertir la reserva con releaseStock.
+model OrderRevisionLine {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  revisionId String  @db.Uuid
+  variantId  String  @db.Uuid
+  quantity   Decimal @db.Decimal(18, 3)
+
+  revision OrderRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([revisionId])
+}
+
+model CheckoutAccessToken {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  revisionId String   @db.Uuid
+  token      String   @unique
+  expiresAt  DateTime @db.Timestamptz
+  usedAt     DateTime?
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  revision OrderRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@index([revisionId])
+}
+
+enum RevisionStatus {
+  OPEN
+  ACCEPTED
+  CANCELLED
+  EXPIRED
+}
+
+enum DeliveryMode {
+  PICKUP
+  LOCAL_DELIVERY
+}
+
+// ============================================================
+// Pagos dummy (T-PAY-01..07)
+// ============================================================
+
+model CheckoutSession {
+  id          String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String        @db.Uuid
+  orderId     String        @db.Uuid
+  amount      Decimal       @db.Decimal(12, 2)
+  currency    String        @default("MXN")
+  status      PaymentStatus @default(PENDING)
+  livemode    Boolean       @default(false) // SIEMPRE false en V2
+  expiresAt   DateTime      @db.Timestamptz
+  createdAt   DateTime      @default(now()) @db.Timestamptz
+  updatedAt   DateTime      @updatedAt @db.Timestamptz
+  capturedAt  DateTime?
+  failedAt    DateTime?
+  version     Int           @default(1)
+
+  tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order     Order        @relation(fields: [orderId], references: [id])
+  ledger    LedgerEntry[]
+
+  @@index([tenantId, status])
+  @@index([orderId])
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+  UNKNOWN
+}
+
+model LedgerEntry {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String      @db.Uuid
+  sessionId    String      @db.Uuid
+  entryType    LedgerEntryType
+  amount       Decimal     @db.Decimal(12, 2)
+  balanceAfter Decimal     @db.Decimal(12, 2)
+  description  String
+  recordedAt   DateTime    @default(now()) @db.Timestamptz
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  session CheckoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, recordedAt])
+  @@index([sessionId])
+}
+
+enum LedgerEntryType {
+  CHARGE
+  REFUND
+  FEE
+  ADJUSTMENT
+}
+
+// ============================================================
+// Mensajería: outbox / inbox (T-FND-04)
+// ============================================================
+
+model OutboxEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  aggregateType String
+  aggregateId   String   @db.Uuid
+  eventName     String
+  schemaVersion Int      @default(1)
+  payload       Json
+  status        OutboxStatus @default(PENDING)
+  attempts      Int      @default(0)
+  leaseExpiresAt DateTime?
+  lastError     String?
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  publishedAt   DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([status, leaseExpiresAt])
+  @@index([aggregateType, aggregateId])
+}
+
+enum OutboxStatus {
+  PENDING
+  IN_FLIGHT
+  PUBLISHED
+  FAILED
+}
+
+model InboxEvent {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  consumerGroup  String
+  eventId        String   @db.Uuid // dedup key
+  eventName      String
+  payload        Json
+  receivedAt     DateTime @default(now()) @db.Timestamptz
+  processedAt    DateTime?
+  status         InboxStatus @default(PENDING)
+  lastError      String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([consumerGroup, eventId])
+  @@index([status])
+}
+
+enum InboxStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+// ============================================================
+// Almacenamiento y jobs (T-FND-06)
+// ============================================================
+
+model StorageObject {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  key         String   // tenant/<id>/<key>
+  contentType String
+  sizeBytes   Int
+  purpose     String   // "product.media" | "customer.attachment" | "audio"
+  metadata    Json?
+  uploadedBy  String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  deletedAt   DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@index([purpose])
+}
+
+model Job {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String?  @db.Uuid
+  type          String   // "catalog.import" | "billing.reconcile" | ...
+  status        JobStatus @default(PENDING)
+  progress      Int      @default(0)
+  total         Int?
+  payload       Json
+  result        Json?
+  errorMessage  String?
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  startedAt     DateTime?
+  finishedAt    DateTime?
+
+  tenant    Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([type, createdAt])
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
+// ============================================================
+// Integraciones (T-INT-01..06)
+// ============================================================
+
+model Integration {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  name          String
+  provider      String   // "shopify" | "odoo" | "hubspot" | ...
+  direction     IntegrationDirection
+  status        IntegrationStatus @default(PENDING)
+  endpoint      String?  // URL destino
+  webhookUrl    String?  // URL webhook entrante generada
+  scopesKey String[]
+  secretHash    String?  // hash del secret compartido
+  metadata      Json?
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+  lastSyncAt    DateTime?
+  version       Int      @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  events  IntegrationEvent[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+}
+
+enum IntegrationDirection {
+  INBOUND   // recibimos webhooks
+  OUTBOUND  // nosotros publicamos
+  BIDIRECTIONAL
+}
+
+enum IntegrationStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+  ERROR
+}
+
+model IntegrationEvent {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  integrationId String   @db.Uuid
+  direction     IntegrationDirection
+  eventName     String
+  externalId    String?
+  payload       Json
+  signatureValid Boolean  @default(false)
+  attempts      Int      @default(0)
+  status        IntegrationEventStatus @default(PENDING)
+  lastError     String?
+  receivedAt    DateTime @default(now()) @db.Timestamptz
+  processedAt   DateTime?
+
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([integrationId, receivedAt])
+  @@index([direction, eventName])
+}
+
+enum IntegrationEventStatus {
+  PENDING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+// ============================================================
+// WhatsApp canales (T-WHA-01..07)
+// ============================================================
+
+model WhatsAppConnection {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  provider      WhatsAppProvider
+  phoneNumber   String?
+  status        WhatsAppStatus @default(PENDING)
+  credentials   Json?    // token cifrado, appId, etc.
+  webhookUrl    String?  @unique
+  webhookSecretHash String?
+  metadata      Json?
+  connectedAt   DateTime?
+  lastError     String?
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+  version       Int      @default(1)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations WhatsAppConversation[]
+
+  @@unique([tenantId, provider])
+  @@index([tenantId, status])
+}
+
+enum WhatsAppProvider {
+  META
+  EVOLUTION
+}
+
+enum WhatsAppStatus {
+  PENDING
+  ACTIVE
+  DISABLED
+  ERROR
+}
+
+model WhatsAppConversation {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @db.Uuid
+  connectionId    String   @db.Uuid
+  customerId      String?  @db.Uuid
+  externalPhone   String   // E.164
+  status          ConversationStatus @default(OPEN)
+  handoffToHuman  Boolean  @default(false)
+  handoffUserId   String?  @db.Uuid
+  lastMessageAt   DateTime?
+  metadata        Json?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+  version         Int      @default(1)
+
+  connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  messages   WhatsAppMessage[]
+
+  @@unique([connectionId, externalPhone])
+  @@index([tenantId, status])
+  @@index([tenantId, lastMessageAt])
+}
+
+enum ConversationStatus {
+  OPEN
+  HANDED_OFF
+  CLOSED
+}
+
+model WhatsAppMessage {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @db.Uuid
+  conversationId  String   @db.Uuid
+  direction       MessageDirection
+  messageType     MessageType @default(TEXT)
+  externalId      String?  @unique // id del mensaje en WhatsApp
+  body            String
+  mediaUrl        String?
+  status          MessageStatus @default(PENDING)
+  errorMessage    String?
+  sentAt          DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  createdAt       DateTime @default(now()) @db.Timestamptz
+
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, conversationId])
+  @@index([conversationId, createdAt])
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  DOCUMENT
+  TEMPLATE
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ============================================================
+// Notificaciones (T-NTF-01..06)
+// ============================================================
+
+model Notification {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  recipientType NotificationRecipient
+  recipientId   String
+  channel       NotificationChannel
+  templateKey   String
+  payload       Json
+  status        NotificationStatus @default(PENDING)
+  attempts      Int      @default(0)
+  maxAttempts   Int      @default(5)
+  lastError     String?
+  scheduledAt   DateTime @db.Timestamptz
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  failedAt      DateTime?
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([status, scheduledAt])
+  @@index([recipientType, recipientId])
+  @@index([tenantId, createdAt])
+}
+
+enum NotificationRecipient {
+  CUSTOMER
+  USER
+}
+
+enum NotificationChannel {
+  EMAIL
+  WHATSAPP
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  CANCELLED
+}
+
+model NotificationTimeline {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  subjectType String   // "Order" | "Quote" | "Customer" | ...
+  subjectId   String   @db.Uuid
+  eventType   String   // "order.paid" | "quote.issued" | ...
+  actorId     String?  @db.Uuid
+  metadata    Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz
+
+  @@index([tenantId, subjectType, subjectId])
+  @@index([tenantId, createdAt])
+}
