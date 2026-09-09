@@ -312,6 +312,63 @@ export class PaymentService {
     }));
   }
 
+  /** Detalle de una sesión de pago: pedido, cliente, qué se vendió y su ledger. */
+  async getSession(tenantId: string, id: string) {
+    const session = await this.prisma.checkoutSession.findFirst({
+      where: { id, tenantId },
+      include: {
+        ledger: { orderBy: { recordedAt: "asc" } },
+        order: {
+          include: {
+            customer: true,
+            revisions: {
+              orderBy: { revisionNumber: "desc" },
+              take: 1,
+              include: { lines: true },
+            },
+          },
+        },
+      },
+    });
+    if (!session) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Sesión de pago no accesible" });
+    }
+
+    const revision = session.order.revisions[0] ?? null;
+    const variantIds = revision?.lines.map((l) => l.variantId) ?? [];
+    const variants = variantIds.length
+      ? await this.prisma.productVariant.findMany({
+          where: { id: { in: variantIds }, tenantId },
+          select: { id: true, sku: true, title: true, price: true, product: { select: { title: true } } },
+        })
+      : [];
+    const byVariant = new Map(variants.map((v) => [v.id, v]));
+
+    const refunded = session.ledger
+      .filter((e) => e.entryType === "REFUND")
+      .reduce((sum, e) => sum + Number(e.amount), 0);
+
+    return {
+      ...session,
+      refundedTotal: refunded.toFixed(2),
+      netTotal: (Number(session.amount) - refunded).toFixed(2),
+      lines: (revision?.lines ?? []).map((l) => {
+        const variant = byVariant.get(l.variantId);
+        const unitPrice = variant?.price ?? null;
+        return {
+          variantId: l.variantId,
+          quantity: l.quantity.toString(),
+          sku: variant?.sku ?? null,
+          title: variant?.title ?? null,
+          productTitle: variant?.product.title ?? null,
+          unitPrice: unitPrice?.toString() ?? null,
+          lineTotal:
+            unitPrice != null ? (Number(unitPrice) * Number(l.quantity)).toFixed(2) : null,
+        };
+      }),
+    };
+  }
+
   async getLedger(tenantId: string, sessionId?: string) {
     return this.prisma.ledgerEntry.findMany({
       where: { tenantId, ...(sessionId ? { sessionId } : {}) },

@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Param,
   Post,
   Query,
   Req,
@@ -26,6 +27,16 @@ export class PaymentController {
     const tenantId = RequestContext.tenantId!;
     return {
       data: await this.payments.listSessions(tenantId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Get("sessions/:id")
+  @RequireScopes("payments.read")
+  async getSession(@Param("id") id: string) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.payments.getSession(tenantId, id),
       requestId: RequestContext.requestId,
     };
   }

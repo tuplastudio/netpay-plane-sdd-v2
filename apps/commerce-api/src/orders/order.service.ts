@@ -61,12 +61,43 @@ export class OrderService {
       where: { id, tenantId },
       include: {
         customer: true,
-        revisions: { orderBy: { revisionNumber: "desc" } },
-        payments: true,
+        revisions: { orderBy: { revisionNumber: "desc" }, include: { lines: true } },
+        payments: { orderBy: { createdAt: "desc" }, include: { ledger: { orderBy: { recordedAt: "desc" } } } },
+        quote: { select: { id: true, status: true, issuedAt: true, acceptedAt: true } },
       },
     });
     if (!o) throw new NotFoundException({ code: "NOT_FOUND", message: "Pedido no accesible" });
-    return o;
+
+    // Las líneas viven en la revisión y solo guardan variantId+cantidad: sin
+    // resolver la variante, el detalle de la venta no dice qué se vendió.
+    const variantIds = [...new Set(o.revisions.flatMap((r) => r.lines.map((l) => l.variantId)))];
+    const variants = variantIds.length
+      ? await this.prisma.productVariant.findMany({
+          where: { id: { in: variantIds }, tenantId },
+          select: { id: true, sku: true, title: true, price: true, product: { select: { title: true } } },
+        })
+      : [];
+    const byVariant = new Map(variants.map((v) => [v.id, v]));
+
+    const revisions = o.revisions.map((r) => ({
+      ...r,
+      lines: r.lines.map((l) => {
+        const variant = byVariant.get(l.variantId);
+        const unitPrice = variant?.price ?? null;
+        return {
+          ...l,
+          sku: variant?.sku ?? null,
+          title: variant?.title ?? null,
+          productTitle: variant?.product.title ?? null,
+          unitPrice: unitPrice?.toString() ?? null,
+          lineTotal:
+            unitPrice != null ? (Number(unitPrice) * Number(l.quantity)).toFixed(2) : null,
+        };
+      }),
+    }));
+
+    const current = revisions.find((r) => r.id === o.currentRevisionId) ?? revisions[0] ?? null;
+    return { ...o, revisions, lines: current?.lines ?? [] };
   }
 
   async createDirect(
