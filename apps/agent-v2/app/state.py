@@ -42,10 +42,26 @@ def _merge_customer(
     return merged
 
 
-def _replace_cart(left: list[CartLine] | None, right: list[CartLine] | None) -> list[CartLine]:
-    """El carrito se reemplaza completo: las herramientas siempre devuelven el
-    carrito resultante, no un delta."""
-    return right if right is not None else (left or [])
+def _merge_cart(left: list[CartLine] | None, right: list[CartLine] | None) -> list[CartLine]:
+    """Une líneas por `variantId`; cantidad "0" borra la línea.
+
+    NO puede ser un reemplazo. LangGraph ejecuta todas las tool calls de un
+    mismo mensaje del modelo contra el MISMO snapshot del estado y recién
+    después funde los `Command`: con reemplazo, dos `agregar_al_carrito` en un
+    turno ("2 de mango y 3 gorras") calculaban ambos sobre el carrito vacío y
+    el segundo pisaba al primero. El agente decía haber agregado los dos y
+    cobraba uno. Por eso las herramientas mandan solo su línea (un delta) y la
+    unión pasa aquí, donde sí se ven todas.
+    """
+    if right is None:
+        return left or []
+    merged: dict[str, CartLine] = {line["variantId"]: line for line in (left or [])}
+    for line in right:
+        if str(line.get("quantity", "")).strip() in {"0", "0.000", ""}:
+            merged.pop(line["variantId"], None)
+        else:
+            merged[line["variantId"]] = line
+    return list(merged.values())
 
 
 def _last(left: Any, right: Any) -> Any:
@@ -56,7 +72,7 @@ class SalesState(DeepAgentState):
     """DeepAgentState (messages + todos + filesystem) más la memoria comercial."""
 
     customer: Annotated[CustomerFacts, _merge_customer]
-    cart: Annotated[list[CartLine], _replace_cart]
+    cart: Annotated[list[CartLine], _merge_cart]
     quote_id: Annotated[str | None, _last]
     quote_link: Annotated[str | None, _last]
     quote_signature: Annotated[str | None, _last]

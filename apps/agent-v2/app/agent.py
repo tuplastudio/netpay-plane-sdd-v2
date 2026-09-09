@@ -26,7 +26,8 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from .commerce import CommerceClient, CommerceError, CommerceUnavailable
 from .config import Settings, get_settings
-from .knowledge import load_knowledge
+from .agent_settings import get_agent_settings
+from .knowledge import load_knowledge, load_profile
 from .prompts import turn_prompt
 from .state import SalesState, TurnContext, working_memory_block
 from .tools import SALES_TOOLS
@@ -44,6 +45,12 @@ def build_model(settings: Settings, *, model: str | None = None) -> ChatOpenAI:
             "HTTP-Referer": settings.public_base_url,
             "X-Title": "NetPay Plane Agent v2",
         },
+        # Sin esto el modelo pide varias tools a la vez y todas leen el mismo
+        # snapshot del estado: dos `agregar_al_carrito` en un turno devolvían
+        # cada uno el carrito calculado sobre el carrito vacío, y el segundo
+        # Command pisaba al primero. Se perdía una línea y el total no cuadraba
+        # con lo que el agente le acababa de decir al cliente.
+        parallel_tool_calls=False,
     )
 
 
@@ -112,6 +119,8 @@ async def sales_prompt(request) -> SystemMessage:  # type: ignore[no-untyped-def
             working_memory=working_memory_block(state),
             catalog=catalog,
             knowledge=load_knowledge(),
+            profile=load_profile(),
+            overrides=get_agent_settings(tenant_id) if tenant_id else None,
         )
     )
 

@@ -17,22 +17,9 @@ from langgraph.types import Command
 from langchain_core.messages import ToolMessage
 
 from .commerce import CommerceClient, CommerceError, CommerceUnavailable
+from .config import get_settings
+from .security import clamp_text, require_scope, sanitize_error_message
 from .state import CartLine, CustomerFacts, TurnContext
-
-_TOOL_SCOPES: dict[str, str] = {
-    "buscar_productos": "catalog.read",
-    "agregar_al_carrito": "catalog.read",
-    "quitar_del_carrito": "catalog.read",
-    "calcular_total": "quotes.read",
-    "emitir_cotizacion": "quotes.write",
-    "convertir_en_pedido": "orders.write",
-    "generar_enlace_pago": "orders.write",
-    "estado_del_pedido": "orders.read",
-    "recordar_cliente": "chat.write",
-    "historial_del_cliente": "customers.read",
-    "detalle_de_cotizacion": "quotes.read",
-    "escalar_a_humano": "chat.write",
-}
 
 
 def format_quantity(value: Any) -> str:
@@ -43,6 +30,9 @@ def format_quantity(value: Any) -> str:
         raise ValueError(f"Cantidad inválida: {value!r}") from exc
     if quantity <= 0:
         raise ValueError("La cantidad debe ser mayor que cero")
+    max_quantity = get_settings().max_quantity
+    if quantity > max_quantity:
+        raise ValueError(f"La cantidad máxima por línea es {max_quantity}")
     return str(quantity.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
 
 
@@ -51,13 +41,11 @@ def _ctx(runtime: ToolRuntime) -> TurnContext:
 
 
 def _require_scope(runtime: ToolRuntime, tool_name: str):
-    needed = _TOOL_SCOPES.get(tool_name)
-    if not needed:
-        return None
-    scopes = set(_ctx(runtime).get("scopes") or [])
-    if needed in scopes:
-        return None
-    return f"Sin permiso: esta operación requiere el scope {needed}."
+    """El tenant y los scopes SIEMPRE vienen de `runtime.context` (armado en
+    main.py desde la request HTTP autenticada), nunca de un argumento de la
+    tool ni de algo que el modelo decida: así el cliente no puede alterarlos
+    metiéndolos en el texto del chat."""
+    return require_scope(_ctx(runtime).get("scopes"), tool_name)
 
 
 def _client() -> CommerceClient:
@@ -70,15 +58,17 @@ def _fail(message: str) -> str:
 
 async def _safe(coro):
     """Los errores del backend vuelven como texto para que el modelo reaccione,
-    en vez de tumbar el turno."""
+    en vez de tumbar el turno. Se sanean antes de exponerse: un error de
+    conexión o de negocio no debe filtrar URLs internas, ids ajenos ni
+    credenciales (ver security.sanitize_error_message)."""
     try:
         return await coro, None
-    except CommerceUnavailable as exc:
-        return None, f"la API comercial no está disponible ({exc})"
+    except CommerceUnavailable:
+        return None, "la API comercial no está disponible en este momento"
     except CommerceError as exc:
-        return None, f"{exc.code}: {exc.message}"
+        return None, sanitize_error_message(f"{exc.code}: {exc.message}")
     except (ValueError, KeyError, TypeError) as exc:
-        return None, str(exc)
+        return None, sanitize_error_message(str(exc))
 
 
 # ---------------------------------------------------------------- catálogo
@@ -94,11 +84,15 @@ async def buscar_productos(consulta: str, runtime: ToolRuntime) -> str:
     """
     if denied := _require_scope(runtime, "buscar_productos"):
         return _fail(denied)
+    # `consulta` es texto libre del cliente: se acota y se limpia antes de
+    # usarlo, aunque aquí solo se compare en memoria (nunca se manda tal
+    # cual al backend ni al modelo).
+    consulta = clamp_text(consulta, get_settings().max_tool_arg_chars, collapse_newlines=True)
     variants, error = await _safe(_client().search_products(None, limit=100))
     if error:
         return _fail(error)
 
-    needle = (consulta or "").lower().strip()
+    needle = consulta.lower()
     words = [w for w in needle.split() if len(w) > 2]
 
     def score(v: dict[str, Any]) -> float:
@@ -112,8 +106,15 @@ async def buscar_productos(consulta: str, runtime: ToolRuntime) -> str:
     if not hits:
         return "Sin resultados en el catálogo para esa búsqueda."
 
+    # El título/SKU vienen del catálogo del negocio, no del cliente, pero
+    # igual pueden traer texto que intente pasar por instrucción (producto
+    # cargado con un título hostil): se limpia de Unicode invisible y de
+    # saltos de línea antes de que el modelo lo lea como parte del turno.
+    def clean(field: str) -> str:
+        return clamp_text(field, 200, collapse_newlines=True)
+
     lines = [
-        f"{v['variantId']} | {v['sku']} | {v['productTitle']} — {v['title']} | "
+        f"{v['variantId']} | {clean(v['sku'])} | {clean(v['productTitle'])} — {clean(v['title'])} | "
         f"${v['price']} | existencia: "
         + ("sin control" if v["stock"] is None else str(int(v["stock"])))
         for v in hits
@@ -154,31 +155,50 @@ async def agregar_al_carrito(
         )
 
     cart: list[CartLine] = list(runtime.state.get("cart") or [])
+    is_new_line = not any(c["variantId"] == variantId for c in cart)
+    max_lines = get_settings().max_cart_lines
+    if is_new_line and len(cart) >= max_lines:
+        return _tool_reply(
+            runtime,
+            _fail(
+                f"El carrito ya tiene el máximo de {max_lines} productos distintos; "
+                "cotiza esto primero o quita alguno antes de agregar otro."
+            ),
+        )
+
     line: CartLine = {
         "variantId": variantId,
-        "sku": variant["sku"],
-        "title": variant["title"],
+        "sku": clamp_text(variant["sku"], 200, collapse_newlines=True),
+        "title": clamp_text(variant["title"], 200, collapse_newlines=True),
         "quantity": quantity,
         "unitPrice": variant["price"],
     }
-    cart = [c for c in cart if c["variantId"] != variantId] + [line]
-    detail = "; ".join(f"{c['quantity']} x {c['title']}" for c in cart)
+    # Solo la línea propia, no el carrito entero: las tool calls de un mismo
+    # mensaje del modelo se ejecutan todas contra el mismo snapshot, así que
+    # devolver el carrito completo borra lo que agregaron las otras. El
+    # reducer `_merge_cart` en state.py hace la unión.
     return _tool_reply(
         runtime,
-        f"Carrito actualizado: {detail}",
-        update={"cart": cart, "stage": "ARMANDO_CARRITO"},
+        f"Agregado al carrito: {quantity} x {line['title']} (${variant['price']} c/u)",
+        update={"cart": [line], "stage": "ARMANDO_CARRITO"},
     )
 
 
 @tool
 async def quitar_del_carrito(variantId: str, runtime: ToolRuntime) -> Command:
     """Quita una línea del carrito por variantId."""
+    if denied := _require_scope(runtime, "quitar_del_carrito"):
+        return _tool_reply(runtime, _fail(denied))
     cart: list[CartLine] = list(runtime.state.get("cart") or [])
-    remaining = [c for c in cart if c["variantId"] != variantId]
-    if len(remaining) == len(cart):
+    target = next((c for c in cart if c["variantId"] == variantId), None)
+    if target is None:
         return _tool_reply(runtime, "Esa variante no estaba en el carrito.")
-    detail = "; ".join(f"{c['quantity']} x {c['title']}" for c in remaining) or "vacío"
-    return _tool_reply(runtime, f"Listo. Carrito: {detail}", update={"cart": remaining})
+    # Cantidad "0" es la lápida que `_merge_cart` interpreta como borrado.
+    return _tool_reply(
+        runtime,
+        f"Quitado del carrito: {target['title']}",
+        update={"cart": [{**target, "quantity": "0"}]},
+    )
 
 
 # ---------------------------------------------------------------- precios
@@ -233,6 +253,7 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "") -> Command:
     """
     if denied := _require_scope(runtime, "emitir_cotizacion"):
         return _tool_reply(runtime, _fail(denied))
+    notas = clamp_text(notas, get_settings().max_tool_arg_chars)
     cart: list[CartLine] = list(runtime.state.get("cart") or [])
     if not cart:
         return _tool_reply(runtime, _fail("No hay carrito que cotizar."))
@@ -294,11 +315,12 @@ async def detalle_de_cotizacion(quoteId: str, runtime: ToolRuntime) -> str:
     """Líneas, estado, total y vigencia de una cotización por folio."""
     if denied := _require_scope(runtime, "detalle_de_cotizacion"):
         return _fail(denied)
-    quote, error = await _safe(_client().get_quote(quoteId))
+    quote, error = await _safe(_client().get_quote(clamp_text(quoteId, 100, collapse_newlines=True)))
     if error:
         return _fail(error)
     lines = "; ".join(
-        f"{l.get('quantity')} x {l.get('title')} (${l.get('unitPrice')})"
+        f"{l.get('quantity')} x {clamp_text(l.get('title') or '', 200, collapse_newlines=True)} "
+        f"(${l.get('unitPrice')})"
         for l in (quote or {}).get("lines", [])
     )
     return (
@@ -368,7 +390,7 @@ async def estado_del_pedido(runtime: ToolRuntime, orderId: str = "") -> str:
     """
     if denied := _require_scope(runtime, "estado_del_pedido"):
         return _fail(denied)
-    target = orderId or runtime.state.get("order_id")
+    target = clamp_text(orderId, 100, collapse_newlines=True) or runtime.state.get("order_id")
     if not target:
         return _fail("No tengo número de pedido; pídeselo al cliente.")
     order, error = await _safe(_client().get_order(target))
@@ -394,13 +416,22 @@ async def recordar_cliente(
 
     Llámala en cuanto aparezca el dato. A partir de ahí no lo vuelvas a pedir.
     """
+    if denied := _require_scope(runtime, "recordar_cliente"):
+        return _tool_reply(runtime, _fail(denied))
+    # Estos campos se reinyectan en el prompt de CADA turno futuro (memoria
+    # de la conversación): sin collapse_newlines, un "nombre" con saltos de
+    # línea podría simular un mensaje de sistema o un turno falso en todas
+    # las respuestas siguientes, no solo en esta.
+    nombre = clamp_text(nombre, 120, collapse_newlines=True)
+    correo = clamp_text(correo, 120, collapse_newlines=True)
+    telefono = clamp_text(telefono, 40, collapse_newlines=True)
     facts: CustomerFacts = {}
-    if nombre.strip():
-        facts["name"] = nombre.strip()[:120]
-    if correo.strip() and "@" in correo:
-        facts["email"] = correo.strip()[:120]
-    if telefono.strip():
-        facts["phone"] = telefono.strip()[:40]
+    if nombre:
+        facts["name"] = nombre
+    if correo and "@" in correo:
+        facts["email"] = correo
+    if telefono:
+        facts["phone"] = telefono
     if not facts:
         return _tool_reply(runtime, _fail("No recibí ningún dato válido que guardar."))
     return _tool_reply(
@@ -445,7 +476,9 @@ async def historial_del_cliente(runtime: ToolRuntime) -> str:
     if not quotes and not orders:
         return f"{found.get('fullName')} no tiene cotizaciones ni pedidos previos."
 
-    parts = [f"Cliente: {found.get('fullName')} ({found.get('email') or 'sin correo'})"]
+    full_name = clamp_text(found.get("fullName") or "", 120, collapse_newlines=True)
+    email = clamp_text(found.get("email") or "", 120, collapse_newlines=True)
+    parts = [f"Cliente: {full_name} ({email or 'sin correo'})"]
     for q in quotes:
         parts.append(f"  cotización {str(q['id'])[:8]} — ${q['total']} — {q['status']} — {q['createdAt']}")
     for o in orders:
@@ -460,6 +493,9 @@ async def escalar_a_humano(motivo: str, resumen: str, runtime: ToolRuntime) -> C
     Motivos: CLIENTE_LO_PIDE, FUERA_DE_CONOCIMIENTO, QUEJA, PRECIO_ESPECIAL,
     CREDITO, ERROR_TECNICO.
     """
+    if denied := _require_scope(runtime, "escalar_a_humano"):
+        return _tool_reply(runtime, _fail(denied))
+    motivo = clamp_text(motivo, 80, collapse_newlines=True)
     return _tool_reply(
         runtime,
         "Conversación marcada para que la tome una persona del equipo.",

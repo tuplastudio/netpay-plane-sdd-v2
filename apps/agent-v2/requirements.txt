@@ -7,3 +7,4 @@ deepagents==0.7.13
 langgraph==1.2.11
 langgraph-checkpoint-sqlite==3.1.1
 langchain-openai==1.6.1
+aiosqlite==0.22.1

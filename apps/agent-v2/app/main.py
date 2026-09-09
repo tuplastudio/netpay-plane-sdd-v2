@@ -10,19 +10,25 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hmac
+import json
 import logging
+import time
 from typing import Any
 
+import aiosqlite
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, Field, conlist
 
 from .agent import build_agent
 from .commerce import CommerceClient
 from .config import get_settings
-from .knowledge import load_knowledge, reload_knowledge
+from .knowledge import load_knowledge, load_profile, reload_knowledge
+from .agent_settings import DELIVERY_MODES, SALES_STYLES, get_settings_store
+from .security import image_size_error
 from .state import TurnContext, cart_summary
 from .text import format_for_whatsapp
 from .tools import SALES_TOOLS
@@ -31,6 +37,16 @@ settings = get_settings()
 log = logging.getLogger("agent-v2")
 
 _PUBLIC_PATHS = {"/healthz"}
+
+# Mensaje que sí llega al cliente cuando el grafo falla o se cuelga: del otro
+# lado hay una persona esperando por WhatsApp, no un desarrollador viendo
+# logs. commerce-api (agent-bridge.service.ts) descarta la respuesta si el
+# HTTP status no es 2xx, así que un 502/504 aquí equivale a dejar al cliente
+# sin ninguna respuesta.
+_FALLBACK_REPLY = (
+    "Ahorita no puedo consultar el sistema para seguir ayudándote. "
+    "Ya le avisé a una persona de nuestro equipo para que te atienda enseguida."
+)
 
 
 async def require_internal_key(
@@ -45,20 +61,102 @@ async def require_internal_key(
         raise HTTPException(status_code=401, detail="X-Internal-Key inválida o ausente")
 
 
-app = FastAPI(
-    title="NetPay Plane Agent v2",
-    version="2.0.0",
-    description="Agente comercial sobre LangGraph con memoria persistente por conversación.",
-    dependencies=[Depends(require_internal_key)],
-)
+class _ThreadLocks:
+    """Un lock por `thread_id`, no uno global.
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[settings.public_base_url, "http://localhost:3000", "http://localhost:3001"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
-    allow_headers=["Content-Type", "X-Internal-Key"],
-)
+    Dos mensajes casi simultáneos del mismo cliente (doble tap, reintento de
+    Evolution API que se cruza con el mensaje real) invocan el grafo sobre el
+    mismo hilo: sin serializar por hilo se puede leer el carrito antes de que
+    el otro turno lo actualice. Un lock global serializaría a TODOS los
+    clientes del servicio, así que se indexa por thread_id.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._guard = asyncio.Lock()
+
+    async def acquire(self, thread_id: str) -> asyncio.Lock:
+        async with self._guard:
+            lock = self._locks.setdefault(thread_id, asyncio.Lock())
+            # Purga oportunista: nada obliga a que un thread_id viejo se
+            # vuelva a usar, y sin esto el dict crece sin límite en un
+            # proceso de larga vida.
+            if len(self._locks) > 5000:
+                for key, existing in list(self._locks.items()):
+                    if not existing.locked():
+                        del self._locks[key]
+            return lock
+
+
+class _IdempotencyStore:
+    """Persiste `messageId -> respuesta ya calculada` por hilo.
+
+    Evolution API reintenta webhooks de WhatsApp: el mismo mensaje puede
+    llegar dos veces con el mismo `messageId`. Sin esto el agente vuelve a
+    cotizar o a generar un link de pago nuevo en el reintento. Vive en su
+    propio archivo sqlite (no en el de `AsyncSqliteSaver`) para no competir
+    por la única conexión que el checkpointer mantiene abierta todo el
+    proceso.
+    """
+
+    def __init__(self, path: Any) -> None:
+        self._path = path
+        self._conn: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
+
+    async def start(self) -> None:
+        self._conn = await aiosqlite.connect(str(self._path))
+        await self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS processed_messages ("
+            "thread_id TEXT NOT NULL, message_id TEXT NOT NULL, "
+            "response TEXT NOT NULL, created_at REAL NOT NULL, "
+            "PRIMARY KEY (thread_id, message_id))"
+        )
+        await self._conn.commit()
+
+    async def stop(self) -> None:
+        if self._conn is not None:
+            await self._conn.close()
+            self._conn = None
+
+    async def get(self, thread_id: str, message_id: str | None) -> dict[str, Any] | None:
+        if not message_id or self._conn is None:
+            return None
+        async with self._lock:
+            cursor = await self._conn.execute(
+                "SELECT response FROM processed_messages WHERE thread_id = ? AND message_id = ?",
+                (thread_id, message_id),
+            )
+            row = await cursor.fetchone()
+        return json.loads(row[0]) if row else None
+
+    async def put(self, thread_id: str, message_id: str | None, response: dict[str, Any]) -> None:
+        if not message_id or self._conn is None:
+            return
+        async with self._lock:
+            await self._conn.execute(
+                "INSERT OR REPLACE INTO processed_messages "
+                "(thread_id, message_id, response, created_at) VALUES (?, ?, ?, ?)",
+                (thread_id, message_id, json.dumps(response), time.time()),
+            )
+            # Límite explícito por hilo: no hace falta recordar más que los
+            # últimos reintentos razonables de un mismo mensaje.
+            await self._conn.execute(
+                "DELETE FROM processed_messages WHERE thread_id = ? AND message_id NOT IN ("
+                "SELECT message_id FROM processed_messages WHERE thread_id = ? "
+                "ORDER BY created_at DESC LIMIT 50)",
+                (thread_id, thread_id),
+            )
+            await self._conn.commit()
+
+    async def delete_thread(self, thread_id: str) -> None:
+        if self._conn is None:
+            return
+        async with self._lock:
+            await self._conn.execute(
+                "DELETE FROM processed_messages WHERE thread_id = ?", (thread_id,)
+            )
+            await self._conn.commit()
 
 
 class _Runtime:
@@ -68,32 +166,58 @@ class _Runtime:
     def __init__(self) -> None:
         self._stack: contextlib.AsyncExitStack | None = None
         self.agent: Any = None
-        self.lock = asyncio.Lock()
+        self.checkpointer: AsyncSqliteSaver | None = None
+        self.thread_locks = _ThreadLocks()
+        self.idempotency = _IdempotencyStore(settings.data_dir / "idempotency.sqlite")
 
     async def start(self) -> None:
         self._stack = contextlib.AsyncExitStack()
-        checkpointer = await self._stack.enter_async_context(
+        self.checkpointer = await self._stack.enter_async_context(
             AsyncSqliteSaver.from_conn_string(str(settings.checkpoint_path))
         )
-        self.agent = build_agent(checkpointer, settings)
+        self.agent = build_agent(self.checkpointer, settings)
+        await self.idempotency.start()
 
     async def stop(self) -> None:
+        await self.idempotency.stop()
         if self._stack is not None:
             await self._stack.aclose()
             self._stack = None
+        self.agent = None
+        self.checkpointer = None
 
 
 runtime = _Runtime()
 
 
-@app.on_event("startup")
-async def _startup() -> None:
+@contextlib.asynccontextmanager
+async def _lifespan(_: FastAPI):
+    # Si `start()` falla (p. ej. no se puede abrir el sqlite del checkpoint),
+    # se deja que la excepción suba: uvicorn debe morir en vez de quedar
+    # "arriba" con `runtime.agent is None" respondiendo 503 a todo para
+    # siempre sin que nadie lo note.
     await runtime.start()
+    try:
+        yield
+    finally:
+        await runtime.stop()
 
 
-@app.on_event("shutdown")
-async def _shutdown() -> None:
-    await runtime.stop()
+app = FastAPI(
+    title="NetPay Plane Agent v2",
+    version="2.0.0",
+    description="Agente comercial sobre LangGraph con memoria persistente por conversación.",
+    dependencies=[Depends(require_internal_key)],
+    lifespan=_lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.public_base_url, "http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "X-Internal-Key"],
+)
 
 
 # ---------------- modelos de entrada/salida ----------------
@@ -138,6 +262,11 @@ class ChatResponse(BaseModel):
 
 @app.get("/healthz")
 async def healthz() -> dict[str, Any]:
+    # Probe de liveness: si el arranque falló o ya se hizo shutdown, el
+    # servicio debe reportarse mal para que el orquestador lo reinicie, no
+    # quedarse "ok" respondiendo 503 a todo lo demás indefinidamente.
+    if runtime.agent is None:
+        raise HTTPException(status_code=503, detail="El agente todavía no está listo")
     return {"status": "ok", "version": "2.0.0"}
 
 
@@ -182,7 +311,134 @@ async def knowledge_reload() -> dict[str, Any]:
     return {"chars": len(reload_knowledge())}
 
 
+# ---------------- configuración por tenant ----------------
+
+
+class AgentSettingsPayload(BaseModel):
+    agent_name: str | None = None
+    business_name: str | None = None
+    tone: str | None = None
+    greeting: str | None = None
+    language: str | None = None
+    currency: str | None = None
+    emoji: bool | None = None
+    sales_style: str | None = None
+    ask_name_before_quote: bool | None = None
+    ask_email_before_quote: bool | None = None
+    auto_history_lookup: bool | None = None
+    max_products_per_message: int | None = None
+    default_delivery_mode: str | None = None
+    handoff_keywords: list[str] | str | None = None
+    forbidden_topics: str | None = None
+    extra_rules: str | None = None
+    text_model: str | None = None
+    classifier_model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    whatsapp_plain_text: bool | None = None
+    auto_reply: bool | None = None
+
+
+def _settings_view(tenant_id: str) -> dict[str, Any]:
+    profile = load_profile()
+    current = get_settings_store().get(tenant_id)
+    return {
+        "tenantId": tenant_id,
+        "settings": current.to_dict(),
+        "defaults": {
+            "agent_name": profile.agent_name,
+            "business_name": profile.name,
+            "tone": profile.tone,
+            "greeting": profile.greeting,
+            "language": profile.language,
+            "currency": profile.currency,
+            "emoji": profile.emoji,
+            "text_model": settings.model,
+            "classifier_model": settings.model,
+            "temperature": settings.temperature,
+            "max_tokens": settings.max_tokens,
+        },
+        "options": {
+            "sales_style": list(SALES_STYLES),
+            "default_delivery_mode": list(DELIVERY_MODES),
+            "models": [{"id": settings.model, "toolCalling": True, "notes": ""}],
+        },
+    }
+
+
+@app.get("/settings")
+async def get_settings_endpoint(tenantId: str = Query(...)) -> dict[str, Any]:
+    return _settings_view(tenantId)
+
+
+@app.put("/settings")
+async def put_settings(req: AgentSettingsPayload, tenantId: str = Query(...)) -> dict[str, Any]:
+    get_settings_store().update(tenantId, {k: v for k, v in req.model_dump().items() if v is not None})
+    return _settings_view(tenantId)
+
+
+@app.delete("/settings")
+async def reset_settings(tenantId: str = Query(...)) -> dict[str, Any]:
+    get_settings_store().reset(tenantId)
+    return _settings_view(tenantId)
+
+
+@app.get("/tools")
+async def list_tools() -> dict[str, Any]:
+    """El panel lista qué puede ejecutar el agente y con qué permiso."""
+    from .security import TOOL_SCOPES
+
+    return {
+        "tools": [
+            {
+                "name": t.name,
+                "description": (t.description or "").strip().split("\n")[0],
+                "scope": TOOL_SCOPES.get(t.name, ""),
+                "mutating": TOOL_SCOPES.get(t.name) in {"quotes.write", "orders.write", "chat.write"},
+            }
+            for t in SALES_TOOLS
+        ]
+    }
+
+
 # ---------------- conversación ----------------
+
+
+def _response_from_values(
+    conversation_id: str,
+    values: dict[str, Any],
+    *,
+    reply: str,
+    handoff: bool,
+    intent: str | None,
+    engine: str,
+    latency_ms: int,
+    tool_calls: list[dict[str, Any]] | None = None,
+) -> ChatResponse:
+    """Arma el `ChatResponse` a partir del estado persistido del hilo.
+
+    Se comparte entre el turno normal, la rama de handoff activo y la
+    degradación por error: las tres devuelven la misma forma de contrato.
+    """
+    return ChatResponse(
+        conversationId=conversation_id,
+        reply=reply,
+        handoff=handoff,
+        intent=intent,
+        stage=values.get("stage"),
+        cart=list(values.get("cart") or []),
+        totals=values.get("last_totals"),
+        quote={"quoteId": values["quote_id"], "linkRef": values.get("quote_link")}
+        if values.get("quote_id")
+        else None,
+        checkout={"linkRef": values["checkout_link"]} if values.get("checkout_link") else None,
+        customer=dict(values.get("customer") or {}),
+        todos=list(values.get("todos") or []),
+        toolCalls=tool_calls or [],
+        suggestions=_suggestions(values) if not handoff else [],
+        engine=engine,
+        latencyMs=latency_ms,
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -192,13 +448,16 @@ async def chat(req: ChatRequest) -> ChatResponse:
         text = "[el cliente envió una imagen]"
     if not text:
         raise HTTPException(status_code=400, detail="Se requiere text")
+    if image_error := image_size_error(req.imageBase64):
+        raise HTTPException(status_code=413, detail=image_error)
     if runtime.agent is None:
         raise HTTPException(status_code=503, detail="El agente todavía no está listo")
 
     conversation_id = req.conversationId or f"{req.tenantId}:{req.customerPhone or 'anon'}"
     # thread_id = conversación: aquí es donde LangGraph recupera el hilo previo.
+    thread_id = f"{req.tenantId}:{conversation_id}"
     config = {
-        "configurable": {"thread_id": f"{req.tenantId}:{conversation_id}"},
+        "configurable": {"thread_id": thread_id},
         "recursion_limit": settings.recursion_limit,
     }
     context: TurnContext = {
@@ -218,57 +477,111 @@ async def chat(req: ChatRequest) -> ChatResponse:
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{req.imageBase64}"}},
         ]
 
-    started = asyncio.get_running_loop().time()
-    try:
-        result = await asyncio.wait_for(
-            runtime.agent.ainvoke(
-                {"messages": [HumanMessage(content=content)]},
-                config=config,
-                context=context,
-            ),
-            timeout=settings.turn_timeout_seconds,
+    # Todo lo que sigue toca el mismo hilo: se serializa por conversación
+    # (no globalmente) para que dos mensajes casi simultáneos del mismo
+    # cliente no lean/escriban el carrito en desorden.
+    lock = await runtime.thread_locks.acquire(thread_id)
+    async with lock:
+        cached = await runtime.idempotency.get(thread_id, req.messageId)
+        if cached is not None:
+            log.info("messageId repetido, devolviendo respuesta previa: %s", req.messageId)
+            return ChatResponse(**cached)
+
+        snapshot = await runtime.agent.aget_state(config)
+        state_values: dict[str, Any] = dict(snapshot.values or {})
+
+        if state_values.get("handoff"):
+            # Una persona ya tomó la conversación (T-AIA-06 en v1): el bot no
+            # vuelve a publicar. Se registra el mensaje del cliente para que
+            # quien la atienda vea el hilo completo, pero no se invoca al modelo.
+            with contextlib.suppress(Exception):
+                await runtime.agent.aupdate_state(config, {"messages": [HumanMessage(content=content)]})
+            response = _response_from_values(
+                conversation_id,
+                state_values,
+                reply="",
+                handoff=True,
+                intent="HUMAN_ACTIVE",
+                engine="handoff",
+                latency_ms=0,
+            )
+            await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
+            return response
+
+        started = asyncio.get_running_loop().time()
+        try:
+            result = await asyncio.wait_for(
+                runtime.agent.ainvoke(
+                    {"messages": [HumanMessage(content=content)]},
+                    config=config,
+                    context=context,
+                ),
+                timeout=settings.turn_timeout_seconds,
+            )
+        except Exception as exc:  # noqa: BLE001 - el canal necesita una respuesta, no un stacktrace
+            if isinstance(exc, asyncio.TimeoutError):
+                reason = "TIMEOUT"
+            elif isinstance(exc, GraphRecursionError):
+                reason = "RECURSION_LIMIT"
+            else:
+                reason = "ERROR_TECNICO"
+            log.exception("fallo del turno (%s), degradando a handoff", reason)
+
+            # Se marca handoff en el hilo para que los próximos mensajes de
+            # este cliente (aunque no repitan el messageId) tampoco vuelvan a
+            # pegarle a un grafo que ya se demostró que falla, hasta que una
+            # persona lo libere con POST /conversations/{id}/release.
+            with contextlib.suppress(Exception):
+                await runtime.agent.aupdate_state(
+                    config,
+                    {"handoff": True, "handoff_reason": reason, "stage": "HUMANO"},
+                )
+                # Se relee para que la respuesta refleje el handoff recién
+                # persistido (p. ej. `stage`) en vez del snapshot de antes
+                # del fallo, que en un hilo nuevo puede venir vacío.
+                state_values = dict((await runtime.agent.aget_state(config)).values or state_values)
+            latency_ms = int((asyncio.get_running_loop().time() - started) * 1000)
+            response = _response_from_values(
+                conversation_id,
+                state_values,
+                reply=format_for_whatsapp(_FALLBACK_REPLY) if req.channel == "whatsapp" else _FALLBACK_REPLY,
+                handoff=True,
+                intent=reason,
+                engine="error-fallback",
+                latency_ms=latency_ms,
+            )
+            await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
+            return response
+
+        latency_ms = int((asyncio.get_running_loop().time() - started) * 1000)
+        messages = result.get("messages", [])
+        reply = ""
+        for message in reversed(messages):
+            if isinstance(message, AIMessage) and isinstance(message.content, str) and message.content.strip():
+                reply = message.content.strip()
+                break
+
+        if reply and req.channel == "whatsapp":
+            reply = format_for_whatsapp(reply)
+
+        tool_calls = [
+            {"tool": m.name, "result": (m.content or "")[:400]}
+            for m in messages
+            if m.__class__.__name__ == "ToolMessage"
+        ][-20:]
+
+        response = _response_from_values(
+            conversation_id,
+            result,
+            reply=reply,
+            handoff=bool(result.get("handoff")),
+            intent=result.get("stage"),
+            engine="langgraph",
+            latency_ms=latency_ms,
+            tool_calls=tool_calls,
         )
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="El agente tardó demasiado en responder")
-    except Exception as exc:  # noqa: BLE001 - el canal necesita una respuesta, no un stacktrace
-        log.exception("fallo del turno")
-        raise HTTPException(status_code=502, detail=f"El agente falló: {exc}") from exc
-
-    latency_ms = int((asyncio.get_running_loop().time() - started) * 1000)
-    messages = result.get("messages", [])
-    reply = ""
-    for message in reversed(messages):
-        if isinstance(message, AIMessage) and isinstance(message.content, str) and message.content.strip():
-            reply = message.content.strip()
-            break
-
-    if reply and req.channel == "whatsapp":
-        reply = format_for_whatsapp(reply)
-
-    tool_calls = [
-        {"tool": m.name, "result": (m.content or "")[:400]}
-        for m in messages
-        if m.__class__.__name__ == "ToolMessage"
-    ][-20:]
-
-    return ChatResponse(
-        conversationId=conversation_id,
-        reply=reply,
-        handoff=bool(result.get("handoff")),
-        intent=result.get("stage"),
-        stage=result.get("stage"),
-        cart=list(result.get("cart") or []),
-        totals=result.get("last_totals"),
-        quote={"quoteId": result["quote_id"], "linkRef": result.get("quote_link")}
-        if result.get("quote_id")
-        else None,
-        checkout={"linkRef": result["checkout_link"]} if result.get("checkout_link") else None,
-        customer=dict(result.get("customer") or {}),
-        todos=list(result.get("todos") or []),
-        toolCalls=tool_calls,
-        suggestions=_suggestions(result),
-        latencyMs=latency_ms,
-    )
+        await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
+        return response
 
 
 @app.get("/conversations/{conversation_id}")
@@ -279,6 +592,8 @@ async def get_conversation(conversation_id: str, tenantId: str = Query(...)) -> 
     config = {"configurable": {"thread_id": f"{tenantId}:{conversation_id}"}}
     snapshot = await runtime.agent.aget_state(config)
     values = snapshot.values or {}
+    if not values:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
     return {
         "conversationId": conversation_id,
         "stage": values.get("stage"),
@@ -291,6 +606,45 @@ async def get_conversation(conversation_id: str, tenantId: str = Query(...)) -> 
         "handoff": bool(values.get("handoff")),
         "todos": values.get("todos") or [],
         "messages": len(values.get("messages") or []),
+    }
+
+
+@app.delete("/conversations/{conversation_id}")
+async def delete_conversation(conversation_id: str, tenantId: str = Query(...)) -> dict[str, str]:
+    """Borra el hilo completo (checkpoint + cache de idempotencia)."""
+    if runtime.agent is None or runtime.checkpointer is None:
+        raise HTTPException(status_code=503, detail="El agente todavía no está listo")
+    thread_id = f"{tenantId}:{conversation_id}"
+    await runtime.checkpointer.adelete_thread(thread_id)
+    await runtime.idempotency.delete_thread(thread_id)
+    return {"status": "deleted"}
+
+
+@app.post("/conversations/{conversation_id}/release")
+async def release_conversation(conversation_id: str, tenantId: str = Query(...)) -> dict[str, Any]:
+    """Devuelve el control al bot después de un handoff (humano o por error)."""
+    if runtime.agent is None:
+        raise HTTPException(status_code=503, detail="El agente todavía no está listo")
+    thread_id = f"{tenantId}:{conversation_id}"
+    config = {"configurable": {"thread_id": thread_id}}
+    snapshot = await runtime.agent.aget_state(config)
+    if not snapshot.values:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+
+    # `handoff_reason` usa el reducer "gana el valor nuevo salvo que sea None"
+    # (ver state.py `_last`): mandar None lo dejaría intacto, así que se limpia
+    # con "" en vez de None. `stage` vuelve a DESCUBRIMIENTO en vez de dejarlo
+    # en HUMANO, que es el valor con el que se marcó el handoff.
+    async with (await runtime.thread_locks.acquire(thread_id)):
+        await runtime.agent.aupdate_state(
+            config,
+            {"handoff": False, "handoff_reason": "", "stage": "DESCUBRIMIENTO"},
+        )
+        values = (await runtime.agent.aget_state(config)).values or {}
+    return {
+        "conversationId": conversation_id,
+        "handoff": bool(values.get("handoff")),
+        "stage": values.get("stage"),
     }
 
 

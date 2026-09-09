@@ -9,6 +9,11 @@ from pathlib import Path
 
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 
+# Entornos donde está bien arrancar sin AGENT_INTERNAL_KEY (degradar a
+# abierto para no trabar el desarrollo local). Cualquier otro valor de
+# APP_ENV se trata como productivo y exige la llave.
+_OPEN_ENVIRONMENTS = {"local", "development", "dev", "test", ""}
+
 
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
@@ -30,6 +35,9 @@ def _env_float(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class Settings:
+    # ---- Entorno ----
+    environment: str = field(default_factory=lambda: _env("APP_ENV", "local").lower())
+
     # ---- Modelo (OpenRouter, compatible con la API de OpenAI) ----
     openrouter_key: str = field(
         default_factory=lambda: _env("OPENROUTER_KEY_REF") or _env("OPENROUTER_API_KEY")
@@ -65,6 +73,20 @@ class Settings:
         default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_SECONDS", 90.0)
     )
     max_input_chars: int = field(default_factory=lambda: _env_int("AGENT_MAX_INPUT_CHARS", 8000))
+    # v1 topaba el audio con AGENT_MAX_AUDIO_BYTES; v2 no tenía tope para
+    # imageBase64 (ver security.image_size_error, falta cablearlo en main.py).
+    max_image_bytes: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_IMAGE_BYTES", 5 * 1024 * 1024)
+    )
+    # Tope genérico para argumentos de texto libre de las tools (consulta,
+    # notas, motivo/resumen de escalamiento): sin esto, un mensaje puede
+    # inflar indefinidamente el estado persistido y lo que se reinyecta en
+    # cada turno al prompt.
+    max_tool_arg_chars: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_TOOL_ARG_CHARS", 2000)
+    )
+    max_cart_lines: int = field(default_factory=lambda: _env_int("AGENT_MAX_CART_LINES", 40))
+    max_quantity: int = field(default_factory=lambda: _env_int("AGENT_MAX_QUANTITY", 100_000))
     # Resumen: se dispara por número de mensajes y conserva los últimos N.
     summarize_after_messages: int = field(
         default_factory=lambda: _env_int("AGENT_SUMMARIZE_AFTER", 30)
@@ -101,4 +123,13 @@ class Settings:
 def get_settings() -> Settings:
     settings = Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # Fuera de local/desarrollo, degradar a "sin autenticación de servicio"
+    # (comportamiento heredado de v1) deja el puerto abierto a cualquiera
+    # que lo alcance: quien pueda pegarle a /chat puede ejecutar tools con
+    # dinero real. En local se mantiene abierto para no trabar el arranque.
+    if settings.environment not in _OPEN_ENVIRONMENTS and not settings.internal_key:
+        raise RuntimeError(
+            f"AGENT_INTERNAL_KEY_REF es obligatoria con APP_ENV={settings.environment!r}: "
+            "sin ella el servicio queda abierto a cualquiera que alcance el puerto."
+        )
     return settings
