@@ -186,6 +186,36 @@ services:
       timeout: 5s
       retries: 10
 
+  # Agente v2: LangGraph + deepagents. Mismo contrato HTTP que agent-service,
+  # así que para cambiar de agente basta con apuntar AGENT_URL a este.
+  agent-v2:
+    build:
+      context: ../apps/agent-v2
+      dockerfile: Dockerfile
+    container_name: netpay_agent_v2
+    profiles: ["full"]
+    restart: unless-stopped
+    depends_on:
+      commerce-api:
+        condition: service_healthy
+    environment:
+      COMMERCE_API_URL: http://commerce-api:4000/api/v1
+      AGENT_API_KEY_REF: ${AGENT_API_KEY_REF:-}
+      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:-}
+      AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:-}
+      MODEL_ID: ${AGENT_V2_MODEL_ID:-openai/gpt-4o-mini}
+      PUBLIC_BASE_URL: http://localhost:3001
+      AGENT_V2_DATA_DIR: /data/agent-v2
+    volumes:
+      - agent_data:/data
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8010/healthz', timeout=3).status_code==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   web:
     build:
       context: ..
