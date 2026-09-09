@@ -140,6 +140,16 @@ class CommerceClient:
             json_body={"fullName": full_name, "phone": phone, "email": email},
         )
 
+    async def lookup_customer(self, needle: str) -> dict[str, Any] | None:
+        """Primer cliente que coincida por teléfono/correo/nombre, o None."""
+        existing = await self.find_customer(needle)
+        items = existing.get("items", existing) if isinstance(existing, dict) else existing
+        return items[0] if items else None
+
+    async def customer_history(self, customer_id: str) -> dict[str, Any]:
+        """Cotizaciones y pedidos previos del cliente (cabeceras, sin líneas)."""
+        return await self._request("GET", f"/customers/{customer_id}/history") or {}
+
     async def ensure_customer(
         self, *, full_name: str, phone: str | None = None, email: str | None = None
     ) -> dict[str, Any]:

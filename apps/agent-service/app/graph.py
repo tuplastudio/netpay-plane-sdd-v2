@@ -20,52 +20,22 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from .commerce import CommerceClient
+from .agent_settings import AgentSettings, get_agent_settings
+from .commerce import CommerceClient, CommerceError, CommerceUnavailable
 from .config import Settings, get_settings
+from .intent import IntentClassifier, IntentResult
 from .knowledge import KnowledgeBase, get_knowledge_base
 from .learning import LearningStore, get_learning_store, record_turn_signals
 from .matching import CatalogVariant
 from .persona import build_system_prompt, format_candidates, pick
 from .providers.model_gateway import ChatResult, ModelGateway, ModelUnavailable, get_gateway
 from .state import AgentState, CartLine, StateStore, get_store
-from .text import normalize, parse_quantity
+from .text import format_for_whatsapp, normalize, parse_quantity
 from .tools import TOOLS, ToolGateway
 
-# ---------------------------------------------------------------
-# Detección de intención determinista (es-MX, tolerante a acentos)
-# ---------------------------------------------------------------
-
-GREETING = re.compile(r"\b(hola|holi|buenas|buenos dias|buenas tardes|buenas noches|que tal|hey|klk|ola)\b")
-THANKS = re.compile(r"\b(gracias|muchas gracias|te pasaste|excelente|perfecto|va|sale)\b")
-HUMAN = re.compile(r"\b(humano|persona|asesor|ejecutivo|agente real|hablar con alguien|no me sirves|supervisor)\b")
-COMPLAINT = re.compile(r"\b(queja|reclamo|pesimo|malisimo|fraude|estafa|demanda|molesto|enojado)\b")
-CONFIRM = re.compile(r"^(si|sip|sí|claro|va|dale|ok|okay|de acuerdo|adelante|hagalo|hazlo|confirmo|correcto|asi es)\b")
-DENY = re.compile(r"^(no|nel|nop|todavia no|aun no|espera|cancela)\b")
-QUOTE_REQ = re.compile(r"\b(cotiza|cotizacion|cotizar|presupuesto|cuanto (me )?(sale|queda|cuesta)|precio total|total)\b")
-PAY_REQ = re.compile(r"\b(pagar|pago|link de pago|liga de pago|checkout|tarjeta|comprar|lo llevo|lo quiero)\b")
-ORDER_STATUS = re.compile(r"\b(mi pedido|mi orden|donde va|rastreo|seguimiento|ya llego|estatus|estado del pedido|ya pague|ya pagué)\b")
-CATALOG_BROWSE = re.compile(r"\b(que (tienen|venden|manejan)|catalogo|productos|lista de precios|que hay)\b")
-# Preguntas de negocio: aquí manda el conocimiento, no el catálogo.
-BUSINESS_Q = re.compile(
-    r"\b(envio|envios|enviar|entrega|entregan|paqueteria|"
-    r"pago|pagos|pagar con|tarjeta|transferencia|paypal|"
-    r"factura|facturan|facturacion|cfdi|rfc|"
-    r"horario|horarios|abren|cierran|"
-    r"sucursal|sucursales|tienda fisica|direccion|donde estan|ubicacion|cedis|"
-    r"devolucion|devoluciones|devolver|reembolso|garantia|cambio|"
-    r"distribuidor|distribuir|vender|mayoreo|revendedor|"
-    r"quienes son|que es|de que esta hecho|ingredientes|azucar|calorias|nutrimental|"
-    r"rinde|rendimiento|como se prepara|preparar|caduca|caducidad|"
-    r"promocion|promociones|descuento|primera compra|"
-    r"certificacion|sqf|contacto|telefono)\b"
-)
-OPTOUT = re.compile(r"\b(no me escribas|baja|dar de baja|stop|deja de escribir)\b")
-ORDINAL = {
-    "1": 0, "primero": 0, "primera": 0, "uno": 0, "la uno": 0,
-    "2": 1, "segundo": 1, "segunda": 1, "dos": 1,
-    "3": 2, "tercero": 2, "tercera": 2, "tres": 2,
-}
-UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+# La intención del turno la decide `intent.IntentClassifier` (modelo pequeño
+# con JSON estricto; reglas léxicas solo como respaldo offline). Aquí ya no
+# vive ningún regex de detección.
 
 
 @dataclass
@@ -129,6 +99,7 @@ class Orchestrator:
         self.gateway = gateway or get_gateway()
         self.commerce = commerce or CommerceClient(self.settings)
         self.learning = learning or get_learning_store()
+        self.classifier = IntentClassifier(self.gateway, self.settings)
 
     async def handle(
         self,
@@ -155,6 +126,9 @@ class Orchestrator:
         state.customer_name = customer_name or state.customer_name
         state.customer_phone = customer_phone or state.customer_phone
         state.customer_email = customer_email or state.customer_email
+        cfg = get_agent_settings(tenant_id)
+        if cfg.auto_history_lookup:
+            await self._prefill_known_customer(state)
 
         clean = (text or "").strip()[: self.settings.max_input_chars]
         if not clean:
@@ -183,6 +157,15 @@ class Orchestrator:
                     engine="handoff",
                 ),
                 started,
+            )
+
+        if not cfg.auto_reply:
+            # Bot apagado desde el panel: se registra el mensaje, no se responde.
+            state.add_message("user", clean, messageId=message_id)
+            state.mark_processed(message_id)
+            self.store.save(state)
+            return self._finish(
+                TurnResult("", state, intent="AUTOREPLY_OFF", engine="disabled"), started
             )
 
         state.add_message("user", clean, messageId=message_id)
@@ -214,15 +197,19 @@ class Orchestrator:
             )
         elif use_llm:
             try:
-                result = await LLMEngine(self, tools).run(state, clean, image_base64=image_base64)
+                result = await LLMEngine(self, tools).run(
+                    state, clean, image_base64=image_base64, cfg=cfg
+                )
             except ModelUnavailable:
-                result = await RuleEngine(self, tools).run(state, clean)
+                result = await RuleEngine(self, tools).run(state, clean, cfg=cfg)
                 result.engine = "rules-fallback"
         else:
-            result = await RuleEngine(self, tools).run(state, clean)
+            result = await RuleEngine(self, tools).run(state, clean, cfg=cfg)
             if over_budget:
                 result.truncated_budget = True
 
+        if result.reply and channel == "whatsapp" and cfg.whatsapp_plain_text:
+            result.reply = format_for_whatsapp(result.reply)
         if result.reply:
             state.add_message("assistant", result.reply)
         state.maybe_summarize(self.settings.summarize_after)
@@ -245,6 +232,30 @@ class Orchestrator:
         )
         return self._finish(result, started)
 
+    async def _prefill_known_customer(self, state: AgentState) -> None:
+        """Cliente recurrente por WhatsApp: si ya existe en la API comercial
+        (por teléfono), se cargan nombre y correo una sola vez para que el
+        agente lo reconozca y no vuelva a pedírselos."""
+        if state.customer_name and state.customer_email:
+            return
+        if getattr(state, "customer_lookup_done", False):
+            return
+        needle = state.customer_phone or state.customer_email
+        if not needle or not self.commerce.live:
+            return
+        state.customer_lookup_done = True
+        try:
+            customer = await self.commerce.lookup_customer(needle)
+        except Exception:  # noqa: BLE001 - lookup es best-effort, nunca rompe el turno
+            return
+        if not customer:
+            return
+        name = str(customer.get("fullName") or "").strip()
+        if name and not name.lower().startswith("cliente"):
+            state.customer_name = state.customer_name or name
+        state.customer_email = state.customer_email or customer.get("email") or None
+        state.customer_phone = state.customer_phone or customer.get("phone") or None
+
     @staticmethod
     def _finish(result: TurnResult, started: float) -> TurnResult:
         result.latency_ms = int((time.perf_counter() - started) * 1000)
@@ -265,11 +276,34 @@ class RuleEngine:
         self.kb = orchestrator.knowledge
         self.profile = orchestrator.knowledge.profile
 
-    async def run(self, state: AgentState, text: str) -> TurnResult:
+    async def run(
+        self,
+        state: AgentState,
+        text: str,
+        *,
+        intent: IntentResult | None = None,
+        cfg: AgentSettings | None = None,
+    ) -> TurnResult:
+        self.cfg = cfg or get_agent_settings(state.tenant_id)
         norm = normalize(text)
         seed = f"{state.conversation_id}:{state.turns}"
+        if intent is None:
+            intent = await self.o.classifier.classify(
+                text, state, model=self.cfg.classifier_model or None
+            )
+        result = await self._dispatch(state, text, norm, seed, intent)
+        result.cost_usd += intent.cost_usd
+        if result.intent is None:
+            result.intent = intent.intent
+        return result
 
-        if OPTOUT.search(norm):
+    async def _dispatch(
+        self, state: AgentState, text: str, norm: str, seed: str, it: IntentResult
+    ) -> TurnResult:
+        # Identidad que venga en cualquier mensaje se guarda de una vez.
+        self._absorb_identity(state, it)
+
+        if it.is_("OPTOUT"):
             state.node = "OPTOUT"
             return TurnResult(
                 "Listo, no te vuelvo a escribir por aquí. Si cambias de opinión, aquí ando.",
@@ -277,102 +311,108 @@ class RuleEngine:
                 intent="OPTOUT",
             )
 
-        if HUMAN.search(norm) or COMPLAINT.search(norm):
-            reason = "QUEJA" if COMPLAINT.search(norm) else "CLIENTE_LO_PIDE"
+        if it.is_("HUMAN", "COMPLAINT"):
+            reason = "QUEJA" if it.is_("COMPLAINT") else "CLIENTE_LO_PIDE"
             await self.tools.dispatch(
                 "request_human",
                 {"reason": reason, "summary": text[:200]},
                 command_id=f"{state.conversation_id}:human:{state.turns}",
             )
             state.handoff_reason = reason
-            return TurnResult(
-                pick("handoff", seed), state, handoff=True, intent="HUMAN"
-            )
+            return TurnResult(pick("handoff", seed), state, handoff=True, intent="HUMAN")
 
-        # 1) Slot de nombre pendiente: el texto libre es el nombre del cliente.
-        if "nombre" in state.pending_slots and not CONFIRM.match(norm.strip()):
-            state.customer_name = text.strip()[:120]
+        # Slot de nombre pendiente: lo que diga es su nombre (salvo que confirme).
+        if "nombre" in state.pending_slots and not it.is_("CONFIRM", "DENY"):
+            state.customer_name = (it.name or text.strip())[:120]
             state.pending_slots = []
             return await self._issue_quote(state, seed)
 
-        # 2) Selección de una opción mostrada antes ("el 2", "la segunda").
-        selected = self._resolve_selection(state, norm)
-        if selected is not None:
-            candidate, ordinal = selected
-            return await self._on_selection(state, candidate, text, seed, ordinal_used=ordinal)
+        if it.is_("SELECT_OPTION") or (state.candidates and it.ordinal):
+            selected = self._resolve_selection(state, norm, it)
+            if selected is not None:
+                candidate, ordinal = selected
+                return await self._on_selection(
+                    state, candidate, text, seed, ordinal_used=ordinal, quantity=it.quantity, unit=it.unit
+                )
 
-        # 3) Estado de pedido / "ya pagué".
-        if ORDER_STATUS.search(norm):
-            return await self._order_status(state, text, seed)
+        if it.is_("HISTORY"):
+            return await self._history(state, seed)
 
-        # 4) Confirmación afirmativa sobre algo pendiente.
-        if CONFIRM.match(norm.strip()):
+        if it.is_("ORDER_STATUS"):
+            return await self._order_status(state, it.order_ref, seed)
+
+        if it.is_("CONFIRM"):
             return await self._on_confirm(state, text, seed)
 
-        if DENY.match(norm.strip()) and state.pending_slots:
+        if it.is_("DENY") and state.pending_slots:
             state.pending_slots = []
             return TurnResult(
                 "Va, lo dejamos así. ¿Te muestro otra cosa?", state, intent="CHANGE_REQUEST",
                 suggestions=["Ver otros productos", "Hablar con una persona"],
             )
 
-        # 5) Pago del carrito o de la cotización vigente.
-        if PAY_REQ.search(norm) and (state.quote_id or state.cart):
+        if it.is_("PAY_REQUEST") and (state.quote_id or state.cart):
             return await self._to_payment(state, seed)
 
-        # 6) Cotización explícita.
-        if QUOTE_REQ.search(norm) and state.cart:
+        if it.is_("QUOTE_REQUEST") and state.cart:
             return await self._quote_flow(state, text, seed)
 
-        # 7) Cantidad suelta cuando ya hay producto elegido.
-        quantity, unit, _ = parse_quantity(text)
-        if quantity and state.cart and "cantidad" in state.pending_slots:
-            state.cart[-1].quantity = quantity
-            state.cart[-1].unit = unit or state.cart[-1].unit
-            state.pending_slots = [s for s in state.pending_slots if s != "cantidad"]
-            return await self._quote_flow(state, text, seed)
+        if it.is_("QUANTITY") or (it.quantity and state.cart and "cantidad" in state.pending_slots):
+            if it.quantity and state.cart:
+                state.cart[-1].quantity = it.quantity
+                state.cart[-1].unit = it.unit or state.cart[-1].unit
+                state.pending_slots = [s for s in state.pending_slots if s != "cantidad"]
+                return await self._quote_flow(state, text, seed)
 
-        # 8) Pregunta del negocio explícita: el conocimiento manda.
-        if BUSINESS_Q.search(norm):
+        if it.is_("PROVIDE_IDENTITY") and (it.name or it.email or it.phone):
+            if state.cart and "confirmacion" in state.pending_slots:
+                return await self._issue_quote(state, seed)
+            who = state.customer_name.split()[0] if state.customer_name else ""
+            return TurnResult(
+                f"{pick('ack', seed)} Anotado{', ' + who if who else ''}. ¿Qué te cotizo?",
+                state,
+                intent="PROVIDE_IDENTITY",
+                suggestions=["Quiero cotizar", "¿Qué venden?"],
+            )
+
+        if it.is_("BUSINESS_QUESTION"):
             knowledge_answer = await self._business_answer(state, text, norm, seed)
             if knowledge_answer is not None:
                 return knowledge_answer
 
-        if CATALOG_BROWSE.search(norm):
+        if it.is_("CATALOG_BROWSE"):
             browse = await self._browse_catalog(state, seed)
             if browse is not None:
                 return browse
 
-        # 9) Búsqueda de producto; el catálogo tiene prioridad sobre el
-        #    documento cuando el cliente describe algo que se vende.
-        if self._looks_like_product_query(norm):
-            search = await self._search_flow(state, text, seed)
+        if it.is_("PRODUCT_QUERY", "QUOTE_REQUEST", "PAY_REQUEST"):
+            search = await self._search_flow(state, it.product_query or text, seed, it)
             if search.candidates or search.handoff or state.cart:
                 return search
 
-        # 10) Sin producto: intentar el conocimiento del negocio igualmente.
-        knowledge_answer = await self._business_answer(state, text, norm, seed)
-        if knowledge_answer is not None:
-            return knowledge_answer
-
-        # 11) Saludo / agradecimiento / charla.
-        if GREETING.search(norm):
+        if it.is_("GREETING"):
             state.node = "INTENT"
-            greeting = self.profile.greeting or pick("greeting", seed)
+            greeting = (
+                getattr(self, "cfg", None) and self.cfg.greeting
+            ) or self.profile.greeting or pick("greeting", seed)
+            who = f" {state.customer_name.split()[0]}" if state.customer_name else ""
             return TurnResult(
-                f"{greeting} ¿Buscas algo en particular o te cuento qué manejamos?",
+                f"{greeting}{who}. ¿Buscas algo en particular o te cuento qué manejamos?",
                 state,
                 intent="SMALLTALK",
                 suggestions=["¿Qué venden?", "Quiero cotizar", "¿Hacen envíos?"],
             )
-        if THANKS.search(norm):
+        if it.is_("THANKS"):
             return TurnResult(
                 "¡Con gusto! ¿Te ayudo con algo más?", state, intent="SMALLTALK",
                 suggestions=["Cotizar otro producto", "Ver mi pedido"],
             )
 
-        # 12) Último recurso: intentar catálogo y, si no, ser honesto.
-        fallback = await self._search_flow(state, text, seed)
+        # Sin intención clara: conocimiento del negocio, luego catálogo, luego honestidad.
+        knowledge_answer = await self._business_answer(state, text, norm, seed)
+        if knowledge_answer is not None:
+            return knowledge_answer
+        fallback = await self._search_flow(state, text, seed, it)
         if fallback.candidates:
             return fallback
         return TurnResult(
@@ -384,44 +424,96 @@ class RuleEngine:
 
     # ---------- sub-flujos ----------
 
-    def _looks_like_product_query(self, norm: str) -> bool:
-        """Frase corta y afirmativa, o cualquier frase con cantidad explícita."""
-        short_statement = len(norm.split()) <= 12 and not norm.endswith("?")
-        return short_statement or bool(parse_quantity(norm)[0])
+    @staticmethod
+    def _absorb_identity(state: AgentState, it: IntentResult) -> None:
+        if it.name and not state.customer_name:
+            state.customer_name = it.name[:120]
+        if it.email and "@" in it.email:
+            state.customer_email = it.email[:120]
+        if it.phone and not state.customer_phone:
+            state.customer_phone = it.phone[:40]
 
     def _resolve_selection(
-        self, state: AgentState, norm: str
+        self, state: AgentState, norm: str, it: IntentResult
     ) -> tuple[dict[str, Any], str | None] | None:
         if not state.candidates:
             return None
-        stripped = norm.strip()
-        for key, index in ORDINAL.items():
-            if stripped == key or stripped.startswith(f"{key} ") or stripped.startswith(f"el {key}") \
-               or stripped.startswith(f"la {key}") or stripped.startswith(f"opcion {key}"):
-                if index < len(state.candidates):
-                    return state.candidates[index], key
+        if it.ordinal and it.ordinal <= len(state.candidates):
+            return state.candidates[it.ordinal - 1], str(it.ordinal)
+        needle = normalize(it.product_query or "") or norm.strip()
         for candidate in state.candidates:
             variant = candidate.get("variant") or {}
             sku = normalize(variant.get("sku", ""))
             title = normalize(variant.get("title", ""))
-            if sku and sku in stripped:
+            if sku and sku in needle:
                 return candidate, None
-            if title and title in stripped and len(title) > 4:
+            if title and (title in needle or needle in title) and len(title) > 4:
                 return candidate, None
         return None
 
+    async def _history(self, state: AgentState, seed: str) -> TurnResult:
+        result = await self.tools.dispatch("customer_history", {})
+        if result.get("error"):
+            return TurnResult(pick("offline", seed), state, handoff=True, intent="HISTORY")
+        if not result.get("found"):
+            return TurnResult(
+                "Para buscar tus cotizaciones anteriores, ¿con qué número o correo las hiciste?",
+                state,
+                intent="HISTORY",
+            )
+        quotes = result.get("quotes") or []
+        orders = result.get("orders") or []
+        if not quotes and not orders:
+            return TurnResult(
+                "Aún no tengo cotizaciones ni pedidos tuyos registrados. ¿Armamos el primero?",
+                state,
+                intent="HISTORY",
+                suggestions=["Quiero cotizar", "¿Qué venden?"],
+            )
+        currency = self.profile.currency
+        label = {
+            "ISSUED": "vigente", "ACCEPTED": "aceptada", "EXPIRED": "vencida",
+            "CANCELLED": "cancelada", "DRAFT": "borrador",
+            "CHECKOUT_OPEN": "esperando pago", "PAID": "pagado", "FULFILLED": "entregado",
+        }
+        lines = []
+        for q in quotes[:3]:
+            lines.append(
+                f"• Cotización {str(q['quoteId'])[:8]}: ${q['total']} {currency}, {label.get(q['status'], str(q['status']).lower())}"
+            )
+        for o in orders[:3]:
+            lines.append(
+                f"• Pedido {str(o['orderId'])[:8]}: ${o['total']} {currency}, {label.get(o['status'], str(o['status']).lower())}"
+            )
+        open_quote = next((q for q in quotes if q["status"] == "ISSUED"), None)
+        if open_quote:
+            state.quote_id = open_quote["quoteId"]
+            tail = "La cotización vigente te la puedo pasar a pago ahora mismo, ¿la pagamos?"
+            suggestions = ["Sí, quiero pagar", "Cotizar otra cosa"]
+        else:
+            tail = "¿Quieres repetir alguna o cotizamos algo nuevo?"
+            suggestions = ["Repetir la última", "Cotizar otra cosa"]
+        state.node = "STATUS"
+        return TurnResult(
+            "Esto es lo que tengo tuyo:\n" + "\n".join(lines) + f"\n{tail}",
+            state,
+            intent="HISTORY",
+            suggestions=suggestions,
+        )
+
     async def _on_selection(
         self, state: AgentState, candidate: dict[str, Any], text: str, seed: str,
-        *, ordinal_used: str | None = None,
+        *, ordinal_used: str | None = None, quantity: str | None = None, unit: str | None = None,
     ) -> TurnResult:
         variant = candidate.get("variant") or {}
-        # "el 1" elige opción, no pide una pieza: el ordinal no es cantidad.
-        quantity_text = text
-        if ordinal_used:
-            quantity_text = re.sub(
-                rf"\b(el|la|opcion)?\s*{re.escape(ordinal_used)}\b", " ", normalize(text), count=1
-            )
-        quantity, unit, _ = parse_quantity(quantity_text)
+        if quantity is None:
+            # "el 1" elige opción, no pide una pieza: el ordinal no es cantidad.
+            quantity_text = text
+            if ordinal_used:
+                quantity_text = re.sub(
+                    rf"\b(el|la|opcion)?\s*{re.escape(ordinal_used)}\b", " ", normalize(text), count=1
+                )
+            quantity, unit, _ = parse_quantity(quantity_text)
         line = CartLine(
             variant_id=candidate["variantId"],
             sku=variant.get("sku", ""),
@@ -478,7 +570,9 @@ class RuleEngine:
         cut = text[:max_chars]
         return cut[: cut.rfind(".") + 1] or cut + "…"
 
-    async def _search_flow(self, state: AgentState, text: str, seed: str) -> TurnResult:
+    async def _search_flow(
+        self, state: AgentState, text: str, seed: str, it: IntentResult | None = None
+    ) -> TurnResult:
         result = await self.tools.dispatch("search_products", {"query": text})
         if result.get("error"):
             return TurnResult(pick("offline", seed), state, handoff=True, intent="ERROR")
@@ -489,10 +583,13 @@ class RuleEngine:
         if not candidates:
             return TurnResult(pick("not_found", seed), state, intent="SEARCH_PRODUCTS")
 
-        quantity, unit, _ = parse_quantity(text)
+        if it is not None and it.quantity:
+            quantity, unit = it.quantity, it.unit
+        else:
+            quantity, unit, _ = parse_quantity(text)
         auto = result.get("autoSelected")
         if auto:
-            return await self._on_selection(state, auto, text, seed)
+            return await self._on_selection(state, auto, text, seed, quantity=quantity, unit=unit)
 
         listing = format_candidates(candidates, self.profile.currency)
         tail = (
@@ -688,11 +785,10 @@ class RuleEngine:
             suggestions=["Ya pagué", "¿Cuánto tarda el envío?"],
         )
 
-    async def _order_status(self, state: AgentState, text: str, seed: str) -> TurnResult:
-        order_id = state.order_id
-        found = UUID_RE.search(text)
-        if found:
-            order_id = found.group(0)
+    async def _order_status(
+        self, state: AgentState, order_ref: str | None, seed: str
+    ) -> TurnResult:
+        order_id = order_ref or state.order_id
         if not order_id:
             return TurnResult(
                 "Para revisarlo necesito el número de pedido. ¿Me lo compartes?",
@@ -739,12 +835,27 @@ class LLMEngine:
         self.kb = orchestrator.knowledge
 
     async def run(
-        self, state: AgentState, text: str, *, image_base64: str | None = None
+        self,
+        state: AgentState,
+        text: str,
+        *,
+        image_base64: str | None = None,
+        cfg: AgentSettings | None = None,
     ) -> TurnResult:
+        cfg = cfg or get_agent_settings(state.tenant_id)
+        self.cfg = cfg
         deadline = time.perf_counter() + self.settings.turn_budget_seconds
         knowledge_context = self.kb.context_block(text, top_k=self.settings.knowledge_top_k)
+        try:
+            catalog_hint = await self.tools.catalog_summary()
+        except (CommerceError, CommerceUnavailable):
+            catalog_hint = ""
         system = build_system_prompt(
-            self.kb.profile, knowledge_context=knowledge_context, state=state
+            self.kb.profile,
+            knowledge_context=knowledge_context,
+            state=state,
+            overrides=cfg,
+            catalog_hint=catalog_hint,
         )
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         history = state.history(self.settings.history_window)
@@ -774,7 +885,13 @@ class LLMEngine:
             if time.perf_counter() > deadline:
                 result.truncated_budget = True
                 break
-            chat = await self.o.gateway.chat(messages, tools=schemas)
+            chat = await self.o.gateway.chat(
+                messages,
+                tools=schemas,
+                model=cfg.effective_model(self.settings.text_model),
+                temperature=cfg.temperature,
+                max_tokens=cfg.max_tokens,
+            )
             result.cost_usd += chat.cost_usd
             if not chat.tool_calls:
                 break
@@ -814,7 +931,7 @@ class LLMEngine:
         reply = chat.content.strip()
         if not reply:
             # El modelo no cerró el turno: el motor determinista redacta.
-            fallback = await RuleEngine(self.o, self.tools).run(state, text)
+            fallback = await RuleEngine(self.o, self.tools).run(state, text, cfg=cfg)
             fallback.engine = "llm+rules"
             fallback.cost_usd += result.cost_usd
             return fallback
@@ -822,6 +939,7 @@ class LLMEngine:
         result.reply = reply
         result.candidates = state.candidates
         result.suggestions = _suggestions_for(state)
+        result.intent = _intent_from_tools(self.tools.calls, state)
         return result
 
     async def _run_tool(
@@ -884,6 +1002,35 @@ class LLMEngine:
             result.handoff = True
             state.handoff_reason = payload.get("reason")
         return payload
+
+
+_TOOL_INTENT = {
+    "get_checkout_link": "CONFIRM_QUOTE",
+    "accept_quote": "CONFIRM_QUOTE",
+    "create_and_issue_quote": "QUOTE_ISSUED",
+    "calculate_quote": "BUILD_QUOTE",
+    "customer_history": "HISTORY",
+    "get_quote_details": "HISTORY",
+    "get_order_status": "ORDER_STATUS",
+    "request_human": "HUMAN",
+    "search_products": "SEARCH_PRODUCTS",
+    "answer_business_question": "BUSINESS_QA",
+    "remember_customer": "PROVIDE_IDENTITY",
+}
+
+
+def _intent_from_tools(calls: list[Any], state: AgentState) -> str:
+    """Etiqueta de intención del turno LLM, derivada de la herramienta más
+    "avanzada" que se usó (sin segunda llamada al modelo)."""
+    order = list(_TOOL_INTENT)
+    best: str | None = None
+    for call in calls:
+        name = getattr(call, "name", None)
+        if name in _TOOL_INTENT and (best is None or order.index(name) < order.index(best)):
+            best = name
+    if best:
+        return _TOOL_INTENT[best]
+    return "SMALLTALK" if not state.cart else "BUILD_QUOTE"
 
 
 def _suggestions_for(state: AgentState) -> list[str]:

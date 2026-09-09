@@ -193,6 +193,40 @@ TOOLS: dict[str, ToolSpec] = {
         scope="orders.read",
         parameters=_obj({"orderId": {"type": "string"}}, ["orderId"]),
     ),
+    "remember_customer": ToolSpec(
+        name="remember_customer",
+        description=(
+            "Guarda en la conversación el nombre, correo o teléfono que el cliente "
+            "acaba de decir, para no volver a pedírselos. Llámala en cuanto el "
+            "cliente mencione alguno de esos datos."
+        ),
+        scope="chat.write",
+        parameters=_obj(
+            {
+                "name": {"type": "string"},
+                "email": {"type": "string"},
+                "phone": {"type": "string"},
+            },
+        ),
+    ),
+    "customer_history": ToolSpec(
+        name="customer_history",
+        description=(
+            "Cotizaciones y pedidos anteriores del cliente de esta conversación "
+            "(folio, estado, total, fecha). Úsala cuando pregunte por 'mi cotización', "
+            "'mi pedido anterior', 'lo que pedí la otra vez', o para retomar una "
+            "cotización pendiente. Para el detalle de líneas de una cotización usa "
+            "get_quote_details con su folio."
+        ),
+        scope="customers.read",
+        parameters=_obj({}),
+    ),
+    "get_quote_details": ToolSpec(
+        name="get_quote_details",
+        description="Detalle de una cotización por folio: líneas, cantidades, estado, total y vigencia.",
+        scope="quotes.read",
+        parameters=_obj({"quoteId": {"type": "string"}}, ["quoteId"]),
+    ),
     "request_human": ToolSpec(
         name="request_human",
         description="Transfiere la conversación a una persona del equipo.",
@@ -350,6 +384,9 @@ class ToolGateway:
             "accept_quote": self._accept_quote,
             "get_checkout_link": self._get_checkout_link,
             "get_order_status": self._get_order_status,
+            "remember_customer": self._remember_customer,
+            "customer_history": self._customer_history,
+            "get_quote_details": self._get_quote_details,
             "request_human": self._request_human,
         }
 
@@ -375,6 +412,48 @@ class ToolGateway:
                 self._catalog_snapshots.append(list(variants))
             return variants
         return self.catalog_cache
+
+    async def catalog_summary(self, *, limit: int = 80) -> str:
+        """Catálogo real, compacto, para inyectar en el prompt del sistema.
+
+        Sin esto el modelo no sabe qué se vende hasta llamar search_products,
+        y contesta genérico ("¿qué producto buscas?") aun cuando el cliente ya
+        dijo algo que sí está en catálogo. Con esto reconoce el producto de
+        entrada; el precio y la existencia que cotiza siguen saliendo de las
+        herramientas, nunca de este bloque.
+        """
+        catalog = await self._load_catalog()
+        if not catalog:
+            return ""
+        grouped: dict[str, list[CatalogVariant]] = {}
+        for variant in catalog:
+            if variant.status != "ACTIVE":
+                continue
+            grouped.setdefault(variant.product_title or variant.title, []).append(variant)
+
+        lines: list[str] = []
+        shown = 0
+        for product, variants in grouped.items():
+            if shown >= limit:
+                break
+            lines.append(f"{product}:")
+            for variant in variants:
+                if shown >= limit:
+                    break
+                stock = variant.stock
+                if stock is None:
+                    availability = ""
+                elif stock <= 0:
+                    availability = " SIN EXISTENCIA"
+                elif stock < 10:
+                    availability = f" quedan {int(stock)}"
+                else:
+                    availability = ""
+                lines.append(
+                    f"  - {variant.title} | {variant.sku} | ${variant.price}{availability}"
+                )
+                shown += 1
+        return "\n".join(lines)
 
     async def _search_products(self, args: dict[str, Any]) -> dict[str, Any]:
         query = str(args["query"])
@@ -403,7 +482,14 @@ class ToolGateway:
         quantity = float(str(args["quantity"]).replace(",", "."))
         detail = await self._get_variant({"variantId": variant_id})
         if not detail.get("found"):
-            return {"mode": "UNKNOWN", "available": None, "variantId": variant_id}
+            # "No encontré la variante" NO es "no hay existencia": si esto se
+            # devolviera como UNKNOWN, el modelo lo lee como agotado y le dice
+            # al cliente que no hay producto que sí tenemos.
+            raise ValueError(
+                f"variantId '{variant_id}' no existe. Llama primero a search_products "
+                "con lo que pidió el cliente y usa el variantId que te devuelva. "
+                "Esto NO significa que el producto esté agotado."
+            )
         stock = detail["variant"].get("stock")
         if stock is None:
             return {"mode": "UNTRACKED", "available": None, "sufficient": True}
@@ -547,6 +633,89 @@ class ToolGateway:
             "paidAt": order.get("paidAt"),
             "placedAt": order.get("placedAt"),
             "livemode": False,
+        }
+
+    async def _remember_customer(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Persiste identidad del cliente en el estado de la conversación.
+        El grafo la lee del resultado (nunca del texto del modelo)."""
+        state = self.state
+        remembered: dict[str, str] = {}
+        for key, attr in (("name", "customer_name"), ("email", "customer_email"), ("phone", "customer_phone")):
+            value = str(args.get(key) or "").strip()
+            if not value:
+                continue
+            if key == "email" and "@" not in value:
+                continue
+            if state is not None:
+                setattr(state, attr, value[:120])
+            remembered[key] = value[:120]
+        if not remembered:
+            raise ValueError("Indica al menos name, email o phone")
+        return {"remembered": remembered}
+
+    async def _customer_history(self, args: dict[str, Any]) -> dict[str, Any]:
+        state = self.state
+        needle = None
+        if state is not None:
+            needle = (
+                getattr(state, "customer_phone", None)
+                or getattr(state, "customer_email", None)
+                or getattr(state, "customer_name", None)
+            )
+        if not needle:
+            return {"found": False, "reason": "Aún no sé quién es el cliente: pide su teléfono o correo."}
+        customer = await self.commerce.lookup_customer(needle)
+        if not customer:
+            return {"found": False, "reason": "No hay cliente registrado con esos datos todavía."}
+        history = await self.commerce.customer_history(customer["id"])
+        quotes = history.get("quotes") or []
+        orders = history.get("orders") or []
+        return {
+            "found": True,
+            "customer": {
+                "id": customer["id"],
+                "name": customer.get("fullName"),
+                "email": customer.get("email"),
+                "phone": customer.get("phone"),
+            },
+            "quotes": [
+                {
+                    "quoteId": q.get("id"),
+                    "status": q.get("status"),
+                    "total": str(q.get("total")),
+                    "createdAt": q.get("createdAt"),
+                }
+                for q in quotes[:10]
+            ],
+            "orders": [
+                {
+                    "orderId": o.get("id"),
+                    "status": o.get("status"),
+                    "total": str(o.get("total")),
+                    "createdAt": o.get("createdAt"),
+                }
+                for o in orders[:10]
+            ],
+        }
+
+    async def _get_quote_details(self, args: dict[str, Any]) -> dict[str, Any]:
+        quote = await self.commerce.get_quote(str(args["quoteId"]))
+        return {
+            "quoteId": quote.get("id"),
+            "status": quote.get("status"),
+            "total": str(quote.get("total")),
+            "expiresAt": quote.get("expiresAt"),
+            "lines": [
+                {
+                    "variantId": l.get("variantId"),
+                    "sku": l.get("sku"),
+                    "title": l.get("title"),
+                    "quantity": str(l.get("quantity")),
+                    "unitPrice": str(l.get("unitPrice")),
+                    "lineSubtotal": str(l.get("lineSubtotal")),
+                }
+                for l in (quote.get("lines") or [])
+            ],
         }
 
     async def _request_human(self, args: dict[str, Any]) -> dict[str, Any]:

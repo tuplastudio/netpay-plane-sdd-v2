@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, Reques
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, conlist
 
+from .agent_settings import DELIVERY_MODES, SALES_STYLES, get_settings_store
 from .commerce import CommerceClient
 from .config import get_settings
 from .graph import get_orchestrator
@@ -328,6 +329,84 @@ async def tts(req: TtsRequest) -> dict[str, Any]:
     except ModelUnavailable as exc:
         # Degradación explícita: el canal manda el texto con su enlace.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# ---------------- configuración del agente (panel) ----------------
+
+
+class AgentSettingsPayload(BaseModel):
+    agent_name: str | None = None
+    business_name: str | None = None
+    tone: str | None = None
+    greeting: str | None = None
+    language: str | None = None
+    currency: str | None = None
+    emoji: bool | None = None
+    sales_style: str | None = None
+    ask_name_before_quote: bool | None = None
+    ask_email_before_quote: bool | None = None
+    auto_history_lookup: bool | None = None
+    max_products_per_message: int | None = None
+    default_delivery_mode: str | None = None
+    handoff_keywords: list[str] | str | None = None
+    forbidden_topics: str | None = None
+    extra_rules: str | None = None
+    text_model: str | None = None
+    classifier_model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    whatsapp_plain_text: bool | None = None
+    auto_reply: bool | None = None
+
+
+def _settings_view(tenant_id: str) -> dict[str, Any]:
+    profile = get_knowledge_base().profile
+    current = get_settings_store().get(tenant_id)
+    return {
+        "tenantId": tenant_id,
+        "settings": current.to_dict(),
+        # Lo que aplica hoy cuando el campo está vacío (para mostrar placeholders).
+        "defaults": {
+            "agent_name": profile.agent_name,
+            "business_name": profile.name,
+            "tone": profile.tone,
+            "greeting": profile.greeting,
+            "language": profile.language,
+            "currency": profile.currency,
+            "emoji": profile.emoji,
+            "text_model": settings.text_model,
+            "classifier_model": settings.classifier_model or settings.text_model,
+            "temperature": settings.temperature,
+            "max_tokens": settings.max_tokens,
+        },
+        "options": {
+            "sales_style": list(SALES_STYLES),
+            "default_delivery_mode": list(DELIVERY_MODES),
+            "models": [
+                {"id": m["id"], "toolCalling": m["tool_calling"], "notes": m.get("notes", "")}
+                for m in model_registry.describe()["models"]
+                if m["role"] == "text"
+            ],
+        },
+    }
+
+
+@app.get("/settings")
+async def get_agent_settings_endpoint(tenantId: str = Query(...)) -> dict[str, Any]:
+    return _settings_view(tenantId)
+
+
+@app.put("/settings")
+async def put_agent_settings(req: AgentSettingsPayload, tenantId: str = Query(...)) -> dict[str, Any]:
+    payload = {k: v for k, v in req.model_dump().items() if v is not None}
+    get_settings_store().update(tenantId, payload)
+    return _settings_view(tenantId)
+
+
+@app.delete("/settings")
+async def reset_agent_settings(tenantId: str = Query(...)) -> dict[str, Any]:
+    get_settings_store().reset(tenantId)
+    return _settings_view(tenantId)
 
 
 # ---------------- conocimiento del negocio ----------------

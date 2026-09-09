@@ -168,6 +168,16 @@ services:
       AGENT_API_KEY_REF: ${AGENT_API_KEY_REF:-}
       OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:-}
       AGENT_PORT: "8000"
+      # Config del agente editable desde el panel + checkpoints: persisten
+      # en volumen, no mueren al recrear el contenedor.
+      # Navegador -> web: enlaces de cotización y pago que el agente manda al
+      # cliente. Debe apuntar al puerto público del frontend, no al default.
+      PUBLIC_BASE_URL: http://localhost:3001
+      AGENT_SETTINGS_DIR: /data/settings
+      AGENT_CHECKPOINT_DIR: /data/checkpoints
+      AGENT_LEARNING_DIR: /data/learning
+    volumes:
+      - agent_data:/data
     ports:
       - "8000:8000"
     healthcheck:
@@ -203,3 +213,4 @@ volumes:
   postgres_dummy_data:
   rabbitmq_data:
   minio_data:
+  agent_data:

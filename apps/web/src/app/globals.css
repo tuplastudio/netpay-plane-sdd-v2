@@ -55,4 +55,23 @@
 @layer base {
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
+  html { -webkit-text-size-adjust: 100%; }
+  input, select, textarea { font-size: max(16px, 0.875rem); } /* evita zoom iOS al enfocar */
+}
+
+@layer components {
+  /* Tablas operativas en pantallas angostas: scroll interno en vez de
+     desbordar la página. Sin tocar cada <table>. */
+  @media (max-width: 1023px) {
+    main table {
+      display: block;
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      white-space: nowrap;
+    }
+  }
+  @media (min-width: 640px) {
+    input, select, textarea { font-size: 0.875rem; }
+  }
 }

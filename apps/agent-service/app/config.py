@@ -55,6 +55,8 @@ class Settings:
     )
     text_model: str = field(default_factory=lambda: _env("MODEL_ID", "openai/gpt-4o-mini"))
     fallback_model: str = field(default_factory=lambda: _env("MODEL_ID_FALLBACK", ""))
+    # Clasificador de intención: modelo pequeño y barato; vacío = usa text_model.
+    classifier_model: str = field(default_factory=lambda: _env("CLASSIFIER_MODEL_ID", ""))
     stt_model: str = field(default_factory=lambda: _env("STT_MODEL_ID", "openai/whisper-1"))
     tts_model: str = field(default_factory=lambda: _env("TTS_MODEL_ID", "openai/tts-1"))
     tts_voice: str = field(default_factory=lambda: _env("TTS_VOICE", "alloy"))

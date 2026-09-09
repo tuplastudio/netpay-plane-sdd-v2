@@ -47,6 +47,7 @@ class AgentState:
     customer_phone: str | None = None
     customer_name: str | None = None
     customer_email: str | None = None
+    customer_lookup_done: bool = False
     channel: str = "web"
 
     messages: list[dict[str, Any]] = field(default_factory=list)

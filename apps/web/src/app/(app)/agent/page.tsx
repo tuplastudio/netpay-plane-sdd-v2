@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/app/page-header";
+import { AgentSettingsForm } from "@/components/app/agent-settings-form";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 
 /**
@@ -245,6 +246,8 @@ export default function AgentConsolePage() {
           </>
         }
       />
+
+      <AgentSettingsForm />
 
       <section className="grid gap-4 md:grid-cols-3">
         <Card title="Identidad">

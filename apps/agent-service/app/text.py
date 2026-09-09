@@ -182,6 +182,31 @@ def looks_like_sku(text: str) -> str | None:
     return None
 
 
+_UUID_RE = re.compile(r"\b([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I)
+
+
+def format_for_whatsapp(reply: str) -> str:
+    """Markdown de chat web -> texto plano de WhatsApp.
+
+    El modelo tiende a escribir **negrita**, encabezados y viñetas aunque se
+    le pida lo contrario; en WhatsApp eso se ve como asteriscos sueltos. Se
+    normaliza de forma determinista en vez de confiar en el prompt.
+    """
+    text = reply
+    # [texto](url) -> "texto: url": WhatsApp no renderiza enlaces markdown y el
+    # cliente vería los corchetes en vez de un link tocable.
+    text = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", r"\1: \2", text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)          # **x** -> *x*
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)         # encabezados
+    text = re.sub(r"(?m)^\s*[-*•]\s+", "• ", text)            # viñetas -> •
+    text = re.sub(r"(?m)^\s*(\d+)[.)]\s+", r"\1. ", text)     # listas numeradas
+    text = re.sub(r"`([^`]+)`", r"\1", text)                  # código inline
+    text = _UUID_RE.sub(lambda m: m.group(1), text)           # folios cortos
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def truncate(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value

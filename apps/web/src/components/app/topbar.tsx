@@ -16,9 +16,17 @@ interface TopbarProps {
 }
 
 export function Topbar({ onMobileNav: _onMobileNav }: TopbarProps) {
+  const [open, setOpen] = React.useState(false);
+  const pathname = usePathname();
+
+  // Al navegar (o al volver atrás) el drawer móvil se cierra solo.
+  React.useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:px-4">
-      <Sheet>
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:gap-3 sm:px-4">
+      <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
           <Button
             variant="ghost"
@@ -29,26 +37,44 @@ export function Topbar({ onMobileNav: _onMobileNav }: TopbarProps) {
             <Menu className="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="flex w-72 flex-col p-0">
+        <SheetContent side="left" className="flex w-[85vw] max-w-72 flex-col p-0">
           <Brand className="border-b" />
-          <SidebarNav />
+          <div className="flex-1 overflow-y-auto">
+            <SidebarNav onNavigate={() => setOpen(false)} />
+          </div>
           <div className="border-t p-3 text-[11px] text-muted-foreground">
             PAYMENT_PROVIDER=DUMMY · livemode=false
           </div>
         </SheetContent>
       </Sheet>
 
-      <div className="hidden lg:block">
+      <div className="hidden min-w-0 lg:block">
         <Breadcrumbs />
       </div>
+      <span className="truncate text-sm font-medium lg:hidden">
+        <CurrentPageLabel />
+      </span>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <GlobalSearch />
         <EnvBadge />
         <UserMenu />
       </div>
     </header>
   );
+}
+
+function CurrentPageLabel() {
+  const pathname = usePathname();
+  const segments = (pathname || "/").split("/").filter(Boolean);
+  if (segments.length === 0) return <>Inicio</>;
+  const last = segments[segments.length - 1]!;
+  const label = humanize(last);
+  // "Detalle" solo no dice nada: se antepone la sección.
+  if (label === "Detalle" && segments.length > 1) {
+    return <>{humanize(segments[segments.length - 2]!)} · Detalle</>;
+  }
+  return <>{label}</>;
 }
 
 function EnvBadge() {
@@ -65,7 +91,7 @@ function GlobalSearch() {
   return (
     <form
       role="search"
-      className="hidden items-center md:flex"
+      className="flex items-center"
       onSubmit={(e) => {
         e.preventDefault();
         if (!q.trim()) return;
@@ -78,7 +104,7 @@ function GlobalSearch() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Buscar producto o SKU…"
-          className="h-9 w-56 rounded-pill pl-8"
+          className="h-9 w-28 rounded-pill pl-8 sm:w-44 md:w-56"
           aria-label="Buscar"
         />
       </div>
