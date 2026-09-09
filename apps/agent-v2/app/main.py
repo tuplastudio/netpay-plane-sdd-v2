@@ -383,6 +383,24 @@ async def reset_settings(tenantId: str = Query(...)) -> dict[str, Any]:
     return _settings_view(tenantId)
 
 
+@app.get("/evals")
+async def evals(
+    judge: bool = False,
+    category: list[str] | None = Query(default=None),
+    limit: int | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Suite de evaluación del agente.
+
+    `dry_run` viene en True a propósito: cada caso real gasta llamadas al
+    modelo (dinero), y un GET casual desde el panel no debe cobrarlas. Para
+    la corrida de verdad hay que pedirla explícitamente con dry_run=false.
+    """
+    from .evals.runner import run_suite
+
+    return await run_suite(categories=category, judge=judge, limit=limit, dry_run=dry_run)
+
+
 @app.get("/tools")
 async def list_tools() -> dict[str, Any]:
     """El panel lista qué puede ejecutar el agente y con qué permiso."""
