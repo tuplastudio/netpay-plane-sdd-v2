@@ -1,40 +1,50 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PasswordService } from "./password.service.js";
 import { SessionService } from "./session.service.js";
 import { TokenService } from "./token.service.js";
+import { RateLimitService } from "./rate-limit.service.js";
 
 /**
  * Invitaciones, recuperación de contraseña y MFA challenge.
  * Ver docs/03-iam.md T-IAM-02.
  *
- * Tokens:
+ * Tokens (firmados con HMAC y atando purpose, ver TokenService):
  *  - INVITE: 48h
  *  - PASSWORD_RESET: 30min, un solo uso
  *  - MFA_CHALLENGE: 5min, vinculado a sesión
+ *
+ * Throttling de forgot-password: 3 requests / hora por email. Es silencioso
+ * (no devuelve 429) para preservar la respuesta uniforme — el atacante no
+ * debe poder distinguir "email existe, throttled" de "email no existe".
  */
 @Injectable()
 export class InviteService {
+  private readonly logger = new Logger(InviteService.name);
+  private static readonly RESET_THROTTLE_LIMIT = 3;
+  private static readonly RESET_THROTTLE_WINDOW_MS = 60 * 60 * 1000;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly sessions: SessionService,
     private readonly tokens: TokenService,
+    private readonly rateLimit: RateLimitService,
   ) {}
 
   async createInvite(input: {
     tenantId: string;
     email: string;
     fullName: string;
-    role: "VENDOR" | "FINANCE" | "CATALOG" | "SUPPORT" | "VIEWER";
+    role: "OWNER" | "ADMIN" | "VENDOR" | "FINANCE" | "CATALOG" | "SUPPORT" | "VIEWER";
   }): Promise<{ token: string; expiresAt: Date }> {
     const issued = this.tokens.issue({
-      tenantId: input.tenantId,
-      email: input.email.toLowerCase(),
       purpose: "INVITE",
       expiresInMs: 48 * 60 * 60 * 1000,
     });
@@ -52,7 +62,7 @@ export class InviteService {
   }
 
   async acceptInvite(input: { token: string; password: string }) {
-    const tokenHash = this.tokens.hash(input.token);
+    const { tokenHash } = this.tokens.verify(input.token, "INVITE");
     const invite = await this.prisma.invitation.findUnique({
       where: { tokenHash },
     });
@@ -116,9 +126,22 @@ export class InviteService {
     return { userId: user.id, tenantId: invite.tenantId, role: invite.role };
   }
 
-  async requestPasswordReset(email: string): Promise<{ token?: string }> {
+  async requestPasswordReset(email: string): Promise<{ token?: string; throttled?: boolean }> {
+    const normalized = email.toLowerCase();
+    const throttleKey = `password_reset:${createHash("sha256").update(normalized).digest("hex")}`;
+    const allowed = this.rateLimit.consume(
+      throttleKey,
+      InviteService.RESET_THROTTLE_LIMIT,
+      InviteService.RESET_THROTTLE_WINDOW_MS,
+    );
+    if (!allowed) {
+      // Silencioso: misma respuesta uniforme. Log para observabilidad interna.
+      this.logger.warn(`forgot-password throttled para ${normalized}`);
+      return { throttled: true };
+    }
+
     const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: normalized },
     });
     // Respuesta uniforme: no revela si la cuenta existe.
     if (!user) return {};
@@ -129,8 +152,6 @@ export class InviteService {
     if (!membership) return {};
 
     const issued = this.tokens.issue({
-      tenantId: membership.tenantId,
-      email: user.email,
       purpose: "PASSWORD_RESET",
       expiresInMs: 30 * 60 * 1000,
     });
@@ -141,11 +162,25 @@ export class InviteService {
         expiresAt: issued.expiresAt,
       },
     });
+
+    // Audit: queda registro de que se solicitó un reset (sin incluir el
+    // token). El `actorId` es el propio usuario objetivo; en este flujo
+    // pre-autenticación no hay "actor" humano más fiable.
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: membership.tenantId,
+        actorId: user.id,
+        action: "password.reset.requested",
+        targetType: "User",
+        targetId: user.id,
+      },
+    });
+
     return { token: issued.token };
   }
 
   async resetPassword(input: { token: string; newPassword: string }) {
-    const tokenHash = this.tokens.hash(input.token);
+    const { tokenHash } = this.tokens.verify(input.token, "PASSWORD_RESET");
     const record = await this.prisma.passwordResetToken.findUnique({
       where: { tokenHash },
     });
@@ -162,6 +197,7 @@ export class InviteService {
       });
     }
     const hash = await this.passwords.hash(input.newPassword);
+    const usedAt = new Date();
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
@@ -169,14 +205,34 @@ export class InviteService {
       }),
       this.prisma.passwordResetToken.update({
         where: { id: record.id },
-        data: { usedAt: new Date() },
+        data: { usedAt },
       }),
       // Invalidar todas las sesiones activas: al cambiar password.
       this.prisma.session.updateMany({
         where: { userId: record.userId, revokedAt: null },
-        data: { revokedAt: new Date() },
+        data: { revokedAt: usedAt },
       }),
     ]);
+
+    // Audit post-transacción: si falla, el reset ya ocurrió pero el log
+    // queda como "best effort". No hay tenant aquí porque PasswordResetToken
+    // no es tenant-scoped, pero podemos derivarlo por la membresía activa.
+    const membership = await this.prisma.membership.findFirst({
+      where: { userId: record.userId, status: "ACTIVE" },
+      select: { tenantId: true },
+    });
+    if (membership) {
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId: membership.tenantId,
+          actorId: record.userId,
+          action: "password.reset.completed",
+          targetType: "User",
+          targetId: record.userId,
+        },
+      });
+    }
+
     return { ok: true };
   }
 

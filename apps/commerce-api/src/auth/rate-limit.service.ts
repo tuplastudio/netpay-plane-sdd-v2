@@ -54,6 +54,24 @@ export class RateLimitService {
     this.buckets.delete(key);
   }
 
+  /**
+   * Throttling de baja fricción: cuenta `limit` hits por `windowMs` sin
+   * bloquear. Útil para superficies que NO deben discriminar (ej. forgot
+   * password, donde la respuesta es uniforme): si pasa el límite, el
+   * caller decide silenciar la operación en lugar de tirar 429.
+   */
+  consume(key: string, limit: number, windowMs: number): boolean {
+    const now = Date.now();
+    const b = this.buckets.get(key);
+    if (!b || now - b.windowStart > windowMs) {
+      this.buckets.set(key, { attempts: 1, windowStart: now, blockedUntil: null });
+      return true;
+    }
+    if (b.attempts >= limit) return false;
+    b.attempts += 1;
+    return true;
+  }
+
   private gc(): void {
     const now = Date.now();
     for (const [k, b] of this.buckets.entries()) {

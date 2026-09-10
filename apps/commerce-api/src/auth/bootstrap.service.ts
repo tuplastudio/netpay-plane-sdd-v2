@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PasswordService } from "./password.service.js";
-import { createHash, randomBytes } from "node:crypto";
+import { TokenService } from "./token.service.js";
 
 /**
  * Bootstrap idempotente de tenant + propietario.
@@ -14,6 +14,7 @@ export class BootstrapService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
+    private readonly tokens: TokenService,
   ) {}
 
   async run(input: {
@@ -63,11 +64,16 @@ export class BootstrapService {
       },
     });
 
+    // El owner del primer bootstrap (DB vacía) es quien opera la
+    // plataforma completa: se marca isSuperAdmin para que pueda entrar a
+    // /super-admin y dar de alta las empresas reales. Bootstraps
+    // posteriores (tenant ya existe) no vuelven a tocar este flag.
     const user = await this.prisma.user.create({
       data: {
         email: input.ownerEmail.toLowerCase(),
         fullName: input.ownerFullName,
         passwordHash: hash,
+        isSuperAdmin: true,
       },
     });
 
@@ -81,16 +87,18 @@ export class BootstrapService {
 
     // Genera invitation token de un solo uso (no se usa aquí porque ya es owner,
     // pero el contrato lo expone para el primer re-acepto/verificación).
-    const token = randomBytes(32).toString("base64url");
-    const tokenHash = createHash("sha256").update(token).digest("hex");
+    const issued = this.tokens.issue({
+      purpose: "INVITE",
+      expiresInMs: 48 * 60 * 60 * 1000,
+    });
     await this.prisma.invitation.create({
       data: {
         tenantId: tenant.id,
         email: input.ownerEmail.toLowerCase(),
         fullName: input.ownerFullName,
         role: "OWNER",
-        tokenHash,
-        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        tokenHash: issued.tokenHash,
+        expiresAt: issued.expiresAt,
       },
     });
 
@@ -107,7 +115,7 @@ export class BootstrapService {
     return {
       tenantId: tenant.id,
       ownerUserId: user.id,
-      invitationToken: token,
+      invitationToken: issued.token,
       configVersion: tenant.configVersion,
       alreadyExisted: false,
     };

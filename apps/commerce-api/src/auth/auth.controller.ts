@@ -14,6 +14,7 @@ import { BootstrapService } from "./bootstrap.service.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { Public } from "./guards/principal.guard.js";
 import { InviteService } from "./invite.service.js";
+import { ForgotPasswordDto, ResetPasswordDto } from "./auth.dto.js";
 
 const SESSION_COOKIE =
   process.env.NODE_ENV === "production" ? "__Host-session" : "session";
@@ -166,16 +167,23 @@ export class AuthController {
   @Public()
   @Post("forgot-password")
   @HttpCode(200)
-  async forgot(@Body() body: { email: string }) {
+  async forgot(@Body() body: ForgotPasswordDto) {
     const result = await this.invite.requestPasswordReset(body.email);
-    // Respuesta uniforme; en producción no devolver el token (enviarlo por email).
-    return { data: { ok: true, ...(result.token ? { token: result.token } : {}) }, requestId: RequestContext.requestId };
+    // Respuesta uniforme. El token solo viaja en la respuesta cuando NO
+    // estamos en producción: en prod se manda por correo y el frontend nunca
+    // debe verlo. `result.throttled` se ignora a propósito para no filtrar
+    // estado del throttle al atacante.
+    const includeToken = process.env.NODE_ENV !== "production" && !!result.token;
+    return {
+      data: { ok: true, ...(includeToken ? { token: result.token } : {}) },
+      requestId: RequestContext.requestId,
+    };
   }
 
   @Public()
   @Post("reset-password")
   @HttpCode(200)
-  async reset(@Body() body: { token: string; newPassword: string }) {
+  async reset(@Body() body: ResetPasswordDto) {
     await this.invite.resetPassword(body);
     return { data: { ok: true }, requestId: RequestContext.requestId };
   }
