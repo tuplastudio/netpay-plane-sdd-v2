@@ -15,6 +15,8 @@ import { RoleGuard, RequireScopes } from "./guards/role.guard.js";
 import { PrincipalGuard } from "./guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { InviteService } from "./invite.service.js";
+import { PrismaService } from "../prisma/prisma.service.js";
+import { InvitationMailer } from "./invitation-mailer.service.js";
 
 @Controller("iam")
 @UseGuards(PrincipalGuard, RoleGuard)
@@ -22,6 +24,8 @@ export class ApiKeyController {
   constructor(
     private readonly apiKeys: ApiKeyService,
     private readonly invite: InviteService,
+    private readonly prisma: PrismaService,
+    private readonly mailer: InvitationMailer,
   ) {}
 
   // ---- API keys (T-IAM-05) ----
@@ -76,6 +80,21 @@ export class ApiKeyController {
       fullName: body.fullName,
       role: body.role,
     });
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (tenant) {
+      // Best-effort (ver InvitationMailer): si el correo falla, la invitación ya
+      // existe y el admin puede copiar el enlace desde el panel.
+      await this.mailer.sendBestEffort({
+        tenant,
+        email: body.email,
+        fullName: body.fullName,
+        role: body.role,
+        token: result.token,
+        expiresAt: result.expiresAt,
+      });
+    }
+
     return { data: result, requestId: RequestContext.requestId };
   }
 

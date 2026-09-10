@@ -5,6 +5,7 @@ import {
   isMoney,
   isQuantity,
   qtyTimesPrice,
+  roundHalfUp,
   subMoney,
 } from "../src/money.js";
 import { calculateQuoteTotals, DEFAULT_TAX_RATE_PCT } from "../src/pricing.js";
@@ -46,6 +47,18 @@ describe("money decimal arithmetic", () => {
   it("descuento fuera de rango falla", () => {
     expect(() => applyDiscount("10.00", -1)).toThrow();
     expect(() => applyDiscount("10.00", 101)).toThrow();
+  });
+
+  it("redondeo half-up conserva la escala pedida", () => {
+    // Antes devolvía un string de ~100 dígitos: le pasaba un factor donde
+    // `toScaled` espera una escala.
+    expect(roundHalfUp("1.005", 2)).toBe("1.01");
+    expect(roundHalfUp("1.004", 2)).toBe("1.00");
+    expect(roundHalfUp("12.345", 2)).toBe("12.35");
+    expect(roundHalfUp("0.5", 0)).toBe("1");
+    expect(roundHalfUp("0.4", 0)).toBe("0");
+    expect(roundHalfUp("199.99", 2)).toBe("199.99");
+    expect(() => roundHalfUp("1.00", -1)).toThrow();
   });
 
   it("validadores de formato", () => {

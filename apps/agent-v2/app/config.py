@@ -69,6 +69,11 @@ class Settings:
         default_factory=lambda: _env("AGENT_INTERNAL_KEY_REF") or _env("AGENT_INTERNAL_KEY")
     )
 
+    # ---- Cifrado de secretos por tenant (ej. su propia OpenRouter API key) ----
+    # No es un KMS de producción: una sola clave simétrica de servidor,
+    # suficiente para esta etapa. Ver agent_settings.py `_encrypt`/`_decrypt`.
+    secret_key: str = field(default_factory=lambda: _env("AGENT_SECRET_KEY"))
+
     # ---- Persistencia: el "hilo" de cada conversación y la memoria larga ----
     data_dir: Path = field(
         default_factory=lambda: Path(_env("AGENT_V2_DATA_DIR") or str(SERVICE_DIR / ".data"))
@@ -140,7 +145,9 @@ class Settings:
 
     @property
     def commerce_live(self) -> bool:
-        return bool(self.commerce_api_key)
+        # Multi-tenant usa aserciones HMAC por petición; la API key global se
+        # conserva solo para despliegues legacy de una empresa.
+        return bool(self.internal_key or self.commerce_api_key)
 
     @property
     def checkpoint_path(self) -> Path:

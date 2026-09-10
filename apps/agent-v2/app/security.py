@@ -35,6 +35,7 @@ TOOL_SCOPES: dict[str, str] = {
     "recordar_cliente": "chat.write",
     "historial_del_cliente": "customers.read",
     "detalle_de_cotizacion": "quotes.read",
+    "solicitar_factura": "orders.write",
     "escalar_a_humano": "chat.write",
 }
 

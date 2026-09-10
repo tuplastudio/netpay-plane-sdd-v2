@@ -4,14 +4,26 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
-import { Copy } from "lucide-react";
+import { AlertCircle, Copy, Link2, PackageOpen } from "lucide-react";
 import { api } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { SkeletonText } from "@/components/ui/skeleton";
+import { SOURCE_LABELS, StatusBadge } from "@/components/ui/status-badge";
+import { DateTime } from "@/components/app/date-time";
+import { DescriptionList, FieldRow } from "@/components/app/field-row";
+import { Money } from "@/components/app/money";
+import { PageHeader } from "@/components/app/page-header";
+import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { statusVariant, ORDER_STATUS_LABEL, PAYMENT_STATUS_LABEL } from "@/lib/payments";
+import { DetailLinesTable } from "@/components/app/detail-lines-table";
+import {
+  ManualCheckoutCard,
+  type DeliveryMode,
+} from "../_components/manual-checkout-card";
+import { RevisionsTable, type OrderRevision } from "./_components/revisions-table";
+import { PaymentsTable, type OrderPayment } from "./_components/payments-table";
 
 interface Variant { id: string; sku: string; title: string; price: string; stock: string | null; }
 interface Product { id: string; title: string; sku: string; variants: Variant[]; }
@@ -31,6 +43,7 @@ interface Order {
   status: string;
   source: string;
   quoteId: string | null;
+  currentRevisionId: string | null;
   description: string | null;
   total: string;
   subtotal: string;
@@ -41,6 +54,14 @@ interface Order {
   updatedAt: string;
   placedAt: string | null;
   paidAt: string | null;
+  requiresInvoice: boolean;
+  invoiceStatus: "NONE" | "REQUESTED" | "DATA_COMPLETE";
+  invoiceRfc: string | null;
+  invoiceLegalName: string | null;
+  invoicePostalCode: string | null;
+  invoiceCfdiUse: string | null;
+  invoiceConstanciaUrl: string | null;
+  invoiceRequestedAt: string | null;
   customer: {
     id: string;
     fullName: string;
@@ -50,24 +71,8 @@ interface Order {
   };
   quote: { id: string; status: string; issuedAt: string | null; acceptedAt: string | null } | null;
   lines: OrderLine[];
-  revisions: Array<{
-    id: string;
-    revisionNumber: number;
-    status: string;
-    total: string;
-    deliveryMode: string;
-    createdAt: string;
-    expiresAt: string;
-    lines: OrderLine[];
-  }>;
-  payments: Array<{
-    id: string;
-    status: string;
-    amount: string;
-    currency: string;
-    capturedAt: string | null;
-    createdAt: string;
-  }>;
+  revisions: OrderRevision[];
+  payments: OrderPayment[];
 }
 
 interface QuoteLine {
@@ -87,9 +92,6 @@ async function copyToClipboard(text: string, label: string) {
 
 export default function OrderDetailPage() {
   const params = useParams<{ id: string }>();
-  const [variantId, setVariantId] = useState("");
-  const [qty, setQty] = useState("1.000");
-  const [deliveryMode, setDeliveryMode] = useState<"PICKUP" | "LOCAL_DELIVERY">("PICKUP");
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
@@ -150,6 +152,30 @@ export default function OrderDetailPage() {
     onError: () => toast.error("No se pudo iniciar checkout"),
   });
 
+  const startCheckoutManual = useMutation({
+    mutationFn: async (input: {
+      variantId: string;
+      quantity: string;
+      deliveryMode: DeliveryMode;
+    }) => {
+      const res = await api.post(`/orders/${params.id}/checkout`, {
+        lines: [{ variantId: input.variantId, quantity: input.quantity }],
+        deliveryMode: input.deliveryMode,
+      });
+      return res.data.data as { checkoutToken: string | null };
+    },
+    onSuccess: async (data) => {
+      toast.success("Checkout abierto");
+      if (data.checkoutToken) {
+        const url = `${window.location.origin}/checkout/${data.checkoutToken}`;
+        setPaymentLink(url);
+        void copyToClipboard(url, "Link de pago");
+      }
+      await orderQ.refetch();
+    },
+    onError: () => toast.error("No se pudo iniciar checkout"),
+  });
+
   const resumeCheckout = useMutation({
     mutationFn: async () => {
       const res = await api.post(`/orders/${params.id}/checkout/resume`);
@@ -175,62 +201,76 @@ export default function OrderDetailPage() {
     onError: () => toast.error("No se pudo cancelar"),
   });
 
-  async function startCheckoutManual() {
-    if (!variantId) {
-      toast.error("Selecciona una variante");
-      return;
-    }
-    try {
-      const res = await api.post(`/orders/${params.id}/checkout`, {
-        lines: [{ variantId, quantity: qty }],
-        deliveryMode,
-      });
-      const data = res.data.data as { checkoutToken: string | null };
-      toast.success("Checkout abierto");
-      if (data.checkoutToken) {
-        const url = `${window.location.origin}/checkout/${data.checkoutToken}`;
-        setPaymentLink(url);
-        void copyToClipboard(url, "Link de pago");
-      }
-      await orderQ.refetch();
-    } catch {
-      toast.error("No se pudo iniciar checkout");
-    }
+  if (orderQ.isLoading) {
+    return (
+      <div>
+        <PageHeader title="Venta" backHref="/orders" breadcrumbs={[{ label: "Pedidos", href: "/orders" }, { label: "Detalle" }]} />
+        <div className="space-y-6">
+          <Section title="Cargando pedido">
+            <SkeletonText lines={4} label="Cargando pedido…" />
+          </Section>
+        </div>
+      </div>
+    );
   }
 
-  if (orderQ.isLoading) return <main className="container py-8">Cargando…</main>;
-  if (!order) return null;
+  if (orderQ.isError || !order) {
+    return (
+      <div>
+        <PageHeader
+          title="Venta"
+          backHref="/orders"
+          breadcrumbs={[{ label: "Pedidos", href: "/orders" }, { label: "Detalle" }]}
+        />
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>No se pudo cargar el pedido</AlertTitle>
+          <AlertDescription>
+            <p>Revisa el identificador o inténtalo de nuevo.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => void orderQ.refetch()}>
+                Reintentar
+              </Button>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/orders">Volver a pedidos</Link>
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  const shortId = order.id.slice(0, 8);
+  const canCancel =
+    order.status === "DRAFT" ||
+    order.status === "CHECKOUT_OPEN" ||
+    order.status === "AWAITING_PAYMENT";
 
   return (
-    <main className="container py-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold">Venta {order.id.slice(0, 8)}…</h1>
-          <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <Badge variant={statusVariant(order.status)}>
-              {ORDER_STATUS_LABEL[order.status] ?? order.status}
-            </Badge>
-            <span>{order.customer.fullName}</span>
+    <div>
+      <PageHeader
+        title={`Venta ${shortId}…`}
+        backHref="/orders"
+        breadcrumbs={[{ label: "Pedidos", href: "/orders" }, { label: `#${shortId}` }]}
+        meta={
+          <>
+            <StatusBadge status={order.status} domain="order" withDot />
+            <span className="text-foreground">{order.customer.fullName}</span>
             <span aria-hidden>·</span>
-            <span>origen {order.source}</span>
+            <span>Origen: {SOURCE_LABELS[order.source] ?? order.source}</span>
             <span aria-hidden>·</span>
-            <span>{new Date(order.createdAt).toLocaleString("es-MX")}</span>
-            {order.quoteId ? (
-              <>
-                <span aria-hidden>·</span>
-                <Link href={`/quotes/${order.quoteId}`} className="text-primary hover:underline">
-                  cotización {order.quoteId.slice(0, 8)}…
-                </Link>
-              </>
-            ) : null}
-          </p>
-        </div>
-        {(order.status === "DRAFT" || order.status === "CHECKOUT_OPEN" || order.status === "AWAITING_PAYMENT") && (
-          <Button variant="ghost" onClick={() => setCancelConfirmOpen(true)}>
-            Cancelar pedido
-          </Button>
-        )}
-      </header>
+            <DateTime value={order.createdAt} />
+          </>
+        }
+        actions={
+          canCancel ? (
+            <Button variant="outline" onClick={() => setCancelConfirmOpen(true)}>
+              Cancelar pedido
+            </Button>
+          ) : null
+        }
+      />
 
       <ConfirmDialog
         open={cancelConfirmOpen}
@@ -242,291 +282,266 @@ export default function OrderDetailPage() {
         onConfirm={() => cancelOrder.mutate()}
       />
 
-      {paymentLink && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-card border bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30">
-          <span className="font-medium">Link de pago:</span>
-          <a href={paymentLink} target="_blank" rel="noreferrer" className="break-all text-primary underline">
-            {paymentLink}
-          </a>
-          <Button variant="outline" size="sm" onClick={() => void copyToClipboard(paymentLink, "Link de pago")}>
-            <Copy className="h-3.5 w-3.5" />
-            Copiar
-          </Button>
-        </div>
-      )}
+      <div className="space-y-6">
+        {paymentLink && (
+          <Alert variant="success">
+            <Link2 />
+            <AlertTitle>Link de pago listo</AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href={paymentLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all underline underline-offset-4"
+                >
+                  {paymentLink}
+                </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void copyToClipboard(paymentLink, "Link de pago")}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copiar
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <section className="md:col-span-2 space-y-4">
-          {(order.status === "CHECKOUT_OPEN" || order.status === "AWAITING_PAYMENT") && (
-            <div className="rounded-card border bg-card p-4">
-              <h2 className="mb-1 font-semibold">Esperando pago</h2>
-              <p className="mb-3 text-sm text-muted-foreground">
-                El pedido tiene un checkout abierto. Genera (o reenvía) el link de pago para cobrarlo en línea.
-              </p>
-              <Button onClick={() => resumeCheckout.mutate()} disabled={resumeCheckout.isPending}>
-                {resumeCheckout.isPending ? "Generando…" : "Pagar pedido"}
-              </Button>
-            </div>
-          )}
-
-          {isDraftFromQuote && (
-            <div className="rounded-card border bg-card p-4">
-              <h2 className="mb-1 font-semibold">Iniciar checkout</h2>
-              <p className="mb-3 text-sm text-muted-foreground">
-                Este pedido viene de una cotización aceptada. Se cobra con las mismas líneas y descuentos.
-              </p>
-              <Button
-                onClick={() => startCheckoutFromQuote.mutate()}
-                disabled={startCheckoutFromQuote.isPending || quoteLinesQ.isLoading || !quoteLinesQ.data}
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="space-y-6 md:col-span-2">
+            {(order.status === "CHECKOUT_OPEN" || order.status === "AWAITING_PAYMENT") && (
+              <Section
+                title="Esperando pago"
+                description="El pedido tiene un checkout abierto. Genera (o reenvía) el link de pago para cobrarlo en línea."
               >
-                {startCheckoutFromQuote.isPending ? "Abriendo…" : "Iniciar checkout"}
-              </Button>
-            </div>
-          )}
-
-          {order.status === "DRAFT" && order.source !== "QUOTE" && (
-            <div className="rounded-card border bg-card p-4">
-              <h2 className="mb-3 font-semibold">Iniciar checkout</h2>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="md:col-span-2 space-y-1.5">
-                  <Label>Variante</Label>
-                  <select
-                    className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                    value={variantId}
-                    onChange={(e) => setVariantId(e.target.value)}
-                  >
-                    <option value="">Selecciona…</option>
-                    {productsQ.data?.flatMap((p) =>
-                      p.variants.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {p.title} — {v.title} (${v.price})
-                        </option>
-                      )),
-                    )}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Cantidad</Label>
-                  <Input value={qty} onChange={(e) => setQty(e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Entrega</Label>
-                  <select
-                    className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                    value={deliveryMode}
-                    onChange={(e) => setDeliveryMode(e.target.value as "PICKUP" | "LOCAL_DELIVERY")}
-                  >
-                    <option value="PICKUP">Recolección</option>
-                    <option value="LOCAL_DELIVERY">Envío local</option>
-                  </select>
-                </div>
-              </div>
-              <div className="mt-3">
-                <Button onClick={startCheckoutManual}>Iniciar checkout</Button>
-              </div>
-            </div>
-          )}
-
-          <div className="overflow-x-auto rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Productos vendidos</h2>
-            {order.lines.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Este pedido todavía no tiene líneas: se registran al iniciar el checkout.
-              </p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                    <th className="p-2">SKU</th>
-                    <th className="p-2">Producto</th>
-                    <th className="p-2 text-right">Cant.</th>
-                    <th className="p-2 text-right">P. unit.</th>
-                    <th className="p-2 text-right">Importe</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.lines.map((l) => (
-                    <tr key={l.variantId} className="border-b last:border-0">
-                      <td className="p-2 font-mono text-xs">{l.sku ?? "—"}</td>
-                      <td className="p-2">
-                        {l.productTitle ? (
-                          <span className="text-muted-foreground">{l.productTitle} · </span>
-                        ) : null}
-                        {l.title ?? l.variantId.slice(0, 8)}
-                      </td>
-                      <td className="p-2 text-right font-mono">{Number(l.quantity)}</td>
-                      <td className="p-2 text-right font-mono">
-                        {l.unitPrice ? `$${l.unitPrice}` : "—"}
-                      </td>
-                      <td className="p-2 text-right font-mono">
-                        {l.lineTotal ? `$${l.lineTotal}` : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                <Button
+                  loading={resumeCheckout.isPending}
+                  onClick={() => resumeCheckout.mutate()}
+                >
+                  Pagar pedido
+                </Button>
+              </Section>
             )}
-          </div>
 
-          <div className="overflow-x-auto rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Revisiones</h2>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                  <th className="p-2">#</th>
-                  <th className="p-2">Estado</th>
-                  <th className="p-2">Entrega</th>
-                  <th className="p-2 text-right">Líneas</th>
-                  <th className="p-2 text-right">Total</th>
-                  <th className="p-2">Creada</th>
-                </tr>
-              </thead>
-              <tbody>
-                {order.revisions.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="p-2">{r.revisionNumber}</td>
-                    <td className="p-2 text-xs uppercase">{r.status}</td>
-                    <td className="p-2 text-xs">
-                      {r.deliveryMode === "PICKUP" ? "Recolección" : "Envío local"}
-                    </td>
-                    <td className="p-2 text-right font-mono">{r.lines.length}</td>
-                    <td className="p-2 text-right font-mono">${r.total}</td>
-                    <td className="p-2 text-xs text-muted-foreground">
-                      {new Date(r.createdAt).toLocaleString("es-MX")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="overflow-x-auto rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Pagos</h2>
-            {order.payments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sin sesiones de pago.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                    <th className="p-2">Sesión</th>
-                    <th className="p-2">Estado</th>
-                    <th className="p-2 text-right">Monto</th>
-                    <th className="p-2">Creada</th>
-                    <th className="p-2">Capturado</th>
-                    <th className="p-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.payments.map((p) => (
-                    <tr key={p.id} className="border-b last:border-0">
-                      <td className="p-2">
-                        <Link
-                          href={`/payments/${p.id}`}
-                          className="font-mono text-xs text-primary hover:underline"
-                        >
-                          {p.id.slice(0, 8)}…
-                        </Link>
-                      </td>
-                      <td className="p-2">
-                        <Badge variant={statusVariant(p.status)}>
-                          {PAYMENT_STATUS_LABEL[p.status] ?? p.status}
-                        </Badge>
-                      </td>
-                      <td className="p-2 text-right font-mono">${p.amount}</td>
-                      <td className="p-2 text-xs text-muted-foreground">
-                        {new Date(p.createdAt).toLocaleString("es-MX")}
-                      </td>
-                      <td className="p-2 text-xs text-muted-foreground">
-                        {p.capturedAt ? new Date(p.capturedAt).toLocaleString("es-MX") : "—"}
-                      </td>
-                      <td className="p-2 text-right">
-                        <Button asChild variant="ghost" size="sm">
-                          <Link href={`/payments/${p.id}`}>Ver pago</Link>
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {isDraftFromQuote && (
+              <Section
+                title="Iniciar checkout"
+                description="Este pedido viene de una cotización aceptada. Se cobra con las mismas líneas y descuentos."
+              >
+                <Button
+                  loading={startCheckoutFromQuote.isPending}
+                  disabled={quoteLinesQ.isLoading || !quoteLinesQ.data}
+                  onClick={() => startCheckoutFromQuote.mutate()}
+                >
+                  Iniciar checkout
+                </Button>
+              </Section>
             )}
-          </div>
-        </section>
 
-        <section className="space-y-6">
-          <div className="rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Totales</h2>
-            <dl className="space-y-2 text-sm">
-              <Row label="Subtotal" value={order.subtotal} />
-              <Row label="Descuento" value={order.discount} />
-              <Row label="IVA" value={order.tax} />
-              <Row label="Envío" value={order.shipping} />
-              <div className="border-t pt-2">
-                <Row label="Total" value={order.total} bold />
-              </div>
-            </dl>
-          </div>
-
-          <div className="rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Cliente</h2>
-            <dl className="space-y-2 text-sm">
-              <TextRow label="Nombre" value={order.customer.fullName} />
-              <TextRow label="Correo" value={order.customer.email ?? "—"} />
-              <TextRow label="Teléfono" value={order.customer.phone ?? "—"} />
-              <TextRow label="RFC" value={order.customer.taxId ?? "—"} />
-            </dl>
-            <Button asChild variant="outline" size="sm" className="mt-3 w-full">
-              <Link href={`/customers/${order.customer.id}`}>Ver cliente</Link>
-            </Button>
-          </div>
-
-          <div className="rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Línea de tiempo</h2>
-            <dl className="space-y-2 text-sm">
-              <TextRow label="Creado" value={new Date(order.createdAt).toLocaleString("es-MX")} />
-              {order.quote?.issuedAt ? (
-                <TextRow
-                  label="Cotización emitida"
-                  value={new Date(order.quote.issuedAt).toLocaleString("es-MX")}
-                />
-              ) : null}
-              {order.quote?.acceptedAt ? (
-                <TextRow
-                  label="Cotización aceptada"
-                  value={new Date(order.quote.acceptedAt).toLocaleString("es-MX")}
-                />
-              ) : null}
-              {order.placedAt ? (
-                <TextRow label="Confirmado" value={new Date(order.placedAt).toLocaleString("es-MX")} />
-              ) : null}
-              {order.paidAt ? (
-                <TextRow label="Pagado" value={new Date(order.paidAt).toLocaleString("es-MX")} />
-              ) : null}
-              <TextRow
-                label="Última actualización"
-                value={new Date(order.updatedAt).toLocaleString("es-MX")}
+            {order.status === "DRAFT" && order.source !== "QUOTE" && (
+              <ManualCheckoutCard
+                products={productsQ.data}
+                pending={startCheckoutManual.isPending}
+                onStart={(input) => {
+                  if (!input.variantId) {
+                    toast.error("Selecciona una variante");
+                    return;
+                  }
+                  startCheckoutManual.mutate(input);
+                }}
               />
-            </dl>
+            )}
+
+            <Section title="Productos vendidos" padded={false}>
+              {order.lines.length === 0 ? (
+                <EmptyState
+                  icon={<PackageOpen className="h-6 w-6" />}
+                  title="Sin líneas todavía"
+                  description="Las líneas de este pedido se registran al iniciar el checkout."
+                />
+              ) : (
+                <DetailLinesTable
+                  lines={order.lines.map((l) => ({
+                    key: l.variantId,
+                    variantId: l.variantId,
+                    sku: l.sku ?? "—",
+                    title: l.productTitle
+                      ? `${l.productTitle} — ${l.title ?? l.variantId.slice(0, 8)}`
+                      : l.title ?? l.variantId.slice(0, 8),
+                    quantity: l.quantity,
+                    unitPrice: l.unitPrice ?? "0",
+                    lineSubtotal: l.lineTotal ?? "0",
+                  }))}
+                  total={order.total}
+                  footerLabel="Total del pedido"
+                  showDiscount={false}
+                />
+              )}
+            </Section>
+
+            <Section
+              title="Revisiones"
+              description="Cada propuesta de checkout con sus líneas reservadas. Toca una fila para ver el detalle."
+              padded={false}
+            >
+              <RevisionsTable
+                revisions={order.revisions}
+                currentRevisionId={order.currentRevisionId}
+              />
+            </Section>
+
+            <Section
+              title="Pagos"
+              description="Sesiones de cobro y sus movimientos en el ledger."
+              padded={false}
+            >
+              <PaymentsTable payments={order.payments} />
+            </Section>
           </div>
-        </section>
+
+          <div className="space-y-6">
+            <Section title="Totales">
+              <DescriptionList divided>
+                <FieldRow label="Subtotal" numeric>
+                  <Money value={order.subtotal} />
+                </FieldRow>
+                <FieldRow label="Descuento" numeric>
+                  <Money value={order.discount} />
+                </FieldRow>
+                <FieldRow label="IVA" numeric>
+                  <Money value={order.tax} />
+                </FieldRow>
+                <FieldRow label="Envío" numeric>
+                  <Money value={order.shipping} />
+                </FieldRow>
+                <FieldRow label="Total" numeric emphasis>
+                  <Money value={order.total} emphasis showCurrency />
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+
+            <Section
+              title="Cliente"
+              footer={
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/customers/${order.customer.id}`}>Ver cliente</Link>
+                </Button>
+              }
+            >
+              <DescriptionList divided>
+                <FieldRow label="Nombre">{order.customer.fullName}</FieldRow>
+                <FieldRow label="Correo">{order.customer.email}</FieldRow>
+                <FieldRow label="Teléfono">{order.customer.phone}</FieldRow>
+                <FieldRow label="RFC" mono>
+                  {order.customer.taxId}
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+
+            {order.requiresInvoice ? (
+              <Section title="Facturación (CFDI)">
+                <DescriptionList divided>
+                  <FieldRow label="Estado">
+                    <StatusBadge status={order.invoiceStatus} domain="generic" withDot />
+                  </FieldRow>
+                  <FieldRow label="RFC" mono>
+                    {order.invoiceRfc}
+                  </FieldRow>
+                  <FieldRow label="Razón social">{order.invoiceLegalName}</FieldRow>
+                  <FieldRow label="Código postal fiscal" mono>
+                    {order.invoicePostalCode}
+                  </FieldRow>
+                  <FieldRow label="Uso de CFDI" mono>
+                    {order.invoiceCfdiUse}
+                  </FieldRow>
+                  <FieldRow label="Constancia de situación fiscal">
+                    {order.invoiceConstanciaUrl ? (
+                      <a
+                        href={order.invoiceConstanciaUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary-strong underline underline-offset-4"
+                      >
+                        Ver documento
+                      </a>
+                    ) : (
+                      <span className="text-muted-foreground">Pendiente de recibir</span>
+                    )}
+                  </FieldRow>
+                  <FieldRow label="Pedida el">
+                    <DateTime value={order.invoiceRequestedAt} />
+                  </FieldRow>
+                </DescriptionList>
+              </Section>
+            ) : null}
+
+            <Section title="Referencias">
+              <DescriptionList divided>
+                <FieldRow label="ID del pedido" mono>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="break-all">{order.id}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Copiar ID del pedido"
+                      className="h-7 w-7"
+                      onClick={() => void copyToClipboard(order.id, "ID del pedido")}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </FieldRow>
+                <FieldRow label="Cotización">
+                  {order.quoteId ? (
+                    <Link
+                      href={`/quotes/${order.quoteId}`}
+                      className="font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                      title={order.quoteId}
+                    >
+                      {order.quoteId.slice(0, 8)}…
+                    </Link>
+                  ) : null}
+                </FieldRow>
+                <FieldRow label="Descripción">{order.description}</FieldRow>
+              </DescriptionList>
+            </Section>
+
+            <Section title="Línea de tiempo">
+              <DescriptionList divided>
+                <FieldRow label="Creado">
+                  <DateTime value={order.createdAt} />
+                </FieldRow>
+                {order.quote?.issuedAt ? (
+                  <FieldRow label="Cotización emitida">
+                    <DateTime value={order.quote.issuedAt} />
+                  </FieldRow>
+                ) : null}
+                {order.quote?.acceptedAt ? (
+                  <FieldRow label="Cotización aceptada">
+                    <DateTime value={order.quote.acceptedAt} />
+                  </FieldRow>
+                ) : null}
+                {order.placedAt ? (
+                  <FieldRow label="Confirmado">
+                    <DateTime value={order.placedAt} />
+                  </FieldRow>
+                ) : null}
+                {order.paidAt ? (
+                  <FieldRow label="Pagado">
+                    <DateTime value={order.paidAt} />
+                  </FieldRow>
+                ) : null}
+                <FieldRow label="Última actualización">
+                  <DateTime value={order.updatedAt} />
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+          </div>
+        </div>
       </div>
-    </main>
-  );
-}
-
-function TextRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="break-all text-right">{value}</dd>
-    </div>
-  );
-}
-
-function Row({ label, value, bold = false }: { label: string; value: string; bold?: boolean }) {
-  return (
-    <div className="flex justify-between">
-      <dt className={bold ? "font-semibold" : "text-muted-foreground"}>{label}</dt>
-      <dd className={bold ? "font-mono font-semibold" : "font-mono"}>${value}</dd>
     </div>
   );
 }

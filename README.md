@@ -52,11 +52,20 @@ pnpm db:seed
 pnpm bootstrap
 
 # 6. Dependencias del agente (Python 3.12+)
-cd apps/agent-service && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt && cd -
+pnpm agent:setup      # v1 (apps/agent-service)
+pnpm agent-v2:setup   # v2 (apps/agent-v2) — el que sirve WhatsApp hoy
 
-# 7. Arrancar todas las apps en modo desarrollo
+# 7. Arrancar todas las apps en modo desarrollo (web, commerce-api, worker,
+#    agent-service y agent-v2, todo local, sin Docker)
 pnpm dev
 ```
+
+`pnpm compose:up` levanta solo infraestructura (Postgres, RabbitMQ, MinIO) en
+contenedores. Todas las apps (`web`, `commerce-api`, `commerce-worker`,
+`agent-service`, `agent-v2`) corren en el host vía `pnpm dev` — es el flujo
+estándar de desarrollo. El perfil `docker compose --profile full` (que
+también containeriza las apps) queda solo para levantar un stack completo de
+demo/staging, no para el día a día.
 
 `pnpm db:seed` imprime **una sola vez** la API key del agente
 (`npk_...`). Cópiala a `AGENT_API_KEY_REF` en `.env`: sin ella el agente
@@ -72,6 +81,24 @@ horarios, envíos, formas de pago, garantías y promociones; el frontmatter de
 - Chat de prueba: http://localhost:3000/chat
 - Consola (conocimiento, modelo, herramientas): http://localhost:3000/agent
 - Suite de evaluación: `cd apps/agent-service && .venv/bin/python -m app.evals`
+
+## Correo (invitaciones y notificaciones)
+
+`commerce-api` manda correo transaccional (invitaciones de usuario, avisos de
+cotización/pago cuando el cliente no tiene teléfono) vía
+[Resend](https://resend.com), con plantillas HTML en
+`apps/commerce-api/src/email/templates/*.hbs` (Handlebars).
+
+- `RESEND_API_KEY` — sin ella, el envío se **simula** (se loguea, no se manda
+  correo real) y nada se rompe: mismo patrón que `PAYMENT_PROVIDER=DUMMY`.
+- `RESEND_FROM_EMAIL` — remitente, por defecto `NetPay Plane <onboarding@resend.dev>`.
+
+## Cifrado de secretos por tenant
+
+`AGENT_SECRET_KEY` (agent-v2) cifra la OpenRouter API key propia de cada
+tenant en `apps/agent-v2/.settings/*.json`. Sin configurarla se usa una clave
+de desarrollo insegura por defecto — cambiarla es obligatorio antes de
+producción.
 
 Sin `OPENROUTER_KEY_REF` el agente **sigue funcionando** con su motor
 determinista: busca en el catálogo, cotiza, cobra y escala a un humano.

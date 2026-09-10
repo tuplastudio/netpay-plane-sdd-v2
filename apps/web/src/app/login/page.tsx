@@ -1,19 +1,25 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, syncSessionAfterAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  AuthCard,
+  AuthError,
+  AuthField,
+  AuthForm,
+  AuthLink,
+  authErrorMessage,
+} from "@/components/app/auth-card";
 
 const schema = z.object({
-  email: z.string().email(),
-  password: z.string().min(12),
+  email: z.string().email("Escribe un correo válido"),
+  password: z.string().min(12, "Mínimo 12 caracteres"),
   tenantSlug: z.string().optional(),
 });
 
@@ -22,6 +28,7 @@ type FormValues = z.infer<typeof schema>;
 export default function LoginPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const {
     register,
@@ -34,88 +41,113 @@ export default function LoginPage() {
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true);
+    setFormError(null);
     try {
       const res = await api.post<{
-        data: { mfaRequired: boolean; mfaChallengeToken?: string };
+        data: {
+          mfaRequired: boolean;
+          mfaChallengeToken?: string;
+          /** Solo cuando la sesión quedó abierta (sin MFA pendiente). */
+          role?: string;
+        };
       }>("/auth/login", values);
-      if (res.data.data.mfaRequired && res.data.data.mfaChallengeToken) {
-        router.push(`/mfa/verify?token=${encodeURIComponent(res.data.data.mfaChallengeToken)}`);
+      const result = res.data.data;
+      if (result.mfaRequired && result.mfaChallengeToken) {
+        // Con MFA pendiente la autenticación NO terminó: no hay cookie de
+        // sesión todavía, así que tampoco se guarda identidad. La escribe
+        // /mfa/verify cuando el segundo factor pasa.
+        router.push(`/mfa/verify?token=${encodeURIComponent(result.mfaChallengeToken)}`);
         return;
       }
+      // Sesión abierta: la cookie HttpOnly la puso el backend. Aquí solo se
+      // cachea la identidad de pantalla; el token nunca toca el navegador.
+      await syncSessionAfterAuth({
+        role: result.role,
+        fallback: {
+          email: values.email,
+          ...(result.role ? { role: result.role } : {}),
+          ...(values.tenantSlug ? { tenantSlug: values.tenantSlug } : {}),
+        },
+      });
       toast.success("Sesión iniciada");
       router.push("/catalog");
     } catch (err) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      const message =
-        status === 401
-          ? "Credenciales inválidas"
-          : status === 429
-            ? "Demasiados intentos. Intenta en 15 minutos."
-            : "No se pudo iniciar sesión";
-      toast.error(message);
+      setFormError(
+        // El texto de respaldo no repite el título del Alert.
+        authErrorMessage(err, "Inténtalo de nuevo en un momento.", {
+          401: "Credenciales inválidas",
+          429: "Demasiados intentos. Intenta en 15 minutos.",
+        }),
+      );
     } finally {
       setSubmitting(false);
     }
   });
 
   return (
-    <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-16">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-card border bg-card p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold">Iniciar sesión</h1>
-          <p className="text-sm text-muted-foreground">
-            Ingresa con tu cuenta del portal.
+    <AuthCard
+      title="Iniciar sesión"
+      description="Ingresa con tu cuenta del portal."
+      footer={
+        <>
+          <p>
+            <AuthLink href="/recover">¿Olvidaste tu contraseña?</AuthLink>
           </p>
-        </div>
+          <p>
+            Demo: <code className="font-mono">owner@demo.local</code> /{" "}
+            <code className="font-mono">Demo1234!Demo1234!</code>
+          </p>
+        </>
+      }
+    >
+      <AuthForm onSubmit={onSubmit}>
+        <AuthError message={formError} title="No se pudo iniciar sesión" />
 
-        <div className="space-y-1.5">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" autoComplete="email" {...register("email")} />
-          {errors.email && (
-            <p className="text-xs text-destructive">{errors.email.message}</p>
+        <AuthField id="email" label="Correo electrónico" error={errors.email?.message}>
+          {(field) => (
+            <Input
+              {...field}
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoFocus
+              {...register("email")}
+            />
           )}
-        </div>
+        </AuthField>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="password">Contraseña</Label>
-          <Input
-            id="password"
-            type="password"
-            autoComplete="current-password"
-            {...register("password")}
-          />
-          {errors.password && (
-            <p className="text-xs text-destructive">{errors.password.message}</p>
+        <AuthField id="password" label="Contraseña" error={errors.password?.message}>
+          {(field) => (
+            <Input
+              {...field}
+              type="password"
+              autoComplete="current-password"
+              {...register("password")}
+            />
           )}
-        </div>
+        </AuthField>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="tenantSlug">Tenant (opcional)</Label>
-          <Input
-            id="tenantSlug"
-            placeholder="demo"
-            autoComplete="organization"
-            {...register("tenantSlug")}
-          />
-        </div>
+        <AuthField
+          id="tenantSlug"
+          label="Tenant (opcional)"
+          hint="Solo si perteneces a más de un comercio."
+          error={errors.tenantSlug?.message}
+        >
+          {(field) => (
+            <Input
+              {...field}
+              type="text"
+              placeholder="demo"
+              autoComplete="organization"
+              {...register("tenantSlug")}
+            />
+          )}
+        </AuthField>
 
-        <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting ? "Entrando..." : "Entrar"}
+        <Button type="submit" className="w-full" loading={submitting}>
+          Entrar
         </Button>
-
-        <p className="text-center text-xs">
-          <Link href="/recover" className="text-muted-foreground underline">
-            ¿Olvidaste tu contraseña?
-          </Link>
-        </p>
-
-        <p className="text-center text-xs text-muted-foreground">
-          Demo: <code>owner@demo.local</code> / <code>Demo1234!Demo1234!</code>
-        </p>
-      </form>
-    </main>
+      </AuthForm>
+    </AuthCard>
   );
 }

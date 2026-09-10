@@ -55,6 +55,20 @@ export class CreateQuoteDto {
   issue?: boolean;
 }
 
+export class UpdateQuoteDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => QuoteLineDto)
+  lines?: QuoteLineDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}
+
 export class PricingPreviewDto {
   @IsArray()
   @ArrayMinSize(1)

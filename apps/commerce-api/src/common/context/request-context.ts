@@ -13,6 +13,8 @@ export interface Principal {
   scopes?: string[];
   sessionId?: string;
   apiKeyId?: string;
+  /** Gestiona /super-admin: crear/editar tenants, cross-tenant. Nunca viene de un API key de servicio. */
+  isSuperAdmin?: boolean;
 }
 
 interface RequestStore {

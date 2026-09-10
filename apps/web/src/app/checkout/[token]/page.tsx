@@ -3,16 +3,53 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
-import { CheckCircle2, Clock, XCircle, AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  RefreshCw,
+  ChevronRight,
+  ShieldCheck,
+  Store,
+  XCircle,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { Money } from "@/components/app/money";
+import { DateTime } from "@/components/app/date-time";
+import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { cn } from "@/lib/utils";
+import {
+  ProductDetailSheet,
+  type ProductDetailProduct,
+} from "@/components/app/product-detail-sheet";
+import { BillingSection } from "./_components/billing-section";
 
 interface PublicOrderLine {
   variantId: string;
   sku: string;
   title: string;
   quantity: string;
+  unitPrice: string | null;
+  lineTotal: string | null;
+  /** Producto padre con sus variantes activas, para el detalle sin sesión. */
+  product: ProductDetailProduct | null;
+}
+
+/** Lo que se abre al tocar una línea: el producto real o, si ya no está en catálogo, la línea. */
+function productFor(line: PublicOrderLine): ProductDetailProduct {
+  if (line.product) return line.product;
+  return {
+    sku: line.sku,
+    title: line.title,
+    description: null,
+    variants: [
+      { id: line.variantId, sku: line.sku, title: line.title, price: line.unitPrice ?? "0", stock: null },
+    ],
+  };
 }
 
 interface PublicOrder {
@@ -54,10 +91,48 @@ function formatCountdown(ms: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Columna centrada de ancho acotado: la misma en los cuatro estados. */
+function PublicShell({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="flex min-h-screen justify-center bg-muted/30 px-4 py-6 sm:items-center sm:py-10">
+      <div className="w-full max-w-md space-y-4">{children}</div>
+    </main>
+  );
+}
+
+function BrandMark({ merchant }: { merchant?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2 text-center">
+      <span
+        aria-hidden
+        className="flex h-11 w-11 items-center justify-center rounded-card bg-primary text-primary-foreground"
+      >
+        <Store className="h-5 w-5" />
+      </span>
+      {merchant ? (
+        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {merchant}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Pie de confianza: siempre visible, incluso en error o carga. */
+function TrustLine() {
+  return (
+    <p className="flex flex-wrap items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+      <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      Modo de pruebas · sin dinero real
+    </p>
+  );
+}
+
 export default function CheckoutPublicPage() {
   const params = useParams<{ token: string }>();
   const token = params.token;
   const [paying, setPaying] = useState(false);
+  const [detailLine, setDetailLine] = useState<PublicOrderLine | null>(null);
 
   const orderQ = useQuery({
     queryKey: ["public-order", token],
@@ -77,6 +152,7 @@ export default function CheckoutPublicPage() {
   const expired = remainingMs === 0;
 
   async function startCheckout() {
+    if (paying) return;
     setPaying(true);
     try {
       const res = await api.post(`/orders/public/${token}/checkout`);
@@ -88,161 +164,238 @@ export default function CheckoutPublicPage() {
     }
   }
 
+  // --- 1. Cargando -----------------------------------------------------------
   if (orderQ.isLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/30">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </main>
+      <PublicShell>
+        <BrandMark />
+        <SkeletonRegion
+          label="Cargando el cobro…"
+          className="overflow-hidden rounded-card border bg-card shadow-airbnb"
+        >
+          <div className="space-y-3 border-b p-6 text-center">
+            <Skeleton className="mx-auto h-3 w-24" />
+            <Skeleton className="mx-auto h-10 w-44" />
+            <Skeleton className="mx-auto h-5 w-28 rounded-pill" />
+          </div>
+          <div className="space-y-3 p-6">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-3 w-3/4" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+        </SkeletonRegion>
+        <TrustLine />
+      </PublicShell>
     );
   }
 
+  // --- 2. Error / link inválido ---------------------------------------------
   if (orderQ.isError || !order) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-        <div className="w-full max-w-sm space-y-3 rounded-card border bg-card p-8 text-center shadow-sm">
-          <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
-          <h1 className="text-lg font-semibold">Link inválido o expirado</h1>
-          <p className="text-sm text-muted-foreground">
-            Este enlace de pago ya no es válido. Pide al vendedor que genere uno nuevo.
-          </p>
-        </div>
-      </main>
+      <PublicShell>
+        <BrandMark />
+        <Alert variant="warning">
+          <AlertTriangle aria-hidden />
+          <AlertTitle>Este enlace de pago ya no sirve</AlertTitle>
+          <AlertDescription className="space-y-3">
+            <p>
+              El link es inválido, ya se usó o venció. Pide al vendedor que te genere uno nuevo;
+              no hagas ningún pago por otra vía.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={orderQ.isFetching}
+              onClick={() => void orderQ.refetch()}
+            >
+              <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+              Reintentar
+            </Button>
+          </AlertDescription>
+        </Alert>
+        <TrustLine />
+      </PublicShell>
     );
   }
 
+  // --- 3. Estado del pedido --------------------------------------------------
+  const effectiveStatus = expired && PAYABLE.includes(order.status) ? "EXPIRED" : order.status;
+  const payable = PAYABLE.includes(order.status) && !expired;
+  const isExpired = order.status === "EXPIRED" || (expired && PAYABLE.includes(order.status));
+
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
-      <div className="w-full max-w-md space-y-4">
-        <header className="text-center">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {order.merchant}
-          </p>
-          <h1 className="text-xl font-semibold">Pago del pedido</h1>
-          <p className="text-sm text-muted-foreground">{order.customer.fullName}</p>
-        </header>
+    <PublicShell>
+      <header className="flex flex-col items-center gap-2 text-center">
+        <BrandMark merchant={order.merchant} />
+        <h1 className="text-xl font-semibold tracking-tight">Pago del pedido</h1>
+        <p className="text-sm text-muted-foreground">{order.customer.fullName}</p>
+      </header>
 
-        <div className="overflow-hidden rounded-card border bg-card shadow-sm">
-          <div className="border-b p-6 text-center">
-            <p className="text-sm text-muted-foreground">Total a pagar</p>
-            <p className="my-1 font-mono text-4xl font-semibold tabular-nums">${order.total}</p>
-            <StatusPill status={order.status} expired={expired} />
+      <div className="overflow-hidden rounded-card border bg-card shadow-airbnb">
+        {/* Jerarquía: el total y la acción van juntos y arriba de todo, para que
+            en un teléfono de 360px se vean sin hacer scroll. */}
+        <div className="space-y-3 border-b p-6 text-center">
+          <p className="text-sm text-muted-foreground">Total a pagar</p>
+          <Money
+            value={order.total}
+            emphasis
+            className="block text-4xl leading-none tracking-tight"
+          />
+          <div>
+            <StatusBadge status={effectiveStatus} domain="order" withDot />
           </div>
+        </div>
 
-          {order.lines.length > 0 && (
-            <div className="space-y-2 border-b p-5">
-              {order.lines.map((l) => (
-                <div key={l.variantId} className="flex items-center justify-between text-sm">
-                  <span className="truncate">
-                    {l.title} <span className="text-muted-foreground">× {l.quantity}</span>
+        <div className="border-b p-5 sm:p-6">
+          {/* 3a. Pagable */}
+          {payable && (
+            <>
+              <Button
+                className="h-12 w-full text-base"
+                size="lg"
+                onClick={() => void startCheckout()}
+                loading={paying}
+              >
+                {paying ? "Redirigiendo…" : "Pagar ahora"}
+              </Button>
+              {remainingMs !== null && (
+                <p
+                  className={cn(
+                    "mt-3 flex items-center justify-center gap-1.5 text-xs",
+                    remainingMs < 60_000 ? "text-destructive" : "text-muted-foreground",
+                  )}
+                >
+                  <Clock aria-hidden className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Este cobro expira en{" "}
+                    <span className="tabular-nums">{formatCountdown(remainingMs)}</span>
                   </span>
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground">{l.sku}</span>
-                </div>
-              ))}
+                </p>
+              )}
+              <p
+                className="mt-2 text-center text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                La página se actualiza sola en cuanto se confirme el pago.
+              </p>
+            </>
+          )}
+
+          {/* 3b. Pagado */}
+          {order.status === "PAID" && (
+            <div className="space-y-1 text-center">
+              <CheckCircle2 aria-hidden className="mx-auto h-10 w-10 text-success" />
+              <p className="text-base font-semibold">¡Pago confirmado!</p>
+              <p className="text-sm text-muted-foreground">
+                Ya no tienes que hacer nada. Puedes cerrar esta ventana.
+              </p>
             </div>
           )}
 
-          <div className="space-y-1.5 border-b p-5 text-sm">
-            <TotalRow label="Subtotal" value={order.subtotal} />
-            <TotalRow label="Descuento" value={order.discount} />
-            <TotalRow label="IVA" value={order.tax} />
-            <TotalRow label="Envío" value={order.shipping} />
-          </div>
+          {/* 3c. Vencido */}
+          {isExpired && (
+            <div className="space-y-1 text-center">
+              <Clock aria-hidden className="mx-auto h-10 w-10 text-muted-foreground" />
+              <p className="text-base font-semibold">El link de pago venció</p>
+              <p className="text-sm text-muted-foreground">
+                Pide al vendedor un link nuevo. El pedido sigue registrado, solo caducó el enlace.
+              </p>
+            </div>
+          )}
 
-          <div className="p-6">
-            {PAYABLE.includes(order.status) && !expired && (
-              <>
-                <Button className="w-full" size="lg" onClick={startCheckout} disabled={paying}>
-                  {paying ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Redirigiendo…
-                    </>
-                  ) : (
-                    "Pagar con dummy"
-                  )}
-                </Button>
-                {remainingMs !== null && (
-                  <p
-                    className={cn(
-                      "mt-3 flex items-center justify-center gap-1.5 text-xs",
-                      remainingMs < 60_000 ? "text-destructive" : "text-muted-foreground",
-                    )}
-                  >
-                    <Clock className="h-3.5 w-3.5" />
-                    Expira en {formatCountdown(remainingMs)}
-                  </p>
-                )}
-                <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Esta página se actualiza sola al confirmarse el pago.
-                </p>
-              </>
-            )}
-
-            {order.status === "PAID" && (
-              <div className="space-y-1 text-center">
-                <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
-                <p className="font-medium">¡Pago confirmado!</p>
-                <p className="text-sm text-muted-foreground">Puedes cerrar esta ventana.</p>
-              </div>
-            )}
-
-            {(order.status === "EXPIRED" || expired) && (
-              <div className="space-y-1 text-center">
-                <Clock className="mx-auto h-10 w-10 text-muted-foreground" />
-                <p className="font-medium">El link de pago expiró</p>
-                <p className="text-sm text-muted-foreground">
-                  Pide al vendedor un nuevo link de pago.
-                </p>
-              </div>
-            )}
-
-            {order.status === "CANCELLED" && (
-              <div className="space-y-1 text-center">
-                <XCircle className="mx-auto h-10 w-10 text-destructive" />
-                <p className="font-medium">Pedido cancelado</p>
-                <p className="text-sm text-muted-foreground">Este pedido ya no acepta pagos.</p>
-              </div>
-            )}
-          </div>
+          {/* 3d. Cancelado */}
+          {order.status === "CANCELLED" && (
+            <div className="space-y-1 text-center">
+              <XCircle aria-hidden className="mx-auto h-10 w-10 text-destructive" />
+              <p className="text-base font-semibold">Pedido cancelado</p>
+              <p className="text-sm text-muted-foreground">
+                Este pedido ya no acepta pagos. Si crees que es un error, contacta al vendedor.
+              </p>
+            </div>
+          )}
         </div>
 
-        <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5" />
-          Pasarela simulada · <code>livemode=false</code> · sin dinero real
-        </p>
+        {order.lines.length > 0 && (
+          <div className="space-y-2 border-b p-5 sm:p-6">
+            <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Qué estás pagando
+              <span className="ml-2 normal-case tracking-normal">· toca un producto para ver su detalle</span>
+            </h2>
+            <ul className="-mx-2 divide-y">
+              {order.lines.map((l) => (
+                <li key={l.variantId}>
+                  <button
+                    type="button"
+                    onClick={() => setDetailLine(l)}
+                    aria-label={`Ver detalle de ${l.title}`}
+                    className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+                  >
+                    <span className="min-w-0">
+                      <span className="block break-words font-medium">
+                        {l.product?.title && l.product.title !== l.title
+                          ? `${l.product.title} — ${l.title}`
+                          : l.title}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        <span className="font-mono">{l.sku}</span>
+                        <span aria-hidden> · </span>
+                        <span className="tabular-nums">× {l.quantity}</span>
+                        {l.unitPrice ? (
+                          <>
+                            <span aria-hidden> · </span>
+                            <Money value={l.unitPrice} /> c/u
+                          </>
+                        ) : null}
+                      </span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {l.lineTotal ? (
+                        <Money value={l.lineTotal} className="tabular-nums text-sm" />
+                      ) : null}
+                      <ChevronRight aria-hidden className="h-4 w-4 text-muted-foreground" />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="p-5 sm:p-6">
+          <h2 className="sr-only">Desglose del importe</h2>
+          <DescriptionList>
+            <FieldRow label="Subtotal" numeric>
+              <Money value={order.subtotal} />
+            </FieldRow>
+            <FieldRow label="Descuento" numeric>
+              <Money value={order.discount} />
+            </FieldRow>
+            <FieldRow label="IVA" numeric>
+              <Money value={order.tax} />
+            </FieldRow>
+            <FieldRow label="Envío" numeric>
+              <Money value={order.shipping} />
+            </FieldRow>
+            <FieldRow label="Total" numeric emphasis>
+              <Money value={order.total} showCurrency />
+            </FieldRow>
+            {order.expiresAt ? (
+              <FieldRow label="Vence">
+                <DateTime value={order.expiresAt} className="text-muted-foreground" />
+              </FieldRow>
+            ) : null}
+          </DescriptionList>
+        </div>
       </div>
-    </main>
-  );
-}
 
-function StatusPill({ status, expired }: { status: string; expired: boolean }) {
-  const effective = expired && PAYABLE.includes(status) ? "EXPIRED" : status;
-  const map: Record<string, { label: string; className: string }> = {
-    CHECKOUT_OPEN: { label: "Esperando pago", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
-    AWAITING_PAYMENT: { label: "Esperando pago", className: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
-    PAID: { label: "Pagado", className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
-    EXPIRED: { label: "Expirado", className: "bg-muted text-muted-foreground" },
-    CANCELLED: { label: "Cancelado", className: "bg-destructive/10 text-destructive" },
-  };
-  const cfg = map[effective] ?? { label: effective, className: "bg-muted text-muted-foreground" };
-  return (
-    <span
-      className={cn(
-        "mt-2 inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
-        cfg.className,
-      )}
-    >
-      {cfg.label}
-    </span>
-  );
-}
-
-function TotalRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between text-muted-foreground">
-      <span>{label}</span>
-      <span className="font-mono text-foreground">${value}</span>
-    </div>
+      <TrustLine />
+      <BillingSection />
+      <ProductDetailSheet
+        product={detailLine ? productFor(detailLine) : null}
+        open={detailLine !== null}
+        onOpenChange={(open) => !open && setDetailLine(null)}
+      />
+    </PublicShell>
   );
 }

@@ -36,13 +36,13 @@ export class CatalogController {
     @Query("limit") limit?: string,
   ) {
     const tenantId = this.requireTenant();
-    const products = await this.catalog.listProducts(tenantId, {
+    const { items, pageInfo } = await this.catalog.listProducts(tenantId, {
       q,
       status: status as "DRAFT" | "ACTIVE" | "ARCHIVED" | undefined,
       cursor,
       limit: limit ? Number(limit) : undefined,
     });
-    return { data: products, requestId: RequestContext.requestId };
+    return { data: items, pageInfo, requestId: RequestContext.requestId };
   }
 
   @Get("products/:id")

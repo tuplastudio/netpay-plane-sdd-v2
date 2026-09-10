@@ -68,6 +68,15 @@ def _last(left: Any, right: Any) -> Any:
     return right if right is not None else left
 
 
+def _replace(_left: Any, right: Any) -> Any:
+    """A diferencia de `_last`, un `None` explícito SÍ limpia el campo.
+
+    Se usa para `pending_attachment`: el adjunto de este turno no debe
+    reaparecer en el siguiente si nadie generó uno nuevo.
+    """
+    return right
+
+
 class SalesState(DeepAgentState):
     """DeepAgentState (messages + todos + filesystem) más la memoria comercial."""
 
@@ -78,6 +87,7 @@ class SalesState(DeepAgentState):
     quote_signature: Annotated[str | None, _last]
     order_id: Annotated[str | None, _last]
     checkout_link: Annotated[str | None, _last]
+    pending_attachment: Annotated[dict[str, Any] | None, _replace]
     last_totals: Annotated[dict[str, Any] | None, _last]
     handoff: Annotated[bool, _last]
     handoff_reason: Annotated[str | None, _last]

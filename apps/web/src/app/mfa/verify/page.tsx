@@ -3,10 +3,17 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { ShieldCheck } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, syncSessionAfterAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  AuthCard,
+  AuthError,
+  AuthField,
+  AuthForm,
+  AuthLink,
+  authErrorMessage,
+} from "@/components/app/auth-card";
 
 export default function MfaVerifyPage() {
   return (
@@ -22,57 +29,80 @@ function MfaVerifyForm() {
   const token = params.get("token") ?? "";
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(
+    token ? null : "Falta el token de verificación. Inicia sesión de nuevo.",
+  );
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!token) {
-      toast.error("Falta el token de verificación. Inicia sesión de nuevo.");
+      setFormError("Falta el token de verificación. Inicia sesión de nuevo.");
       return;
     }
     setSubmitting(true);
+    setFormError(null);
     try {
-      await api.post("/auth/mfa/verify", { challengeToken: token, code });
+      const res = await api.post<{ data: { role?: string } }>("/auth/mfa/verify", {
+        challengeToken: token,
+        code,
+      });
+      // Aquí sí terminó la autenticación: el backend abrió sesión y puso la
+      // cookie HttpOnly. Recién ahora se cachea la identidad del menú; el
+      // código TOTP y el de recuperación no se guardan en ningún lado.
+      await syncSessionAfterAuth({ role: res.data.data?.role });
       toast.success("Verificado");
       router.push("/catalog");
     } catch (err) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      toast.error(status === 401 ? "Código inválido o expirado" : "No se pudo verificar");
+      setFormError(
+        // El texto de respaldo no repite el título del Alert.
+        authErrorMessage(err, "Inténtalo de nuevo en un momento.", {
+          401: "Código inválido o expirado",
+        }),
+      );
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-16">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-card border bg-card p-6 shadow-sm"
-      >
-        <div className="text-center">
-          <ShieldCheck className="mx-auto mb-2 h-8 w-8 text-primary" />
-          <h1 className="text-xl font-semibold">Verificación en dos pasos</h1>
-          <p className="text-sm text-muted-foreground">
-            Ingresa el código de tu app autenticadora o un código de recuperación.
-          </p>
-        </div>
+    <AuthCard
+      icon={<ShieldCheck className="h-8 w-8" aria-hidden />}
+      title="Verificación en dos pasos"
+      description="Ingresa el código de tu app autenticadora o un código de recuperación."
+      footer={
+        <p>
+          <AuthLink href="/login">Volver a iniciar sesión</AuthLink>
+        </p>
+      }
+    >
+      <AuthForm onSubmit={onSubmit}>
+        <AuthError message={formError} title="No se pudo verificar" />
 
-        <div className="space-y-1.5">
-          <Label htmlFor="code">Código</Label>
-          <Input
-            id="code"
-            inputMode="numeric"
-            autoFocus
-            placeholder="123456"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            maxLength={16}
-          />
-        </div>
+        <AuthField
+          id="code"
+          label="Código de verificación"
+          hint="6 dígitos de tu app autenticadora. También aceptamos un código de recuperación."
+        >
+          {(field) => (
+            <Input
+              {...field}
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              autoFocus
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              maxLength={16}
+              className="text-center font-mono text-lg tracking-widest"
+            />
+          )}
+        </AuthField>
 
-        <Button type="submit" className="w-full" disabled={submitting || !code}>
-          {submitting ? "Verificando…" : "Verificar"}
+        <Button type="submit" className="w-full" loading={submitting} disabled={!code}>
+          Verificar
         </Button>
-      </form>
-    </main>
+      </AuthForm>
+    </AuthCard>
   );
 }

@@ -23,3 +23,14 @@ venv/
 storage/
 artifacts/
 prisma/migrations/*/migration_lock.toml.bak.checkpoints/
+
+# Archivos subidos por los tenants (logo). Servidos por el API en /uploads.
+apps/commerce-api/uploads/
+
+# Cache local de pnpm y salida del análisis de graphify (no son parte del producto).
+.pnpm-store/
+graphify-out/
+
+# Configuración del agente por tenant (runtime, no código): igual que uploads/,
+# vive en disco local y no se versiona.
+apps/agent-v2/.settings/

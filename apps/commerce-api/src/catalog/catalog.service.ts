@@ -27,16 +27,27 @@ export class CatalogService {
       where.OR = [
         { title: { contains: input.q, mode: "insensitive" } },
         { sku: { contains: input.q, mode: "insensitive" } },
+        { tags: { has: input.q } },
+        { synonyms: { has: input.q } },
         { variants: { some: { sku: { contains: input.q, mode: "insensitive" } } } },
       ];
     }
-    return this.prisma.product.findMany({
+    const rows = await this.prisma.product.findMany({
       where,
       include: { variants: true },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
     });
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      items,
+      pageInfo: {
+        nextCursor: hasMore ? items[items.length - 1]!.id : null,
+        size: items.length,
+      },
+    };
   }
 
   async getProduct(tenantId: string, productId: string) {
@@ -60,6 +71,8 @@ export class CatalogService {
       sku: string;
       title: string;
       description?: string;
+      tags?: string[];
+      synonyms?: string[];
       satProductCode?: string;
       satUnitCode?: string;
       variants: Array<{
@@ -84,6 +97,8 @@ export class CatalogService {
         sku: input.sku,
         title: input.title,
         description: input.description,
+        tags: input.tags ?? [],
+        synonyms: input.synonyms ?? [],
         status: "DRAFT",
         createdById: actorId,
         variants: {
@@ -109,6 +124,8 @@ export class CatalogService {
       expectedVersion: number;
       title?: string;
       description?: string;
+      tags?: string[];
+      synonyms?: string[];
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
     },
   ) {
@@ -129,6 +146,8 @@ export class CatalogService {
       data: {
         title: input.title,
         description: input.description,
+        tags: input.tags,
+        synonyms: input.synonyms,
         status: input.status,
         version: { increment: 1 },
       },

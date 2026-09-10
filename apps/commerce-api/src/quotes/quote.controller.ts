@@ -15,7 +15,7 @@ import { QuoteService } from "./quote.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
-import { CreateQuoteDto } from "./quote.dto.js";
+import { CreateQuoteDto, UpdateQuoteDto } from "./quote.dto.js";
 import { renderQuotePdf, type QuotePdfData } from "./quote-pdf.js";
 
 @Controller("quotes")
@@ -52,6 +52,17 @@ export class QuoteController {
     const actorId = RequestContext.userId ?? null;
     return {
       data: await this.quotes.create(tenantId, actorId, body),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Patch(":id")
+  @RequireScopes("quotes.write")
+  async update(@Param("id") id: string, @Body() body: UpdateQuoteDto) {
+    const tenantId = this.requireTenant();
+    const actorId = RequestContext.userId ?? null;
+    return {
+      data: await this.quotes.update(tenantId, id, actorId, body),
       requestId: RequestContext.requestId,
     };
   }
@@ -120,7 +131,14 @@ export class QuoteController {
         expiresAt: quote.expiresAt,
         notes: quote.notes,
         customer: { fullName: quote.customer.fullName, email: quote.customer.email },
+        // Quién emite: nombre y logo de la empresa para el encabezado público.
+        merchant: { name: quote.tenant.name, logoUrl: quote.tenant.logoUrl ?? null },
         lines: quote.lines,
+        // Estado de cobro para que el cliente pueda pagar desde este mismo
+        // link: `order` dice si ya se pagó; `checkoutToken` es el link de
+        // pago vigente (o null: se pide con POST /orders/public/quote/:token/checkout).
+        order: quote.order ? { id: quote.order.id, status: quote.order.status } : null,
+        checkoutToken: await this.quotes.activeCheckoutToken(quote.order),
       },
       requestId: RequestContext.requestId,
     };

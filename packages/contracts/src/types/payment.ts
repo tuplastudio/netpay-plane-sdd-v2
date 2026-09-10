@@ -15,6 +15,8 @@ export interface CheckoutSession {
   tenantId: TenantId;
   orderId: ResourceId;
   amount: Money;
+  /** Acumulado reembolsado sobre `amount`; el neto vivo es `amount - refundedTotal`. */
+  refundedTotal: Money;
   currency: "MXN";
   status: PaymentStatus;
   livemode: false;

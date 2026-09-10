@@ -8,33 +8,85 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 
-const AGENT_INTERNAL_URL = (process.env.AGENT_INTERNAL_URL ?? "http://localhost:8000").replace(
+// Por defecto apunta a agent-v2 (puerto 8010), el agente activo. Para
+// depurar contra agent-service v1 (puerto 8000), exportar
+// AGENT_INTERNAL_URL=http://localhost:8000 antes de levantar `pnpm dev`.
+const AGENT_INTERNAL_URL = (process.env.AGENT_INTERNAL_URL ?? "http://localhost:8010").replace(
   /\/$/,
   "",
 );
 const AGENT_INTERNAL_KEY = process.env.AGENT_INTERNAL_KEY ?? "";
+const API_INTERNAL_URL = (process.env.API_INTERNAL_URL ?? "http://localhost:4000").replace(/\/$/, "");
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
+
+interface AuthMe {
+  tenantId: string | null;
+  isSuperAdmin: boolean;
+}
+
+async function authenticatedTenant(req: NextRequest, requested: string | null): Promise<string | null> {
+  const response = await fetch(`${API_INTERNAL_URL}/api/v1/auth/me`, {
+    headers: { cookie: req.headers.get("cookie") ?? "" },
+    cache: "no-store",
+  });
+  if (!response.ok) return null;
+  const body = (await response.json()) as { data?: AuthMe };
+  const me = body.data;
+  if (!me) return null;
+  // Un usuario normal nunca elige el tenant en query/body. El override solo
+  // existe para la consola de super-admin y se autoriza con la sesión real.
+  if (me.isSuperAdmin && requested) return requested;
+  return me.tenantId;
+}
 
 async function proxy(req: NextRequest, pathParts: string[]): Promise<NextResponse> {
   const target = new URL(`${AGENT_INTERNAL_URL}/${pathParts.join("/")}`);
   target.search = req.nextUrl.search;
 
+  let jsonBody: Record<string, unknown> | null = null;
+  let rawBody: ArrayBuffer | undefined;
+  const hasBody = !BODYLESS_METHODS.has(req.method);
+  const contentType = req.headers.get("content-type") ?? "";
+  if (hasBody) {
+    rawBody = await req.arrayBuffer();
+    if (contentType.includes("application/json") && rawBody.byteLength) {
+      try {
+        jsonBody = JSON.parse(new TextDecoder().decode(rawBody)) as Record<string, unknown>;
+      } catch {
+        return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
+      }
+    }
+  }
+
+  const requested = target.searchParams.get("tenantId") ??
+    (typeof jsonBody?.tenantId === "string" ? jsonBody.tenantId : null);
+  let tenantId: string | null;
+  try {
+    tenantId = await authenticatedTenant(req, requested);
+  } catch {
+    return NextResponse.json({ error: "AUTH_UNAVAILABLE" }, { status: 502 });
+  }
+  if (!tenantId) {
+    return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  target.searchParams.set("tenantId", tenantId);
+  if (jsonBody) jsonBody.tenantId = tenantId;
+
   const headers = new Headers();
-  const contentType = req.headers.get("content-type");
   if (contentType) headers.set("content-type", contentType);
   if (AGENT_INTERNAL_KEY) headers.set("x-internal-key", AGENT_INTERNAL_KEY);
-
-  const hasBody = !BODYLESS_METHODS.has(req.method);
 
   let upstream: Response;
   try {
     upstream = await fetch(target, {
       method: req.method,
       headers,
-      body: hasBody ? req.body : undefined,
-      // @ts-expect-error -- requerido por undici al reenviar un body en stream
-      duplex: hasBody ? "half" : undefined,
+      body: hasBody
+        ? jsonBody
+          ? JSON.stringify(jsonBody)
+          : rawBody
+        : undefined,
       cache: "no-store",
     });
   } catch (error) {
@@ -62,5 +114,15 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteContext) {
+  return proxy(req, (await ctx.params).path);
+}
+
+// El formulario de /agent guarda con PUT (`/settings`), que antes no estaba
+// exportado y Next respondía 405 sin llegar al agente.
+export async function PUT(req: NextRequest, ctx: RouteContext) {
+  return proxy(req, (await ctx.params).path);
+}
+
+export async function PATCH(req: NextRequest, ctx: RouteContext) {
   return proxy(req, (await ctx.params).path);
 }

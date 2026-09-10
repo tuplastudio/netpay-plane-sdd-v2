@@ -35,6 +35,12 @@ model Tenant {
   checkoutReservationMinutes Int @default(15)
   maxSellerDiscountPct Decimal @default(10.00) @db.Decimal(5, 2)
 
+  // Marca del tenant (branding), editable por su propio ADMIN
+  logoUrl        String?
+  primaryColor   String  @default("#0f172a")
+  secondaryColor String  @default("#64748b")
+  accentColor    String  @default("#2563eb")
+
   memberships  Membership[]
   sessions     Session[]
   apiKeys      ApiKey[]
@@ -54,6 +60,8 @@ model Tenant {
   notifications Notification[]
   integrations Integration[]
   whatsappConnections WhatsAppConnection[]
+  usageEvents  AgentUsageEvent[]
+  conversationNotes ConversationNote[]
 }
 
 enum TenantStatus {
@@ -69,6 +77,7 @@ model User {
   totpSecret   String?  // TOTP seed cifrado
   totpEnabled  Boolean  @default(false)
   recoveryCodesHash Json? // [hash] de un solo uso
+  isSuperAdmin Boolean  @default(false) // gestiona /super-admin: crea y administra tenants, cross-tenant
   createdAt    DateTime @default(now()) @db.Timestamptz
   updatedAt    DateTime @updatedAt @db.Timestamptz
   version      Int      @default(1)
@@ -78,6 +87,7 @@ model User {
   passwordResets PasswordResetToken[]
   createdJobs  Job[]
   auditLog     AuditLog[]
+  conversationNotes ConversationNote[]
 }
 
 model Membership {
@@ -214,6 +224,8 @@ model Product {
   sku         String
   title       String
   description String?
+  tags        String[] @default([])
+  synonyms    String[] @default([])
   status      CatalogStatus @default(DRAFT)
   createdAt   DateTime @default(now()) @db.Timestamptz
   updatedAt   DateTime @updatedAt @db.Timestamptz
@@ -269,6 +281,9 @@ model Customer {
   email       String?
   phone       String?
   taxId       String?  // RFC
+  legalName   String?  // Razón social, para CFDI
+  fiscalPostalCode String? // CP fiscal, para CFDI
+  fiscalCfdiUse    String? // Uso de CFDI (ej. G03), última usada
   notes       String?
   status      CustomerStatus @default(ACTIVE)
   createdAt   DateTime @default(now()) @db.Timestamptz
@@ -457,6 +472,19 @@ model Order {
   updatedAt           DateTime    @updatedAt @db.Timestamptz
   version             Int         @default(1)
 
+  // Facturación (CFDI): datos capturados al momento de pedirla, snapshot
+  // propio del pedido (independiente de si el cliente cambia sus datos
+  // fiscales después). Ver T-FACT en docs.
+  requiresInvoice      Boolean              @default(false)
+  invoiceStatus        InvoiceRequestStatus @default(NONE)
+  invoiceRfc           String?
+  invoiceLegalName     String?
+  invoicePostalCode    String?
+  invoiceCfdiUse       String?
+  invoiceConstanciaUrl String?              // constancia de situación fiscal, si se adjuntó
+  invoiceNotes         String?
+  invoiceRequestedAt   DateTime?            @db.Timestamptz
+
   tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer   Customer        @relation(fields: [customerId], references: [id])
   quote      Quote?          @relation("QuoteToOrder", fields: [quoteId], references: [id])
@@ -485,6 +513,12 @@ enum OrderStatus {
   CANCELLED
   EXPIRED
   REFUNDED
+}
+
+enum InvoiceRequestStatus {
+  NONE
+  REQUESTED       // pedida, faltan datos (RFC, razón social, CP o uso CFDI)
+  DATA_COMPLETE   // los 4 datos fiscales están completos
 }
 
 model OrderRevision {
@@ -556,6 +590,11 @@ model CheckoutSession {
   tenantId    String        @db.Uuid
   orderId     String        @db.Uuid
   amount      Decimal       @db.Decimal(12, 2)
+  // Acumulado reembolsado de ESTA sesión. Invariante: 0 <= refundedTotal <= amount.
+  // `amount` nunca se toca al reembolsar, así el bruto cobrado sigue siendo
+  // recuperable después de un reembolso (parcial o total) y el neto de la
+  // sesión es exactamente `amount - refundedTotal`, sin cruzar el ledger.
+  refundedTotal Decimal     @default(0.00) @db.Decimal(12, 2)
   currency    String        @default("MXN")
   status      PaymentStatus @default(PENDING)
   livemode    Boolean       @default(false) // SIEMPRE false en V2
@@ -826,6 +865,26 @@ enum WhatsAppStatus {
   ERROR
 }
 
+// Consumo de tokens del agente por tenant, un renglón por llamada al modelo
+// conversacional. Base del "estado de cuenta" de super-admin (uso + costo
+// estimado, filtrable por tenant y rango de fechas). Lo escribe agent-v2
+// (apps/agent-v2/app/agent.py `_tenant_model_middleware`) con su API key de
+// servicio — el tenant sale de esa key, nunca de un campo que mande el
+// cliente HTTP.
+model AgentUsageEvent {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @db.Uuid
+  model        String
+  inputTokens  Int
+  outputTokens Int
+  costUsd      Decimal  @db.Decimal(10, 6) // estimado, ver PRICE_PER_1K en agent.py
+  createdAt    DateTime @default(now()) @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
 model WhatsAppConversation {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId        String   @db.Uuid
@@ -843,6 +902,7 @@ model WhatsAppConversation {
 
   connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   messages   WhatsAppMessage[]
+  notes      ConversationNote[]
 
   @@unique([connectionId, externalPhone])
   @@index([tenantId, status])
@@ -886,8 +946,26 @@ enum MessageType {
   TEXT
   IMAGE
   AUDIO
+  VIDEO
   DOCUMENT
   TEMPLATE
+}
+
+// Nota interna sobre un hilo de WhatsApp (T-WHA-06, atención humana).
+// Solo la ve el equipo del tenant; nunca se envía al cliente.
+model ConversationNote {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  conversationId String   @db.Uuid
+  authorId       String?  @db.Uuid
+  body           String
+  createdAt      DateTime @default(now()) @db.Timestamptz
+
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User?                @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
 }
 
 enum MessageStatus {

@@ -3,10 +3,56 @@
 @tailwind utilities;
 
 /**
- * Sistema visual "Rausch" (seed Airbnb, ver docs/design/airbnb-seed.md).
- * Un solo acento (--primary, #ff385c), radios suaves, una sola sombra.
- * Sin dark mode: el sitio público de Airbnb tampoco lo tiene, y este es un
- * panel operativo de alto contraste sobre blanco.
+ * Sistema visual "Rausch" — ver docs/13-uix.md y src/components/DESIGN-SYSTEM.md.
+ *
+ * Un solo acento cromático (--primary, #ff3859). Radios suaves (8px botones,
+ * 14px tarjetas), dos sombras (--shadow-airbnb para superficies en reposo,
+ * --shadow-airbnb-lg para capas flotantes: popovers, sheets, dropdowns).
+ * Sin dark mode: es un panel operativo de alto contraste sobre blanco.
+ *
+ * ACENTO DE DOS NIVELES (WCAG 2.1 AA)
+ * ------------------------------------------------------------------
+ * #ff3859 tiene 3.52:1 contra blanco: alcanza para objeto gráfico
+ * (1.4.11, ≥3:1) pero NO para texto (1.4.3, ≥4.5:1). Por eso el acento
+ * vive en dos niveles y cada uno tiene una regla dura:
+ *
+ *   --primary          ORNAMENTO. Íconos, bordes de selección, rieles,
+ *                      accent-color de check/radio, tintes. Nunca lleva
+ *                      texto encima ni se usa como tinta.
+ *   --primary-strong   TEXTO. Cualquier superficie que renderice texto
+ *                      sobre el acento (Button default, Badge default) y
+ *                      cualquier uso del acento COMO tinta (Button link,
+ *                      `text-primary-strong`). 5.20:1 sobre blanco.
+ *
+ * La rampa de estados del nivel fuerte (mismo tono 350°, misma
+ * saturación 100%: es el mismo rojo de marca, no un granate):
+ *   reposo  --primary-strong         #db0025  5.20:1
+ *   hover   --primary-strong-hover   #c20020  6.34:1
+ *   activo  --primary-strong-active  #a8001c  7.83:1
+ * Se usan tonos sólidos y no `bg-primary/90`, porque el alfa sobre blanco
+ * ACLARA el fondo y baja el contraste del texto blanco (el hover viejo
+ * `bg-primary/90` medía 3.23:1).
+ *
+ * NOTA SOBRE LOS HEX DE ESTE ARCHIVO: los hex anotados al margen no
+ * coincidían con el HSL que realmente renderiza el
+ * navegador (p. ej. --primary-active decía #e00b41 y pintaba #eb0027,
+ * --legal-link decía #428bff y pintaba #4d97ff). Todos los hex de abajo
+ * se recalcularon desde el HSL. Si cambias un HSL, recalcula el hex.
+ *
+ * Además del acento hay una escala semántica de estado de 5 tonos
+ * (success / warning / info / neutral / destructive). NO son acentos de marca:
+ * solo comunican el estado de un dato (pedido pagado, pago fallido, etc.).
+ * Cada tono tiene tres slots:
+ *   --<tono>            color sólido (íconos, bordes, fondos sólidos; texto
+ *                       blanco encima pasa AA)
+ *   --<tono>-subtle     fondo tenue, baja saturación
+ *   --<tono>-foreground tinta sobre ese fondo tenue
+ * Contrastes verificados (WCAG 2.1, tinta sobre tinte):
+ *   success 7.46:1 · warning 7.63:1 · info 8.42:1 · neutral 8.98:1 ·
+ *   destructive 7.31:1 (todos AA y AAA para texto normal).
+ * Excepción de nomenclatura: --destructive-foreground ya existía y significa
+ * "texto sobre el sólido" (blanco), porque lo consumen Button/Badge. La tinta
+ * sobre el tinte destructivo es --destructive-subtle-foreground.
  */
 @layer base {
   :root {
@@ -15,10 +61,34 @@
     --foreground: 0 0% 13%; /* ink #222 */
     --card: 0 0% 100%;
     --card-foreground: 0 0% 13%;
+    /* Capas flotantes (dropdown, popover). Existían como clases en los
+       componentes pero sin token detrás: `bg-popover` no compilaba. */
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 13%;
 
-    --primary: 350 100% 61%; /* Rausch #ff385c */
-    --primary-active: 350 100% 46%; /* #e00b41 */
-    --primary-disabled: 350 100% 92%; /* #ffd1da */
+    /* Nivel ORNAMENTO. 3.52:1 sobre blanco: pasa 1.4.11 (objeto gráfico),
+       NO pasa 1.4.3 (texto). Nunca poner texto encima ni usarlo como tinta. */
+    --primary: 350 100% 61%; /* Rausch #ff3859 */
+
+    /* Nivel TEXTO. Mismo tono (350°) y saturación (100%) que --primary. */
+    /* 43% y no 46%: a 46% (#eb0027) el nivel fuerte da 4.60:1 sobre blanco,
+       pero solo 4.11:1 usado COMO tinta sobre --secondary (#f2f2f2), que es
+       donde la app pone glifos de acento sobre azulejo. 43% pasa 4.5:1 contra
+       las tres superficies claras a la vez. */
+    --primary-strong: 350 100% 43%; /* #db0025 — 5.20:1 sobre blanco */
+    --primary-strong-hover: 350 100% 38%; /* #c20020 — 6.34:1 */
+    --primary-strong-active: 350 100% 33%; /* #a8001c — 7.83:1 */
+
+    /* Alias histórico: era el :active del botón primario y hoy ese papel lo
+       cumple --primary-strong-active. Se conserva para que `bg-primary-active`
+       y `text-primary-active` sigan compilando en call sites viejos. */
+    --primary-active: var(--primary-strong-active);
+
+    /* Controles deshabilitados: WCAG 2.1 exime a los componentes inactivos
+       de 1.4.3 y de 1.4.11, así que 1.32:1 es admisible aquí. El estado
+       "deshabilitado" no se comunica solo con este color: los primitivos
+       agregan `disabled:opacity-50` y el atributo `disabled`. */
+    --primary-disabled: 350 100% 92%; /* #ffd6dd — 1.32:1, exento */
     --primary-foreground: 0 0% 100%;
 
     --secondary: 0 0% 95%; /* surface-strong #f2f2f2 */
@@ -31,17 +101,80 @@
     --accent: 0 0% 95%;
     --accent-foreground: 0 0% 13%;
 
-    --destructive: 12 78% 42%; /* error #c13515 */
-    --destructive-foreground: 0 0% 100%;
+    --destructive: 12 78% 42%; /* error #bf3918 — 5.51:1 con texto blanco */
+    --destructive-foreground: 0 0% 100%; /* texto sobre el sólido */
+    /* :active del botón destructivo. Antes era `bg-destructive/80`, y el alfa
+       sobre blanco aclaraba el fondo hasta 3.91:1 con el texto blanco. */
+    --destructive-active: 12 78% 34%; /* #9a2e13 — 7.57:1 */
+    --destructive-subtle: 12 84% 96%; /* #fdf0ec */
+    --destructive-subtle-foreground: 12 80% 32%; /* #932a10 — 7.31:1 sobre subtle */
 
-    --border: 0 0% 87%; /* hairline #ddd */
-    --border-soft: 0 0% 92%; /* hairline soft #ebebeb */
-    --border-strong: 0 0% 76%; /* #c1c1c1 */
-    --input: 0 0% 87%;
-    --ring: 0 0% 13%;
+    /* --- escala semántica de estado (ver bloque de arriba) --- */
+    --success: 152 58% 28%; /* #1e714a */
+    --success-subtle: 150 44% 95%; /* #edf8f2 */
+    --success-foreground: 152 62% 22%; /* #155b3a — 7.46:1 sobre subtle */
 
-    --body-text: 0 0% 25%; /* running text #3f3f3f */
-    --legal-link: 215 100% 65%; /* #428bff */
+    --warning: 32 90% 36%; /* #ae6109 */
+    --warning-subtle: 42 86% 94%; /* #fdf5e3 */
+    --warning-foreground: 28 86% 26%; /* #7b3e09 — 7.63:1 sobre subtle */
+
+    --info: 214 80% 40%; /* #145bb8 */
+    --info-subtle: 210 90% 96%; /* #ecf5fe */
+    --info-foreground: 215 80% 31%; /* #10458e — 8.42:1 sobre subtle */
+
+    --neutral: 0 0% 42%; /* #6b6b6b */
+    --neutral-subtle: 0 0% 95%; /* #f2f2f2 */
+    --neutral-foreground: 0 0% 26%; /* #424242 — 8.98:1 sobre subtle */
+
+    /* --- LÍNEAS: tres papeles distintos, un solo criterio ---------------
+       WCAG 1.4.11 exige 3:1 solo a los límites que son la ÚNICA forma de
+       identificar un control o su estado. No a toda hairline: un separador
+       entre regiones que ya se distinguen por otra cosa (posición, fondo,
+       sombra, contenido) es decorativo y puede quedarse claro. Por eso aquí
+       hay un token que pasa 3:1 y dos que deliberadamente no.
+
+       1) LÍMITE DE CONTROL → --input. Debe pasar 3:1.
+          Lo consumen Input, Select, Textarea, Checkbox y RadioCard: campos
+          con `bg-background` sobre página blanca, donde el borde es lo único
+          que dice dónde empieza y termina el control. Antes estaba en
+          #dedede (1.35:1): para un usuario con baja visión el campo
+          sencillamente no existía.
+          #8a8a8a pasa 3:1 contra las tres superficies sobre las que estos
+          controles aparecen: blanco 3.45:1, --muted 3.22:1, --secondary
+          3.08:1. Es el gris más claro que aguanta el peor caso; ir a #767676
+          (el gris de 4.5:1) volvería la UI un wireframe sin ganar nada,
+          porque 1.4.11 pide 3:1, no 4.5:1.
+
+       2) SEPARADOR ESTRUCTURAL → --border. Se queda claro a propósito.
+          Es el default de `* { border-border }` y lo usan el canto de Card,
+          las reglas de fila de Table, Separator, el canto de Dropdown/Sheet/
+          AlertDialog y `Badge variant="outline"`. Ninguno es un control: la
+          tarjeta ya se separa del fondo por sombra y padding, las filas por
+          posición y contenido, la capa flotante por `--shadow-airbnb-lg`, y
+          el badge por su propio texto a 16.10:1. Subirlo a 3:1 dibujaría una
+          retícula gris sobre toda la app sin resolver ninguna barrera real.
+
+       3) HAIRLINE DECORATIVA → --border-soft. Se queda clara a propósito.
+          Solo la usa `divide-hairline-soft` entre pares etiqueta/valor
+          (FieldRow, cotización pública). Es ritmo tipográfico, no un límite:
+          si desapareciera, la lista se sigue leyendo.
+
+       --border-strong NO es un token de borde pese al nombre: hoy su único
+       consumidor es `active:bg-hairline-strong/40` (el relleno de presión del
+       botón secundario), donde el par que importa es --foreground sobre ese
+       relleno = 12.08:1. Su 1.78:1 "como borde sobre blanco" mide un uso que
+       la app no produce. Si alguna vez hace falta como límite de un control,
+       usa --input, no este. */
+    --border: 0 0% 87%; /* #dedede — 1.35:1, separador estructural (ver 2) */
+    --border-soft: 0 0% 92%; /* #ebebeb — 1.19:1, decorativa (ver 3) */
+    --border-strong: 0 0% 76%; /* #c2c2c2 — relleno translúcido, no borde */
+    --input: 0 0% 54%; /* #8a8a8a — 3.45:1 sobre blanco, límite de control */
+    --ring: 0 0% 13%; /* #212121 — 16.10:1 sobre toda superficie clara */
+
+    --body-text: 0 0% 25%; /* running text #404040 — 10.37:1 */
+    /* Era 215 100% 65% (#4d97ff, 2.92:1). Mismo tono y misma saturación,
+       solo más oscuro: sigue siendo el mismo azul, ahora legible. */
+    --legal-link: 215 100% 45%; /* #0060e6 — 5.50:1 sobre blanco */
 
     --radius: 0.5rem; /* 8px — botones */
     --radius-card: 0.875rem; /* 14px — tarjetas */
@@ -49,6 +182,10 @@
 
     --shadow-airbnb: 0 0 0 1px rgb(0 0 0 / 0.02), 0 2px 6px rgb(0 0 0 / 0.04),
       0 4px 8px rgb(0 0 0 / 0.1);
+    /* Capas flotantes: dropdown, popover, sheet, dialog. Mismo lenguaje,
+       más elevación. No inventar una tercera sombra. */
+    --shadow-airbnb-lg: 0 0 0 1px rgb(0 0 0 / 0.04), 0 8px 16px rgb(0 0 0 / 0.06),
+      0 16px 32px rgb(0 0 0 / 0.12);
   }
 }
 
@@ -61,9 +198,11 @@
 
 @layer components {
   /* Tablas operativas en pantallas angostas: scroll interno en vez de
-     desbordar la página. Sin tocar cada <table>. */
+     desbordar la página. Sin tocar cada <table>.
+     Se excluye <Table> (data-ui-table) porque ya trae su propio contenedor
+     con overflow-x y `display:block` rompería su sticky header. */
   @media (max-width: 1023px) {
-    main table {
+    main table:not([data-ui-table]) {
       display: block;
       width: 100%;
       overflow-x: auto;

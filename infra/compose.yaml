@@ -118,7 +118,7 @@ services:
       # dummy-gateway -> commerce-api (callback del webhook de pago).
       API_SELF_URL: http://commerce-api:4000
       # Navegador -> web (CORS y enlaces públicos de cotización).
-      PUBLIC_BASE_URL: http://localhost:3001
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3001}
       # commerce-api -> agente (WhatsAppBridge para responder inbound).
       # Apunta al v2 (LangGraph). Para volver al v1 basta con cambiar esta
       # línea a http://agent-service:8000: el contrato HTTP es el mismo.
@@ -174,7 +174,7 @@ services:
       # en volumen, no mueren al recrear el contenedor.
       # Navegador -> web: enlaces de cotización y pago que el agente manda al
       # cliente. Debe apuntar al puerto público del frontend, no al default.
-      PUBLIC_BASE_URL: http://localhost:3001
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3001}
       AGENT_SETTINGS_DIR: /data/settings
       AGENT_CHECKPOINT_DIR: /data/checkpoints
       AGENT_LEARNING_DIR: /data/learning
@@ -206,7 +206,7 @@ services:
       OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:-}
       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:-}
       MODEL_ID: ${AGENT_V2_MODEL_ID:-openai/gpt-4o-mini}
-      PUBLIC_BASE_URL: http://localhost:3001
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3001}
       AGENT_V2_DATA_DIR: /data/agent-v2
     volumes:
       - agent_data:/data

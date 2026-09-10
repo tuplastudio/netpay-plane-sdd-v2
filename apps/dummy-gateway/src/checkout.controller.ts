@@ -12,8 +12,39 @@ import {
   Res,
 } from "@nestjs/common";
 import type { Response } from "express";
-import { CheckoutStore } from "./checkout.store.js";
+import {
+  CheckoutStore,
+  type BillingDetails,
+  type CardSummary,
+  type InternalSession,
+  type PaymentOutcome,
+  type SessionCustomer,
+  type SessionLineItem,
+  type SessionTotals,
+} from "./checkout.store.js";
 import { WebhookDispatcher } from "./webhook.dispatcher.js";
+import {
+  renderHostedCheckout,
+  renderHostedFailure,
+  renderHostedNotFound,
+  renderHostedStatus,
+  renderHostedSuccess,
+} from "./hosted-page.js";
+
+/**
+ * Cuerpo que la página hosted manda al capturar/fallar. Todo opcional para
+ * que los callers existentes (`POST /capture` con `{}`) sigan funcionando.
+ */
+interface OutcomeBody {
+  reason?: string;
+  email?: string;
+  country?: string;
+  card?: { brand?: string; last4?: string; number?: string; holder?: string };
+  billing?: Partial<BillingDetails>;
+}
+
+const CARD_BRANDS = new Set(["visa", "mastercard", "amex", "unknown"]);
+const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 
 /**
  * API del simulador. Ver docs/09-pay.md.
@@ -21,7 +52,7 @@ import { WebhookDispatcher } from "./webhook.dispatcher.js";
  *  - GET  /checkout/:id           ver sesión
  *  - POST /checkout/:id/capture   simular captura exitosa
  *  - POST /checkout/:id/fail      simular fallo
- *  - GET  /checkout/:id/hosted    página hosted (HTML simple, devuelve ok)
+ *  - GET  /checkout/:id/hosted    página hosted (HTML tipo Stripe Checkout)
  */
 @Controller("checkout")
 export class CheckoutController {
@@ -41,6 +72,13 @@ export class CheckoutController {
       cancelUrl?: string;
       webhookUrl?: string;
       secret?: string;
+      // Presentación (opcional): ver SessionPresentation en checkout.store.ts.
+      merchantName?: string;
+      customer?: SessionCustomer;
+      requiresInvoice?: boolean;
+      billingRequired?: boolean;
+      lineItems?: SessionLineItem[];
+      totals?: SessionTotals;
     },
     @Headers("authorization") auth?: string,
   ) {
@@ -53,6 +91,14 @@ export class CheckoutController {
       serviceApiKey: apiKey,
       webhookUrl: body.webhookUrl,
       webhookSecret: body.secret,
+      successUrl: this.safeUrl(body.successUrl),
+      cancelUrl: this.safeUrl(body.cancelUrl),
+      merchantName: typeof body.merchantName === "string" ? body.merchantName.slice(0, 120) : undefined,
+      customer: body.customer,
+      requiresInvoice: Boolean(body.requiresInvoice),
+      billingRequired: Boolean(body.billingRequired),
+      lineItems: Array.isArray(body.lineItems) ? body.lineItems.slice(0, 200) : undefined,
+      totals: body.totals,
     });
 
     return {
@@ -81,37 +127,54 @@ export class CheckoutController {
         status: session.status,
         livemode: false,
         expiresAt: session.expiresAt,
+        ...(session.card ? { card: session.card } : {}),
+        ...(session.billing ? { billing: session.billing } : {}),
+        ...(session.email ? { email: session.email } : {}),
+        ...(session.failureReason ? { failureReason: session.failureReason } : {}),
       },
       requestId: session.id,
     };
   }
 
   @Post("sessions/:id/capture")
-  async capture(@Param("id") id: string, @Body() body: { reason?: string } = {}) {
-    void body;
-    const session = this.store.setStatus(id, "CAPTURED");
-    if (!session) {
+  async capture(@Param("id") id: string, @Body() body: OutcomeBody = {}) {
+    const current = this.store.get(id);
+    if (!current) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Sesión no encontrada" });
     }
-    if (session.webhookUrl && session.webhookSecret) {
-      await this.webhooks.dispatch(session.webhookUrl, session, session.webhookSecret);
-      this.store.markWebhookDelivered(id);
+    if (current.status === "CAPTURED") {
+      // Reintento idempotente: no se vuelve a disparar el webhook.
+      return { data: { id: current.id, status: current.status }, requestId: current.id };
     }
+    this.assertPending(current);
+    const outcome = this.parseOutcome(body, current, true);
+    const session = this.store.setStatus(id, "CAPTURED", outcome)!;
+    await this.deliverWebhook(session);
     return { data: { id: session.id, status: session.status }, requestId: session.id };
   }
 
   @Post("sessions/:id/fail")
-  async fail(@Param("id") id: string, @Body() body: { reason?: string } = {}) {
-    const session = this.store.setStatus(id, "FAILED");
-    if (!session) {
+  async fail(@Param("id") id: string, @Body() body: OutcomeBody = {}) {
+    const current = this.store.get(id);
+    if (!current) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Sesión no encontrada" });
     }
-    if (session.webhookUrl && session.webhookSecret) {
-      await this.webhooks.dispatch(session.webhookUrl, session, session.webhookSecret);
-      this.store.markWebhookDelivered(id);
+    if (current.status === "FAILED") {
+      return {
+        data: { id: current.id, status: current.status, reason: current.failureReason },
+        requestId: current.id,
+      };
     }
+    this.assertPending(current);
+    // Al fallar no se exige la facturación: no hubo cobro que facturar.
+    const outcome = this.parseOutcome(body, current, false);
+    const session = this.store.setStatus(id, "FAILED", {
+      ...outcome,
+      reason: body.reason ?? "GENERIC_DECLINE",
+    })!;
+    await this.deliverWebhook(session);
     return {
-      data: { id: session.id, status: session.status, reason: body.reason ?? "GENERIC_DECLINE" },
+      data: { id: session.id, status: session.status, reason: session.failureReason },
       requestId: session.id,
     };
   }
@@ -119,175 +182,141 @@ export class CheckoutController {
   @Get(":id/hosted")
   @Header("content-type", "text/html; charset=utf-8")
   hosted(@Param("id") id: string, @Res({ passthrough: true }) res: Response) {
-    // helmet() aplica un CSP global sin 'unsafe-inline'; esta página necesita
-    // su <script>/<style> inline para el botón Pagar, así que se relaja aquí.
+    // helmet() aplica un CSP global sin 'unsafe-inline'; esta página lleva su
+    // <script>/<style> inline (no hay build ni CDN), así que se relaja aquí.
+    // Los iconos son SVG inline y el chevron del <select> un data: URI.
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
     );
+    res.setHeader("Cache-Control", "no-store");
     const session = this.store.get(id);
     if (!session) {
       res.status(404);
-      return "<h1>Sesión no encontrada</h1>";
+      return renderHostedNotFound();
     }
+    switch (session.status) {
+      case "PENDING":
+        return renderHostedCheckout(session);
+      case "CAPTURED":
+        return renderHostedSuccess(session);
+      case "FAILED":
+        return renderHostedFailure(session);
+      default:
+        return renderHostedStatus(session);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private assertPending(session: InternalSession): void {
     if (session.status !== "PENDING") {
-      return this.renderResultPage(session.status);
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: `La sesión ya está ${session.status}`,
+      });
     }
-    return this.renderPayPage(id, session.amount, session.currency);
   }
 
-  private renderPayPage(id: string, amount: string, currency: string): string {
-    return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NetPay Checkout</title>
-<style>
-  :root{color-scheme:light}
-  *{box-sizing:border-box}
-  body{font-family:system-ui,-apple-system,sans-serif;background:#f4f4f5;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:1.5rem}
-  .card{background:#fff;border-radius:16px;padding:2rem;max-width:400px;width:100%;box-shadow:0 4px 16px rgba(0,0,0,.08)}
-  .brand{display:flex;align-items:center;justify-content:center;gap:.5rem;margin-bottom:.25rem}
-  .brand-mark{width:24px;height:24px;border-radius:6px;background:#e11d48;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px}
-  .brand-name{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
-  .badge{display:block;text-align:center;font-size:.7rem;text-transform:uppercase;color:#9ca3af;letter-spacing:.05em;margin-bottom:1.25rem}
-  .amount{font-size:2rem;font-weight:700;text-align:center;margin:0 0 1.5rem;font-family:ui-monospace,monospace}
-  label{display:block;font-size:.75rem;font-weight:600;color:#374151;margin-bottom:.25rem}
-  .field{margin-bottom:.9rem}
-  .row{display:flex;gap:.75rem}
-  .row .field{flex:1}
-  input{width:100%;padding:.6rem .75rem;border:1px solid #d1d5db;border-radius:8px;font-size:.95rem;font-family:ui-monospace,monospace;outline:none}
-  input:focus{border-color:#e11d48;box-shadow:0 0 0 3px rgba(225,29,72,.12)}
-  input.invalid{border-color:#dc2626}
-  button{width:100%;padding:.8rem;border-radius:10px;border:none;font-size:1rem;font-weight:600;cursor:pointer;margin-top:.35rem}
-  button:disabled{opacity:.5;cursor:not-allowed}
-  .pay{background:#e11d48;color:#fff}
-  .fail{background:transparent;color:#6b7280;border:1px solid #e5e7eb;margin-top:.6rem}
-  #msg{margin-top:1rem;text-align:center;font-size:.85rem;color:#6b7280;min-height:1.2em}
-  .lock{text-align:center;margin-top:1rem;font-size:.7rem;color:#9ca3af}
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="brand">
-      <span class="brand-mark">N</span>
-      <span class="brand-name">NetPay</span>
-    </div>
-    <span class="badge">Sandbox de pruebas · sin dinero real</span>
-    <p class="amount">$${amount} <span style="font-size:1.1rem;color:#9ca3af">${currency}</span></p>
+  private async deliverWebhook(session: InternalSession): Promise<void> {
+    if (session.webhookUrl && session.webhookSecret) {
+      await this.webhooks.dispatch(session.webhookUrl, session, session.webhookSecret);
+      this.store.markWebhookDelivered(session.id);
+    }
+  }
 
-    <form id="payForm">
-      <div class="field">
-        <label for="cardName">Nombre en la tarjeta</label>
-        <input id="cardName" autocomplete="cc-name" placeholder="Nombre Apellido" required>
-      </div>
-      <div class="field">
-        <label for="cardNumber">Número de tarjeta</label>
-        <input id="cardNumber" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" maxlength="19" required>
-      </div>
-      <div class="row">
-        <div class="field">
-          <label for="cardExpiry">Vencimiento</label>
-          <input id="cardExpiry" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/AA" maxlength="5" required>
-        </div>
-        <div class="field">
-          <label for="cardCvv">CVV</label>
-          <input id="cardCvv" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4" required>
-        </div>
-      </div>
-      <button type="submit" class="pay" id="payBtn">Pagar $${amount} ${currency}</button>
-    </form>
-    <button type="button" class="fail" id="failBtn">Simular pago rechazado</button>
-    <p id="msg"></p>
-    <p class="lock">🔒 Datos de prueba — no se envían a ningún procesador real.</p>
-  </div>
-  <script>
-    const nameEl = document.getElementById('cardName');
-    const numberEl = document.getElementById('cardNumber');
-    const expiryEl = document.getElementById('cardExpiry');
-    const cvvEl = document.getElementById('cardCvv');
-    const msgEl = document.getElementById('msg');
-    const payBtn = document.getElementById('payBtn');
-    const failBtn = document.getElementById('failBtn');
+  /**
+   * Normaliza lo que manda la página hosted. `enforceBilling` aplica la regla
+   * de la sesión (`billingRequired`): sin dirección válida no hay captura.
+   * Nunca se persiste el PAN completo: si llega `number`, se reduce a last4.
+   */
+  private parseOutcome(body: OutcomeBody, session: InternalSession, enforceBilling: boolean): PaymentOutcome {
+    const outcome: PaymentOutcome = {};
 
-    numberEl.addEventListener('input', () => {
-      const digits = numberEl.value.replace(/\\D/g, '').slice(0, 16);
-      numberEl.value = digits.replace(/(.{4})/g, '$1 ').trim();
-    });
-    expiryEl.addEventListener('input', () => {
-      const digits = expiryEl.value.replace(/\\D/g, '').slice(0, 4);
-      expiryEl.value = digits.length > 2 ? digits.slice(0, 2) + '/' + digits.slice(2) : digits;
-    });
-    cvvEl.addEventListener('input', () => {
-      cvvEl.value = cvvEl.value.replace(/\\D/g, '').slice(0, 4);
-    });
-
-    function validCard() {
-      const digits = numberEl.value.replace(/\\s/g, '');
-      const [mm, yy] = expiryEl.value.split('/');
-      const expiryOk = /^\\d{2}$/.test(mm) && /^\\d{2}$/.test(yy) && Number(mm) >= 1 && Number(mm) <= 12;
-      return nameEl.value.trim().length > 1 && digits.length >= 13 && digits.length <= 16 && expiryOk && /^\\d{3,4}$/.test(cvvEl.value);
+    if (typeof body.email === "string" && body.email.trim()) {
+      outcome.email = body.email.trim().slice(0, 254);
     }
 
-    async function act(path, label, disableForm) {
-      msgEl.textContent = 'Procesando…';
-      payBtn.disabled = true;
-      failBtn.disabled = true;
-      try {
-        const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-        const data = await res.json();
-        msgEl.textContent = label + ': ' + (data.data ? data.data.status : 'error');
-        setTimeout(() => window.location.reload(), 700);
-      } catch (e) {
-        msgEl.textContent = 'Error de red';
-        payBtn.disabled = false;
-        failBtn.disabled = false;
+    if (body.card && typeof body.card === "object") {
+      const digits = typeof body.card.number === "string" ? body.card.number.replace(/\D/g, "") : "";
+      const last4 = typeof body.card.last4 === "string" ? body.card.last4.replace(/\D/g, "").slice(-4) : digits.slice(-4);
+      const brand = typeof body.card.brand === "string" && CARD_BRANDS.has(body.card.brand) ? body.card.brand : "unknown";
+      if (last4.length === 4) {
+        const card: CardSummary = { brand: brand as CardSummary["brand"], last4 };
+        if (typeof body.card.holder === "string" && body.card.holder.trim()) {
+          card.holder = body.card.holder.trim().slice(0, 120);
+        }
+        outcome.card = card;
       }
     }
 
-    document.getElementById('payForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      if (!validCard()) {
-        msgEl.textContent = 'Revisa los datos de la tarjeta.';
-        return;
-      }
-      act('/checkout/sessions/${id}/capture', 'Pago');
-    });
-    failBtn.addEventListener('click', () => act('/checkout/sessions/${id}/fail', 'Resultado'));
-  </script>
-</body>
-</html>`;
+    const billing = this.parseBilling(body.billing, session);
+    if (billing) outcome.billing = billing;
+    if (enforceBilling && session.billingRequired && !billing) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "La dirección de facturación es obligatoria para este pago",
+        fields: this.billingErrors(body.billing, session),
+      });
+    }
+    return outcome;
   }
 
-  private renderResultPage(status: string): string {
-    const ok = status === "CAPTURED";
-    return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NetPay Checkout</title>
-<style>
-  body{font-family:system-ui,-apple-system,sans-serif;background:#f4f4f5;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:1.5rem}
-  .card{background:#fff;border-radius:16px;padding:2rem;max-width:360px;width:100%;box-shadow:0 4px 16px rgba(0,0,0,.08);text-align:center}
-  .brand{display:flex;align-items:center;justify-content:center;gap:.5rem;margin-bottom:1.25rem}
-  .brand-mark{width:24px;height:24px;border-radius:6px;background:#e11d48;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:13px}
-  .brand-name{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
-  .status{font-size:1.25rem;font-weight:700;color:${ok ? "#16a34a" : "#dc2626"};margin:0 0 .5rem}
-</style>
-</head>
-<body>
-  <div class="card">
-    <div class="brand">
-      <span class="brand-mark">N</span>
-      <span class="brand-name">NetPay</span>
-    </div>
-    <p class="status">${ok ? "✓ Pago capturado" : `✕ Sesión ${status}`}</p>
-    <p>Puedes cerrar esta ventana y volver a la app.</p>
-  </div>
-</body>
-</html>`;
+  private billingErrors(
+    raw: Partial<BillingDetails> | undefined,
+    session: InternalSession,
+  ): Record<string, string> {
+    const b = raw ?? {};
+    const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const errors: Record<string, string> = {};
+    if (str(b.name).length < 2) errors.name = "Escribe el nombre o razón social.";
+    const rfc = str(b.rfc).toUpperCase();
+    if (session.requiresInvoice && !rfc) errors.rfc = "El RFC es obligatorio para emitir la factura.";
+    else if (rfc && !RFC_RE.test(rfc)) errors.rfc = "El RFC no tiene un formato válido.";
+    if (!str(b.street)) errors.street = "Escribe la calle y número.";
+    if (!str(b.city)) errors.city = "Escribe la ciudad.";
+    if (!str(b.state)) errors.state = "Escribe el estado.";
+    const cp = str(b.postalCode);
+    const country = str(b.country).toUpperCase() || "MX";
+    if (!cp) errors.postalCode = "Escribe el código postal.";
+    else if (country === "MX" && !/^\d{5}$/.test(cp)) errors.postalCode = "El código postal debe tener 5 dígitos.";
+    return errors;
+  }
+
+  private parseBilling(
+    raw: Partial<BillingDetails> | undefined,
+    session: InternalSession,
+  ): BillingDetails | undefined {
+    if (!raw || typeof raw !== "object") return undefined;
+    if (Object.keys(this.billingErrors(raw, session)).length > 0) {
+      // Si la facturación es obligatoria, `parseOutcome` lo convierte en 400;
+      // si es opcional, una dirección incompleta simplemente no se guarda.
+      return undefined;
+    }
+    const str = (v: unknown, max = 160) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+    const rfc = str(raw.rfc, 13).toUpperCase();
+    const neighborhood = str(raw.neighborhood);
+    return {
+      name: str(raw.name, 200),
+      ...(rfc ? { rfc } : {}),
+      street: str(raw.street, 200),
+      ...(neighborhood ? { neighborhood } : {}),
+      city: str(raw.city, 120),
+      state: str(raw.state, 120),
+      postalCode: str(raw.postalCode, 10),
+      country: str(raw.country, 2).toUpperCase() || "MX",
+    };
+  }
+
+  /** Solo se aceptan URLs http(s) absolutas para volver a la tienda. */
+  private safeUrl(value: unknown): string | undefined {
+    if (typeof value !== "string" || !value) return undefined;
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private extractApiKey(auth: string | undefined): string {

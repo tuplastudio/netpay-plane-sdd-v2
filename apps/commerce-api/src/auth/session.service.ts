@@ -37,17 +37,24 @@ export class SessionService {
     return { token, expiresAt };
   }
 
+  /**
+   * Resuelve la sesión y el principal de tenant en **cada** petición:
+   * `Session.tenantId` es el tenant activo (lo fija login y lo cambia
+   * `setActiveTenant`) y el rol se relee de la membresía viva en ese tenant.
+   * Sin membresía ACTIVE ahí, la sesión no vale aunque el token sea bueno.
+   */
   async resolveSession(token: string | undefined): Promise<{
     sessionId: string;
     userId: string;
     tenantId: string;
     role: string;
+    isSuperAdmin: boolean;
   } | null> {
     if (!token) return null;
     const hash = hashToken(token);
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: hash },
-      include: { tenant: true },
+      include: { tenant: true, user: { select: { isSuperAdmin: true } } },
     });
     if (!session) return null;
     if (session.revokedAt) return null;
@@ -65,7 +72,35 @@ export class SessionService {
       userId: session.userId,
       tenantId: session.tenantId,
       role: membership.role,
+      isSuperAdmin: session.user.isSuperAdmin,
     };
+  }
+
+  /**
+   * Cambia el tenant activo de la sesión. Que el usuario tenga membresía
+   * ACTIVE ahí lo valida `AuthService.switchTenant`; aquí solo se persiste.
+   * A partir de la siguiente petición `resolveSession` ya devuelve el nuevo
+   * tenant y el rol de esa membresía.
+   */
+  async setActiveTenant(sessionId: string, tenantId: string): Promise<void> {
+    await this.prisma.session.update({
+      where: { id: sessionId },
+      data: { tenantId, lastActivityAt: new Date() },
+    });
+  }
+
+  /**
+   * Último tenant que usó el usuario: el de su sesión con actividad más
+   * reciente (revocada o no). Login lo usa como tenant por defecto cuando el
+   * usuario pertenece a varias empresas y no manda `tenantSlug`.
+   */
+  async lastActiveTenantId(userId: string): Promise<string | null> {
+    const last = await this.prisma.session.findFirst({
+      where: { userId },
+      orderBy: { lastActivityAt: "desc" },
+      select: { tenantId: true },
+    });
+    return last?.tenantId ?? null;
   }
 
   async touchActivity(sessionId: string): Promise<void> {

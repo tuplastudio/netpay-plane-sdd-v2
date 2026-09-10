@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
 
 /**
  * Body de POST /auth/forgot-password.
@@ -25,4 +25,32 @@ export class ResetPasswordDto {
   @MinLength(12, { message: "newPassword debe tener al menos 12 caracteres" })
   @MaxLength(256, { message: "newPassword demasiado largo" })
   newPassword!: string;
+}
+
+/**
+ * Body de POST /auth/change-password (sesión activa).
+ * El usuario autenticado manda su contraseña actual + la nueva; el servicio
+ * revisa que coincida antes de hashear la nueva. La complejidad de la nueva
+ * la verifica PasswordService al hashear.
+ */
+export class ChangePasswordDto {
+  @IsString()
+  @MinLength(1, { message: "currentPassword requerido" })
+  @MaxLength(256, { message: "currentPassword demasiado largo" })
+  currentPassword!: string;
+
+  @IsString()
+  @MinLength(12, { message: "newPassword debe tener al menos 12 caracteres" })
+  @MaxLength(256, { message: "newPassword demasiado largo" })
+  newPassword!: string;
+}
+
+/**
+ * Body de POST /auth/switch-tenant (sesión activa).
+ * El usuario elige una de sus empresas; el servicio verifica que tenga
+ * membresía ACTIVE ahí antes de mover la sesión.
+ */
+export class SwitchTenantDto {
+  @IsUUID("all", { message: "tenantId debe ser un UUID" })
+  tenantId!: string;
 }

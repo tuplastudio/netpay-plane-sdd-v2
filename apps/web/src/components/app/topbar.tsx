@@ -1,30 +1,35 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, Search, Bot } from "lucide-react";
+import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Brand, SidebarNav } from "./sidebar-nav";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { Brand, EnvBadge, EnvFooter, SidebarNav } from "./sidebar-nav";
+import { GlobalSearch } from "./global-search";
+import { TenantSwitcher } from "./tenant-switcher";
 import { UserMenu } from "./user-menu";
 
-interface TopbarProps {
-  onMobileNav: () => void;
-}
-
-export function Topbar({ onMobileNav: _onMobileNav }: TopbarProps) {
+export function Topbar() {
   const [open, setOpen] = React.useState(false);
   const pathname = usePathname();
 
-  // Al navegar (o al volver atrás) el drawer móvil se cierra solo.
+  // Al navegar (o al volver atrás) el drawer móvil se cierra solo: Radix
+  // devuelve el foco al disparador al desmontar el contenido.
   React.useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
   return (
+    // h-14 (3.5rem): misma altura que el bloque `Brand` del sidebar. Junto con
+    // el `py-6` de <main> forma el 6.5rem de chrome vertical documentado en
+    // app-shell.tsx; cámbiala solo de la mano de ese archivo.
     <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:gap-3 sm:px-4">
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger asChild>
@@ -34,125 +39,74 @@ export function Topbar({ onMobileNav: _onMobileNav }: TopbarProps) {
             className="lg:hidden"
             aria-label="Abrir navegación"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5" aria-hidden />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="flex w-[85vw] max-w-72 flex-col p-0">
+        <SheetContent side="left" className="flex w-[85vw] max-w-72 flex-col gap-0 p-0">
+          {/* Radix exige título y descripción en el diálogo; aquí son para
+              lectores de pantalla porque la marca ya identifica el panel. */}
+          <SheetTitle className="sr-only">Navegación</SheetTitle>
+          <SheetDescription className="sr-only">
+            Secciones del portal operativo Easy Sell.
+          </SheetDescription>
           <Brand className="border-b" />
           <div className="flex-1 overflow-y-auto">
-            <SidebarNav onNavigate={() => setOpen(false)} />
+            {/* Panel dedicado y de alto completo: aquí las descripciones sí
+                caben y ayudan a quien está orientándose. */}
+            <SidebarNav onNavigate={() => setOpen(false)} showDescriptions />
           </div>
-          <div className="border-t p-3 text-[11px] text-muted-foreground">
-            PAYMENT_PROVIDER=DUMMY · livemode=false
-          </div>
+          <EnvFooter className="border-t" />
         </SheetContent>
       </Sheet>
 
-      <div className="hidden min-w-0 lg:block">
-        <Breadcrumbs />
-      </div>
-      <span className="truncate text-sm font-medium lg:hidden">
+      <div className="min-w-0 flex-1">
         <CurrentPageLabel />
-      </span>
+      </div>
 
-      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2">
         <GlobalSearch />
-        <EnvBadge />
+        <EnvBadge compact className="hidden sm:inline-flex" />
+        <TenantSwitcher />
         <UserMenu />
       </div>
     </header>
   );
 }
 
+/**
+ * Contexto de página del topbar: **una etiqueta, no un rastro de migas**.
+ *
+ * Antes había aquí un `<nav aria-label="Migas de pan">` con la ruta completa.
+ * Eso duplicaba chrome por partida doble:
+ *
+ * - En un listado (`/orders`) el rastro "Inicio / Pedidos" no aporta nada que
+ *   el sidebar no diga ya con `aria-current="page"` sobre "Pedidos".
+ * - En un detalle (`/orders/{id}`) las cinco pantallas de detalle ya rinden su
+ *   propio rastro con `PageHeader breadcrumbs`, así que había **dos landmarks
+ *   de navegación de migas** en la misma página, con nombres distintos
+ *   ("Migas de pan" y "Ruta"): un lector de pantalla listaba dos rutas para la
+ *   misma jerarquía.
+ *
+ * Queda solo la etiqueta de sección —útil cuando el contenido está desplazado y
+ * el encabezado ya no se ve—, sin rol de landmark y sin enlaces: el sidebar
+ * navega, la marca vuelve al inicio y el `backHref` del `PageHeader` sube un
+ * nivel. Por eso **ningún listado necesita `breadcrumbs`**.
+ */
 function CurrentPageLabel() {
   const pathname = usePathname();
   const segments = (pathname || "/").split("/").filter(Boolean);
-  if (segments.length === 0) return <>Inicio</>;
-  const last = segments[segments.length - 1]!;
-  const label = humanize(last);
-  // "Detalle" solo no dice nada: se antepone la sección.
-  if (label === "Detalle" && segments.length > 1) {
-    return <>{humanize(segments[segments.length - 2]!)} · Detalle</>;
-  }
-  return <>{label}</>;
-}
 
-function EnvBadge() {
-  return (
-    <Badge variant="muted" className="hidden gap-1 sm:inline-flex">
-      <Bot className="h-3 w-3" />
-      DUMMY
-    </Badge>
-  );
-}
-
-function GlobalSearch() {
-  const [q, setQ] = React.useState("");
-  return (
-    <form
-      role="search"
-      className="flex items-center"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!q.trim()) return;
-        window.location.assign(`/catalog?q=${encodeURIComponent(q.trim())}`);
-      }}
-    >
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar producto o SKU…"
-          className="h-9 w-28 rounded-pill pl-8 sm:w-44 md:w-56"
-          aria-label="Buscar"
-        />
-      </div>
-    </form>
-  );
-}
-
-function Breadcrumbs() {
-  const pathname = usePathname();
-  const segments = (pathname || "/").split("/").filter(Boolean);
-
-  if (segments.length === 0) {
-    return <span className="text-sm font-medium">Inicio</span>;
+  let label = "Inicio";
+  if (segments.length > 0) {
+    const last = humanize(segments[segments.length - 1]!);
+    // "Detalle" solo no dice nada: se antepone la sección.
+    label =
+      last === "Detalle" && segments.length > 1
+        ? `${humanize(segments[segments.length - 2]!)} · Detalle`
+        : last;
   }
 
-  const crumbs: { href: string; label: string }[] = [{ href: "/", label: "Inicio" }];
-  let acc = "";
-  for (const seg of segments) {
-    acc += `/${seg}`;
-    crumbs.push({ href: acc, label: humanize(seg) });
-  }
-
-  return (
-    <nav aria-label="Migas de pan" className="flex items-center gap-1 text-sm">
-      {crumbs.map((c, i) => {
-        const last = i === crumbs.length - 1;
-        return (
-          <React.Fragment key={c.href}>
-            {i > 0 ? (
-              <span className="text-muted-foreground" aria-hidden>
-                /
-              </span>
-            ) : null}
-            {last ? (
-              <span className="font-medium">{c.label}</span>
-            ) : (
-              <Link
-                href={c.href}
-                className="text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {c.label}
-              </Link>
-            )}
-          </React.Fragment>
-        );
-      })}
-    </nav>
-  );
+  return <span className="block truncate text-sm font-medium">{label}</span>;
 }
 
 function humanize(seg: string): string {
@@ -168,6 +122,11 @@ function humanize(seg: string): string {
     agent: "Consola del agente",
     admin: "Admin",
     channels: "Canales",
+    conversations: "Conversaciones",
+    "super-admin": "Plataforma",
+    tenants: "Empresas",
+    users: "Usuarios",
+    usage: "Uso y costos",
     public: "Público",
     checkout: "Checkout",
   };

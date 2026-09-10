@@ -6,7 +6,7 @@ import { Providers } from "./providers";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "NetPay Plane",
+  title: "Easy Sell",
   description: "Catálogo, cotizaciones y pedidos",
 };
 

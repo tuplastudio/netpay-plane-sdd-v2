@@ -1,0 +1,264 @@
+"use client";
+import { useState } from "react";
+import { useForm, type UseFormReturn } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Layers, Pencil, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Spinner } from "@/components/ui/spinner";
+import { Section } from "@/components/app/section";
+import { Money } from "@/components/app/money";
+import {
+  CATALOG_STATUS_OPTIONS,
+  Field,
+  variantSchema,
+  type AddVariantValues,
+  type Variant,
+  type VariantValues,
+} from "../catalog-shared";
+import { isOutOfStock } from "./product-helpers";
+
+// ---------------------------------------------------------------------------
+// Sección "Variantes" del panel de edición: lista legible en móvil (apilada
+// bajo `sm`), edición en línea por variante y formulario de alta plegable.
+// Las mutaciones viven en el panel; aquí solo se disparan.
+// ---------------------------------------------------------------------------
+
+export function VariantsSection({
+  variants,
+  onSaveVariant,
+  savingVariantId,
+  addForm,
+  onAddSubmit,
+  adding,
+}: {
+  variants: Variant[];
+  onSaveVariant: (variant: Variant, values: VariantValues) => void;
+  savingVariantId: string | undefined;
+  addForm: UseFormReturn<AddVariantValues>;
+  onAddSubmit: (e?: React.BaseSyntheticEvent) => Promise<void>;
+  adding: boolean;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+  const addErrors = addForm.formState.errors;
+
+  const closeAdd = () => {
+    addForm.reset();
+    setAddOpen(false);
+  };
+
+  return (
+    <Section
+      as="h3"
+      density="compact"
+      padded={false}
+      title="Variantes"
+      description="Cada presentación con su precio, claves SAT y estado."
+      actions={
+        addOpen ? null : (
+          <Button type="button" size="sm" variant="outline" onClick={() => setAddOpen(true)}>
+            <Plus aria-hidden className="h-4 w-4" />
+            Agregar
+          </Button>
+        )
+      }
+      footer={
+        addOpen ? (
+          <form onSubmit={onAddSubmit} noValidate className="w-full space-y-4">
+            <p className="text-sm font-semibold">Nueva variante</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="SKU" error={addErrors.sku?.message}>
+                {(p) => <Input autoFocus {...p} {...addForm.register("sku")} />}
+              </Field>
+              <Field label="Título" error={addErrors.title?.message}>
+                {(p) => <Input {...p} {...addForm.register("title")} />}
+              </Field>
+              <Field label="Precio" hint="Formato 99.00" error={addErrors.price?.message}>
+                {(p) => (
+                  <Input inputMode="decimal" placeholder="99.00" {...p} {...addForm.register("price")} />
+                )}
+              </Field>
+              <Field label="Clave SAT de producto" error={addErrors.satProductCode?.message}>
+                {(p) => (
+                  <Input
+                    inputMode="numeric"
+                    placeholder="01010101"
+                    {...p}
+                    {...addForm.register("satProductCode")}
+                  />
+                )}
+              </Field>
+              <Field label="Clave SAT de unidad" error={addErrors.satUnitCode?.message}>
+                {(p) => <Input placeholder="H87" {...p} {...addForm.register("satUnitCode")} />}
+              </Field>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" size="sm" variant="ghost" onClick={closeAdd}>
+                Cancelar
+              </Button>
+              <Button type="submit" size="sm" loading={adding}>
+                Agregar variante
+              </Button>
+            </div>
+          </form>
+        ) : undefined
+      }
+    >
+      {variants.length === 0 ? (
+        <EmptyState
+          className="py-8"
+          icon={<Layers className="h-6 w-6" />}
+          title="Sin variantes"
+          description="Agrega al menos una para que el producto se pueda vender."
+          action={
+            addOpen ? undefined : (
+              <Button type="button" size="sm" onClick={() => setAddOpen(true)}>
+                <Plus aria-hidden className="h-4 w-4" />
+                Agregar variante
+              </Button>
+            )
+          }
+        />
+      ) : (
+        <ul className="divide-y">
+          {variants.map((variant) => (
+            <li key={variant.id}>
+              <VariantRow
+                variant={variant}
+                saving={savingVariantId === variant.id}
+                onSave={(values) => onSaveVariant(variant, values)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
+function VariantRow({
+  variant,
+  onSave,
+  saving,
+}: {
+  variant: Variant;
+  onSave: (values: VariantValues) => void;
+  saving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const form = useForm<VariantValues>({
+    resolver: zodResolver(variantSchema),
+    values: {
+      title: variant.title,
+      price: variant.price,
+      satProductCode: variant.satProductCode,
+      satUnitCode: variant.satUnitCode,
+      status: variant.status,
+    },
+  });
+  const errors = form.formState.errors;
+
+  if (!editing) {
+    return (
+      <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0 space-y-0.5">
+          <p className="truncate text-sm font-medium">{variant.title}</p>
+          <p className="font-mono text-xs text-muted-foreground">{variant.sku}</p>
+          <p className="text-xs text-muted-foreground">
+            {variant.stock === null ? (
+              "Sin control de inventario"
+            ) : isOutOfStock(variant) ? (
+              <Badge variant="warning" size="sm">
+                Sin existencias
+              </Badge>
+            ) : (
+              <>
+                Existencias: <span className="tabular-nums">{variant.stock}</span>
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
+          <Money value={variant.price} className="text-sm font-medium" />
+          <div className="flex items-center gap-1">
+            <StatusBadge status={variant.status} domain="catalog" size="sm" />
+            {saving ? (
+              <Spinner size="sm" label="Guardando variante…" />
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Editar variante ${variant.sku}`}
+                onClick={() => setEditing(true)}
+              >
+                <Pencil aria-hidden className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="space-y-4 bg-muted p-3"
+      noValidate
+      onSubmit={form.handleSubmit((values) => {
+        onSave(values);
+        setEditing(false);
+      })}
+    >
+      <p className="text-sm">
+        <span className="font-semibold">Editando</span>{" "}
+        <span className="font-mono text-xs text-muted-foreground">{variant.sku}</span>
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Field label="Título" className="sm:col-span-2" error={errors.title?.message}>
+          {(p) => <Input autoFocus {...p} {...form.register("title")} />}
+        </Field>
+        <Field label="Precio" hint="Formato 99.00" error={errors.price?.message}>
+          {(p) => <Input inputMode="decimal" {...p} {...form.register("price")} />}
+        </Field>
+        <Field label="Estado" error={errors.status?.message}>
+          {(p) => (
+            <Select {...p} {...form.register("status")}>
+              {CATALOG_STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+        <Field label="Clave SAT de producto" error={errors.satProductCode?.message}>
+          {(p) => <Input inputMode="numeric" {...p} {...form.register("satProductCode")} />}
+        </Field>
+        <Field label="Clave SAT de unidad" error={errors.satUnitCode?.message}>
+          {(p) => <Input {...p} {...form.register("satUnitCode")} />}
+        </Field>
+      </div>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            form.reset();
+            setEditing(false);
+          }}
+        >
+          Cancelar
+        </Button>
+        <Button type="submit" size="sm" loading={saving}>
+          Guardar variante
+        </Button>
+      </div>
+    </form>
+  );
+}

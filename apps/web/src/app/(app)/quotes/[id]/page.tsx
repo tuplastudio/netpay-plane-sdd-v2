@@ -1,14 +1,31 @@
 "use client";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Copy, ExternalLink, Download } from "lucide-react";
+import { AlertCircle, Copy, Download, Link2, Pencil, Share2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { SkeletonText } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { DateTime } from "@/components/app/date-time";
+import { DescriptionList, FieldRow } from "@/components/app/field-row";
+import { Money } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
+import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { QuoteLinesTable } from "./_components/quote-lines-table";
+import { EditQuoteSheet } from "./_components/edit-quote-sheet";
 
 interface QuoteDetail {
   id: string;
@@ -20,6 +37,9 @@ interface QuoteDetail {
   shipping: string;
   expiresAt: string;
   notes: string | null;
+  version: number;
+  /** Calculado por el API: no cerrada y sin pedido pagado. */
+  editable: boolean;
   customer: { fullName: string; email: string | null };
   order: { id: string; status: string } | null;
   lines: Array<{
@@ -48,13 +68,6 @@ interface OrderDetail {
   payments: OrderPayment[];
 }
 
-function statusVariant(status: string): "success" | "warning" | "muted" | "destructive" {
-  if (status === "ACCEPTED" || status === "PAID" || status === "CAPTURED") return "success";
-  if (status === "DRAFT" || status === "AWAITING_PAYMENT" || status === "CHECKOUT_OPEN") return "warning";
-  if (status === "CANCELLED" || status === "EXPIRED" || status === "FAILED") return "destructive";
-  return "muted";
-}
-
 async function copyToClipboard(text: string, label: string) {
   try {
     await navigator.clipboard.writeText(text);
@@ -66,10 +79,11 @@ async function copyToClipboard(text: string, label: string) {
 
 export default function QuoteDetailPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [approveConfirmOpen, setApproveConfirmOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const q = useQuery({
     queryKey: ["quote", params.id],
@@ -82,7 +96,7 @@ export default function QuoteDetailPage() {
   const orderId = q.data?.order?.id ?? null;
 
   // Detalle de pago: cuando la cotización ya generó un pedido, se consulta
-  // aparte para mostrar el desglose de intentos de pago (dummy gateway).
+  // aparte para mostrar el desglose de intentos de pago (pasarela de pruebas).
   const order = useQuery({
     queryKey: ["order-for-quote", orderId],
     queryFn: async () => {
@@ -136,6 +150,7 @@ export default function QuoteDetailPage() {
     onSuccess: ({ checkoutToken }) => {
       const url = `${window.location.origin}/checkout/${checkoutToken}`;
       setPaymentLink(url);
+      setApproveConfirmOpen(false);
       toast.success("Cotización aprobada: pedido creado y link de pago listo");
       void copyToClipboard(url, "Link de pago");
       void q.refetch();
@@ -154,37 +169,103 @@ export default function QuoteDetailPage() {
     },
   });
 
-  if (q.isLoading) return <div className="py-8 text-sm text-muted-foreground">Cargando…</div>;
-  if (!q.data) return null;
+  const breadcrumbs = [
+    { label: "Cotizaciones", href: "/quotes" },
+    { label: `#${params.id.slice(0, 8)}` },
+  ];
+
+  if (q.isLoading) {
+    return (
+      <div>
+        <PageHeader title="Cotización" backHref="/quotes" breadcrumbs={breadcrumbs} />
+        <Section title="Cargando cotización">
+          <SkeletonText lines={4} label="Cargando cotización…" />
+        </Section>
+      </div>
+    );
+  }
+
+  if (q.isError || !q.data) {
+    return (
+      <div>
+        <PageHeader title="Cotización" backHref="/quotes" breadcrumbs={breadcrumbs} />
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>No se pudo cargar la cotización</AlertTitle>
+          <AlertDescription>
+            <p>Revisa el identificador o inténtalo de nuevo.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => void q.refetch()}>
+                Reintentar
+              </Button>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/quotes">Volver a cotizaciones</Link>
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   const quote = q.data;
+  const shortId = quote.id.slice(0, 8);
+  const shareUrl =
+    shareToken && typeof window !== "undefined"
+      ? `${window.location.origin}/quotes/public/${shareToken}`
+      : null;
 
   return (
     <div>
       <PageHeader
-        title={`Cotización ${quote.id.slice(0, 8)}…`}
-        description={
+        title={`Cotización ${shortId}…`}
+        backHref="/quotes"
+        breadcrumbs={[{ label: "Cotizaciones", href: "/quotes" }, { label: `#${shortId}` }]}
+        meta={
           <>
-            {quote.customer.fullName} · <Badge variant={statusVariant(quote.status)}>{quote.status}</Badge>
+            <StatusBadge status={quote.status} domain="quote" withDot />
+            <span className="text-foreground">{quote.customer.fullName}</span>
+            <span aria-hidden>·</span>
+            <span>
+              Vence <DateTime value={quote.expiresAt} />
+            </span>
+            {quote.version > 1 ? (
+              <>
+                <span aria-hidden>·</span>
+                <span>Versión {quote.version}</span>
+              </>
+            ) : null}
           </>
         }
         actions={
           <>
+            {quote.editable && (
+              <Button variant="outline" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-4 w-4" />
+                Editar
+              </Button>
+            )}
             {quote.status === "DRAFT" && (
-              <Button onClick={() => issue.mutate()} disabled={issue.isPending}>
+              <Button loading={issue.isPending} onClick={() => issue.mutate()}>
                 Emitir
               </Button>
             )}
             {quote.status === "ISSUED" && (
-              <Button onClick={() => approve.mutate()} disabled={approve.isPending}>
-                {approve.isPending ? "Aprobando…" : "Aprobar cotización"}
+              <Button loading={approve.isPending} onClick={() => setApproveConfirmOpen(true)}>
+                Aprobar cotización
               </Button>
             )}
             {(quote.status === "DRAFT" || quote.status === "ISSUED") && (
               <>
-                <Button variant="outline" onClick={() => share.mutate()} disabled={share.isPending}>
+                <Button
+                  variant="outline"
+                  loading={share.isPending}
+                  onClick={() => share.mutate()}
+                >
+                  <Share2 className="h-4 w-4" />
                   Compartir
                 </Button>
-                <Button variant="ghost" onClick={() => setCancelConfirmOpen(true)}>
+                <Button variant="outline" onClick={() => setCancelConfirmOpen(true)}>
                   Cancelar
                 </Button>
               </>
@@ -199,6 +280,20 @@ export default function QuoteDetailPage() {
         }
       />
 
+      <EditQuoteSheet
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        quoteId={quote.id}
+        lines={quote.lines}
+        notes={quote.notes}
+        status={quote.status}
+        hasOrder={!!orderId}
+        onSaved={async () => {
+          await q.refetch();
+          if (orderId) await order.refetch();
+        }}
+      />
+
       <ConfirmDialog
         open={cancelConfirmOpen}
         onOpenChange={setCancelConfirmOpen}
@@ -209,140 +304,197 @@ export default function QuoteDetailPage() {
         onConfirm={() => cancel.mutate()}
       />
 
-      {paymentLink && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-card border bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30">
-          <span className="font-medium">Link de pago:</span>
-          <a href={paymentLink} target="_blank" rel="noreferrer" className="break-all text-primary underline">
-            {paymentLink}
-          </a>
-          <Button variant="outline" size="sm" onClick={() => void copyToClipboard(paymentLink, "Link de pago")}>
-            <Copy className="h-3.5 w-3.5" />
-            Copiar
-          </Button>
-        </div>
-      )}
+      <ConfirmDialog
+        open={approveConfirmOpen}
+        onOpenChange={setApproveConfirmOpen}
+        title="¿Aprobar la cotización?"
+        description="Se crea el pedido con estas mismas líneas y se abre el checkout con su link de pago. La cotización queda aceptada y no se puede deshacer."
+        confirmLabel="Aprobar y cobrar"
+        variant="default"
+        pending={approve.isPending}
+        onConfirm={() => approve.mutate()}
+      />
 
-      {shareToken && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-card border bg-muted p-3 text-sm">
-          <span className="font-medium">Link de la cotización:</span>
-          <a href={`/quotes/public/${shareToken}`} className="break-all text-primary underline">
-            {typeof window !== "undefined" ? window.location.origin : ""}/quotes/public/{shareToken}
-          </a>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              void copyToClipboard(
-                `${window.location.origin}/quotes/public/${shareToken}`,
-                "Link de la cotización",
-              )
-            }
-          >
-            <Copy className="h-3.5 w-3.5" />
-            Copiar
-          </Button>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <section className="overflow-x-auto rounded-card border bg-card p-4 md:col-span-2">
-          <h2 className="mb-3 font-semibold">Líneas</h2>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                <th className="p-2">SKU</th>
-                <th className="p-2">Producto</th>
-                <th className="p-2 text-right">Cantidad</th>
-                <th className="p-2 text-right">Precio</th>
-                <th className="p-2 text-right">Desc%</th>
-                <th className="p-2 text-right">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {quote.lines.map((l) => (
-                <tr key={l.id} className="border-b last:border-0">
-                  <td className="p-2 font-mono text-xs">{l.sku}</td>
-                  <td className="p-2">{l.title}</td>
-                  <td className="p-2 text-right tabular-nums">{l.quantity}</td>
-                  <td className="p-2 text-right font-mono">${l.unitPrice}</td>
-                  <td className="p-2 text-right">{l.discountPct}%</td>
-                  <td className="p-2 text-right font-mono">${l.lineSubtotal}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {orderId && (
-            <div className="mt-6 border-t pt-4">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="font-semibold">Detalle de pago</h2>
-                <Button variant="ghost" size="sm" onClick={() => router.push(`/orders/${orderId}`)}>
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Ver pedido completo
+      <div className="space-y-6">
+        {paymentLink && (
+          <Alert variant="success">
+            <Link2 />
+            <AlertTitle>Link de pago listo</AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href={paymentLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="break-all underline underline-offset-4"
+                >
+                  {paymentLink}
+                </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void copyToClipboard(paymentLink, "Link de pago")}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copiar
                 </Button>
               </div>
-              {order.isLoading ? (
-                <p className="text-sm text-muted-foreground">Cargando pago…</p>
-              ) : order.data && order.data.payments.length > 0 ? (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="p-2">ID</th>
-                      <th className="p-2">Estado</th>
-                      <th className="p-2 text-right">Monto</th>
-                      <th className="p-2">Capturado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.data.payments.map((p) => (
-                      <tr key={p.id} className="border-b last:border-0">
-                        <td className="p-2 font-mono text-xs">{p.id.slice(0, 8)}…</td>
-                        <td className="p-2">
-                          <Badge variant={statusVariant(p.status)}>{p.status}</Badge>
-                        </td>
-                        <td className="p-2 text-right font-mono">${p.amount}</td>
-                        <td className="p-2 text-xs text-muted-foreground">
-                          {p.capturedAt ? new Date(p.capturedAt).toLocaleString() : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Pedido <Badge variant={statusVariant(order.data?.status ?? "")}>{order.data?.status}</Badge>{" "}
-                  · sin sesiones de pago todavía.
-                </p>
-              )}
-            </div>
-          )}
-        </section>
+            </AlertDescription>
+          </Alert>
+        )}
 
-        <section className="rounded-card border bg-card p-4">
-          <h2 className="mb-3 font-semibold">Totales</h2>
-          <dl className="space-y-2 text-sm">
-            <Row label="Subtotal" value={quote.subtotal} />
-            <Row label="Descuento" value={quote.discount} />
-            <Row label="IVA" value={quote.tax} />
-            <Row label="Envío" value={quote.shipping} />
-            <div className="border-t pt-2">
-              <Row label="Total" value={quote.total} bold />
-            </div>
-            <div className="border-t pt-2 text-xs text-muted-foreground">
-              Vence: {new Date(quote.expiresAt).toLocaleString()}
-            </div>
-          </dl>
-        </section>
+        {shareToken && (
+          <Alert variant="info">
+            <Share2 />
+            <AlertTitle>Link público de la cotización</AlertTitle>
+            <AlertDescription>
+              <div className="flex flex-wrap items-center gap-3">
+                <a
+                  href={`/quotes/public/${shareToken}`}
+                  className="break-all underline underline-offset-4"
+                >
+                  {shareUrl ?? `/quotes/public/${shareToken}`}
+                </a>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    void copyToClipboard(
+                      `${window.location.origin}/quotes/public/${shareToken}`,
+                      "Link de la cotización",
+                    )
+                  }
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  Copiar
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <div className="space-y-6 md:col-span-2">
+            <Section title="Líneas" padded={false}>
+              <QuoteLinesTable lines={quote.lines} total={quote.total} />
+            </Section>
+
+            {orderId && (
+              <Section
+                title="Detalle de pago"
+                padded={false}
+                actions={
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={`/orders/${orderId}`}>Ver pedido completo</Link>
+                  </Button>
+                }
+              >
+                {order.isLoading ? (
+                  <div className="p-4 sm:p-6">
+                    <SkeletonText lines={2} label="Cargando pago…" />
+                  </div>
+                ) : order.data && order.data.payments.length > 0 ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow interactive={false}>
+                        <TableHead>ID</TableHead>
+                        <TableHead>Estado</TableHead>
+                        <TableHead numeric>Monto</TableHead>
+                        <TableHead>Capturado</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {order.data.payments.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell className="font-mono text-xs" title={p.id}>
+                            <Link
+                              href={`/payments/${p.id}`}
+                              className="text-primary-strong underline-offset-4 hover:underline"
+                            >
+                              {p.id.slice(0, 8)}…
+                            </Link>
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={p.status} domain="payment" withDot />
+                          </TableCell>
+                          <TableCell numeric>
+                            <Money value={p.amount} />
+                          </TableCell>
+                          <TableCell>
+                            <DateTime
+                              value={p.capturedAt}
+                              className="text-xs text-muted-foreground"
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2 p-4 text-sm text-muted-foreground sm:p-6">
+                    <span>Pedido</span>
+                    {order.data ? (
+                      <StatusBadge status={order.data.status} domain="order" />
+                    ) : null}
+                    <span>
+                      {order.data?.status === "DRAFT"
+                        ? "· sin checkout abierto. Inícialo desde el pedido para generar el link de pago."
+                        : "· sin sesiones de pago todavía."}
+                    </span>
+                  </div>
+                )}
+              </Section>
+            )}
+          </div>
+
+          <div className="space-y-6">
+            <Section title="Totales">
+              <DescriptionList divided>
+                <FieldRow label="Subtotal" numeric>
+                  <Money value={quote.subtotal} />
+                </FieldRow>
+                <FieldRow label="Descuento" numeric>
+                  <Money value={quote.discount} />
+                </FieldRow>
+                <FieldRow label="IVA" numeric>
+                  <Money value={quote.tax} />
+                </FieldRow>
+                <FieldRow label="Envío" numeric>
+                  <Money value={quote.shipping} />
+                </FieldRow>
+                <FieldRow label="Total" numeric emphasis>
+                  <Money value={quote.total} emphasis showCurrency />
+                </FieldRow>
+                <FieldRow label="Vence">
+                  <DateTime value={quote.expiresAt} />
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+
+            <Section title="Cliente">
+              <DescriptionList divided>
+                <FieldRow label="Nombre">{quote.customer.fullName}</FieldRow>
+                <FieldRow label="Correo">{quote.customer.email}</FieldRow>
+                <FieldRow label="Notas">{quote.notes}</FieldRow>
+                <FieldRow label="ID de cotización" mono>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="break-all">{quote.id}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Copiar ID de la cotización"
+                      className="h-7 w-7"
+                      onClick={() => void copyToClipboard(quote.id, "ID de la cotización")}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </span>
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+          </div>
+        </div>
       </div>
-    </div>
-  );
-}
-
-function Row({ label, value, bold = false }: { label: string; value: string; bold?: boolean }) {
-  return (
-    <div className="flex justify-between">
-      <dt className={bold ? "font-semibold" : "text-muted-foreground"}>{label}</dt>
-      <dd className={bold ? "font-mono font-semibold" : "font-mono"}>${value}</dd>
     </div>
   );
 }

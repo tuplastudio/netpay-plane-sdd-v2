@@ -30,8 +30,9 @@ export class RoleGuard implements CanActivate {
 
     const principal = RequestContext.principal;
 
-    // Principal tipo API key: validar contra scopes del API key.
-    if (principal.type === "API_KEY") {
+    // Principales no-humanos: validar los scopes de la credencial/API o de la
+    // aserción interna firmada del agente.
+    if (principal.type === "API_KEY" || principal.type === "SERVICE") {
       const have = new Set(principal.scopes ?? []);
       const missing = requiredScopes.filter((s) => !have.has(s));
       if (missing.length > 0) {

@@ -11,6 +11,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { WhatsAppService } from "../whatsapp/whatsapp.service.js";
+import { EmailService } from "../email/email.service.js";
 import { renderTemplate, type TemplateKey } from "./notification-templates.js";
 
 /**
@@ -43,6 +44,7 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly whatsapp: WhatsAppService,
+    private readonly email: EmailService,
   ) {}
 
   onModuleInit(): void {
@@ -116,8 +118,22 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
           if (result.status === "FAILED") {
             throw new Error(result.error ?? "envío falló");
           }
+        } else if (n.channel === "EMAIL") {
+          if (!payload.to || !payload.body) {
+            throw new Error("payload incompleto (to/body)");
+          }
+          await this.email.send({
+            to: payload.to,
+            subject: n.tenant.name,
+            template: "notification",
+            vars: {
+              tenantName: n.tenant.name,
+              primaryColor: n.tenant.primaryColor,
+              body: payload.body,
+            },
+          });
         } else {
-          // Simulado: no hay proveedor EMAIL/SMS/PUSH configurado en V2.
+          // Simulado: SMS/PUSH no tienen proveedor configurado en V2.
           this.logger.log(`[simulado] ${n.channel} a ${payload.to ?? "?"}: ${payload.body ?? ""}`);
         }
         await this.markSent(n.id);

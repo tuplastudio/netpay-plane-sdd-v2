@@ -1,6 +1,5 @@
 "use client";
 import { Suspense, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,7 +8,14 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  AuthCard,
+  AuthError,
+  AuthField,
+  AuthForm,
+  AuthLink,
+  authErrorMessage,
+} from "@/components/app/auth-card";
 
 const schema = z
   .object({
@@ -35,6 +41,9 @@ function AcceptInviteForm() {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(
+    token ? null : "Link inválido. Pide una invitación nueva.",
+  );
 
   const {
     register,
@@ -47,61 +56,71 @@ function AcceptInviteForm() {
 
   const onSubmit = handleSubmit(async (values) => {
     if (!token) {
-      toast.error("Link inválido.");
+      setFormError("Link inválido. Pide una invitación nueva.");
       return;
     }
     setSubmitting(true);
+    setFormError(null);
     try {
       await api.post("/auth/accept-invite", { token, password: values.password });
       toast.success("Cuenta activada");
       router.push("/login");
-    } catch {
-      toast.error("El link es inválido o ya expiró");
+    } catch (err) {
+      setFormError(authErrorMessage(err, "El link es inválido o ya expiró"));
     } finally {
       setSubmitting(false);
     }
   });
 
   return (
-    <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-16">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-card border bg-card p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold">Activar cuenta</h1>
-          <p className="text-sm text-muted-foreground">Elige una contraseña para completar tu invitación.</p>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="password">Contraseña</Label>
-          <Input id="password" type="password" autoComplete="new-password" {...register("password")} />
-          {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
-          <Input
-            id="confirmPassword"
-            type="password"
-            autoComplete="new-password"
-            {...register("confirmPassword")}
-          />
-          {errors.confirmPassword && (
-            <p className="text-xs text-destructive">{errors.confirmPassword.message}</p>
-          )}
-        </div>
-
-        <Button type="submit" className="w-full" disabled={submitting || !token}>
-          {submitting ? "Activando…" : "Activar cuenta"}
-        </Button>
-
-        <p className="text-center text-xs text-muted-foreground">
-          <Link href="/login" className="underline">
-            Volver a iniciar sesión
-          </Link>
+    <AuthCard
+      title="Activar cuenta"
+      description="Elige una contraseña para completar tu invitación."
+      footer={
+        <p>
+          ¿Ya activaste tu cuenta? <AuthLink href="/login">Inicia sesión</AuthLink>
         </p>
-      </form>
-    </main>
+      }
+    >
+      <AuthForm onSubmit={onSubmit}>
+        <AuthError message={formError} title="No se pudo activar" />
+
+        <AuthField
+          id="password"
+          label="Contraseña"
+          hint="Mínimo 12 caracteres."
+          error={errors.password?.message}
+        >
+          {(field) => (
+            <Input
+              {...field}
+              type="password"
+              autoComplete="new-password"
+              autoFocus
+              {...register("password")}
+            />
+          )}
+        </AuthField>
+
+        <AuthField
+          id="confirmPassword"
+          label="Confirmar contraseña"
+          error={errors.confirmPassword?.message}
+        >
+          {(field) => (
+            <Input
+              {...field}
+              type="password"
+              autoComplete="new-password"
+              {...register("confirmPassword")}
+            />
+          )}
+        </AuthField>
+
+        <Button type="submit" className="w-full" loading={submitting} disabled={!token}>
+          Activar cuenta
+        </Button>
+      </AuthForm>
+    </AuthCard>
   );
 }

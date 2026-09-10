@@ -1,28 +1,51 @@
 "use client";
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { RotateCcw, Search } from "lucide-react";
+import { CreditCard, Hourglass, ReceiptText, RotateCcw, Search, TrendingUp, Wallet } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { DateTime } from "@/components/app/date-time";
+import { Money, formatMoney } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
+import { Section } from "@/components/app/section";
+import { StatTile } from "@/components/app/stat-tile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { money, statusVariant, PAYMENT_STATUS_LABEL, LEDGER_TYPE_LABEL } from "@/lib/payments";
+import { centsToDecimalString, toCents } from "@/lib/decimal";
+import { useReportSummary } from "../_dashboard/use-dashboard-data";
+
+/** Estados de sesión sobre los que el backend admite un (nuevo) reembolso. */
+const REFUNDABLE_STATUSES = new Set(["CAPTURED", "PARTIALLY_REFUNDED"]);
 
 interface Session {
   id: string;
   orderId: string;
   amount: string;
+  /** Acumulado ya reembolsado de esta sesión. `amount` nunca lo descuenta. */
+  refundedTotal: string;
   currency: string;
   status: string;
   customerName: string | null;
   capturedAt: string | null;
   createdAt: string;
+}
+
+/**
+ * Lo que aún se puede reembolsar de una sesión, en centavos enteros para no
+ * arrastrar error de flotante sobre los `Decimal(12,2)` del backend. `null` si
+ * algún importe no se puede leer: entonces el diálogo abre vacío en vez de
+ * proponer una cifra inventada.
+ */
+function remainingRefundable(s: Session): string | null {
+  const amount = toCents(s.amount);
+  const refunded = toCents(s.refundedTotal);
+  if (amount === null || refunded === null) return null;
+  return centsToDecimalString(Math.max(0, amount - refunded));
 }
 
 interface LedgerEntry {
@@ -58,6 +81,21 @@ export default function PaymentsPage() {
     },
   });
 
+  /**
+   * Cifras de resumen. Las calcula el backend con agregados SQL sobre las
+   * tablas completas (`GET /reports/summary`), no este cliente sobre las filas
+   * que quepan en la ventana del listado. Misma clave de caché que el
+   * panorama: navegar entre las dos pantallas no repite la petición.
+   */
+  const summary = useReportSummary();
+  const sum = summary.data;
+  /** Los cuatro mosaicos comparten consulta, y con ella carga, error y reintento. */
+  const summaryTile = {
+    isLoading: summary.isLoading,
+    isError: summary.isError,
+    onRetry: () => void summary.refetch(),
+  };
+
   const refund = useMutation({
     mutationFn: async () => {
       await api.post("/payments/refunds", {
@@ -74,6 +112,7 @@ export default function PaymentsPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["payment-sessions"] }),
         queryClient.invalidateQueries({ queryKey: ["payment-ledger"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports-summary"] }),
       ]);
     },
     onError: () => toast.error("No se pudo registrar el reembolso"),
@@ -81,7 +120,10 @@ export default function PaymentsPage() {
 
   function openRefund(s: Session) {
     setRefundTarget(s);
-    setRefundAmount(s.amount);
+    // Se propone lo que QUEDA por reembolsar, no el bruto de la sesión: sobre
+    // una sesión ya reembolsada a medias, proponer `amount` sería proponer un
+    // importe que el backend rechaza por excederse.
+    setRefundAmount(remainingRefundable(s) ?? "");
     setRefundReason("");
   }
 
@@ -109,166 +151,263 @@ export default function PaymentsPage() {
     [ledger.data, needle],
   );
 
-  const totals = useMemo(() => {
-    const list = sessions.data ?? [];
-    const captured = list.filter((s) => s.status === "CAPTURED");
-    const refunded = (ledger.data ?? []).filter((l) => l.entryType === "REFUND");
-    return {
-      capturedCount: captured.length,
-      capturedAmount: captured.reduce((sum, s) => sum + Number(s.amount), 0),
-      pending: list.filter((s) => s.status === "PENDING").length,
-      refundedAmount: refunded.reduce((sum, l) => sum + Number(l.amount), 0),
-    };
-  }, [sessions.data, ledger.data]);
+  const sessionColumns: Array<DataTableColumn<Session>> = [
+    {
+      key: "id",
+      header: "Sesión",
+      width: "9rem",
+      cell: (s) => (
+        <span className="font-mono text-xs" title={s.id}>
+          {s.id.slice(0, 8)}…
+        </span>
+      ),
+    },
+    { key: "customer", header: "Cliente", cell: (s) => s.customerName ?? "—" },
+    {
+      key: "status",
+      header: "Estado",
+      width: "9rem",
+      cell: (s) => <StatusBadge status={s.status} domain="payment" withDot />,
+    },
+    {
+      key: "amount",
+      header: "Monto",
+      numeric: true,
+      width: "9rem",
+      cell: (s) => <Money value={s.amount} currency={s.currency} />,
+    },
+    {
+      key: "createdAt",
+      header: "Creada",
+      width: "11rem",
+      cell: (s) => <DateTime value={s.createdAt} className="text-xs text-muted-foreground" />,
+    },
+    {
+      key: "capturedAt",
+      header: "Capturado",
+      width: "11rem",
+      cell: (s) => <DateTime value={s.capturedAt} className="text-xs text-muted-foreground" />,
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Acciones</span>,
+      width: "9rem",
+      className: "text-right",
+      // Una sesión reembolsada a medias sigue admitiendo reembolso: el backend
+      // acepta CAPTURED y PARTIALLY_REFUNDED mientras quede saldo.
+      cell: (s) =>
+        REFUNDABLE_STATUSES.has(s.status) ? (
+          <Button variant="outline" size="sm" onClick={() => openRefund(s)}>
+            <RotateCcw className="h-3.5 w-3.5" />
+            Reembolsar
+          </Button>
+        ) : null,
+    },
+  ];
+
+  const ledgerColumns: Array<DataTableColumn<LedgerEntry>> = [
+    {
+      key: "sessionId",
+      header: "Sesión",
+      width: "9rem",
+      cell: (l) => (
+        <span className="font-mono text-xs" title={l.sessionId}>
+          {l.sessionId.slice(0, 8)}…
+        </span>
+      ),
+    },
+    {
+      key: "entryType",
+      header: "Tipo",
+      width: "8rem",
+      cell: (l) => <StatusBadge status={l.entryType} domain="ledger" />,
+    },
+    {
+      key: "amount",
+      header: "Monto",
+      numeric: true,
+      width: "9rem",
+      cell: (l) => <Money value={l.amount} />,
+    },
+    {
+      key: "balanceAfter",
+      header: "Saldo",
+      numeric: true,
+      width: "9rem",
+      cell: (l) => <Money value={l.balanceAfter} className="text-muted-foreground" />,
+    },
+    {
+      key: "description",
+      header: "Descripción",
+      cell: (l) => <span className="text-xs text-muted-foreground">{l.description}</span>,
+    },
+    {
+      key: "recordedAt",
+      header: "Fecha",
+      width: "11rem",
+      cell: (l) => <DateTime value={l.recordedAt} className="text-xs text-muted-foreground" />,
+    },
+  ];
 
   return (
-    <div className="space-y-6">
+    <div>
       <PageHeader
         title="Pagos"
         description="Sesiones de checkout, ledger de movimientos y reembolsos."
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Cobrado" value={money(totals.capturedAmount)} hint={`${totals.capturedCount} sesiones`} />
-        <Stat label="Reembolsado" value={money(totals.refundedAmount)} />
-        <Stat label="Pendientes" value={String(totals.pending)} hint="esperando pago" />
-        <Stat label="Neto" value={money(totals.capturedAmount - totals.refundedAmount)} />
-      </section>
+      <div className="space-y-6">
+        {/*
+          Las cuatro cifras salen de `GET /reports/summary`, que las calcula con
+          agregados SQL sobre las tablas completas. Antes se sumaban aquí las
+          filas de dos listados con topes distintos (50 sesiones, 100
+          movimientos) y había que confesarlo en una nota al pie: describían esa
+          ventana, no el histórico del comercio. Ya no.
 
-      <Tabs defaultValue="pagos" className="space-y-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <TabsList>
-            <TabsTrigger value="pagos">Pagos ({sessions.data?.length ?? 0})</TabsTrigger>
-            <TabsTrigger value="ledger">Ledger ({ledger.data?.length ?? 0})</TabsTrigger>
-          </TabsList>
-          <div className="relative sm:w-64">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filtrar por id, cliente o estado…"
-              className="h-9 pl-8"
-              aria-label="Filtrar pagos"
+          Y el "Neto" vuelve a tener mosaico propio. Se quitó porque no se podía
+          calcular: `refund()` marcaba la sesión ENTERA como REFUNDED aunque el
+          reembolso fuera parcial, así que su importe bruto desaparecía del
+          filtro CAPTURED y restarle encima el ledger lo descontaba dos veces.
+          Ahora la sesión conserva `amount` y acumula `refundedTotal`, y el
+          backend devuelve bruto y neto por separado.
+        */}
+        <Section title="Resumen">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <StatTile size="compact"
+              {...summaryTile}
+              label="Cobrado (bruto)"
+              tone="neutral"
+              icon={<Wallet className="h-4 w-4" />}
+              value={<Money value={sum?.capturedGross} />}
+              hint="Todo lo que llegó a cobrarse, antes de reembolsos"
+            />
+            <StatTile size="compact"
+              {...summaryTile}
+              label="Reembolsado"
+              tone="warning"
+              icon={<RotateCcw className="h-4 w-4" />}
+              value={<Money value={sum?.refundedTotal} />}
+              hint="Devuelto al cliente, total y parcial"
+            />
+            <StatTile size="compact"
+              {...summaryTile}
+              label="Cobrado y no reembolsado"
+              tone="success"
+              icon={<TrendingUp className="h-4 w-4" />}
+              value={<Money value={sum?.capturedNet} />}
+              hint="Bruto menos reembolsos"
+            />
+            <StatTile size="compact"
+              {...summaryTile}
+              label="Por cobrar"
+              tone="warning"
+              icon={<Hourglass className="h-4 w-4" />}
+              value={<Money value={sum?.outstandingTotal} />}
+              hint={
+                sum === undefined
+                  ? undefined
+                  : sum.outstandingCount === 0
+                    ? "Ningún pedido espera cobro."
+                    : `${sum.outstandingCount} ${
+                        sum.outstandingCount === 1 ? "pedido" : "pedidos"
+                      } esperando pago`
+              }
             />
           </div>
-        </div>
+        </Section>
 
-        <TabsContent value="pagos">
-          <section className="overflow-x-auto rounded-card border bg-card p-4">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                  <th className="p-2">Sesión</th>
-                  <th className="p-2">Cliente</th>
-                  <th className="p-2">Estado</th>
-                  <th className="p-2 text-right">Monto</th>
-                  <th className="p-2">Creada</th>
-                  <th className="p-2">Capturado</th>
-                  <th className="p-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleSessions.map((s) => (
-                  <tr key={s.id} className="border-b last:border-0 hover:bg-muted/50">
-                    <td className="p-2">
-                      <Link
-                        href={`/payments/${s.id}`}
-                        className="font-mono text-xs text-primary hover:underline"
-                      >
-                        {s.id.slice(0, 8)}…
-                      </Link>
-                    </td>
-                    <td className="p-2">{s.customerName ?? "—"}</td>
-                    <td className="p-2">
-                      <Badge variant={statusVariant(s.status)}>
-                        {PAYMENT_STATUS_LABEL[s.status] ?? s.status}
-                      </Badge>
-                    </td>
-                    <td className="p-2 text-right font-mono">
-                      ${s.amount} {s.currency}
-                    </td>
-                    <td className="p-2 text-xs text-muted-foreground">
-                      {new Date(s.createdAt).toLocaleString("es-MX")}
-                    </td>
-                    <td className="p-2 text-xs text-muted-foreground">
-                      {s.capturedAt ? new Date(s.capturedAt).toLocaleString("es-MX") : "—"}
-                    </td>
-                    <td className="p-2 text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button asChild variant="ghost" size="sm">
-                          <Link href={`/payments/${s.id}`}>Ver detalle</Link>
-                        </Button>
-                        {s.status === "CAPTURED" && (
-                          <Button variant="outline" size="sm" onClick={() => openRefund(s)}>
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            Reembolsar
+        <Tabs defaultValue="pagos" className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <TabsList>
+              <TabsTrigger value="pagos">Pagos ({sessions.data?.length ?? 0})</TabsTrigger>
+              <TabsTrigger value="ledger">Ledger ({ledger.data?.length ?? 0})</TabsTrigger>
+            </TabsList>
+            <div className="relative sm:w-72">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filtrar por id, cliente o estado…"
+                className="pl-9"
+                aria-label="Filtrar pagos y movimientos"
+              />
+            </div>
+          </div>
+
+          <TabsContent value="pagos">
+            <Section title="Sesiones de pago" padded={false}>
+              <DataTable
+                columns={sessionColumns}
+                rows={visibleSessions}
+                isLoading={sessions.isLoading}
+                isError={sessions.isError}
+                error={sessions.error}
+                onRetry={() => void sessions.refetch()}
+                getRowHref={(s) => `/payments/${s.id}`}
+                caption="Sesiones de checkout del comercio"
+                empty={
+                  needle
+                    ? {
+                        icon: <Search className="h-6 w-6" />,
+                        title: "Ningún pago coincide",
+                        description:
+                          "Ajusta el filtro: busca por id de sesión, nombre del cliente o estado.",
+                        action: (
+                          <Button variant="outline" onClick={() => setFilter("")}>
+                            Limpiar filtro
                           </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {visibleSessions.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="p-3 text-center text-sm text-muted-foreground">
-                      {needle ? "Ningún pago coincide con el filtro." : "Sin sesiones de pago."}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </section>
-        </TabsContent>
+                        ),
+                      }
+                    : {
+                        icon: <CreditCard className="h-6 w-6" />,
+                        title: "Sin sesiones de pago",
+                        description:
+                          "Cada checkout que abras desde un pedido aparecerá aquí con su monto y su estado.",
+                      }
+                }
+              />
+            </Section>
+          </TabsContent>
 
-        <TabsContent value="ledger">
-          <section className="overflow-x-auto rounded-card border bg-card p-4">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                  <th className="p-2">Sesión</th>
-                  <th className="p-2">Tipo</th>
-                  <th className="p-2 text-right">Monto</th>
-                  <th className="p-2 text-right">Saldo</th>
-                  <th className="p-2">Descripción</th>
-                  <th className="p-2">Fecha</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleLedger.map((l) => (
-                  <tr key={l.id} className="border-b last:border-0 hover:bg-muted/50">
-                    <td className="p-2">
-                      <Link
-                        href={`/payments/${l.sessionId}`}
-                        className="font-mono text-xs text-primary hover:underline"
-                      >
-                        {l.sessionId.slice(0, 8)}…
-                      </Link>
-                    </td>
-                    <td className="p-2 text-xs">
-                      <Badge variant={l.entryType === "REFUND" ? "destructive" : "muted"}>
-                        {LEDGER_TYPE_LABEL[l.entryType] ?? l.entryType}
-                      </Badge>
-                    </td>
-                    <td className="p-2 text-right font-mono">${l.amount}</td>
-                    <td className="p-2 text-right font-mono">${l.balanceAfter}</td>
-                    <td className="p-2 text-xs text-muted-foreground">{l.description}</td>
-                    <td className="p-2 text-xs text-muted-foreground">
-                      {new Date(l.recordedAt).toLocaleString("es-MX")}
-                    </td>
-                  </tr>
-                ))}
-                {visibleLedger.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="p-3 text-center text-sm text-muted-foreground">
-                      {needle ? "Ningún movimiento coincide con el filtro." : "Sin movimientos."}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </section>
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="ledger">
+            <Section title="Movimientos" padded={false}>
+              <DataTable
+                columns={ledgerColumns}
+                rows={visibleLedger}
+                isLoading={ledger.isLoading}
+                isError={ledger.isError}
+                error={ledger.error}
+                onRetry={() => void ledger.refetch()}
+                getRowHref={(l) => `/payments/${l.sessionId}`}
+                caption="Movimientos del ledger"
+                empty={
+                  needle
+                    ? {
+                        icon: <Search className="h-6 w-6" />,
+                        title: "Ningún movimiento coincide",
+                        description:
+                          "Ajusta el filtro: busca por id de sesión, tipo de movimiento o descripción.",
+                        action: (
+                          <Button variant="outline" onClick={() => setFilter("")}>
+                            Limpiar filtro
+                          </Button>
+                        ),
+                      }
+                    : {
+                        icon: <ReceiptText className="h-6 w-6" />,
+                        title: "Sin movimientos",
+                        description:
+                          "El ledger registra cargos, reembolsos, comisiones y ajustes en cuanto se cobre el primer pago.",
+                      }
+                }
+              />
+            </Section>
+          </TabsContent>
+        </Tabs>
+      </div>
 
       <ConfirmDialog
         open={refundTarget !== null}
@@ -277,6 +416,13 @@ export default function PaymentsPage() {
         description={
           <div className="space-y-3 pt-1">
             <p>Esta acción registra el reembolso en el ledger. No se puede deshacer.</p>
+            {refundTarget && toCents(refundTarget.refundedTotal) ? (
+              <p>
+                Esta sesión ya tiene {formatMoney(refundTarget.refundedTotal)} reembolsados de{" "}
+                {formatMoney(refundTarget.amount, refundTarget.currency)}; quedan{" "}
+                {formatMoney(remainingRefundable(refundTarget), refundTarget.currency)}.
+              </p>
+            ) : null}
             <div className="space-y-1.5">
               <Label htmlFor="refund-amount">Monto a reembolsar</Label>
               <Input
@@ -297,19 +443,10 @@ export default function PaymentsPage() {
           </div>
         }
         confirmLabel="Reembolsar"
+        variant="destructive"
         pending={refund.isPending}
         onConfirm={() => refund.mutate()}
       />
-    </div>
-  );
-}
-
-function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-card border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-      {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }

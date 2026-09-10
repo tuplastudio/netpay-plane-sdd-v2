@@ -9,6 +9,7 @@ Reglas que se mantienen del v1 y no se negocian:
     depende de que el modelo lo recuerde.
 """
 
+import re
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
@@ -48,8 +49,8 @@ def _require_scope(runtime: ToolRuntime, tool_name: str):
     return require_scope(_ctx(runtime).get("scopes"), tool_name)
 
 
-def _client() -> CommerceClient:
-    return CommerceClient()
+def _client(runtime: ToolRuntime) -> CommerceClient:
+    return CommerceClient(tenant_id=_ctx(runtime).get("tenant_id", ""))
 
 
 def _fail(message: str) -> str:
@@ -88,7 +89,7 @@ async def buscar_productos(consulta: str, runtime: ToolRuntime) -> str:
     # usarlo, aunque aquí solo se compare en memoria (nunca se manda tal
     # cual al backend ni al modelo).
     consulta = clamp_text(consulta, get_settings().max_tool_arg_chars, collapse_newlines=True)
-    variants, error = await _safe(_client().search_products(None, limit=100))
+    variants, error = await _safe(_client(runtime).search_products(None, limit=100))
     if error:
         return _fail(error)
 
@@ -96,7 +97,19 @@ async def buscar_productos(consulta: str, runtime: ToolRuntime) -> str:
     words = [w for w in needle.split() if len(w) > 2]
 
     def score(v: dict[str, Any]) -> float:
-        haystack = f"{v['productTitle']} {v['title']} {v['sku']}".lower()
+        tags = v.get("tags") or []
+        synonyms = v.get("synonyms") or []
+        haystack = (
+            f"{v['productTitle']} {v['title']} {v['sku']} "
+            f"{' '.join(tags)} {' '.join(synonyms)}"
+        ).lower()
+        # Sinónimo curado a mano (ej. "cubeta grande" -> AGLOSTONE 19L): pesa
+        # más que un match de título porque alguien lo declaró a propósito
+        # para que el bot lo encuentre.
+        for synonym in synonyms:
+            s = synonym.lower().strip()
+            if s and (s == needle or s in needle or needle in s):
+                return 150.0
         if needle and needle in haystack:
             return 100.0
         return float(sum(1 for w in words if w in haystack))
@@ -141,7 +154,7 @@ async def agregar_al_carrito(
     except ValueError as exc:
         return _tool_reply(runtime, _fail(str(exc)))
 
-    variants, error = await _safe(_client().search_products(None, limit=100))
+    variants, error = await _safe(_client(runtime).search_products(None, limit=100))
     if error:
         return _tool_reply(runtime, _fail(error))
     variant = next((v for v in (variants or []) if v["variantId"] == variantId), None)
@@ -226,7 +239,7 @@ async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "PICKUP") -> 
         return _tool_reply(runtime, _fail("El carrito está vacío: agrega productos primero."))
 
     totals, error = await _safe(
-        _client().price_preview(_lines_payload(cart), delivery_mode=deliveryMode)
+        _client(runtime).price_preview(_lines_payload(cart), delivery_mode=deliveryMode)
     )
     if error:
         return _tool_reply(runtime, _fail(error))
@@ -270,7 +283,7 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "") -> Command:
 
     ctx = _ctx(runtime)
     customer: CustomerFacts = dict(runtime.state.get("customer") or {})
-    client = _client()
+    client = _client(runtime)
 
     created, error = await _safe(
         client.ensure_customer(
@@ -296,16 +309,47 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "") -> Command:
     share, share_error = await _safe(client.share_quote(quote["id"]))
     link = (share or {}).get("url") if not share_error else None
 
+    # El negocio quiere que la cotización, el enlace de pago y el PDF salgan
+    # juntos en el mismo mensaje: no esperar un "sí" aparte para cobrar. Cada
+    # paso es best-effort y no tumba a los demás: si el pago o el PDF fallan,
+    # la cotización ya emitida se comparte igual.
+    order, order_error = await _safe(client.order_from_quote(quote["id"]))
+    checkout_link: str | None = None
+    if not order_error and order:
+        checkout, checkout_error = await _safe(
+            client.start_checkout(order["id"], lines=_lines_payload(cart), delivery_mode="PICKUP")
+        )
+        if not checkout_error and checkout:
+            checkout_link = checkout.get("checkoutUrl")
+
+    pdf_b64, pdf_error = await _safe(client.get_quote_pdf_base64(quote["id"]))
+    attachment = (
+        {
+            "filename": f"cotizacion-{quote['id']}.pdf",
+            "mimetype": "application/pdf",
+            "base64": pdf_b64,
+        }
+        if not pdf_error and pdf_b64
+        else None
+    )
+
+    lines_out = [f"Cotización {quote['id']} emitida por ${quote.get('total')}."]
+    lines_out.append(f"Enlace para verla: {link or 'no disponible'}")
+    lines_out.append(f"Enlace de pago: {checkout_link or 'no disponible por ahora'}")
+    lines_out.append("PDF adjunto." if attachment else "El PDF no se pudo adjuntar ahora.")
+
     return _tool_reply(
         runtime,
-        f"Cotización {quote['id']} emitida por ${quote.get('total')}. "
-        f"Enlace para verla: {link or 'no disponible'}",
+        "\n".join(lines_out),
         update={
             "quote_id": quote["id"],
             "quote_link": link,
             "quote_signature": _cart_signature(cart),
             "customer": {**customer, "customerId": created["id"]},
-            "stage": "COTIZACION_EMITIDA",
+            "order_id": order.get("id") if order else runtime.state.get("order_id"),
+            "checkout_link": checkout_link or runtime.state.get("checkout_link"),
+            "pending_attachment": attachment,
+            "stage": "PAGO_ENVIADO" if checkout_link else "COTIZACION_EMITIDA",
         },
     )
 
@@ -315,7 +359,9 @@ async def detalle_de_cotizacion(quoteId: str, runtime: ToolRuntime) -> str:
     """Líneas, estado, total y vigencia de una cotización por folio."""
     if denied := _require_scope(runtime, "detalle_de_cotizacion"):
         return _fail(denied)
-    quote, error = await _safe(_client().get_quote(clamp_text(quoteId, 100, collapse_newlines=True)))
+    quote, error = await _safe(
+        _client(runtime).get_quote(clamp_text(quoteId, 100, collapse_newlines=True))
+    )
     if error:
         return _fail(error)
     lines = "; ".join(
@@ -340,8 +386,16 @@ async def convertir_en_pedido(runtime: ToolRuntime) -> Command:
     quote_id = runtime.state.get("quote_id")
     if not quote_id:
         return _tool_reply(runtime, _fail("No hay cotización emitida; emítela primero."))
+    if runtime.state.get("order_id"):
+        # emitir_cotizacion ya arma el pedido y el enlace de pago para esta
+        # cotización; llamar de nuevo crearía un segundo pedido duplicado.
+        return _tool_reply(
+            runtime,
+            f"Ya hay un pedido para esta cotización: {runtime.state['order_id']}. "
+            f"Enlace de pago: {runtime.state.get('checkout_link') or 'usa generar_enlace_pago'}",
+        )
 
-    order, error = await _safe(_client().order_from_quote(quote_id))
+    order, error = await _safe(_client(runtime).order_from_quote(quote_id))
     if error:
         return _tool_reply(runtime, _fail(error))
     return _tool_reply(
@@ -366,7 +420,7 @@ async def generar_enlace_pago(runtime: ToolRuntime, deliveryMode: str = "PICKUP"
         return _tool_reply(runtime, _fail("El carrito está vacío; no sé qué cobrar."))
 
     checkout, error = await _safe(
-        _client().start_checkout(
+        _client(runtime).start_checkout(
             order_id, lines=_lines_payload(cart), delivery_mode=deliveryMode
         )
     )
@@ -393,7 +447,7 @@ async def estado_del_pedido(runtime: ToolRuntime, orderId: str = "") -> str:
     target = clamp_text(orderId, 100, collapse_newlines=True) or runtime.state.get("order_id")
     if not target:
         return _fail("No tengo número de pedido; pídeselo al cliente.")
-    order, error = await _safe(_client().get_order(target))
+    order, error = await _safe(_client(runtime).get_order(target))
     if error:
         return _fail(error)
     return (
@@ -461,7 +515,7 @@ async def historial_del_cliente(runtime: ToolRuntime) -> str:
     if not needle:
         return "Todavía no sé quién es el cliente: pide su teléfono o correo."
 
-    client = _client()
+    client = _client(runtime)
     found, error = await _safe(client.lookup_customer(needle))
     if error:
         return _fail(error)
@@ -479,11 +533,81 @@ async def historial_del_cliente(runtime: ToolRuntime) -> str:
     full_name = clamp_text(found.get("fullName") or "", 120, collapse_newlines=True)
     email = clamp_text(found.get("email") or "", 120, collapse_newlines=True)
     parts = [f"Cliente: {full_name} ({email or 'sin correo'})"]
+    rfc = clamp_text(found.get("taxId") or "", 20, collapse_newlines=True)
+    if rfc:
+        legal_name = clamp_text(found.get("legalName") or "", 200, collapse_newlines=True)
+        cp = clamp_text(found.get("fiscalPostalCode") or "", 10, collapse_newlines=True)
+        cfdi = clamp_text(found.get("fiscalCfdiUse") or "", 10, collapse_newlines=True)
+        parts.append(
+            f"Datos fiscales guardados de una factura anterior: RFC {rfc}, "
+            f"razón social {legal_name or 'sin dato'}, CP {cp or 'sin dato'}, "
+            f"uso CFDI {cfdi or 'sin dato'}. Antes de reusarlos, confírmalos con el cliente."
+        )
     for q in quotes:
         parts.append(f"  cotización {str(q['id'])[:8]} — ${q['total']} — {q['status']} — {q['createdAt']}")
     for o in orders:
         parts.append(f"  pedido {str(o['id'])[:8]} — ${o['total']} — {o['status']} — {o['createdAt']}")
     return "\n".join(parts)
+
+
+@tool
+async def solicitar_factura(
+    orderId: str,
+    rfc: str,
+    razonSocial: str,
+    codigoPostal: str,
+    usoCfdi: str,
+    runtime: ToolRuntime,
+    constanciaUrl: str = "",
+) -> str:
+    """Pide factura (CFDI) para un pedido ya identificado.
+
+    SOLO llama esto después de que el cliente diga explícitamente que sí a
+    TODOS estos datos exactos que le vas a leer de vuelta: RFC, razón social,
+    código postal fiscal y uso de CFDI (ej. G03, P01). Si `historial_del_cliente`
+    ya mostró datos fiscales guardados de una compra anterior, léeselos primero
+    y pregunta si son los mismos antes de asumir nada — nunca los reuses en
+    silencio. Si el cliente tiene su constancia de situación fiscal y te pasa
+    un enlace o la sube por otro medio, pon esa URL en `constanciaUrl`; si no
+    la tiene a la mano, déjalo vacío y avisa que puede mandarla después.
+
+    No inventes ni corrijas el RFC o la razón social por tu cuenta: si algo
+    suena raro, pregunta de nuevo en vez de adivinar.
+    """
+    if denied := _require_scope(runtime, "solicitar_factura"):
+        return _fail(denied)
+    order_id = clamp_text(orderId, 100, collapse_newlines=True) or runtime.state.get("order_id")
+    if not order_id:
+        return _fail("No tengo número de pedido; pídeselo al cliente o usa historial_del_cliente.")
+
+    rfc_clean = clamp_text(rfc, 20, collapse_newlines=True).upper().strip()
+    if not re.fullmatch(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", rfc_clean):
+        return _fail("Ese RFC no tiene un formato válido; pídeselo de nuevo al cliente.")
+    cfdi_clean = clamp_text(usoCfdi, 10, collapse_newlines=True).upper().strip()
+    if not re.fullmatch(r"[A-Z]\d{2}", cfdi_clean):
+        return _fail("Uso de CFDI inválido (ej. G03, P01); confírmalo con el cliente.")
+    cp_clean = clamp_text(codigoPostal, 10, collapse_newlines=True).strip()
+    if not re.fullmatch(r"\d{5}", cp_clean):
+        return _fail("El código postal debe ser de 5 dígitos.")
+
+    invoice, error = await _safe(
+        _client(runtime).request_invoice(
+            order_id,
+            rfc=rfc_clean,
+            legal_name=clamp_text(razonSocial, 200, collapse_newlines=True),
+            postal_code=cp_clean,
+            cfdi_use=cfdi_clean,
+            constancia_url=clamp_text(constanciaUrl, 2000, collapse_newlines=True) or None,
+        )
+    )
+    if error:
+        return _fail(error)
+    tiene_constancia = bool((invoice or {}).get("invoiceConstanciaUrl"))
+    return (
+        f"Factura solicitada para el pedido {order_id}. "
+        f"RFC {rfc_clean}, razón social {razonSocial}, CP {cp_clean}, uso CFDI {cfdi_clean}. "
+        + ("Constancia recibida." if tiene_constancia else "Falta la constancia de situación fiscal; pídesela cuando pueda mandarla.")
+    )
 
 
 @tool
@@ -528,5 +652,6 @@ SALES_TOOLS = [
     estado_del_pedido,
     recordar_cliente,
     historial_del_cliente,
+    solicitar_factura,
     escalar_a_humano,
 ]

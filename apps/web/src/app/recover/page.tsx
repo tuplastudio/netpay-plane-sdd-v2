@@ -6,16 +6,25 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  AuthCard,
+  AuthError,
+  AuthField,
+  AuthForm,
+  AuthLink,
+  authErrorMessage,
+} from "@/components/app/auth-card";
 
-const schema = z.object({ email: z.string().email() });
+const schema = z.object({ email: z.string().email("Escribe un correo válido") });
 type FormValues = z.infer<typeof schema>;
 
 export default function RecoverPage() {
   const [submitting, setSubmitting] = useState(false);
   const [devLink, setDevLink] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const {
     register,
@@ -25,6 +34,7 @@ export default function RecoverPage() {
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true);
+    setFormError(null);
     try {
       const res = await api.post<{ data: { ok: boolean; token?: string } }>(
         "/auth/forgot-password",
@@ -34,51 +44,58 @@ export default function RecoverPage() {
       if (res.data.data.token) {
         setDevLink(`/reset?token=${encodeURIComponent(res.data.data.token)}`);
       }
-    } catch {
-      toast.error("No se pudo procesar la solicitud");
+    } catch (err) {
+      setFormError(authErrorMessage(err, "No se pudo procesar la solicitud"));
     } finally {
       setSubmitting(false);
     }
   });
 
   return (
-    <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-16">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-card border bg-card p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold">Recuperar cuenta</h1>
-          <p className="text-sm text-muted-foreground">
-            Te enviamos un link para restablecer tu contraseña.
-          </p>
-        </div>
+    <AuthCard
+      title="Recuperar cuenta"
+      description="Te enviamos un link para restablecer tu contraseña."
+      footer={
+        <p>
+          <AuthLink href="/login">Volver a iniciar sesión</AuthLink>
+        </p>
+      }
+    >
+      <AuthForm onSubmit={onSubmit}>
+        <AuthError message={formError} title="No se pudo enviar" />
 
-        <div className="space-y-1.5">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" type="email" autoComplete="email" {...register("email")} />
-          {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
-        </div>
+        <AuthField id="email" label="Correo electrónico" error={errors.email?.message}>
+          {(field) => (
+            <Input
+              {...field}
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              autoFocus
+              {...register("email")}
+            />
+          )}
+        </AuthField>
 
-        <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting ? "Enviando…" : "Enviar instrucciones"}
+        <Button type="submit" className="w-full" loading={submitting}>
+          Enviar instrucciones
         </Button>
 
-        {devLink && (
-          <div className="rounded-lg border bg-muted p-3 text-xs">
-            <p className="mb-1 font-medium">Modo desarrollo (sin envío real de correo):</p>
-            <Link href={devLink} className="break-all text-primary underline">
-              {devLink}
-            </Link>
-          </div>
-        )}
-
-        <p className="text-center text-xs text-muted-foreground">
-          <Link href="/login" className="underline">
-            Volver a iniciar sesión
-          </Link>
-        </p>
-      </form>
-    </main>
+        {devLink ? (
+          <Alert variant="warning">
+            <AlertTitle>Modo desarrollo</AlertTitle>
+            <AlertDescription className="space-y-1">
+              <p>No hay envío real de correo; usa este link:</p>
+              <Link
+                href={devLink}
+                className="block break-all font-mono text-xs underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
+              >
+                {devLink}
+              </Link>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </AuthForm>
+    </AuthCard>
   );
 }

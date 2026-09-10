@@ -13,17 +13,57 @@ de v1), así que ese campo no se lee en ningún lado todavía.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 from .config import SERVICE_DIR, _env
 
 SALES_STYLES: tuple[str, ...] = ("cerrador", "consultivo", "informativo")
 DELIVERY_MODES: tuple[str, ...] = ("PICKUP", "LOCAL_DELIVERY")
+
+
+def _secret_key() -> bytes:
+    """Clave AES-256 derivada de AGENT_SECRET_KEY (env var, cualquier largo).
+
+    No es un KMS de producción: una sola clave simétrica de servidor, igual
+    para todos los tenants (solo protege el archivo en disco, no separa
+    blast radius entre tenants). Suficiente para esta etapa del proyecto.
+    """
+    raw = _env("AGENT_SECRET_KEY") or "dev-insecure-default-key-change-me"
+    return hashlib.sha256(raw.encode("utf-8")).digest()
+
+
+def encrypt_secret(plaintext: str) -> str:
+    """AES-256-GCM: nonce(12) + ciphertext+tag, todo en base64url."""
+    if not plaintext:
+        return ""
+    aesgcm = AESGCM(_secret_key())
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
+    return base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
+
+
+def decrypt_secret(blob: str) -> str:
+    if not blob:
+        return ""
+    try:
+        raw = base64.urlsafe_b64decode(blob.encode("ascii"))
+        nonce, ciphertext = raw[:12], raw[12:]
+        aesgcm = AESGCM(_secret_key())
+        return aesgcm.decrypt(nonce, ciphertext, None).decode("utf-8")
+    except Exception:
+        # Blob corrupto o clave rotada: tratar como "sin key propia" en vez
+        # de tumbar el turno de chat.
+        return ""
 
 
 @dataclass
@@ -54,6 +94,11 @@ class AgentSettings:
     temperature: float | None = None
     max_tokens: int | None = None
 
+    # OpenRouter propio del tenant (vacío = usar la key global del proceso).
+    # Cifrado at-rest con AES-256-GCM (ver encrypt_secret/decrypt_secret);
+    # nunca se guarda ni se devuelve en texto plano fuera de build_model.
+    openrouter_api_key_encrypted: str = ""
+
     # Canal
     whatsapp_plain_text: bool = True
     auto_reply: bool = True
@@ -61,10 +106,18 @@ class AgentSettings:
     updated_at: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Para el panel: nunca expone el cifrado, solo si hay una key guardada."""
+        data = asdict(self)
+        data["openrouter_api_key_set"] = bool(self.openrouter_api_key_encrypted)
+        data.pop("openrouter_api_key_encrypted", None)
+        return data
 
     def effective_model(self, default: str) -> str:
         return self.text_model.strip() or default
+
+    def openrouter_api_key(self) -> str:
+        """Key propia del tenant en claro, o "" si no configuró una."""
+        return decrypt_secret(self.openrouter_api_key_encrypted)
 
 
 _BOOL_FIELDS = {"ask_name_before_quote", "ask_email_before_quote", "auto_history_lookup",
@@ -80,8 +133,17 @@ _STR_LIMITS = {
 def sanitize(payload: dict[str, Any], base: AgentSettings | None = None) -> AgentSettings:
     """Valida y recorta un payload del panel. Campos desconocidos se ignoran."""
     current = base or AgentSettings()
-    data = current.to_dict()
+    data = asdict(current)  # incluye openrouter_api_key_encrypted; to_dict() lo oculta
     allowed = {f.name for f in fields(AgentSettings)} - {"updated_at"}
+
+    # Caso especial: el panel manda la key en claro bajo un nombre que no es
+    # un campo real del dataclass (nunca se guarda tal cual). "" borra la key
+    # guardada; ausente/no-string deja la que ya había.
+    if "openrouter_api_key" in payload:
+        raw_key = payload["openrouter_api_key"]
+        if isinstance(raw_key, str):
+            data["openrouter_api_key_encrypted"] = encrypt_secret(raw_key.strip())
+
     for key, value in payload.items():
         if key not in allowed:
             continue
@@ -113,6 +175,11 @@ def sanitize(payload: dict[str, Any], base: AgentSettings | None = None) -> Agen
                 data[key] = None if value in (None, "") else max(64, min(4000, int(value)))
             except (TypeError, ValueError):
                 pass
+        elif key == "openrouter_api_key_encrypted":
+            # Solo llega por esta vía al releer el JSON de disco (`get()`);
+            # el panel nunca manda el blob cifrado, manda `openrouter_api_key`
+            # en claro (ver arriba).
+            data[key] = str(value or "")
         elif key == "handoff_keywords":
             if isinstance(value, str):
                 value = [v for v in re.split(r"[,\n]", value)]

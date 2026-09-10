@@ -1,6 +1,5 @@
 "use client";
 import { Suspense, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,7 +8,14 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import {
+  AuthCard,
+  AuthError,
+  AuthField,
+  AuthForm,
+  AuthLink,
+  authErrorMessage,
+} from "@/components/app/auth-card";
 
 const schema = z
   .object({
@@ -35,6 +41,9 @@ function ResetForm() {
   const params = useSearchParams();
   const token = params.get("token") ?? "";
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(
+    token ? null : "Link inválido. Solicita uno nuevo.",
+  );
 
   const {
     register,
@@ -47,63 +56,76 @@ function ResetForm() {
 
   const onSubmit = handleSubmit(async (values) => {
     if (!token) {
-      toast.error("Link inválido. Solicita uno nuevo.");
+      setFormError("Link inválido. Solicita uno nuevo.");
       return;
     }
     setSubmitting(true);
+    setFormError(null);
     try {
       await api.post("/auth/reset-password", { token, newPassword: values.newPassword });
       toast.success("Contraseña actualizada");
       router.push("/login");
-    } catch {
-      toast.error("El link es inválido o ya expiró");
+    } catch (err) {
+      setFormError(authErrorMessage(err, "El link es inválido o ya expiró"));
     } finally {
       setSubmitting(false);
     }
   });
 
   return (
-    <main className="container flex min-h-[calc(100vh-4rem)] items-center justify-center py-16">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-card border bg-card p-6 shadow-sm"
-      >
-        <div>
-          <h1 className="text-xl font-semibold">Nueva contraseña</h1>
-          <p className="text-sm text-muted-foreground">Elige una contraseña de al menos 12 caracteres.</p>
-        </div>
+    <AuthCard
+      title="Nueva contraseña"
+      description="Elige una contraseña de al menos 12 caracteres."
+      footer={
+        <>
+          <p>
+            <AuthLink href="/login">Volver a iniciar sesión</AuthLink>
+          </p>
+          <p>
+            ¿Tu link expiró? <AuthLink href="/recover">Solicita uno nuevo</AuthLink>
+          </p>
+        </>
+      }
+    >
+      <AuthForm onSubmit={onSubmit}>
+        <AuthError message={formError} title="No se pudo actualizar" />
 
-        <div className="space-y-1.5">
-          <Label htmlFor="newPassword">Nueva contraseña</Label>
-          <Input id="newPassword" type="password" autoComplete="new-password" {...register("newPassword")} />
-          {errors.newPassword && (
-            <p className="text-xs text-destructive">{errors.newPassword.message}</p>
+        <AuthField
+          id="newPassword"
+          label="Nueva contraseña"
+          hint="Mínimo 12 caracteres."
+          error={errors.newPassword?.message}
+        >
+          {(field) => (
+            <Input
+              {...field}
+              type="password"
+              autoComplete="new-password"
+              autoFocus
+              {...register("newPassword")}
+            />
           )}
-        </div>
+        </AuthField>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
-          <Input
-            id="confirmPassword"
-            type="password"
-            autoComplete="new-password"
-            {...register("confirmPassword")}
-          />
-          {errors.confirmPassword && (
-            <p className="text-xs text-destructive">{errors.confirmPassword.message}</p>
+        <AuthField
+          id="confirmPassword"
+          label="Confirmar contraseña"
+          error={errors.confirmPassword?.message}
+        >
+          {(field) => (
+            <Input
+              {...field}
+              type="password"
+              autoComplete="new-password"
+              {...register("confirmPassword")}
+            />
           )}
-        </div>
+        </AuthField>
 
-        <Button type="submit" className="w-full" disabled={submitting || !token}>
-          {submitting ? "Guardando…" : "Actualizar contraseña"}
+        <Button type="submit" className="w-full" loading={submitting} disabled={!token}>
+          Actualizar contraseña
         </Button>
-
-        <p className="text-center text-xs text-muted-foreground">
-          <Link href="/login" className="underline">
-            Volver a iniciar sesión
-          </Link>
-        </p>
-      </form>
-    </main>
+      </AuthForm>
+    </AuthCard>
   );
 }

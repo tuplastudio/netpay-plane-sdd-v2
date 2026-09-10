@@ -1,0 +1,13 @@
+{
+  "name": "@netpay/agent-v2",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente v2 (LangGraph + deepagents + FastAPI)",
+  "scripts": {
+    "dev": "./.venv/bin/uvicorn app.main:app --reload --port ${AGENT_V2_PORT:-8010}",
+    "start": "./.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${AGENT_V2_PORT:-8010}",
+    "test": "./.venv/bin/python -m pytest -q",
+    "evals": "./.venv/bin/python -m app.evals",
+    "typecheck": "./.venv/bin/python -m compileall -q app && echo 'typecheck agent-v2: ok'"
+  }
+}

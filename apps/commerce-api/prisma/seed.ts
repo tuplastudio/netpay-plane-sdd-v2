@@ -86,8 +86,12 @@ async function main() {
     update: {},
   });
 
-  // Catálogo demo: Jaztea El Original (mismo negocio que la base de
-  // conocimiento del agente en apps/agent-service/knowledge).
+  // Catálogo demo: Pinturas Aglos (mismo negocio que la base de
+  // conocimiento del agente en apps/agent-v2/knowledge). El catálogo
+  // completo (35 productos) se carga aparte con scripts/seed-catalog.mjs;
+  // aquí van solo unos cuantos para que el tenant demo arranque con algo.
+  // PRECIOS PLACEHOLDER: aglos.com.mx no publica precios, ver nota en
+  // scripts/seed-catalog.mjs.
   const catalog: Array<{
     sku: string;
     title: string;
@@ -102,39 +106,46 @@ async function main() {
     }>;
   }> = [
     {
-      sku: "JAZ-ORIG",
-      title: "Jaztea El Original",
+      sku: "AGL-AGLOSTONE-PINTURA-VINIL",
+      title: "AGLOSTONE® , Pintura Viníl-acrílica",
       description:
-        "Té helado de flor de jazmín 100% natural. Refrescante, con calcio, hierro y antioxidantes.",
-      satProductCode: "50202306",
+        "Pintura calidad contratista, acabado mate, base agua. Ideal para interiores y exteriores. Buen poder cubriente y resistencia al lavado. 20 colores de línea.",
+      satProductCode: "31201509",
       variants: [
-        { sku: "JAZ-ORIG-500", title: "El Original 500 ml", price: 100.0, stock: 240, satUnitCode: "H87" },
-        { sku: "JAZ-ORIG-X12", title: "El Original paquete x12", price: 1150.0, stock: 40, satUnitCode: "XPK" },
-        { sku: "JAZ-ORIG-X24", title: "El Original paquete x24", price: 2200.0, stock: 0, satUnitCode: "XPK" },
+        { sku: "AGL-AGLOSTONE-PINTURA-VINIL-4LT", title: "AGLOSTONE® , Pintura Viníl-acrílica 4 LT", price: 520.0, stock: 240, satUnitCode: "H87" },
+        { sku: "AGL-AGLOSTONE-PINTURA-VINIL-19LT", title: "AGLOSTONE® , Pintura Viníl-acrílica 19 LT", price: 1850.0, stock: 40, satUnitCode: "H87" },
+        { sku: "AGL-AGLOSTONE-PINTURA-VINIL-200LT", title: "AGLOSTONE® , Pintura Viníl-acrílica 200 LT", price: 17500.0, stock: 0, satUnitCode: "H87" },
       ],
     },
     {
-      sku: "JAZ-JF",
-      title: "Jazyfrut",
+      sku: "AGL-AGLOSIVO-DOBLE-FUNCION",
+      title: "AGLOSIVO® , Doble función",
       description:
-        "Concentrado de fruta 100% natural. Rinde 25 porciones: 1 parte de concentrado por 5 de agua.",
-      satProductCode: "50202306",
+        "Recubrimiento Vinil-Acrílico para sellar y fondear cemento, yeso, mortero, ladrillo y block. Alta resistencia a la alcalinidad y fuerte adherencia a la pintura.",
+      satProductCode: "31201640",
       variants: [
-        { sku: "JAZ-JF-JAM", title: "Jazyfrut Jamaica", price: 165.0, stock: 60, satUnitCode: "H87" },
-        { sku: "JAZ-JF-MAN", title: "Jazyfrut Mango", price: 165.0, stock: 55, satUnitCode: "H87" },
-        { sku: "JAZ-JF-GUA", title: "Jazyfrut Guayaba", price: 165.0, stock: 12, satUnitCode: "H87" },
-        { sku: "JAZ-JF-TAM", title: "Jazyfrut Tamarindo", price: 165.0, stock: 0, satUnitCode: "H87" },
+        { sku: "AGL-AGLOSIVO-DOBLE-FUNCION-4LT", title: "AGLOSIVO® , Doble función 4 LT", price: 520.0, stock: 60, satUnitCode: "H87" },
+        { sku: "AGL-AGLOSIVO-DOBLE-FUNCION-19LT", title: "AGLOSIVO® , Doble función 19 LT", price: 1850.0, stock: 12, satUnitCode: "H87" },
       ],
     },
     {
-      sku: "JAZ-LOVER",
-      title: "JazteaLover",
-      description: "Mercancía de la marca: poliéster 100% con bordado al frente.",
-      satProductCode: "53102300",
+      sku: "AGL-5VID-BUSINESS",
+      title: "5VID® BUSINESS",
+      description:
+        "Desinfectante concentrado, antiséptico y esterilizante de amplio espectro. Combate 99.9% de virus, hongos y bacterias en superficies.",
+      satProductCode: "47131811",
       variants: [
-        { sku: "JAZ-GOR-AM", title: "Gorra amarilla", price: 250.0, stock: 18, satUnitCode: "H87" },
-        { sku: "JAZ-GOR-NE", title: "Gorra negra", price: 250.0, stock: 9, satUnitCode: "H87" },
-        { sku: "JAZ-BUF-NE", title: "Buff negro", price: 250.0, stock: 25, satUnitCode: "H87" },
+        { sku: "AGL-5VID-BUSINESS-STD", title: "5VID® BUSINESS (1 LT)", price: 450.0, stock: 25, satUnitCode: "H87" },
+      ],
+    },
+    {
+      sku: "AGL-GEL-70-ALCOHOL",
+      title: "GEL 70% ALCOHOL",
+      description: "Gel antibacterial 70% alcohol, de uso doméstico e industrial.",
+      satProductCode: "47131811",
+      variants: [
+        { sku: "AGL-GEL-70-ALCOHOL-1LT", title: "GEL 70% ALCOHOL 1 LT", price: 150.0, stock: 18, satUnitCode: "H87" },
+        { sku: "AGL-GEL-70-ALCOHOL-5LT", title: "GEL 70% ALCOHOL 5 LT", price: 630.0, stock: 0, satUnitCode: "H87" },
       ],
     },
   ];
@@ -214,7 +225,7 @@ async function main() {
   console.log("  Tenant acme:", tenantB.id, "slug=acme");
   console.log("  Owner demo:  owner@demo.local / Demo1234!Demo1234!");
   console.log("  Owner acme:  owner@acme.local / Acme1234!Acme1234!");
-  console.log("  Catálogo:    Jaztea El Original (10 variantes)");
+  console.log("  Catálogo:    Pinturas Aglos (9 variantes; catálogo completo con scripts/seed-catalog.mjs)");
   if (agentKeySecret) {
     console.log("");
     console.log("  API key del agente (cópiala a AGENT_API_KEY_REF, no se vuelve a mostrar):");

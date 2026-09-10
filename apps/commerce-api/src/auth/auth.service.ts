@@ -1,9 +1,12 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
   UnauthorizedException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PasswordService } from "./password.service.js";
@@ -84,7 +87,7 @@ export class AuthService {
 
     const membership = input.tenantSlug
       ? memberships.find((m) => m.tenant.slug === input.tenantSlug)
-      : memberships[0];
+      : await this.defaultMembership(user.id, memberships);
     if (!membership) {
       throw new UnauthorizedException({
         code: "UNAUTHORIZED",
@@ -136,6 +139,76 @@ export class AuthService {
       mfaRequired: false,
       mfaSetupRecommended: ["OWNER", "ADMIN", "FINANCE"].includes(membership.role),
       expiresAt: session.expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * Tenant por defecto al entrar sin `tenantSlug` cuando el usuario pertenece
+   * a varias empresas: el último que usó (su sesión con actividad más
+   * reciente) si sigue siendo una membresía ACTIVE de un tenant ACTIVE; si no,
+   * la membresía más antigua de un tenant ACTIVE. Si ninguna empresa está
+   * activa se devuelve la primera para que login conteste "deshabilitada".
+   */
+  private async defaultMembership<
+    M extends { tenantId: string; joinedAt: Date; tenant: { status: string } },
+  >(userId: string, memberships: M[]): Promise<M | undefined> {
+    const usable = memberships.filter((m) => m.tenant.status === "ACTIVE");
+    if (usable.length === 0) return memberships[0];
+    if (usable.length === 1) return usable[0];
+    const lastTenantId = await this.sessions.lastActiveTenantId(userId);
+    const last = lastTenantId ? usable.find((m) => m.tenantId === lastTenantId) : undefined;
+    if (last) return last;
+    return [...usable].sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime())[0];
+  }
+
+  /**
+   * Cambia el tenant activo de la sesión. Exige membresía ACTIVE del usuario
+   * en un tenant ACTIVE; si no, 403 sin revelar si la empresa existe. Es
+   * idempotente: pedir el tenant que ya está activo no mueve nada ni audita.
+   */
+  async switchTenant(input: { userId: string; sessionId: string; tenantId: string }) {
+    const membership = await this.prisma.membership.findUnique({
+      where: { tenantId_userId: { tenantId: input.tenantId, userId: input.userId } },
+      select: {
+        role: true,
+        status: true,
+        tenant: { select: { id: true, slug: true, name: true, status: true } },
+      },
+    });
+    if (!membership || membership.status !== "ACTIVE" || membership.tenant.status !== "ACTIVE") {
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: "No tienes acceso a esa empresa",
+      });
+    }
+
+    const session = await this.prisma.session.findUnique({
+      where: { id: input.sessionId },
+      select: { tenantId: true, userId: true, revokedAt: true },
+    });
+    if (!session || session.userId !== input.userId || session.revokedAt) {
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
+    }
+
+    if (session.tenantId !== input.tenantId) {
+      await this.sessions.setActiveTenant(input.sessionId, input.tenantId);
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId: input.tenantId,
+          actorId: input.userId,
+          action: "auth.tenant_switched",
+          targetType: "Tenant",
+          targetId: input.tenantId,
+          metadata: { fromTenantId: session.tenantId, sessionId: input.sessionId },
+        },
+      });
+    }
+
+    return {
+      tenantId: membership.tenant.id,
+      slug: membership.tenant.slug,
+      name: membership.tenant.name,
+      role: membership.role,
     };
   }
 
@@ -230,16 +303,113 @@ export class AuthService {
     await this.prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } });
   }
 
+  /** Desactiva MFA: exige un código TOTP vigente o un recovery code, para que
+   * no baste con haber robado la sesión del navegador. */
+  async disableMfa(userId: string, code: string, tenantId: string | null): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.totpEnabled || !user.totpSecret) {
+      throw new BadRequestException({ code: "RULE_VIOLATION", message: "MFA no está activado" });
+    }
+    const secret = decryptSecret(user.totpSecret);
+    const validTotp = !!secret && this.mfa.verifyTotp(secret, code);
+    const remaining = validTotp
+      ? (user.recoveryCodesHash as string[] | null)
+      : this.mfa.consumeRecoveryCode((user.recoveryCodesHash as string[] | null) ?? [], code);
+    if (!validTotp && remaining === null) {
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Código inválido" });
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { totpEnabled: false, totpSecret: null, recoveryCodesHash: Prisma.JsonNull },
+    });
+    if (tenantId) {
+      await this.prisma.auditLog.create({
+        data: { tenantId, actorId: userId, action: "auth.mfa_disabled", targetType: "User", targetId: userId },
+      });
+    }
+  }
+
+  /** Reemplaza los recovery codes vigentes por un lote nuevo (se muestran una
+   * sola vez); exige un código TOTP vigente para no regenerarlos a la ligera. */
+  async regenerateRecoveryCodes(userId: string, code: string, tenantId: string | null): Promise<string[]> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.totpEnabled || !user.totpSecret) {
+      throw new BadRequestException({ code: "RULE_VIOLATION", message: "MFA no está activado" });
+    }
+    const secret = decryptSecret(user.totpSecret);
+    if (!secret || !this.mfa.verifyTotp(secret, code)) {
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Código inválido" });
+    }
+    const recoveryCodes = Array.from({ length: 10 }, () => randomBytes(8).toString("hex"));
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { recoveryCodesHash: this.mfa.hashRecoveryCodes(recoveryCodes) as never },
+    });
+    if (tenantId) {
+      await this.prisma.auditLog.create({
+        data: { tenantId, actorId: userId, action: "auth.mfa_recovery_regenerated", targetType: "User", targetId: userId },
+      });
+    }
+    return recoveryCodes;
+  }
+
   async me(userId: string, tenantId?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, fullName: true, totpEnabled: true },
+      select: { id: true, email: true, fullName: true, totpEnabled: true, isSuperAdmin: true },
     });
     if (!user) throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Usuario no accesible" });
     const tenant = tenantId
-      ? await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true, name: true } })
+      ? await this.prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { slug: true, name: true, primaryColor: true, secondaryColor: true, accentColor: true, logoUrl: true },
+        })
       : null;
-    return { ...user, tenantSlug: tenant?.slug ?? null, tenantName: tenant?.name ?? null };
+    // El rol se relee de la membresía viva, no del principal de la sesión: si a
+    // alguien lo degradaron a mitad de sesión, /auth/me debe decir la verdad.
+    // Campos aditivos (role, tenantId): no cambian nada de lo ya existente.
+    const membership = tenantId
+      ? await this.prisma.membership.findUnique({
+          where: { tenantId_userId: { tenantId, userId } },
+          select: { role: true, status: true },
+        })
+      : null;
+    // Todas las empresas a las que puede entrar (membresía ACTIVE en tenant
+    // ACTIVE): el selector del portal las lista y `POST /auth/switch-tenant`
+    // acepta cualquiera de ellas. `tenantId` (arriba) dice cuál está activa.
+    const memberships = await this.prisma.membership.findMany({
+      where: { userId, status: "ACTIVE", tenant: { status: "ACTIVE" } },
+      select: {
+        tenantId: true,
+        role: true,
+        status: true,
+        tenant: { select: { slug: true, name: true, logoUrl: true } },
+      },
+      orderBy: { tenant: { name: "asc" } },
+    });
+    return {
+      ...user,
+      tenantId: tenantId ?? null,
+      tenantSlug: tenant?.slug ?? null,
+      tenantName: tenant?.name ?? null,
+      role: membership?.status === "ACTIVE" ? membership.role : null,
+      memberships: memberships.map((m) => ({
+        tenantId: m.tenantId,
+        slug: m.tenant.slug,
+        name: m.tenant.name,
+        role: m.role,
+        status: m.status,
+        logoUrl: m.tenant.logoUrl,
+      })),
+      branding: tenant
+        ? {
+            primaryColor: tenant.primaryColor,
+            secondaryColor: tenant.secondaryColor,
+            accentColor: tenant.accentColor,
+            logoUrl: tenant.logoUrl,
+          }
+        : null,
+    };
   }
 
   async logout(sessionToken: string | undefined): Promise<void> {

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -9,11 +10,49 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import argon2 from "argon2";
-import { WhatsAppService } from "./whatsapp.service.js";
+import {
+  DEFAULT_CONVERSATION_LIMIT,
+  WhatsAppService,
+  type ConversationListFilters,
+} from "./whatsapp.service.js";
+import { MAX_PAGE_SIZE } from "../common/pagination.js";
 import { AgentBridgeService } from "./agent-bridge.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
+
+const CONVERSATION_STATUSES = ["OPEN", "HANDED_OFF", "CLOSED"] as const;
+const HANDOFF_FILTERS = ["agent", "human"] as const;
+const WHATSAPP_PROVIDERS = ["META", "EVOLUTION"] as const;
+
+/** Valor de un query param acotado a una lista; vacío = sin filtro. */
+function parseEnum<T extends string>(
+  name: string,
+  raw: string | undefined,
+  allowed: readonly T[],
+): T | undefined {
+  if (!raw) return undefined;
+  if (!(allowed as readonly string[]).includes(raw)) {
+    throw new BadRequestException(`${name} must be one of: ${allowed.join(", ")}`);
+  }
+  return raw as T;
+}
+
+function parseDate(name: string, raw: string | undefined): Date | undefined {
+  if (!raw) return undefined;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) throw new BadRequestException(`${name} must be an ISO date`);
+  return d;
+}
+
+function parseLimit(raw: string | undefined): number {
+  if (!raw) return DEFAULT_CONVERSATION_LIMIT;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new BadRequestException(`limit must be an integer between 1 and ${MAX_PAGE_SIZE}`);
+  }
+  return Math.min(n, MAX_PAGE_SIZE);
+}
 
 @Controller("whatsapp")
 @UseGuards(RoleGuard)
@@ -77,14 +116,36 @@ export class WhatsAppController {
     };
   }
 
+  /**
+   * Bandeja de conversaciones. `data` respeta los filtros; `stats` describe el
+   * tenant completo para que la tira de resumen no cambie al filtrar.
+   */
   @Get("conversations")
   @RequireScopes("chat.read" as never)
-  async conversations() {
+  async conversations(
+    @Query("q") q?: string,
+    @Query("status") status?: string,
+    @Query("handoff") handoff?: string,
+    @Query("provider") provider?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("limit") limit?: string,
+  ) {
     const tenantId = RequestContext.tenantId!;
-    return {
-      data: await this.wa.listConversations(tenantId),
-      requestId: RequestContext.requestId,
+    const filters: ConversationListFilters = {
+      q: q?.trim() || undefined,
+      status: parseEnum("status", status, CONVERSATION_STATUSES),
+      handoff: parseEnum("handoff", handoff, HANDOFF_FILTERS),
+      provider: parseEnum("provider", provider, WHATSAPP_PROVIDERS),
+      from: parseDate("from", from),
+      to: parseDate("to", to),
+      limit: parseLimit(limit),
     };
+    const [data, stats] = await Promise.all([
+      this.wa.listConversations(tenantId, filters),
+      this.wa.conversationStats(tenantId),
+    ]);
+    return { data, stats, requestId: RequestContext.requestId };
   }
 
   @Get("conversations/:id/messages")
@@ -134,6 +195,70 @@ export class WhatsAppController {
     const tenantId = RequestContext.tenantId!;
     return {
       data: await this.wa.handoffToHuman(tenantId, id, body.userId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  // ---- Atención humana: lo que hace el operador en un hilo transferido ----
+
+  @Post("conversations/:id/reply")
+  @HttpCode(201)
+  @RequireScopes("chat.write" as never)
+  async reply(@Param("id") id: string, @Body() body: { body: string }) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.replyToConversation(tenantId, id, body?.body),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Post("conversations/:id/attachments")
+  @HttpCode(201)
+  @RequireScopes("chat.write" as never)
+  async attachment(
+    @Param("id") id: string,
+    @Body() body: { filename: string; mimetype: string; base64: string; caption?: string },
+  ) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.sendAttachmentToConversation(tenantId, id, {
+        filename: body?.filename,
+        mimetype: body?.mimetype,
+        base64: body?.base64,
+        caption: body?.caption,
+      }),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Get("conversations/:id/notes")
+  @RequireScopes("chat.read" as never)
+  async notes(@Param("id") id: string) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.listNotes(tenantId, id),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Post("conversations/:id/notes")
+  @HttpCode(201)
+  @RequireScopes("chat.write" as never)
+  async addNote(@Param("id") id: string, @Body() body: { body: string }) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.addNote(tenantId, id, RequestContext.userId, body?.body),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Post("conversations/:id/return")
+  @HttpCode(200)
+  @RequireScopes("chat.write" as never)
+  async returnToAgent(@Param("id") id: string) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.returnToAgent(tenantId, id),
       requestId: RequestContext.requestId,
     };
   }

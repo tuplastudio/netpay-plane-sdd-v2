@@ -19,6 +19,7 @@ interface AgentReply {
   reply: string;
   handoff: boolean;
   intent: string | null;
+  attachment?: { filename: string; mimetype: string; base64: string } | null;
 }
 
 @Injectable()
@@ -106,6 +107,20 @@ export class AgentBridgeService {
         type: "text",
         body: payload.reply,
       });
+    }
+
+    if (payload.attachment) {
+      // Se manda después del texto: en WhatsApp un documento sin nada antes
+      // se siente más a spam que a "aquí está tu cotización".
+      const result = await this.wa.sendDocument(input.tenantId, {
+        to: input.externalPhone,
+        filename: payload.attachment.filename,
+        mimetype: payload.attachment.mimetype,
+        base64: payload.attachment.base64,
+      });
+      if (result.status === "FAILED") {
+        this.logger.warn(`No se pudo mandar el adjunto a ${input.conversationId}: ${result.error}`);
+      }
     }
 
     if (payload.handoff) {

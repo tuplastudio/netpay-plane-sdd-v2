@@ -17,6 +17,44 @@ import { QuoteService } from "../quotes/quote.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
 
+/**
+ * Formato aceptado para `amountTotal` en el cable: decimal simple, sin signo,
+ * sin separador de miles y sin notación científica. Se valida con regex y no
+ * con `Number()` porque `Number()` acepta " 116 ", "1e3" y "0x10", y convierte
+ * "1,234.50" en `NaN` — un importe malformado tiene que rebotar con un mensaje,
+ * no colarse coercionado. La precisión final la sigue fijando la columna
+ * Decimal(12,2) vía `toFixed(2)`: aquí no se redondea distinto.
+ */
+const AMOUNT_TOTAL_RE = /^\d{1,10}(?:\.\d{1,6})?$/;
+/** Tope de la columna Decimal(12, 2). */
+const AMOUNT_TOTAL_MAX = 9_999_999_999.99;
+
+/**
+ * Valida y convierte `amountTotal`. Lanza 400 VALIDATION_FAILED con mensaje en
+ * español ante cualquier cosa que no sea un decimal positivo.
+ */
+export function parseAmountTotal(raw: unknown): number {
+  const invalid = () =>
+    new BadRequestException({
+      code: "VALIDATION_FAILED",
+      message:
+        "amountTotal inválido: usa un decimal positivo con punto, sin separador de miles ni notación científica (ej. 1234.50)",
+    });
+
+  if (typeof raw !== "string" || !AMOUNT_TOTAL_RE.test(raw)) throw invalid();
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) throw invalid();
+  // Un importe que redondea a 0.00 en la columna es tan inválido como un 0.
+  if (Math.round(value * 100) < 1) throw invalid();
+  if (value > AMOUNT_TOTAL_MAX) {
+    throw new BadRequestException({
+      code: "VALIDATION_FAILED",
+      message: "amountTotal excede el máximo permitido (9999999999.99)",
+    });
+  }
+  return value;
+}
+
 @Injectable()
 export class OrderService {
   constructor(
@@ -100,6 +138,68 @@ export class OrderService {
     return { ...o, revisions, lines: current?.lines ?? [] };
   }
 
+  /**
+   * Pide factura para un pedido: guarda un snapshot fiscal en el pedido
+   * (independiente de si el cliente cambia sus datos después) y actualiza
+   * el "último dato fiscal conocido" del cliente, para que la próxima vez
+   * el bot pueda ofrecer reusarlo en vez de volver a preguntar todo.
+   */
+  async requestInvoice(
+    tenantId: string,
+    orderId: string,
+    input: {
+      rfc: string;
+      legalName: string;
+      postalCode: string;
+      cfdiUse: string;
+      constanciaUrl?: string;
+      notes?: string;
+    },
+  ) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    if (!order) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Pedido no accesible" });
+    }
+
+    const rfc = input.rfc.toUpperCase();
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          requiresInvoice: true,
+          invoiceStatus: "DATA_COMPLETE",
+          invoiceRfc: rfc,
+          invoiceLegalName: input.legalName,
+          invoicePostalCode: input.postalCode,
+          invoiceCfdiUse: input.cfdiUse.toUpperCase(),
+          invoiceConstanciaUrl: input.constanciaUrl,
+          invoiceNotes: input.notes,
+          invoiceRequestedAt: new Date(),
+        },
+      }),
+      this.prisma.customer.update({
+        where: { id: order.customerId },
+        data: {
+          taxId: rfc,
+          legalName: input.legalName,
+          fiscalPostalCode: input.postalCode,
+          fiscalCfdiUse: input.cfdiUse.toUpperCase(),
+        },
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          actorId: null,
+          action: "order.invoice_requested",
+          targetType: "Order",
+          targetId: orderId,
+          metadata: { rfc, cfdiUse: input.cfdiUse.toUpperCase() },
+        },
+      }),
+    ]);
+    return updated;
+  }
+
   async createDirect(
     tenantId: string,
     actorId: string | null,
@@ -145,9 +245,62 @@ export class OrderService {
   }
 
   /**
+   * Busca el pedido creado por una `idempotencyKey`. El índice único de
+   * `Order.idempotencyKey` es global (no compuesto con `tenantId`), así que una
+   * clave de otro tenant no se puede reusar ni se puede devolver: se contesta
+   * 409 en vez de dejar que el insert reviente con un error crudo de Postgres.
+   */
+  private async findByIdempotencyKey(tenantId: string, idempotencyKey: string) {
+    const existing = await this.prisma.order.findUnique({
+      where: { idempotencyKey },
+      include: { revisions: true },
+    });
+    if (!existing) return null;
+    if (existing.tenantId !== tenantId) {
+      throw new ConflictException({
+        code: "CONFLICT",
+        message: "La clave de idempotencia ya fue usada por otro cobro",
+      });
+    }
+    return existing;
+  }
+
+  /**
+   * "Cliente mostrador" del tenant. El upsert compite consigo mismo cuando dos
+   * cobros sin cliente entran a la vez y el placeholder aún no existe: ahí
+   * Postgres levanta P2002 y basta con releer el que ganó.
+   */
+  private async walkInCustomerId(tenantId: string): Promise<string> {
+    const email = `walkin+${tenantId}@quickcharge.local`;
+    try {
+      const placeholder = await this.prisma.customer.upsert({
+        where: { tenantId_email: { tenantId, email } },
+        create: { tenantId, fullName: "Cliente mostrador", email },
+        update: {},
+      });
+      return placeholder.id;
+    } catch (err) {
+      if ((err as { code?: string }).code !== "P2002") throw err;
+      const winner = await this.prisma.customer.findUnique({
+        where: { tenantId_email: { tenantId, email } },
+      });
+      if (!winner) throw err;
+      return winner.id;
+    }
+  }
+
+  /**
    * T-QTE-07: cobro rápido. `amountTotal` es el total incluido (no subtotal);
    * el impuesto se extrae hacia atrás con la tasa del tenant. Cliente
    * opcional (usa un placeholder "Cliente mostrador" por tenant).
+   *
+   * Idempotente por `idempotencyKey` (opcional pero recomendada): repetir la
+   * misma clave devuelve el pedido original sin crear un segundo cobro. La
+   * garantía la da el índice único de `Order.idempotencyKey`, no la lectura
+   * previa: dos peticiones simultáneas con la misma clave pasan las dos por el
+   * `findByIdempotencyKey` inicial en vacío, una gana el insert y la otra
+   * recibe P2002 y relee al ganador. El insert y el `currentRevisionId` van en
+   * una sola transacción para que el perdedor nunca lea un pedido a medias.
    */
   async quickCharge(
     tenantId: string,
@@ -159,13 +312,15 @@ export class OrderService {
       actorId?: string | null;
     },
   ) {
-    if (input.idempotencyKey) {
-      const existing = await this.prisma.order.findUnique({
-        where: { idempotencyKey: input.idempotencyKey },
-        include: { revisions: true },
-      });
-      if (existing && existing.tenantId === tenantId) return existing;
+    const idempotencyKey = input.idempotencyKey?.trim() || undefined;
+    if (idempotencyKey) {
+      const replay = await this.findByIdempotencyKey(tenantId, idempotencyKey);
+      if (replay) return replay;
     }
+
+    // Antes de tocar la base: un importe malformado no debe llegar a crear el
+    // cliente mostrador ni a coercionarse a NaN dentro del cálculo del IVA.
+    const total = parseAmountTotal(input.amountTotal);
 
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException({ code: "NOT_FOUND", message: "Tenant" });
@@ -174,63 +329,63 @@ export class OrderService {
     if (customerId) {
       await this.customers.assertAccess(tenantId, customerId);
     } else {
-      const placeholder = await this.prisma.customer.upsert({
-        where: { tenantId_email: { tenantId, email: `walkin+${tenantId}@quickcharge.local` } },
-        create: {
-          tenantId,
-          fullName: "Cliente mostrador",
-          email: `walkin+${tenantId}@quickcharge.local`,
-        },
-        update: {},
-      });
-      customerId = placeholder.id;
+      customerId = await this.walkInCustomerId(tenantId);
     }
 
-    const total = Number(input.amountTotal);
-    if (!Number.isFinite(total) || total <= 0) {
-      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "amountTotal inválido" });
-    }
     const taxRate = Number(tenant.taxRatePct);
     const base = Math.round((total / (1 + taxRate / 100)) * 100) / 100;
     const tax = Math.round((total - base) * 100) / 100;
     const expiresAt = new Date(Date.now() + tenant.checkoutReservationMinutes * 60 * 1000);
 
-    const order = await this.prisma.order.create({
-      data: {
-        tenantId,
-        customerId,
-        createdById: input.actorId ?? null,
-        source: "QUICK_CHARGE",
-        status: "CHECKOUT_OPEN",
-        description: input.description,
-        idempotencyKey: input.idempotencyKey,
-        configVersion: tenant.configVersion,
-        subtotal: base.toFixed(2),
-        discount: "0.00",
-        taxBase: base.toFixed(2),
-        tax: tax.toFixed(2),
-        shipping: "0.00",
-        total: total.toFixed(2),
-        checkoutRevision: 1,
-        expiresAt,
-        revisions: {
-          create: {
-            revisionNumber: 1,
-            status: "OPEN",
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const created = await tx.order.create({
+          data: {
+            tenantId,
+            customerId,
+            createdById: input.actorId ?? null,
+            source: "QUICK_CHARGE",
+            status: "CHECKOUT_OPEN",
+            description: input.description,
+            idempotencyKey,
+            configVersion: tenant.configVersion,
+            subtotal: base.toFixed(2),
+            discount: "0.00",
+            taxBase: base.toFixed(2),
+            tax: tax.toFixed(2),
+            shipping: "0.00",
             total: total.toFixed(2),
-            deliveryMode: "PICKUP",
+            checkoutRevision: 1,
             expiresAt,
+            revisions: {
+              create: {
+                revisionNumber: 1,
+                status: "OPEN",
+                total: total.toFixed(2),
+                deliveryMode: "PICKUP",
+                expiresAt,
+              },
+            },
           },
-        },
-      },
-      include: { revisions: true },
-    });
+          include: { revisions: true },
+        });
 
-    return this.prisma.order.update({
-      where: { id: order.id },
-      data: { currentRevisionId: order.revisions[0]!.id },
-      include: { revisions: true },
-    });
+        return tx.order.update({
+          where: { id: created.id },
+          data: { currentRevisionId: created.revisions[0]!.id },
+          include: { revisions: true },
+        });
+      });
+    } catch (err) {
+      // Perdedor de la carrera: el índice único ya garantizó que solo se creó
+      // un pedido; queda devolver el del ganador en vez de un 500 con el error
+      // crudo de la restricción. Si no aparece, el P2002 era de otra cosa.
+      if (idempotencyKey && (err as { code?: string }).code === "P2002") {
+        const replay = await this.findByIdempotencyKey(tenantId, idempotencyKey);
+        if (replay) return replay;
+      }
+      throw err;
+    }
   }
 
   async createFromQuote(tenantId: string, quoteId: string, actorId: string | null = null) {
@@ -286,6 +441,74 @@ export class OrderService {
     });
     await this.notifyOrderReceived(order);
     return order;
+  }
+
+  /**
+   * Autoservicio del cliente desde el link público de la cotización: acepta
+   * (si hace falta), crea el pedido y abre el checkout con las líneas de la
+   * cotización. Idempotente sobre un checkout ya abierto: sólo extiende la
+   * ventana (mismo comportamiento que "reenviar link de pago" del portal).
+   * Devuelve lo necesario para emitir el token de acceso al checkout.
+   */
+  async checkoutFromShareToken(shareToken: string): Promise<{
+    tenantId: string;
+    orderId: string;
+    revisionId: string;
+    expiresAt: Date;
+  }> {
+    const q = await this.quotes.resolveShareToken(shareToken);
+    if (!q) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido o expirado" });
+    }
+    const tenantId = q.tenantId;
+    if (q.status === "CANCELLED" || q.status === "EXPIRED") {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La cotización ya no está disponible",
+      });
+    }
+    if (q.expiresAt.getTime() <= Date.now()) {
+      throw new BadRequestException({ code: "RULE_VIOLATION", message: "Cotización vencida" });
+    }
+    const existing = q.order;
+    if (existing) {
+      if (["PAID", "FULFILLED", "REFUNDED"].includes(existing.status)) {
+        throw new BadRequestException({
+          code: "RULE_VIOLATION",
+          message: "Esta cotización ya está pagada",
+        });
+      }
+      if (existing.status === "CANCELLED" || existing.status === "EXPIRED") {
+        throw new BadRequestException({
+          code: "RULE_VIOLATION",
+          message: "El pedido de esta cotización se cerró. Pide a tu asesor un link nuevo.",
+        });
+      }
+      if (existing.status === "CHECKOUT_OPEN" || existing.status === "AWAITING_PAYMENT") {
+        const resumed = await this.resumeCheckout(tenantId, existing.id);
+        return { tenantId, orderId: existing.id, ...resumed };
+      }
+    }
+
+    const order = existing ?? (await this.createFromQuote(tenantId, q.id, null));
+    const opened = await this.startCheckout(tenantId, order.id, {
+      lines: q.lines.map((l) => ({
+        variantId: l.variantId,
+        quantity: l.quantity.toFixed(3),
+        discountPct: Number(l.discountPct),
+      })),
+      deliveryMode: "PICKUP",
+    });
+    const revision = opened.revisions[opened.revisions.length - 1];
+    if (!revision) {
+      throw new BadRequestException({ code: "RULE_VIOLATION", message: "Pedido sin revisión" });
+    }
+    return {
+      tenantId,
+      orderId: order.id,
+      revisionId: revision.id,
+      expiresAt: opened.expiresAt ?? revision.expiresAt,
+    };
   }
 
   /**
@@ -512,19 +735,59 @@ export class OrderService {
     if (t.usedAt) return null;
 
     const variantIds = t.revision.lines.map((l: { variantId: string }) => l.variantId);
+    // Precio y producto padre: el checkout público muestra el detalle de lo
+    // que se paga sin sesión, así que todo lo que necesita viaja aquí.
     const variants = variantIds.length
       ? await this.prisma.productVariant.findMany({
           where: { id: { in: variantIds } },
-          select: { id: true, sku: true, title: true },
+          select: {
+            id: true,
+            sku: true,
+            title: true,
+            price: true,
+            product: {
+              select: {
+                id: true,
+                sku: true,
+                title: true,
+                description: true,
+                variants: {
+                  where: { status: "ACTIVE" },
+                  select: { id: true, sku: true, title: true, price: true, stock: true },
+                  orderBy: { price: "asc" },
+                },
+              },
+            },
+          },
         })
       : [];
     const lines = t.revision.lines.map((l: { variantId: string; quantity: { toString(): string } }) => {
       const v = variants.find((x) => x.id === l.variantId);
+      const qty = Number(l.quantity.toString());
+      const unitPrice = v ? Number(v.price) : null;
       return {
         variantId: l.variantId,
         sku: v?.sku ?? l.variantId.slice(0, 8),
         title: v?.title ?? "Producto",
         quantity: l.quantity.toString(),
+        unitPrice: unitPrice != null ? unitPrice.toFixed(2) : null,
+        lineTotal:
+          unitPrice != null && Number.isFinite(qty) ? (unitPrice * qty).toFixed(2) : null,
+        product: v
+          ? {
+              id: v.product.id,
+              sku: v.product.sku,
+              title: v.product.title,
+              description: v.product.description,
+              variants: v.product.variants.map((pv) => ({
+                id: pv.id,
+                sku: pv.sku,
+                title: pv.title,
+                price: pv.price.toFixed(2),
+                stock: pv.stock == null ? null : pv.stock.toString(),
+              })),
+            }
+          : null,
       };
     });
 

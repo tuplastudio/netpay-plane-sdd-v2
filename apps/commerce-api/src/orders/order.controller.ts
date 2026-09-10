@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Logger,
   NotFoundException,
   Param,
@@ -14,6 +15,7 @@ import {
 } from "@nestjs/common";
 import { Response } from "express";
 import { OrderService } from "./order.service.js";
+import { QuickChargeDto, RequestInvoiceDto } from "./order.dto.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { roleHas } from "../auth/policies.js";
 import { Public } from "../auth/guards/principal.guard.js";
@@ -73,23 +75,22 @@ export class OrderController {
     };
   }
 
+  /**
+   * Cobro rápido. `idempotencyKey` viaja en el cuerpo (opcional; el panel
+   * siempre la manda) y hace que reintentar el mismo cobro devuelva el pedido
+   * original en lugar de crear un segundo cargo. El link de pago también se
+   * reusa en el replay: emitir un token nuevo por cada reintento dejaría al
+   * cliente con varios links vivos del mismo pedido.
+   */
   @Post("quick-charge")
   @RequireScopes("orders.write")
-  async quickCharge(
-    @Body()
-    body: {
-      customerId?: string;
-      description: string;
-      amountTotal: string;
-      idempotencyKey?: string;
-    },
-  ) {
+  async quickCharge(@Body() body: QuickChargeDto) {
     const tenantId = this.requireTenant();
     const actorId = RequestContext.userId ?? null;
     const order = await this.orders.quickCharge(tenantId, { ...body, actorId });
     const expiresAt = order.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000);
     const currentRev = order.revisions[order.revisions.length - 1];
-    const token = currentRev ? await this.createAccessToken(currentRev.id, expiresAt) : null;
+    const token = currentRev ? await this.reuseOrCreateAccessToken(currentRev.id, expiresAt) : null;
     return {
       data: { order, checkoutToken: token },
       requestId: RequestContext.requestId,
@@ -208,6 +209,23 @@ export class OrderController {
     };
   }
 
+  /**
+   * Devuelve el token de acceso vigente de la revisión (sin usar y sin vencer)
+   * o emite uno nuevo. Solo lo usa el cobro rápido: la revisión de un cobro
+   * recién creado nunca tiene tokens, así que reusar equivale exactamente a
+   * "esta petición era un replay de una clave de idempotencia ya vista".
+   */
+  private async reuseOrCreateAccessToken(revisionId: string, expiresAt: Date): Promise<string> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prisma = this.prisma as any;
+    const existing = await prisma.checkoutAccessToken.findFirst({
+      where: { revisionId, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { expiresAt: "desc" },
+    });
+    if (existing) return existing.token as string;
+    return this.createAccessToken(revisionId, expiresAt);
+  }
+
   private async createAccessToken(revisionId: string, expiresAt: Date): Promise<string> {
     const token = randomBytes(24).toString("base64url");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -216,6 +234,16 @@ export class OrderController {
       data: { revisionId, token, expiresAt },
     });
     return token;
+  }
+
+  @Patch(":id/invoice-request")
+  @RequireScopes("orders.write")
+  async requestInvoice(@Param("id") id: string, @Body() body: RequestInvoiceDto) {
+    const tenantId = this.requireTenant();
+    return {
+      data: await this.orders.requestInvoice(tenantId, id, body),
+      requestId: RequestContext.requestId,
+    };
   }
 
   @Patch(":id/cancel")
@@ -297,6 +325,23 @@ export class OrderController {
       data: { sessionId: session.sessionId, checkoutUrl: session.checkoutUrl, expiresAt: session.expiresAt },
       requestId: RequestContext.requestId,
     });
+  }
+
+  /**
+   * El cliente paga desde el link público de la cotización sin esperar a
+   * que el asesor la apruebe: se acepta, se crea el pedido y se abre el
+   * checkout. Si el checkout ya estaba abierto sólo se reemite el link.
+   */
+  @Public()
+  @Post("public/quote/:shareToken/checkout")
+  @HttpCode(201)
+  async publicCheckoutFromQuote(@Param("shareToken") shareToken: string) {
+    const { orderId, revisionId, expiresAt } = await this.orders.checkoutFromShareToken(shareToken);
+    const token = await this.createAccessToken(revisionId, expiresAt);
+    return {
+      data: { orderId, checkoutToken: token, expiresAt },
+      requestId: RequestContext.requestId,
+    };
   }
 
   @Public()

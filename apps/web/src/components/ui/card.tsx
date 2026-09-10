@@ -1,14 +1,31 @@
 import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
 import { cn } from "@/lib/utils";
 
-const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn("rounded-card border bg-card text-card-foreground", className)}
-      {...props}
-    />
-  ),
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  /**
+   * Rinde el hijo en vez de un `<div>`, conservando las clases de tarjeta.
+   * Sirve para que un contenedor semántico (`<section>`, `<article>`) sea la
+   * tarjeta, en lugar de envolverlo en un div extra. Lo usa `Section`.
+   */
+  asChild?: boolean;
+}
+
+/**
+ * @example <Card className="shadow-airbnb"><CardContent>…</CardContent></Card>
+ * @example <Card asChild><section aria-labelledby="totales">…</section></Card>
+ */
+const Card = React.forwardRef<HTMLDivElement, CardProps>(
+  ({ className, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "div";
+    return (
+      <Comp
+        ref={ref}
+        className={cn("rounded-card border bg-card text-card-foreground", className)}
+        {...props}
+      />
+    );
+  },
 );
 Card.displayName = "Card";
 

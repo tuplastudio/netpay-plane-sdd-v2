@@ -1,4 +1,4 @@
-"""NetPay Plane — agente v2 (FastAPI + LangGraph + deepagents).
+"""Easy Sell (Tupla) — agente v2 (FastAPI + LangGraph + deepagents).
 
 Mantiene el mismo contrato HTTP que el agente v1 (`POST /chat`), así que
 commerce-api puede apuntarle con solo cambiar `AGENT_URL`, sin tocar el
@@ -13,7 +13,9 @@ import contextlib
 import hmac
 import json
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Any
 
 import aiosqlite
@@ -24,7 +26,18 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, Field, conlist
 
-from .agent import build_agent, build_scope_model, warm_catalog
+from dotenv import load_dotenv
+
+# Carga `.env` del monorepo (un nivel arriba de apps/) **antes** de leer
+# cualquier setting: `get_settings()` cachea, así que esto tiene que ocurrir
+# al importar el módulo, no después. Las vars ya presentes en el entorno
+# (p. ej. `OPENROUTER_KEY_REF` inyectadas por el process manager) NO se
+# pisan — `override=False` es el default de `load_dotenv`.
+_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
+if _ROOT_ENV.exists():
+    load_dotenv(_ROOT_ENV, override=False)
+
+from .agent import build_agent, build_scope_model, load_company_context, warm_catalog
 from .commerce import CommerceClient
 from .config import get_settings
 from .learning import (
@@ -242,7 +255,7 @@ async def _warmup() -> None:
 
 
 app = FastAPI(
-    title="NetPay Plane Agent v2",
+    title="Easy Sell Agent v2",
     version="2.0.0",
     description="Agente comercial sobre LangGraph con memoria persistente por conversación.",
     dependencies=[Depends(require_internal_key)],
@@ -262,7 +275,7 @@ app.add_middleware(
 
 
 class ChatRequest(BaseModel):
-    tenantId: str
+    tenantId: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
     conversationId: str | None = None
     messageId: str | None = None
     text: str | None = None
@@ -293,6 +306,9 @@ class ChatResponse(BaseModel):
     suggestions: list[str] = Field(default_factory=list)
     engine: str = "langgraph"
     latencyMs: int = 0
+    attachment: dict[str, Any] | None = None
+    """Adjunto de este turno (p. ej. PDF de cotización), si una tool lo dejó
+    en `pending_attachment`. El canal (WhatsApp) decide cómo mandarlo."""
 
 
 # ---------------- salud ----------------
@@ -320,7 +336,9 @@ async def readyz() -> dict[str, Any]:
             w
             for w in (
                 None if settings.llm_live else "OPENROUTER_KEY_REF no configurada",
-                None if settings.commerce_live else "AGENT_API_KEY_REF no configurada",
+                None
+                if settings.commerce_live
+                else "AGENT_INTERNAL_KEY_REF o AGENT_API_KEY_REF no configurada",
                 None if settings.internal_key else "AGENT_INTERNAL_KEY_REF no configurada",
             )
             if w
@@ -373,19 +391,25 @@ class AgentSettingsPayload(BaseModel):
     classifier_model: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    # "" borra la key guardada; None (ausente en el body) la deja intacta.
+    # No pasa por el filtro `if v is not None` de abajo con "" porque "" no es
+    # None, así que sí llega a sanitize() para poder limpiarla.
+    openrouter_api_key: str | None = None
     whatsapp_plain_text: bool | None = None
     auto_reply: bool | None = None
 
 
-def _settings_view(tenant_id: str) -> dict[str, Any]:
+async def _settings_view(tenant_id: str) -> dict[str, Any]:
     profile = load_profile(tenant_id)
+    company = await load_company_context(tenant_id)
+    business_name = str(company.get("name") or profile.name)
     current = get_settings_store().get(tenant_id)
     return {
         "tenantId": tenant_id,
         "settings": current.to_dict(),
         "defaults": {
             "agent_name": profile.agent_name,
-            "business_name": profile.name,
+            "business_name": business_name,
             "tone": profile.tone,
             "greeting": profile.greeting,
             "language": profile.language,
@@ -406,19 +430,19 @@ def _settings_view(tenant_id: str) -> dict[str, Any]:
 
 @app.get("/settings")
 async def get_settings_endpoint(tenantId: str = Query(...)) -> dict[str, Any]:
-    return _settings_view(tenantId)
+    return await _settings_view(tenantId)
 
 
 @app.put("/settings")
 async def put_settings(req: AgentSettingsPayload, tenantId: str = Query(...)) -> dict[str, Any]:
     get_settings_store().update(tenantId, {k: v for k, v in req.model_dump().items() if v is not None})
-    return _settings_view(tenantId)
+    return await _settings_view(tenantId)
 
 
 @app.delete("/settings")
 async def reset_settings(tenantId: str = Query(...)) -> dict[str, Any]:
     get_settings_store().reset(tenantId)
-    return _settings_view(tenantId)
+    return await _settings_view(tenantId)
 
 
 # ---------------- aprendizaje ----------------
@@ -472,7 +496,11 @@ async def dismiss_signal(signal_id: str, tenantId: str | None = None) -> dict[st
 
 @app.get("/knowledge")
 async def knowledge_index(tenantId: str = DEFAULT_TENANT_ID) -> dict[str, Any]:
-    return {**knowledge_stats(tenantId), "outline": knowledge_outline(tenantId)}
+    result = {**knowledge_stats(tenantId), "outline": knowledge_outline(tenantId)}
+    company = await load_company_context(tenantId)
+    if company.get("name"):
+        result["profile"] = {**result["profile"], "name": str(company["name"])}
+    return result
 
 
 @app.get("/knowledge/search")
@@ -616,6 +644,7 @@ def _response_from_values(
         suggestions=_suggestions(values) if not handoff else [],
         engine=engine,
         latencyMs=latency_ms,
+        attachment=values.get("pending_attachment"),
     )
 
 
@@ -796,6 +825,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
             latency_ms=latency_ms,
             tool_calls=tool_calls,
         )
+        if result.get("pending_attachment"):
+            # El adjunto es de este turno; si se queda en el checkpoint,
+            # `_response_from_values` lo reenviaría también en el próximo
+            # turno aunque nadie haya emitido una cotización nueva.
+            with contextlib.suppress(Exception):
+                await runtime.agent.aupdate_state(config, {"pending_attachment": None})
+
         await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
         return response
 

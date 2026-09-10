@@ -1,9 +1,9 @@
-// Migración SQL inicial: habilita uuid_generate_v7 si existe
-// (Postgres 17 lo trae nativo, en 16 usamos uuid_generate_v7 de uuid_ossp o
-// implementación custom). Para V2 usamos uuid_generate_v4 por portabilidad
-// y aceptamos el orden lexicográfico como suficiente (no usamos para FK ordering).
-//
-// Esta migración aplica además Row-Level Security para multi-tenancy (T-IAM-06).
+-- Migración SQL inicial: habilita uuid_generate_v7 si existe
+-- (Postgres 17 lo trae nativo, en 16 usamos uuid_generate_v7 de uuid_ossp o
+-- implementación custom). Para V2 usamos uuid_generate_v4 por portabilidad
+-- y aceptamos el orden lexicográfico como suficiente (no usamos para FK ordering).
+--
+-- Esta migración aplica además Row-Level Security para multi-tenancy (T-IAM-06).
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

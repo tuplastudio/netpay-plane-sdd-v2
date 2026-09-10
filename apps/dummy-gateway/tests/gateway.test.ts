@@ -105,3 +105,88 @@ describe("WebhookDispatcher", () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe("WebhookDispatcher — datos del cobro", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("incluye facturación y tarjeta (solo last4) sin quitar los campos originales", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(String(init.body));
+        return { ok: true, status: 200 } as Response;
+      }),
+    );
+
+    const store = new CheckoutStore();
+    const session = store.create({
+      amount: "1392.00",
+      currency: "MXN",
+      orderId: "order-5",
+      serviceApiKey: "svc-key",
+      merchantName: "Ferretería La Central",
+      requiresInvoice: true,
+      billingRequired: true,
+      customer: { fullName: "Ana Pérez", email: "ana@example.com" },
+    });
+    const captured = store.setStatus(session.id, "CAPTURED", {
+      email: "ana@example.com",
+      card: { brand: "visa", last4: "4242", holder: "Ana Pérez" },
+      billing: {
+        name: "Ana Pérez",
+        rfc: "PEGA800101AB1",
+        street: "Av. Reforma 100",
+        city: "CDMX",
+        state: "CDMX",
+        postalCode: "06600",
+        country: "MX",
+      },
+    })!;
+    expect(captured.capturedAt).toBeDefined();
+
+    await new WebhookDispatcher().dispatch("http://localhost:4000/hook", captured, "secreto");
+
+    const payload = JSON.parse(bodies[0]);
+    expect(payload).toMatchObject({
+      eventName: "payment.captured",
+      status: "CAPTURED",
+      sessionId: session.id,
+      orderId: "order-5",
+      amount: "1392.00",
+      currency: "MXN",
+      livemode: false,
+      requiresInvoice: true,
+      billingRequired: true,
+      email: "ana@example.com",
+      card: { brand: "visa", last4: "4242" },
+      billing: { rfc: "PEGA800101AB1", postalCode: "06600" },
+      customer: { fullName: "Ana Pérez" },
+    });
+    expect(typeof payload.occurredAt).toBe("string");
+  });
+
+  it("un fallo lleva el motivo y nunca datos de facturación que no se capturaron", async () => {
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        bodies.push(String(init.body));
+        return { ok: true, status: 200 } as Response;
+      }),
+    );
+    const store = new CheckoutStore();
+    const session = store.create({ amount: "10.00", currency: "MXN", orderId: "order-6", serviceApiKey: "k" });
+    const failed = store.setStatus(session.id, "FAILED", { reason: "CARD_DECLINED" })!;
+
+    await new WebhookDispatcher().dispatch("http://localhost:4000/hook", failed, "secreto");
+
+    const payload = JSON.parse(bodies[0]);
+    expect(payload.eventName).toBe("payment.failed");
+    expect(payload.failureReason).toBe("CARD_DECLINED");
+    expect(payload.billing).toBeUndefined();
+    expect(payload.card).toBeUndefined();
+  });
+});

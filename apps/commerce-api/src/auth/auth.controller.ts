@@ -12,9 +12,14 @@ import { Request, Response } from "express";
 import { AuthService } from "./auth.service.js";
 import { BootstrapService } from "./bootstrap.service.js";
 import { RequestContext } from "../common/context/request-context.js";
-import { Public } from "./guards/principal.guard.js";
+import { IMPERSONATE_COOKIE, Public } from "./guards/principal.guard.js";
 import { InviteService } from "./invite.service.js";
-import { ForgotPasswordDto, ResetPasswordDto } from "./auth.dto.js";
+import {
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  ChangePasswordDto,
+  SwitchTenantDto,
+} from "./auth.dto.js";
 
 const SESSION_COOKIE =
   process.env.NODE_ENV === "production" ? "__Host-session" : "session";
@@ -144,6 +149,30 @@ export class AuthController {
     return { data: { ok: true }, requestId: RequestContext.requestId };
   }
 
+  /** Apaga MFA en la cuenta propia; exige un código TOTP o recovery code vigente. */
+  @Post("mfa/disable")
+  @HttpCode(200)
+  async disableMfa(@Body() body: { code: string }) {
+    const userId = RequestContext.userId;
+    if (!userId) {
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
+    }
+    await this.auth.disableMfa(userId, body.code, RequestContext.tenantId ?? null);
+    return { data: { ok: true }, requestId: RequestContext.requestId };
+  }
+
+  /** Reemplaza los recovery codes vigentes; exige un código TOTP vigente. */
+  @Post("mfa/recovery-codes/regenerate")
+  @HttpCode(200)
+  async regenerateRecoveryCodes(@Body() body: { code: string }) {
+    const userId = RequestContext.userId;
+    if (!userId) {
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
+    }
+    const recoveryCodes = await this.auth.regenerateRecoveryCodes(userId, body.code, RequestContext.tenantId ?? null);
+    return { data: { recoveryCodes }, requestId: RequestContext.requestId };
+  }
+
   @Get("me")
   async me() {
     const userId = RequestContext.userId;
@@ -151,6 +180,31 @@ export class AuthController {
       throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
     }
     return { data: await this.auth.me(userId, RequestContext.tenantId), requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Cambia la empresa activa de la sesión (usuario con varias membresías).
+   * Valida membresía ACTIVE en el tenant destino, mueve `Session.tenantId` y
+   * lo audita como `auth.tenant_switched`. Desde la siguiente petición el
+   * `PrincipalGuard` resuelve tenant y rol desde esa membresía.
+   *
+   * Si un super-admin estaba impersonando, la cookie se borra: eligió
+   * explícitamente una de **sus** empresas, y la impersonación (que tiene
+   * precedencia en el guard) taparía el cambio.
+   */
+  @Post("switch-tenant")
+  @HttpCode(200)
+  async switchTenant(
+    @Body() body: SwitchTenantDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { userId, sessionId } = RequestContext.principal;
+    if (!userId || !sessionId) {
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
+    }
+    const result = await this.auth.switchTenant({ userId, sessionId, tenantId: body.tenantId });
+    res.clearCookie(IMPERSONATE_COOKIE, { path: "/" });
+    return { data: result, requestId: RequestContext.requestId };
   }
 
   @Post("logout")
@@ -194,5 +248,27 @@ export class AuthController {
   async acceptInvite(@Body() body: { token: string; password: string }) {
     const result = await this.invite.acceptInvite(body);
     return { data: result, requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Cambio de contraseña estando autenticado: requiere la contraseña actual.
+   * Si la operación tiene éxito, **revoca todas las sesiones** del usuario
+   * para que un atacante que ya tuviera una sesión abierta no pueda seguir
+   * usándola. La actual la está usando esta misma petición y la respuesta
+   * se sigue mandando, pero a partir del siguiente refresh ya no cuenta.
+   */
+  @Post("change-password")
+  @HttpCode(200)
+  async changePassword(@Body() body: ChangePasswordDto) {
+    const userId = RequestContext.userId;
+    if (!userId) {
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
+    }
+    await this.invite.changePassword({
+      userId,
+      currentPassword: body.currentPassword,
+      newPassword: body.newPassword,
+    });
+    return { data: { ok: true }, requestId: RequestContext.requestId };
   }
 }

@@ -29,13 +29,9 @@ Gestión desde el panel (paridad con v1, ver `agent-service/app/knowledge.py`):
     toca por HTTP, igual que en v1.
 
 Partición por tenant (layout en disco):
-  - `<knowledge_dir>/*.md` (nivel raíz, sin recursión) es la PLANTILLA BASE:
-    los documentos curados que hoy se copian a la imagen Docker (negocio.md,
-    productos.md, preguntas-frecuentes.md, sucursales.md). Es de solo lectura
-    para la API — ningún endpoint escribe ahí — y se comparte entre TODOS los
-    tenants a propósito: un negocio nuevo, sin un solo documento propio, debe
-    seguir teniendo identidad y catálogo desde el primer turno en vez de
-    arrancar con el prompt vacío.
+  - `<knowledge_dir>/*.md` (nivel raíz, sin recursión) es el conocimiento
+    legado del tenant `default`. No se comparte: esos archivos contienen datos
+    reales de una empresa y exponerlos a otra sería fuga de contexto.
   - `<knowledge_dir>/tenants/<tenant_id>/**/*.md` es el conocimiento PROPIO
     de cada tenant (subidas del panel en `uploads/`, aprendizajes aprobados
     en `aprendizajes.md`). Un tenant solo lee su propio subárbol: nunca el de
@@ -369,16 +365,14 @@ def _load(tenant_id: str) -> _Loaded:
     if not root.is_dir():
         warnings.append(f"el directorio de conocimiento no existe: {root}")
     else:
-        # 1) Plantilla base: curada a mano, de solo lectura, compartida por
-        # TODOS los tenants (así uno nuevo sin documentos propios igual tiene
-        # identidad y catálogo). Sin recursión: "aprendizajes.md" y
-        # "uploads/" en la raíz son legado del tenant por defecto (paso 2),
-        # no plantilla — si se leyeran aquí también, se filtrarían al resto
-        # de tenants y se repetiría el bug que se está arreglando.
-        for path in sorted(root.glob("*.md")):
-            if path.name.upper().startswith("README") or path.name == "aprendizajes.md":
-                continue
-            consume(path, path.name)
+        # 1) Documentos raíz: pertenecen al layout legado de `default`. Nunca
+        # se heredan a otro tenant; los tenants nuevos obtienen nombre y
+        # catálogo desde Commerce API y sus políticas desde su propio subárbol.
+        if safe_id == DEFAULT_TENANT_ID:
+            for path in sorted(root.glob("*.md")):
+                if path.name.upper().startswith("README") or path.name == "aprendizajes.md":
+                    continue
+                consume(path, path.name)
 
         # 2) Compatibilidad con el despliegue plano anterior a la partición
         # (ver docstring del módulo): solo el tenant por defecto lo hereda.

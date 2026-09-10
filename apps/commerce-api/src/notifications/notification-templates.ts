@@ -2,6 +2,7 @@
 
 export type TemplateKey =
   | "QUOTE_LINK"
+  | "QUOTE_UPDATED"
   | "ORDER_RECEIVED"
   | "PAYMENT_SIMULATED_SUCCESS"
   | "PAYMENT_SIMULATED_FAILED"
@@ -12,6 +13,8 @@ export function renderTemplate(key: TemplateKey, vars: Record<string, string>): 
   switch (key) {
     case "QUOTE_LINK":
       return `Hola ${vars.customerName}, tu cotización por $${vars.total} está lista: ${vars.link}`;
+    case "QUOTE_UPDATED":
+      return `Hola ${vars.customerName}, actualizamos tu cotización: ahora es por $${vars.total} (antes $${vars.previousTotal}). Revísala aquí: ${vars.link}`;
     case "ORDER_RECEIVED":
       return `Hola ${vars.customerName}, recibimos tu pedido por $${vars.total} (folio ${vars.orderId}).`;
     case "PAYMENT_SIMULATED_SUCCESS":

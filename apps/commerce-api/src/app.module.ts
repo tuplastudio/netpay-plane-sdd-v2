@@ -11,10 +11,14 @@ import { PricingModule } from "./pricing/pricing.module.js";
 import { QuoteModule } from "./quotes/quote.module.js";
 import { OrderModule } from "./orders/order.module.js";
 import { PaymentModule } from "./payments/payment.module.js";
+import { ReportsModule } from "./reports/reports.module.js";
 import { NotificationModule } from "./notifications/notification.module.js";
 import { IntegrationModule } from "./integrations/integration.module.js";
 import { WhatsAppModule } from "./whatsapp/whatsapp.module.js";
 import { OpsModule } from "./ops/ops.module.js";
+import { TenantsModule } from "./tenants/tenants.module.js";
+import { UsageModule } from "./usage/usage.module.js";
+import { SuperAdminModule } from "./super-admin/super-admin.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
 import { CommonModule } from "./common/common.module.js";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter.js";
@@ -38,10 +42,14 @@ import { RateLimitMiddleware, SecurityHeadersMiddleware } from "./ops/security.m
     QuoteModule,
     OrderModule,
     PaymentModule,
+    ReportsModule,
     NotificationModule,
     IntegrationModule,
     WhatsAppModule,
     OpsModule,
+    TenantsModule,
+    UsageModule,
+    SuperAdminModule,
   ],
   providers: [
     {

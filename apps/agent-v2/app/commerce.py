@@ -11,6 +11,10 @@ en lugar de inventar datos.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import time
 import uuid
 from typing import Any
 
@@ -34,12 +38,36 @@ class CommerceError(RuntimeError):
 
 
 class CommerceClient:
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, *, tenant_id: str = "") -> None:
         self.settings = settings or get_settings()
+        self.tenant_id = tenant_id.strip()
 
     @property
     def live(self) -> bool:
-        return self.settings.commerce_live
+        return self.settings.commerce_live or bool(self.tenant_id and self.settings.internal_key)
+
+    def _auth_headers(self) -> dict[str, str]:
+        """Credenciales del backend sin confiar en datos elegidos por el modelo.
+
+        Para el agente multi-tenant, firma el tenant del ``runtime.context`` con
+        la llave interna compartida. Commerce API verifica firma y caducidad y
+        crea un principal SERVICE limitado a las capacidades del agente. La API
+        key histórica sigue como fallback para instalaciones de un solo tenant.
+        """
+        if self.tenant_id and self.settings.internal_key:
+            timestamp = str(int(time.time()))
+            payload = f"{timestamp}.{self.tenant_id}".encode("utf-8")
+            signature = hmac.new(
+                self.settings.internal_key.encode("utf-8"), payload, hashlib.sha256
+            ).hexdigest()
+            return {
+                "x-agent-tenant": self.tenant_id,
+                "x-agent-timestamp": timestamp,
+                "x-agent-signature": signature,
+            }
+        if self.settings.commerce_api_key:
+            return {"authorization": f"Bearer {self.settings.commerce_api_key}"}
+        return {}
 
     # ---------- transporte ----------
 
@@ -56,7 +84,7 @@ class CommerceClient:
             raise CommerceUnavailable("AGENT_API_KEY_REF no configurada")
 
         headers = {
-            "authorization": f"Bearer {self.settings.commerce_api_key}",
+            **self._auth_headers(),
             "content-type": "application/json",
             "x-request-id": str(uuid.uuid4()),
         }
@@ -94,8 +122,13 @@ class CommerceClient:
     # ---------- catálogo ----------
 
     async def search_products(self, query: str | None = None, *, limit: int = 50) -> list[dict[str, Any]]:
+        # `status` explícito: sin filtro, /catalog/products devuelve también
+        # DRAFT y ARCHIVED (p. ej. un catálogo anterior que se archivó al
+        # reemplazarlo). El agente solo debe cotizar lo que de verdad se vende.
         data = await self._request(
-            "GET", "/catalog/products", params={"q": query or "", "limit": min(limit, 100)}
+            "GET",
+            "/catalog/products",
+            params={"q": query or "", "limit": min(limit, 100), "status": "ACTIVE"},
         )
         return self._flatten_variants(data)
 
@@ -108,6 +141,10 @@ class CommerceClient:
         variants: list[dict[str, Any]] = []
         for product in items or []:
             for variant in product.get("variants", []) or []:
+                if variant.get("status", "ACTIVE") != "ACTIVE":
+                    # Variante archivada (p. ej. catálogo anterior reemplazado):
+                    # aunque el producto padre siga activo, esto no se vende.
+                    continue
                 stock = variant.get("stock")
                 variants.append(
                     {
@@ -116,12 +153,18 @@ class CommerceClient:
                         "title": variant.get("title", ""),
                         "productTitle": product.get("title", ""),
                         "description": product.get("description") or "",
+                        "tags": product.get("tags") or [],
+                        "synonyms": product.get("synonyms") or [],
                         "price": str(variant.get("price", "0.00")),
                         "stock": float(stock) if stock not in (None, "") else None,
                         "status": variant.get("status", "ACTIVE"),
                     }
                 )
         return variants
+
+    async def get_company_context(self) -> dict[str, Any]:
+        """Identidad canónica del tenant autenticado en Commerce API."""
+        return await self._request("GET", "/tenants/me/agent-context") or {}
 
     # ---------- clientes ----------
 
@@ -195,6 +238,30 @@ class CommerceClient:
     async def get_quote(self, quote_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/quotes/{quote_id}")
 
+    async def get_quote_pdf_base64(self, quote_id: str) -> str:
+        """PDF comercial de la cotización, en base64 (para adjuntar por WhatsApp).
+
+        No usa `_request`: esa devuelve JSON, este endpoint devuelve el PDF
+        crudo (`application/pdf`). Va autenticado con la misma API key del
+        agente, así que no depende de que el enlace público sea alcanzable
+        desde fuera (la PDF viaja como adjunto, no como URL).
+        """
+        if not self.live:
+            raise CommerceUnavailable("AGENT_API_KEY_REF no configurada")
+        headers = {
+            **self._auth_headers(),
+            "x-request-id": str(uuid.uuid4()),
+        }
+        url = f"{self.settings.commerce_api_url.rstrip('/')}/quotes/{quote_id}/pdf"
+        try:
+            async with httpx.AsyncClient(timeout=self.settings.commerce_timeout) as client:
+                response = await client.get(url, headers=headers)
+        except httpx.HTTPError as exc:
+            raise CommerceUnavailable(f"API comercial inalcanzable: {exc}") from exc
+        if response.status_code >= 400:
+            raise CommerceError(response.status_code, "PDF_ERROR", "no se pudo generar el PDF")
+        return base64.b64encode(response.content).decode("ascii")
+
     async def share_quote(self, quote_id: str) -> dict[str, Any]:
         token = await self._request("POST", f"/quotes/{quote_id}/share")
         base = self.settings.public_base_url.rstrip("/")
@@ -239,11 +306,54 @@ class CommerceClient:
     async def list_orders(self, *, status: str | None = None) -> Any:
         return await self._request("GET", "/orders", params={"status": status} if status else None)
 
+    async def record_usage(
+        self, *, model: str, input_tokens: int, output_tokens: int, cost_usd: str
+    ) -> None:
+        """Reporta consumo de tokens del turno. Best-effort: nunca debe tumbar
+        el turno de chat, así que el llamador la envuelve en try/except."""
+        await self._request(
+            "POST",
+            "/usage/events",
+            json_body={
+                "model": model,
+                "inputTokens": input_tokens,
+                "outputTokens": output_tokens,
+                "costUsd": cost_usd,
+            },
+        )
+
+    async def request_invoice(
+        self,
+        order_id: str,
+        *,
+        rfc: str,
+        legal_name: str,
+        postal_code: str,
+        cfdi_use: str,
+        constancia_url: str | None = None,
+        notes: str | None = None,
+    ) -> dict[str, Any]:
+        return await self._request(
+            "PATCH",
+            f"/orders/{order_id}/invoice-request",
+            json_body={
+                "rfc": rfc,
+                "legalName": legal_name,
+                "postalCode": postal_code,
+                "cfdiUse": cfdi_use,
+                "constanciaUrl": constancia_url,
+                "notes": notes,
+            },
+        )
+
     # ---------- diagnóstico ----------
 
     async def health(self) -> dict[str, Any]:
         try:
-            await self._request("GET", "/catalog/products", params={"limit": 1})
+            # El probe es público y no necesita escoger un tenant. Probar el
+            # catálogo con una API key global daría un falso negativo en el
+            # modo multi-tenant firmado.
+            await self._request("GET", "/healthz")
             return {"ok": True}
         except CommerceUnavailable as exc:
             return {"ok": False, "reason": str(exc)}

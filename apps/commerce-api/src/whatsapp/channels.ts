@@ -33,6 +33,31 @@ export interface SendMessageResult {
   error?: string;
 }
 
+export interface SendDocumentInput {
+  tenantId: string;
+  to: string; // E.164
+  filename: string;
+  mimetype: string;
+  base64: string;
+  caption?: string;
+}
+
+/** Tipos de adjunto que entiende Evolution (`mediatype` de sendMedia). */
+export type MediaType = "image" | "video" | "audio" | "document";
+
+export interface SendMediaInput extends SendDocumentInput {
+  mediatype: MediaType;
+}
+
+/** IMAGE/AUDIO/VIDEO/DOCUMENT según el mimetype; lo que no sea media es documento. */
+export function mediaTypeFromMime(mimetype: string): MediaType {
+  const mime = mimetype.toLowerCase();
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("audio/")) return "audio";
+  if (mime.startsWith("video/")) return "video";
+  return "document";
+}
+
 export interface MediaKey {
   id: string;
   remoteJid: string;
@@ -43,6 +68,9 @@ export interface ChannelAdapter {
   readonly provider: "META" | "EVOLUTION";
   healthCheck(): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
   sendMessage(connectionId: string, input: SendMessageInput): Promise<SendMessageResult>;
+  sendDocument?(connectionId: string, input: SendDocumentInput): Promise<SendMessageResult>;
+  /** Imagen, video, audio (nota de voz) o documento como adjunto. */
+  sendMedia?(connectionId: string, input: SendMediaInput): Promise<SendMessageResult>;
   getMediaBase64?(
     connectionId: string,
     key: MediaKey,
@@ -169,6 +197,60 @@ export class EvolutionChannel implements ChannelAdapter {
           signal: AbortSignal.timeout(5000),
         },
       );
+      if (!res.ok) {
+        return { externalId: null, status: "FAILED", error: `HTTP ${res.status}` };
+      }
+      const data = (await res.json()) as { key?: { id?: string } };
+      return { externalId: data.key?.id ?? null, status: "SENT" };
+    } catch (err) {
+      return { externalId: null, status: "FAILED", error: String(err) };
+    }
+  }
+
+  /** PDF de cotización u otro documento, como adjunto (no como link). */
+  async sendDocument(connectionId: string, input: SendDocumentInput): Promise<SendMessageResult> {
+    return this.sendMedia(connectionId, { ...input, mediatype: "document" });
+  }
+
+  /**
+   * Adjunto genérico. El audio va por `sendWhatsAppAudio` para que llegue
+   * como nota de voz (burbuja con play), no como archivo descargable; el
+   * resto por `sendMedia` con su `mediatype`.
+   */
+  async sendMedia(connectionId: string, input: SendMediaInput): Promise<SendMessageResult> {
+    const conn = await this.prisma.whatsAppConnection.findUnique({
+      where: { id: connectionId },
+    });
+    if (!conn || conn.provider !== "EVOLUTION" || conn.status !== "ACTIVE") {
+      return { externalId: null, status: "FAILED", error: "Conexión Evolution inactiva" };
+    }
+    const creds = (conn.credentials ?? {}) as { baseUrl?: string; instance?: string; apiKey?: string };
+    if (!creds.baseUrl || !creds.instance) {
+      return { externalId: null, status: "FAILED", error: "Credenciales Evolution faltantes" };
+    }
+    const url =
+      input.mediatype === "audio"
+        ? `${creds.baseUrl}/message/sendWhatsAppAudio/${creds.instance}`
+        : `${creds.baseUrl}/message/sendMedia/${creds.instance}`;
+    const payload =
+      input.mediatype === "audio"
+        ? { number: input.to, audio: input.base64 }
+        : {
+            number: input.to,
+            mediatype: input.mediatype,
+            mimetype: input.mimetype,
+            fileName: input.filename,
+            caption: input.caption,
+            media: input.base64,
+          };
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json", apikey: creds.apiKey ?? "" },
+        body: JSON.stringify(payload),
+        // Un video o PDF grande tarda bastante más en subirse que un texto.
+        signal: AbortSignal.timeout(60000),
+      });
       if (!res.ok) {
         return { externalId: null, status: "FAILED", error: `HTTP ${res.status}` };
       }

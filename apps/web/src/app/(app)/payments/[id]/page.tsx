@@ -4,22 +4,34 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Copy, RotateCcw } from "lucide-react";
+import { AlertCircle, Copy, ReceiptText, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PageHeader } from "@/components/app/page-header";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import { SkeletonText } from "@/components/ui/skeleton";
+import { SOURCE_LABELS, StatusBadge } from "@/components/ui/status-badge";
 import {
-  money,
-  statusVariant,
-  PAYMENT_STATUS_LABEL,
-  LEDGER_TYPE_LABEL,
-  ORDER_STATUS_LABEL,
-} from "@/lib/payments";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DateTime } from "@/components/app/date-time";
+import { DescriptionList, FieldRow } from "@/components/app/field-row";
+import { Money, formatMoney } from "@/components/app/money";
+import { PageHeader } from "@/components/app/page-header";
+import { Section } from "@/components/app/section";
+import { StatTile } from "@/components/app/stat-tile";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { toCents } from "@/lib/decimal";
+import { LinesSheet } from "./_components/lines-sheet";
 
 interface SessionLine {
   variantId: string;
@@ -115,24 +127,49 @@ export default function PaymentDetailPage() {
         queryClient.invalidateQueries({ queryKey: ["payment-session", params.id] }),
         queryClient.invalidateQueries({ queryKey: ["payment-sessions"] }),
         queryClient.invalidateQueries({ queryKey: ["payment-ledger"] }),
+        // Los totales del panorama y de /payments salen de un agregado del
+        // backend; tras un reembolso hay que volver a pedirlo.
+        queryClient.invalidateQueries({ queryKey: ["reports-summary"] }),
       ]);
     },
     onError: () => toast.error("No se pudo registrar el reembolso"),
   });
 
+  const breadcrumbs = [
+    { label: "Pagos", href: "/payments" },
+    { label: `#${params.id.slice(0, 8)}` },
+  ];
+
   if (sessionQ.isLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando pago…</p>;
+    return (
+      <div>
+        <PageHeader title="Pago" backHref="/payments" breadcrumbs={breadcrumbs} />
+        <Section title="Cargando pago">
+          <SkeletonText lines={4} label="Cargando pago…" />
+        </Section>
+      </div>
+    );
   }
+
   if (sessionQ.isError || !sessionQ.data) {
     return (
-      <div className="space-y-3">
-        <p className="text-sm text-destructive">No pude cargar esta sesión de pago.</p>
-        <Button asChild variant="outline">
-          <Link href="/payments">
-            <ArrowLeft className="h-4 w-4" />
-            Volver a pagos
-          </Link>
-        </Button>
+      <div>
+        <PageHeader title="Pago" backHref="/payments" breadcrumbs={breadcrumbs} />
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>No se pudo cargar esta sesión de pago</AlertTitle>
+          <AlertDescription>
+            <p>Revisa el identificador o inténtalo de nuevo.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => void sessionQ.refetch()}>
+                Reintentar
+              </Button>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/payments">Volver a pagos</Link>
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -141,26 +178,49 @@ export default function PaymentDetailPage() {
   const refundable = s.status === "CAPTURED" || s.status === "PARTIALLY_REFUNDED";
 
   return (
-    <div className="space-y-6">
+    <div>
       <PageHeader
         title={`Pago ${s.id.slice(0, 8)}…`}
-        description={
+        backHref="/payments"
+        breadcrumbs={[{ label: "Pagos", href: "/payments" }, { label: `#${s.id.slice(0, 8)}` }]}
+        meta={
           <>
-            {s.order.customer.fullName} · pedido{" "}
-            <Link href={`/orders/${s.orderId}`} className="text-primary hover:underline">
-              {s.orderId.slice(0, 8)}…
-            </Link>{" "}
-            · {s.livemode ? "livemode" : "modo dummy"}
+            <StatusBadge status={s.status} domain="payment" withDot />
+            <span className="text-foreground">{s.order.customer.fullName}</span>
+            <span aria-hidden>·</span>
+            <span>
+              Pedido{" "}
+              <Link
+                href={`/orders/${s.orderId}`}
+                className="font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                title={s.orderId}
+              >
+                {s.orderId.slice(0, 8)}…
+              </Link>
+            </span>
+            <Badge variant={s.livemode ? "info" : "neutral"}>
+              {s.livemode ? "Livemode" : "Modo de pruebas"}
+            </Badge>
           </>
         }
         actions={
           <>
-            <Button asChild variant="outline">
-              <Link href="/payments">
-                <ArrowLeft className="h-4 w-4" />
-                Pagos
-              </Link>
-            </Button>
+            <LinesSheet
+              amount={s.amount}
+              currency={s.currency}
+              customerName={s.order.customer.fullName}
+              customerEmail={s.order.customer.email}
+              customerPhone={s.order.customer.phone}
+              customerTaxId={s.order.customer.taxId}
+              customerId={s.order.customer.id}
+              orderId={s.orderId}
+              orderTotal={s.order.total}
+              orderSubtotal={s.order.subtotal}
+              orderTax={s.order.tax}
+              orderShipping={s.order.shipping}
+              orderDiscount={s.order.discount}
+              lines={s.lines}
+            />
             <Button variant="outline" onClick={() => void copyToClipboard(s.id, "ID de sesión")}>
               <Copy className="h-4 w-4" />
               Copiar ID
@@ -180,163 +240,168 @@ export default function PaymentDetailPage() {
         }
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-card border bg-card p-4">
-          <p className="text-xs uppercase tracking-wide text-muted-foreground">Estado</p>
-          <p className="mt-1">
-            <Badge variant={statusVariant(s.status)}>
-              {PAYMENT_STATUS_LABEL[s.status] ?? s.status}
-            </Badge>
-          </p>
-        </div>
-        <Stat label="Monto" value={money(s.amount, s.currency)} />
-        <Stat label="Reembolsado" value={money(s.refundedTotal, s.currency)} />
-        <Stat label="Neto" value={money(s.netTotal, s.currency)} />
-      </section>
+      <div className="space-y-6">
+        {/*
+          Estas tres cifras las calcula el backend para ESTA sesión
+          (`payment.service.ts#getSession`: netTotal = amount − Σ reembolsos de
+          la propia sesión). No hay aritmética de cliente aquí, y a diferencia
+          del resumen del listado no hay doble resta: el minuendo es el monto
+          bruto de la sesión, no un subconjunto filtrado por estado.
+        */}
+        <section aria-label="Resumen del pago" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <StatTile size="compact" label="Monto" value={<Money value={s.amount} currency={s.currency} />} />
+          <StatTile size="compact"
+            label="Reembolsado"
+            tone={toCents(s.refundedTotal) ? "warning" : "neutral"}
+            value={<Money value={s.refundedTotal} currency={s.currency} />}
+          />
+          <StatTile size="compact"
+            label="Neto"
+            tone="success"
+            value={<Money value={s.netTotal} currency={s.currency} />}
+          />
+        </section>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <Tabs defaultValue="detalle" className="space-y-4">
-            <TabsList>
-              <TabsTrigger value="detalle">Detalle de la venta</TabsTrigger>
-              <TabsTrigger value="ledger">Ledger ({s.ledger.length})</TabsTrigger>
-            </TabsList>
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <Tabs defaultValue="ledger" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="ledger">Ledger ({s.ledger.length})</TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="detalle">
-              <section className="overflow-x-auto rounded-card border bg-card p-4">
-                <h2 className="mb-3 font-semibold">Qué se cobró</h2>
-                {s.lines.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Esta sesión no tiene líneas registradas.
-                  </p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                        <th className="p-2">SKU</th>
-                        <th className="p-2">Producto</th>
-                        <th className="p-2 text-right">Cant.</th>
-                        <th className="p-2 text-right">P. unit.</th>
-                        <th className="p-2 text-right">Importe</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {s.lines.map((l) => (
-                        <tr key={l.variantId} className="border-b last:border-0">
-                          <td className="p-2 font-mono text-xs">{l.sku ?? "—"}</td>
-                          <td className="p-2">
-                            {l.productTitle ? (
-                              <span className="text-muted-foreground">{l.productTitle} · </span>
-                            ) : null}
-                            {l.title ?? l.variantId.slice(0, 8)}
-                          </td>
-                          <td className="p-2 text-right font-mono">{Number(l.quantity)}</td>
-                          <td className="p-2 text-right font-mono">
-                            {l.unitPrice ? `$${l.unitPrice}` : "—"}
-                          </td>
-                          <td className="p-2 text-right font-mono">
-                            {l.lineTotal ? `$${l.lineTotal}` : "—"}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </section>
-            </TabsContent>
+              <TabsContent value="ledger">
+                <Section title="Movimientos de esta sesión" padded={false}>
+                  {s.ledger.length === 0 ? (
+                    <EmptyState
+                      icon={<ReceiptText className="h-6 w-6" />}
+                      title="Sin movimientos"
+                      description="Cargos, reembolsos, comisiones y ajustes de esta sesión aparecerán aquí."
+                    />
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow interactive={false}>
+                          <TableHead>Tipo</TableHead>
+                          <TableHead numeric>Monto</TableHead>
+                          <TableHead numeric>Saldo</TableHead>
+                          <TableHead>Descripción</TableHead>
+                          <TableHead>Fecha</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {s.ledger.map((l) => (
+                          <TableRow key={l.id}>
+                            <TableCell>
+                              <StatusBadge status={l.entryType} domain="ledger" />
+                            </TableCell>
+                            <TableCell numeric>
+                              <Money value={l.amount} />
+                            </TableCell>
+                            <TableCell numeric>
+                              <Money value={l.balanceAfter} className="text-muted-foreground" />
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {l.description}
+                            </TableCell>
+                            <TableCell>
+                              <DateTime
+                                value={l.recordedAt}
+                                className="text-xs text-muted-foreground"
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </Section>
+              </TabsContent>
+            </Tabs>
 
-            <TabsContent value="ledger">
-              <section className="overflow-x-auto rounded-card border bg-card p-4">
-                <h2 className="mb-3 font-semibold">Movimientos de esta sesión</h2>
-                {s.ledger.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Sin movimientos registrados.</p>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                        <th className="p-2">Tipo</th>
-                        <th className="p-2 text-right">Monto</th>
-                        <th className="p-2 text-right">Saldo</th>
-                        <th className="p-2">Descripción</th>
-                        <th className="p-2">Fecha</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {s.ledger.map((l) => (
-                        <tr key={l.id} className="border-b last:border-0">
-                          <td className="p-2">
-                            <Badge variant={l.entryType === "REFUND" ? "destructive" : "muted"}>
-                              {LEDGER_TYPE_LABEL[l.entryType] ?? l.entryType}
-                            </Badge>
-                          </td>
-                          <td className="p-2 text-right font-mono">${l.amount}</td>
-                          <td className="p-2 text-right font-mono">${l.balanceAfter}</td>
-                          <td className="p-2 text-xs text-muted-foreground">{l.description}</td>
-                          <td className="p-2 text-xs text-muted-foreground">
-                            {new Date(l.recordedAt).toLocaleString("es-MX")}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </section>
-            </TabsContent>
-          </Tabs>
+            <Section title="Línea de tiempo">
+              <DescriptionList divided>
+                <FieldRow label="Sesión creada">
+                  <DateTime value={s.createdAt} />
+                </FieldRow>
+                {s.capturedAt ? (
+                  <FieldRow label="Cobrado">
+                    <DateTime value={s.capturedAt} />
+                  </FieldRow>
+                ) : null}
+                {s.failedAt ? (
+                  <FieldRow label="Fallido">
+                    <DateTime value={s.failedAt} />
+                  </FieldRow>
+                ) : null}
+                <FieldRow label="Vence">
+                  <DateTime value={s.expiresAt} />
+                </FieldRow>
+                <FieldRow label="Última actualización">
+                  <DateTime value={s.updatedAt} />
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+          </div>
 
-          <section className="rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Línea de tiempo</h2>
-            <ul className="space-y-2 text-sm">
-              <TimelineRow label="Sesión creada" at={s.createdAt} />
-              <TimelineRow label="Cobrado" at={s.capturedAt} />
-              <TimelineRow label="Fallido" at={s.failedAt} />
-              <TimelineRow label="Vence" at={s.expiresAt} />
-              <TimelineRow label="Última actualización" at={s.updatedAt} />
-            </ul>
-          </section>
-        </div>
+          <div className="space-y-6">
+            <Section
+              title="Cliente"
+              footer={
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/customers/${s.order.customer.id}`}>Ver cliente</Link>
+                </Button>
+              }
+            >
+              <DescriptionList divided>
+                <FieldRow label="Nombre">{s.order.customer.fullName}</FieldRow>
+                <FieldRow label="Correo">{s.order.customer.email}</FieldRow>
+                <FieldRow label="Teléfono">{s.order.customer.phone}</FieldRow>
+                <FieldRow label="RFC" mono>
+                  {s.order.customer.taxId}
+                </FieldRow>
+              </DescriptionList>
+            </Section>
 
-        <div className="space-y-6">
-          <section className="rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Cliente</h2>
-            <dl className="space-y-2 text-sm">
-              <Row label="Nombre" value={s.order.customer.fullName} />
-              <Row label="Correo" value={s.order.customer.email ?? "—"} />
-              <Row label="Teléfono" value={s.order.customer.phone ?? "—"} />
-              <Row label="RFC" value={s.order.customer.taxId ?? "—"} />
-            </dl>
-            <Button asChild variant="outline" size="sm" className="mt-3 w-full">
-              <Link href={`/customers/${s.order.customer.id}`}>Ver cliente</Link>
-            </Button>
-          </section>
-
-          <section className="rounded-card border bg-card p-4">
-            <h2 className="mb-3 font-semibold">Pedido</h2>
-            <dl className="space-y-2 text-sm">
-              <Row
-                label="Estado"
-                value={ORDER_STATUS_LABEL[s.order.status] ?? s.order.status}
-              />
-              <Row label="Origen" value={s.order.source} />
-              <Row label="Subtotal" value={`$${s.order.subtotal}`} mono />
-              <Row label="Descuento" value={`$${s.order.discount}`} mono />
-              <Row label="IVA" value={`$${s.order.tax}`} mono />
-              <Row label="Envío" value={`$${s.order.shipping}`} mono />
-              <div className="border-t pt-2">
-                <Row label="Total" value={`$${s.order.total}`} mono bold />
-              </div>
-            </dl>
-            <Button asChild variant="outline" size="sm" className="mt-3 w-full">
-              <Link href={`/orders/${s.orderId}`}>Ver pedido completo</Link>
-            </Button>
-          </section>
+            <Section
+              title="Pedido"
+              footer={
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/orders/${s.orderId}`}>Ver pedido completo</Link>
+                </Button>
+              }
+            >
+              <DescriptionList divided>
+                <FieldRow label="Estado">
+                  <StatusBadge status={s.order.status} domain="order" />
+                </FieldRow>
+                <FieldRow label="Origen">
+                  {SOURCE_LABELS[s.order.source] ?? s.order.source}
+                </FieldRow>
+                <FieldRow label="Subtotal" numeric>
+                  <Money value={s.order.subtotal} />
+                </FieldRow>
+                <FieldRow label="Descuento" numeric>
+                  <Money value={s.order.discount} />
+                </FieldRow>
+                <FieldRow label="IVA" numeric>
+                  <Money value={s.order.tax} />
+                </FieldRow>
+                <FieldRow label="Envío" numeric>
+                  <Money value={s.order.shipping} />
+                </FieldRow>
+                <FieldRow label="Total" numeric emphasis>
+                  <Money value={s.order.total} emphasis showCurrency />
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+          </div>
         </div>
       </div>
 
       <ConfirmDialog
         open={refundOpen}
         onOpenChange={setRefundOpen}
-        title={`¿Reembolsar ${money(refundAmount, s.currency)}?`}
+        title={`¿Reembolsar ${formatMoney(refundAmount, s.currency)}?`}
         description={
           <div className="space-y-3 pt-1">
             <p>Esta acción registra el reembolso en el ledger. No se puede deshacer.</p>
@@ -365,45 +430,5 @@ export default function PaymentDetailPage() {
         onConfirm={() => refund.mutate()}
       />
     </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-card border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  mono = false,
-  bold = false,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-  bold?: boolean;
-}) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className={bold ? "font-semibold" : "text-muted-foreground"}>{label}</dt>
-      <dd className={`${mono ? "font-mono" : ""} ${bold ? "font-semibold" : ""} break-all text-right`}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-function TimelineRow({ label, at }: { label: string; at: string | null }) {
-  if (!at) return null;
-  return (
-    <li className="flex justify-between gap-3">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right">{new Date(at).toLocaleString("es-MX")}</span>
-    </li>
   );
 }

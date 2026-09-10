@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from typing import Any
 
 from deepagents import create_deep_agent
@@ -29,7 +30,7 @@ from langgraph.errors import GraphBubbleUp
 from .commerce import CommerceClient, CommerceError, CommerceUnavailable
 from .config import Settings, get_settings
 from .agent_settings import get_agent_settings
-from .knowledge import load_knowledge, load_profile
+from .knowledge import BusinessProfile, load_knowledge, load_profile
 from .prompts import turn_prompt
 from .state import SalesState, TurnContext, working_memory_block
 from .tools import SALES_TOOLS
@@ -43,8 +44,14 @@ def build_model(
     model: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    api_key: str | None = None,
 ) -> ChatOpenAI:
-    """OpenRouter habla el protocolo de OpenAI: mismo cliente, otra base_url."""
+    """OpenRouter habla el protocolo de OpenAI: mismo cliente, otra base_url.
+
+    `api_key`: si el tenant configuró su propia key de OpenRouter (panel
+    `/agent`, guardada cifrada en `AgentSettings`), se usa esa en vez de la
+    global del proceso — así cada tenant paga y factura su propio consumo.
+    """
     model_id = model or settings.model
     extra: dict[str, Any] = {}
     # Serializar las tool calls evita que varias lean el mismo snapshot del
@@ -59,13 +66,13 @@ def build_model(
         extra["parallel_tool_calls"] = False
     return ChatOpenAI(
         model=model_id,
-        api_key=settings.openrouter_key,
+        api_key=api_key or settings.openrouter_key,
         base_url=settings.openrouter_base_url,
         temperature=settings.temperature if temperature is None else temperature,
         max_completion_tokens=settings.max_tokens if max_tokens is None else max_tokens,
         default_headers={
             "HTTP-Referer": settings.public_base_url,
-            "X-Title": "NetPay Plane Agent v2",
+            "X-Title": "Easy Sell Agent v2 (Tupla)",
         },
         **extra,
     )
@@ -97,11 +104,13 @@ class _TenantModelCache:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._entries: dict[tuple[str, float, int], ChatOpenAI] = {}
+        self._entries: dict[tuple[str, float, int, str], ChatOpenAI] = {}
         self._lock = asyncio.Lock()
 
-    async def get(self, model: str, temperature: float, max_tokens: int) -> ChatOpenAI:
-        key = (model, temperature, max_tokens)
+    async def get(
+        self, model: str, temperature: float, max_tokens: int, api_key: str = ""
+    ) -> ChatOpenAI:
+        key = (model, temperature, max_tokens, api_key)
         cached = self._entries.get(key)
         if cached is not None:
             return cached
@@ -110,10 +119,82 @@ class _TenantModelCache:
             if cached is not None:
                 return cached
             instance = build_model(
-                self._settings, model=model, temperature=temperature, max_tokens=max_tokens
+                self._settings,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                api_key=api_key or None,
             )
             self._entries[key] = instance
             return instance
+
+
+# Precio aproximado en USD por 1K tokens (input, output). Referencia pública
+# de OpenRouter al momento de escribir esto — no se actualiza solo, así que
+# el costo reportado es una ESTIMACIÓN, no una factura real de OpenRouter.
+# Fallback conservador para modelos fuera de esta lista.
+PRICE_PER_1K: dict[str, tuple[float, float]] = {
+    "openai/gpt-4o-mini": (0.00015, 0.0006),
+    "openai/gpt-4o": (0.0025, 0.01),
+    "anthropic/claude-3-5-sonnet": (0.003, 0.015),
+    "anthropic/claude-3-5-haiku": (0.0008, 0.004),
+}
+_DEFAULT_PRICE_PER_1K = (0.001, 0.003)
+
+
+def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> str:
+    price_in, price_out = PRICE_PER_1K.get(model, _DEFAULT_PRICE_PER_1K)
+    cost = (input_tokens / 1000) * price_in + (output_tokens / 1000) * price_out
+    return f"{cost:.6f}"
+
+
+def _extract_usage(response: Any) -> tuple[int, int] | None:
+    """Suma usage_metadata de los AIMessage en la respuesta del modelo.
+
+    `handler(request)` (wrap_model_call) devuelve un AIMessage suelto o un
+    ModelResponse con `.result: list[BaseMessage]`, según la versión de
+    langchain — se cubren ambos casos.
+    """
+    messages: list[Any]
+    if hasattr(response, "result"):
+        messages = list(getattr(response, "result") or [])
+    else:
+        messages = [response]
+
+    input_tokens = 0
+    output_tokens = 0
+    found = False
+    for msg in messages:
+        usage = getattr(msg, "usage_metadata", None)
+        if not usage:
+            continue
+        found = True
+        input_tokens += usage.get("input_tokens", 0) or 0
+        output_tokens += usage.get("output_tokens", 0) or 0
+    return (input_tokens, output_tokens) if found else None
+
+
+def _report_usage(tenant_id: str, model: str, response: Any) -> None:
+    """Fire-and-forget: nunca debe retrasar ni tumbar el turno de chat."""
+    if not tenant_id:
+        return
+    usage = _extract_usage(response)
+    if not usage:
+        return
+    input_tokens, output_tokens = usage
+    cost_usd = _estimate_cost_usd(model, input_tokens, output_tokens)
+
+    async def _send() -> None:
+        try:
+            from .commerce import CommerceClient
+
+            await CommerceClient(tenant_id=tenant_id).record_usage(
+                model=model, input_tokens=input_tokens, output_tokens=output_tokens, cost_usd=cost_usd
+            )
+        except Exception:
+            logger.warning("tenant %s: no se pudo reportar uso de tokens", tenant_id, exc_info=True)
+
+    asyncio.ensure_future(_send())
 
 
 def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
@@ -153,21 +234,26 @@ def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
         max_tokens = (
             overrides.max_tokens if overrides and overrides.max_tokens else settings.max_tokens
         )
+        tenant_api_key = overrides.openrouter_api_key() if overrides else ""
 
         if (model_name, temperature, max_tokens) == (
             settings.model,
             settings.temperature,
             settings.max_tokens,
-        ):
-            return await handler(request)  # sin override real, no toques la request
+        ) and not tenant_api_key:
+            response = await handler(request)  # sin override real, no toques la request
+            _report_usage(tenant_id, model_name, response)
+            return response
 
-        tenant_model = await cache.get(model_name, temperature, max_tokens)
+        tenant_model = await cache.get(model_name, temperature, max_tokens, tenant_api_key)
         try:
             logger.info(
-                "tenant %s: usando modelo override %r (temp=%s, max_tokens=%s)",
-                tenant_id, model_name, temperature, max_tokens,
+                "tenant %s: usando modelo override %r (temp=%s, max_tokens=%s, key_propia=%s)",
+                tenant_id, model_name, temperature, max_tokens, bool(tenant_api_key),
             )
-            return await handler(request.override(model=tenant_model))
+            response = await handler(request.override(model=tenant_model))
+            _report_usage(tenant_id, model_name, response)
+            return response
         except GraphBubbleUp:
             raise  # interrupts/control flow de LangGraph, no es una falla del modelo
         except Exception:
@@ -175,7 +261,9 @@ def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
                 "tenant %s: modelo %r falló, degradando a %r",
                 tenant_id, model_name, settings.model, exc_info=True,
             )
-            return await handler(request)  # request original = modelo por defecto
+            response = await handler(request)  # request original = modelo por defecto
+            _report_usage(tenant_id, settings.model, response)
+            return response
 
     return _override
 
@@ -201,13 +289,13 @@ class CatalogCache:
             cached = self._entries.get(tenant_id)
             if cached and now - cached[0] < self.ttl:
                 return cached[1]
-            block = await self._render()
+            block = await self._render(tenant_id)
             self._entries[tenant_id] = (now, block)
             return block
 
     @staticmethod
-    async def _render() -> str:
-        client = CommerceClient()
+    async def _render(tenant_id: str) -> str:
+        client = CommerceClient(tenant_id=tenant_id)
         if not client.live:
             return ""
         try:
@@ -232,6 +320,38 @@ class CatalogCache:
 _CATALOG = CatalogCache()
 
 
+class CompanyContextCache:
+    """Identidad canónica de la empresa, aislada y cacheada por UUID de tenant."""
+
+    def __init__(self, ttl_seconds: float = 120.0) -> None:
+        self.ttl = ttl_seconds
+        self._entries: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._lock = asyncio.Lock()
+
+    async def get(self, tenant_id: str) -> dict[str, Any]:
+        now = asyncio.get_running_loop().time()
+        cached = self._entries.get(tenant_id)
+        if cached and now - cached[0] < self.ttl:
+            return cached[1]
+        async with self._lock:
+            cached = self._entries.get(tenant_id)
+            if cached and now - cached[0] < self.ttl:
+                return cached[1]
+            try:
+                value = await CommerceClient(tenant_id=tenant_id).get_company_context()
+            except (CommerceError, CommerceUnavailable):
+                value = {}
+            self._entries[tenant_id] = (now, value)
+            return value
+
+
+_COMPANY_CONTEXT = CompanyContextCache()
+
+
+async def load_company_context(tenant_id: str) -> dict[str, Any]:
+    return await _COMPANY_CONTEXT.get(tenant_id)
+
+
 async def warm_catalog(tenant_id: str = "") -> None:
     """Precalienta la caché del catálogo al arrancar (ver _warmup en main.py)."""
     await _CATALOG.get(tenant_id)
@@ -244,13 +364,24 @@ async def sales_prompt(request) -> SystemMessage:  # type: ignore[no-untyped-def
     context: TurnContext = dict(getattr(request, "runtime", None).context or {})  # type: ignore[union-attr]
     tenant_id = context.get("tenant_id", "")
 
-    catalog = await _CATALOG.get(tenant_id) if tenant_id else ""
+    if tenant_id:
+        catalog, company = await asyncio.gather(
+            _CATALOG.get(tenant_id), load_company_context(tenant_id)
+        )
+    else:
+        catalog, company = "", {}
+    profile: BusinessProfile = load_profile(tenant_id)
+    # Commerce API es la fuente canónica del nombre del tenant. Los Markdown
+    # enriquecen tono/horarios, pero nunca deben hacer que una empresa hable
+    # con el nombre heredado de otra.
+    if company.get("name"):
+        profile = replace(profile, name=str(company["name"]))
     return SystemMessage(
         turn_prompt(
             working_memory=working_memory_block(state),
             catalog=catalog,
             knowledge=load_knowledge(tenant_id),
-            profile=load_profile(tenant_id),
+            profile=profile,
             overrides=get_agent_settings(tenant_id) if tenant_id else None,
         )
     )

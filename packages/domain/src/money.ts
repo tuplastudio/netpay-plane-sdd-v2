@@ -4,8 +4,6 @@
 
 const MONEY_SCALE = 2n;
 const QUANTITY_SCALE = 3n;
-const MONEY_FACTOR = 100n; // 10^2
-const QUANTITY_FACTOR = 1000n; // 10^3
 
 function toScaled(value: string, scale: bigint): bigint {
   if (!/^\d+(\.\d+)?$/.test(value)) {
@@ -27,22 +25,23 @@ function fromScaled(scaled: bigint, scale: bigint): string {
   return `${int.toString()}.${padded}`;
 }
 
-/** Redondeo comercial half-up: 0.005 → 0.01, 0.004 → 0.00. */
+/**
+ * Redondeo comercial half-up: 0.005 → 0.01, 0.004 → 0.00.
+ *
+ * `toScaled` recibe una **escala** (número de decimales), no un factor. La
+ * versión anterior le pasaba `10 ** decimals`, así que internamente calculaba
+ * `10 ** 100` y devolvía un string de cien dígitos para `roundHalfUp("1.005", 2)`.
+ */
 export function roundHalfUp(value: string, decimals: number): string {
-  const scale = 10n ** BigInt(decimals);
-  const scaled = toScaled(value, scale);
-  const half = scale / 2n;
-  const rounded =
-    scaled >= 0n
-      ? (scaled + half) / scale
-      : -(((-scaled) + half) / scale);
-  // padding para reconstruir string con N decimales
-  const sign = rounded < 0n ? "-" : "";
-  const abs = rounded < 0n ? -rounded : rounded;
-  const int = abs / scale;
-  const frac = abs % scale;
-  const padded = frac.toString().padStart(decimals, "0");
-  return `${sign}${int.toString()}.${padded}`;
+  if (!Number.isInteger(decimals) || decimals < 0) {
+    throw new Error(`Invalid decimals: ${decimals}`);
+  }
+  const scale = BigInt(decimals);
+  // Un decimal de más: ese dígito sobrante es el que decide el redondeo.
+  const scaled = toScaled(value, scale + 1n);
+  const rounded = (scaled + 5n) / 10n;
+  if (decimals === 0) return rounded.toString();
+  return fromScaled(rounded, scale);
 }
 
 /** Suma dos montos (2 decimales). */

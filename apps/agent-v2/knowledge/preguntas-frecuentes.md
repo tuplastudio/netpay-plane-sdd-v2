@@ -1,58 +1,49 @@
 # Preguntas frecuentes
 
-## ¿Qué es Jaztea?
+## ¿Qué es Pinturas Aglos?
 
-Un té helado de flor de jazmín 100% natural, elaborado en México desde 1989.
-Refrescante, con propiedades digestivas y relajantes.
+Una empresa de Culiacán, Sinaloa, con más de 24 años de experiencia en
+recubrimientos: pinturas, bases, esmaltes, fondos, impermeabilizantes,
+selladores y más, para industria y hogar.
 
-## ¿Jaztea tiene azúcar?
+## ¿Qué líneas manejan?
 
-Sí. La declaración nutrimental indica 7 g de azúcares por cada 100 ml (30 kcal
-por 100 ml). En la botella de 500 ml son 16 g de azúcar por porción de 200 ml.
+Líneas propias AGLOSIVO, COLORISIMO, KORA-CONTROL, AGLOSTONE y COVER-SOL, más
+categorías de pintura base agua, base solvente, selladores, impermeabilizantes,
+cargas, color integral, solventes y limpieza.
 
-## ¿Qué sabores manejan?
+## ¿A quién le venden?
 
-El Original es de jazmín. Los concentrados Jazyfrut existen en jamaica, mango,
-guayaba y tamarindo.
+A pintores, carpinteros, herreros, albañiles, aplicadores, constructoras y
+público en general.
 
-## ¿Cuánto rinde un Jazyfrut?
+## ¿Hacen envíos?
 
-Cada envase rinde 25 porciones. Se mezcla 1 parte de concentrado por cada 5 de
-agua.
-
-## ¿Hacen envíos a todo México?
-
-La tienda en línea vende a todo el país. En Baja California, Sonora, Sinaloa y
-Jalisco tenemos CEDIS propios, así que ahí la entrega es más rápida. El costo y
-el tiempo exactos los calcula la plataforma al cotizar.
-
-## ¿El envío es gratis?
-
-La tienda en línea anuncia envío sin costo en los productos publicados. Aun así,
-el total válido es el que arroja la cotización.
+> interno: El sitio público no publica política de envíos ni costos. No inventes tiempos ni tarifas: el costo y el plazo exactos los calcula la plataforma al cotizar. Si preguntan algo que el catálogo no resuelve, escala con request_human.
 
 ## ¿Cómo puedo pagar?
 
-Con Visa, Mastercard, American Express, Diners Club, Discover o PayPal, siempre
-por el enlace de pago que te enviamos. Nunca pedimos datos de tarjeta por chat.
+El cobro se hace por el enlace de pago que te enviamos. Nunca pedimos datos de
+tarjeta por chat ni por teléfono.
 
-## ¿Tienen descuento para la primera compra?
+## ¿Tienen certificación de calidad?
 
-Sí, 10% en la primera compra en la tienda en línea.
+Sí, certificación ISO 9001:2015.
 
-## ¿Puedo vender Jaztea en mi negocio?
+## ¿Puedo vender Pinturas Aglos en mi negocio?
 
-Sí, trabajamos con distribuidores. Los requisitos y volúmenes los define el área
-comercial, así que tomamos tus datos y te contacta un asesor.
+Trabajamos con alianzas de distribución en el norte de Sinaloa y Baja
+California Norte. Los requisitos y volúmenes los define el área comercial;
+tomamos tus datos y te contacta un asesor.
 
 ## ¿Puedo devolver un producto?
 
-Sí, revisamos cada caso. Para darte la solución correcta te pasamos con una
-persona del equipo que revisa tu compra.
+> interno: El sitio público no publica una política de devoluciones. No cites plazos ni condiciones: escala con request_human.
 
-> interno: La política publicada es plantilla de WooCommerce; no cites plazos. Escala con request_human.
+Cada caso lo revisa una persona del equipo para darte la solución correcta
+según el producto y la fecha de compra.
 
-## ¿Dónde los encuentro físicamente?
+## ¿Dónde están ubicados?
 
-En nuestros CEDIS y puntos de venta de Tijuana, Mexicali, Hermosillo, Ciudad
-Obregón, Culiacán, Los Mochis, Mazatlán y Guadalajara.
+Nuestra sede y atención principal está en Culiacán, Sinaloa. Contamos con
+alianzas de distribución en el norte de Sinaloa y Baja California Norte.

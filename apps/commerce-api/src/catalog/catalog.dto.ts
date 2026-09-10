@@ -1,5 +1,6 @@
 import { Type } from "class-transformer";
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsIn,
@@ -69,6 +70,20 @@ export class CreateProductDto {
   description?: string;
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  tags?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  synonyms?: string[];
+
+  @IsOptional()
   @IsString()
   @Matches(SAT_PRODUCT_RE, { message: "satProductCode debe ser 8 dígitos" })
   satProductCode?: string;
@@ -100,6 +115,20 @@ export class UpdateProductDto {
   @IsString()
   @MaxLength(2000)
   description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  tags?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
+  synonyms?: string[];
 
   @IsOptional()
   @IsIn(STATUS_VALUES)

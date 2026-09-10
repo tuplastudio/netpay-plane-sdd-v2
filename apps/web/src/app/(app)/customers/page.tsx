@@ -6,12 +6,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import { ArrowRight, UserPlus, Users } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { PageHeader } from "@/components/app/page-header";
-import { UserPlus } from "lucide-react";
+import { Section } from "@/components/app/section";
+import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 
 interface Customer {
   id: string;
@@ -19,11 +22,13 @@ interface Customer {
   email: string | null;
   phone: string | null;
   taxId: string | null;
+  /** CustomerStatus — el endpoint devuelve el registro completo. */
+  status: string;
 }
 
 const schema = z.object({
-  fullName: z.string().min(1).max(200),
-  email: z.string().email().optional().or(z.literal("")),
+  fullName: z.string().min(1, "El nombre es obligatorio").max(200, "Máximo 200 caracteres"),
+  email: z.string().email("Correo no válido").optional().or(z.literal("")),
   phone: z.string().optional().or(z.literal("")),
   taxId: z.string().optional().or(z.literal("")),
 });
@@ -73,87 +78,194 @@ export default function CustomersPage() {
 
   const onSubmit = handleSubmit((v) => create.mutate(v));
 
+  const columns: Array<DataTableColumn<Customer>> = [
+    {
+      key: "fullName",
+      header: "Nombre",
+      cell: (c) => <span className="font-medium">{c.fullName}</span>,
+    },
+    {
+      key: "email",
+      header: "Correo",
+      cell: (c) =>
+        c.email ? (
+          <span className="text-muted-foreground">{c.email}</span>
+        ) : (
+          <>
+            <span aria-hidden className="text-muted-foreground">
+              —
+            </span>
+            <span className="sr-only">Sin correo</span>
+          </>
+        ),
+    },
+    {
+      key: "phone",
+      header: "Teléfono",
+      cell: (c) =>
+        c.phone ? (
+          <span className="text-muted-foreground">{c.phone}</span>
+        ) : (
+          <>
+            <span aria-hidden className="text-muted-foreground">
+              —
+            </span>
+            <span className="sr-only">Sin teléfono</span>
+          </>
+        ),
+    },
+    {
+      key: "taxId",
+      header: "RFC",
+      className: "font-mono text-xs",
+      cell: (c) =>
+        c.taxId ?? (
+          <>
+            <span aria-hidden className="text-muted-foreground">
+              —
+            </span>
+            <span className="sr-only">Sin RFC</span>
+          </>
+        ),
+    },
+    {
+      key: "status",
+      header: "Estado",
+      width: "7rem",
+      cell: (c) => <StatusBadge status={c.status} domain="customer" />,
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Acciones</span>,
+      width: "9rem",
+      className: "text-right",
+      cell: (c) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push(`/quotes?customerId=${c.id}`)}
+        >
+          Cotizar
+          <ArrowRight className="h-3.5 w-3.5" />
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div>
       <PageHeader
         title="Clientes"
         description="Contactos, identidad fiscal y consentimientos."
         actions={
-          <Button onClick={() => setShowForm((s) => !s)}>
+          <Button onClick={() => setShowForm((s) => !s)} aria-expanded={showForm}>
             <UserPlus className="h-4 w-4" />
             {showForm ? "Cancelar" : "Nuevo cliente"}
           </Button>
         }
       />
 
-      {showForm && (
-        <form
-          onSubmit={onSubmit}
-          className="mb-6 grid grid-cols-1 gap-4 rounded-card border bg-card p-4 md:grid-cols-2"
-        >
-          <div className="space-y-1.5">
-            <Label htmlFor="fullName">Nombre completo</Label>
-            <Input id="fullName" {...register("fullName")} />
-            {errors.fullName && <p className="text-xs text-destructive">{errors.fullName.message}</p>}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" {...register("email")} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="phone">Teléfono</Label>
-            <Input id="phone" {...register("phone")} placeholder="+52 1 55 ..." />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="taxId">RFC</Label>
-            <Input id="taxId" {...register("taxId")} placeholder="XAXX010101000" />
-          </div>
-          <div className="md:col-span-2">
-            <Button type="submit" disabled={isSubmitting || create.isPending}>
-              {create.isPending ? "Creando..." : "Crear"}
-            </Button>
-          </div>
-        </form>
-      )}
+      <div className="space-y-6">
+        {showForm && (
+          <Section
+            title="Nuevo cliente"
+            description="Solo el nombre es obligatorio; el resto se puede completar después."
+          >
+            <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="fullName">Nombre completo</Label>
+                <Input
+                  id="fullName"
+                  aria-invalid={!!errors.fullName}
+                  aria-describedby={errors.fullName ? "fullName-error" : undefined}
+                  {...register("fullName")}
+                />
+                {errors.fullName && (
+                  <p id="fullName-error" className="text-xs text-destructive">
+                    {errors.fullName.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="email">Correo</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? "email-error" : undefined}
+                  {...register("email")}
+                />
+                {errors.email && (
+                  <p id="email-error" className="text-xs text-destructive">
+                    {errors.email.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="phone">Teléfono</Label>
+                <Input
+                  id="phone"
+                  aria-invalid={!!errors.phone}
+                  aria-describedby={errors.phone ? "phone-error" : undefined}
+                  placeholder="+52 1 55 ..."
+                  {...register("phone")}
+                />
+                {errors.phone && (
+                  <p id="phone-error" className="text-xs text-destructive">
+                    {errors.phone.message}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="taxId">RFC</Label>
+                <Input
+                  id="taxId"
+                  aria-invalid={!!errors.taxId}
+                  aria-describedby={errors.taxId ? "taxId-error" : undefined}
+                  placeholder="XAXX010101000"
+                  {...register("taxId")}
+                />
+                {errors.taxId && (
+                  <p id="taxId-error" className="text-xs text-destructive">
+                    {errors.taxId.message}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 md:col-span-2">
+                <Button type="submit" loading={isSubmitting || create.isPending}>
+                  Crear cliente
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
+                  Cancelar
+                </Button>
+              </div>
+            </form>
+          </Section>
+        )}
 
-      <div className="rounded-card border bg-card">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-              <th className="p-3">Nombre</th>
-              <th className="p-3">Email</th>
-              <th className="p-3">Teléfono</th>
-              <th className="p-3">RFC</th>
-              <th className="p-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.data?.map((c) => (
-              <tr key={c.id} className="border-b">
-                <td className="p-3 font-medium">{c.fullName}</td>
-                <td className="p-3 text-muted-foreground">{c.email ?? "—"}</td>
-                <td className="p-3 text-muted-foreground">{c.phone ?? "—"}</td>
-                <td className="p-3 font-mono text-xs">{c.taxId ?? "—"}</td>
-                <td className="p-3 text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => router.push(`/quotes?customerId=${c.id}`)}
-                  >
-                    Cotizar →
-                  </Button>
-                </td>
-              </tr>
-            ))}
-            {list.data?.length === 0 && (
-              <tr>
-                <td colSpan={5} className="p-6 text-center text-muted-foreground">
-                  Sin clientes.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+        <Section title="Clientes" padded={false}>
+          <DataTable
+            columns={columns}
+            rows={list.data}
+            isLoading={list.isLoading}
+            isError={list.isError}
+            error={list.error}
+            onRetry={() => void list.refetch()}
+            caption="Clientes del comercio"
+            empty={{
+              icon: <Users className="h-6 w-6" />,
+              title: "Todavía no hay clientes",
+              description:
+                "Registra al primer contacto para poder cotizarle y cobrarle desde el portal.",
+              action: (
+                <Button onClick={() => setShowForm(true)}>
+                  <UserPlus className="h-4 w-4" />
+                  Nuevo cliente
+                </Button>
+              ),
+            }}
+          />
+        </Section>
       </div>
     </div>
   );

@@ -7,7 +7,6 @@ import {
 import { createHash } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PasswordService } from "./password.service.js";
-import { SessionService } from "./session.service.js";
 import { TokenService } from "./token.service.js";
 import { RateLimitService } from "./rate-limit.service.js";
 
@@ -33,7 +32,6 @@ export class InviteService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
-    private readonly sessions: SessionService,
     private readonly tokens: TokenService,
     private readonly rateLimit: RateLimitService,
   ) {}
@@ -79,9 +77,10 @@ export class InviteService {
       });
     }
 
-    let user = await this.prisma.user.findUnique({
+    const existing = await this.prisma.user.findUnique({
       where: { email: invite.email },
     });
+    let user = existing;
     if (!user) {
       const hash = await this.passwords.hash(input.password);
       user = await this.prisma.user.create({
@@ -91,16 +90,17 @@ export class InviteService {
           passwordHash: hash,
         },
       });
-    } else {
-      // Resetear password al aceptar (es el flujo esperado).
-      const hash = await this.passwords.hash(input.password);
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: hash },
-      });
-      await this.sessions.revokeAllForUser(user.id);
     }
+    // Usuario ya existente (p. ej. invitado a una segunda empresa): la cuenta
+    // es la misma y conserva su contraseña y sus sesiones. Aquí solo se añade
+    // la membresía. No se toca el password a propósito: el enlace de
+    // invitación lo ve quien invita, y si reseteara la contraseña bastaría
+    // invitar a alguien para apoderarse de su cuenta en sus otras empresas.
+    const existingUser = !!existing;
 
+    // Idempotente: si ya había membresía (p. ej. DISABLED), se reactiva con
+    // el rol de la invitación; si no, se crea. El usuario queda con una
+    // membresía por empresa y elige la activa desde el selector del portal.
     await this.prisma.membership.upsert({
       where: { tenantId_userId: { tenantId: invite.tenantId, userId: user.id } },
       create: { tenantId: invite.tenantId, userId: user.id, role: invite.role },
@@ -119,11 +119,11 @@ export class InviteService {
         action: "user.invited",
         targetType: "User",
         targetId: user.id,
-        metadata: { role: invite.role },
+        metadata: { role: invite.role, existingUser },
       },
     });
 
-    return { userId: user.id, tenantId: invite.tenantId, role: invite.role };
+    return { userId: user.id, tenantId: invite.tenantId, role: invite.role, existingUser };
   }
 
   async requestPasswordReset(email: string): Promise<{ token?: string; throttled?: boolean }> {
