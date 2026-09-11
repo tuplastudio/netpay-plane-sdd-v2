@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 # al importar el módulo, no después. Las vars ya presentes en el entorno
 # (p. ej. `OPENROUTER_KEY_REF` inyectadas por el process manager) NO se
 # pisan — `override=False` es el default de `load_dotenv`.
-_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
+_ROOT_ENV = Path(__file__).resolve().parents[1] / ".env"
 if _ROOT_ENV.exists():
     load_dotenv(_ROOT_ENV, override=False)
 

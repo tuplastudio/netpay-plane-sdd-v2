@@ -7,15 +7,10 @@ en `knowledge.py`: es DATO del negocio, nunca una instrucción para el modelo
 corre sobre cualquier documento al leerlo, incluido el que este módulo
 escribe, así que no se duplica aquí).
 
-Setup de una sola vez (ya corrido en este sandbox, pero si `crawl_url` falla
-con "el navegador de crawl4ai no está instalado" hay que correrlo donde se
-despliegue el servicio):
-
-    cd apps/agent-v2
-    ./.venv/bin/pip install crawl4ai==0.9.3
-    ./.venv/bin/python -m playwright install chromium
-    ./.venv/bin/crawl4ai-setup      # opcional, valida la instalación
-    ./.venv/bin/crawl4ai-doctor     # opcional, prueba un crawl real
+Setup: `crawl4ai` fue removido del requirements.txt para evitar el conflict
+    con `cryptography`. Si querés rehabilitar el web-reader, agregá
+    `crawl4ai==X.Y.Z` + `cryptography` compatible a requirements.txt y
+    rebuildeá la imagen.
 
 Si el navegador no está instalado, `crawl_url()` NUNCA lanza — regresa un
 `WebCrawlResult` con `error` seteado, para que el panel lo muestre como un
@@ -174,15 +169,19 @@ async def crawl_url(url: str) -> WebCrawlResult:
     except WebReadError as exc:
         return WebCrawlResult(url=url, error=str(exc))
 
+    # crawl4ai removido del requirements.txt: deshabilitado hasta que se
+    # agregue de vuelta con cryptography compatible. Devolvemos un error
+    # limpio en vez de crashear para que las rutas de main.py devuelvan
+    # un 400 legible, no un 500.
     try:
-        from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
+        from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig  # noqa: F401
     except ImportError:
         return WebCrawlResult(
             url=url,
             error=(
-                "crawl4ai no está instalado. Corre en apps/agent-v2: "
-                "./.venv/bin/pip install crawl4ai==0.9.3 && "
-                "./.venv/bin/python -m playwright install chromium"
+                "crawl4ai no está instalado en esta imagen. Agregalo a "
+                "apps/agent-v2/requirements.txt con una versión compatible "
+                "con cryptography y rebuildeá el container."
             ),
         )
 
