@@ -54,6 +54,8 @@ services:
     networks: [netpay_internal]
     # Solo accesible por la red interna; el reverse proxy NO expone 4000.
     expose: ["4000"]
+    volumes:
+      - uploads_prod:/data/uploads
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/v1/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s
@@ -93,11 +95,11 @@ services:
         required: true
     environment:
       NODE_ENV: production
-      # Solo el `web` se publica al host: es el único que recibe tráfico
-      # del navegador. El reverse proxy (Caddy / Traefik) que pongas
-      # delante mete TLS y enruta a localhost:3000.
+      # Solo el `web` se publica al host. CapRover ya ocupa 3000, así que
+      # mapeamos a 13000 (loopback) y usamos Caddy/reverse-proxy local
+      # para servir 13000 al exterior cuando agreguemos dominio.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:13000:3000"
     depends_on:
       commerce-api:
         condition: service_healthy
@@ -208,3 +210,4 @@ networks:
 
 volumes:
   agent_data_prod:
+  uploads_prod:

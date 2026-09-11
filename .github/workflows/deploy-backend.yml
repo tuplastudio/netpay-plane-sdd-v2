@@ -1,0 +1,129 @@
+name: Deploy backend to DO droplet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/commerce-api/**"
+      - "apps/commerce-worker/**"
+      - "apps/dummy-gateway/**"
+      - "apps/agent-service/**"
+      - "apps/agent-v2/**"
+      - "packages/**"
+      - "infra/compose.prod.yaml"
+      - "infra/initdb/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (branch/tag/sha)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy via SSH to droplet
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve ref
+        id: ref
+        run: |
+          REF="${{ github.event.inputs.ref }}"
+          if [ -z "$REF" ]; then REF="${{ github.ref_name }}"; fi
+          echo "value=${REF}" >> "$GITHUB_OUTPUT"
+
+      - name: rsync to droplet
+        uses: appleboy/rsync-action@v1
+        with:
+          hosts: ${{ secrets.APP_HOST }}
+          remote_path: /opt/netpay
+          user: ${{ secrets.APP_USER }}
+          port: 22
+          ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}
+          args: >-
+            --delete
+            --exclude=.git
+            --exclude=node_modules
+            --exclude=.next
+            --exclude=.data
+            --exclude=__pycache__
+            --exclude=.venv
+            --exclude=.pytest_cache
+            --exclude=.playwright-mcp
+            --exclude=.pnpm-store
+            --exclude=graphify-out
+            --exclude=apps/agent-v2/.settings
+            --exclude=apps/commerce-api/uploads
+            --exclude='*.jpeg'
+            --exclude='*.png'
+
+      - name: Build images on droplet
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay
+            git fetch --all --prune || true
+            git reset --hard origin/${{ steps.ref.outputs.value }} || true
+            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod build --pull
+
+      - name: Up services
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay
+            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod up -d --remove-orphans
+
+      - name: Prisma migrate deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay
+            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T commerce-api \
+              pnpm exec prisma migrate deploy
+
+      - name: Healthcheck
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay
+            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod ps
+            for s in web commerce-api dummy-gateway agent-v2; do
+              printf "%-14s " "$s:"
+              case "$s" in
+                web)           docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s wget -qO- http://localhost:3000/login >/dev/null 2>&1 && echo OK || echo FAIL ;;
+                commerce-api)  docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s wget -qO- http://localhost:4000/api/v1/healthz >/dev/null 2>&1 && echo OK || echo FAIL ;;
+                dummy-gateway) docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s wget -qO- http://localhost:4100/healthz >/dev/null 2>&1 && echo OK || echo FAIL ;;
+                agent-v2)      docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/healthz', timeout=3).status==200 else 1)" && echo OK || echo FAIL ;;
+              esac
+            done
