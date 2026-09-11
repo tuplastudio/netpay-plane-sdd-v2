@@ -52,7 +52,11 @@ services:
       dummy-gateway:
         condition: service_healthy
     networks: [netpay_internal]
-    # Solo accesible por la red interna; el reverse proxy NO expone 4000.
+    # Expuesto en 14000 para que el web en Vercel (HTTPS) lo alcance via
+    # rewrite en next.config.mjs. Solo loopback por ahora; cuando haya
+    # dominio, Caddy mete TLS delante.
+    ports:
+      - "14000:4000"
     expose: ["4000"]
     volumes:
       - uploads_prod:/data/uploads
@@ -127,49 +131,49 @@ services:
       timeout: 5s
       retries: 5
 
-  agent-v2:
-    build:
-      context: ../apps/agent-v2
-      dockerfile: Dockerfile
-    container_name: netpay_agent_v2
-    restart: unless-stopped
-    env_file:
-      - path: ./.env.prod
-        required: true
-    environment:
-      AGENT_PORT: "8010"
-      # Red interna: el API y el agente hablan por nombre de servicio.
-      COMMERCE_API_URL: http://commerce-api:4000/api/v1
-      AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:?Set AGENT_INTERNAL_KEY}
-      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:?Set OPENROUTER_KEY_REF}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
-      # Settings, checkpoints y learning viven en un volumen persistente:
-      # un `docker compose down` seguido de `up` los recupera. Sin esto,
-      # la OpenRouter key cifrada y los checkpoints de LangGraph se
-      # evaporan en cada recreate.
-      AGENT_V2_DATA_DIR: /data/agent-v2
-      AGENT_SETTINGS_DIR: /data/agent-v2/settings
-      AGENT_LEARNING_DIR: /data/agent-v2/learning
-      AGENT_CHECKPOINT_DIR: /data/agent-v2/checkpoints
-      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:?Set AGENT_SECRET_KEY}
-      # Si la persitencia la trae pgvector/Qdrant/etc, enciende el flag
-      # correspondiente aquí.
-    volumes:
-      - agent_data_prod:/data
-    # agent-v2 NO se expone al host: misma razón que en compose dev —
-      # solo confía en X-Internal-Key y no valida que el tenantId recibido
-      # sea el del llamante. El comercio-api lo alcanza por la red interna.
-    networks: [netpay_internal]
-    expose: ["8010"]
-    depends_on:
-      commerce-api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8010/healthz', timeout=3).status_code==200 else 1)"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-
+#   agent-v2:
+#     build:
+#       context: ../apps/agent-v2
+#       dockerfile: Dockerfile
+#     container_name: netpay_agent_v2
+#     restart: unless-stopped
+#     env_file:
+#       - path: ./.env.prod
+#         required: true
+#     environment:
+#       AGENT_PORT: "8010"
+#       # Red interna: el API y el agente hablan por nombre de servicio.
+#       COMMERCE_API_URL: http://commerce-api:4000/api/v1
+#       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:?Set AGENT_INTERNAL_KEY}
+#       OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:?Set OPENROUTER_KEY_REF}
+#       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
+#       # Settings, checkpoints y learning viven en un volumen persistente:
+#       # un `docker compose down` seguido de `up` los recupera. Sin esto,
+#       # la OpenRouter key cifrada y los checkpoints de LangGraph se
+#       # evaporan en cada recreate.
+#       AGENT_V2_DATA_DIR: /data/agent-v2
+#       AGENT_SETTINGS_DIR: /data/agent-v2/settings
+#       AGENT_LEARNING_DIR: /data/agent-v2/learning
+#       AGENT_CHECKPOINT_DIR: /data/agent-v2/checkpoints
+#       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:?Set AGENT_SECRET_KEY}
+#       # Si la persitencia la trae pgvector/Qdrant/etc, enciende el flag
+#       # correspondiente aquí.
+#     volumes:
+#       - agent_data_prod:/data
+#     # agent-v2 NO se expone al host: misma razón que en compose dev —
+#       # solo confía en X-Internal-Key y no valida que el tenantId recibido
+#       # sea el del llamante. El comercio-api lo alcanza por la red interna.
+#     networks: [netpay_internal]
+#     expose: ["8010"]
+#     depends_on:
+#       commerce-api:
+#         condition: service_healthy
+#     healthcheck:
+#       test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8010/healthz', timeout=3).status_code==200 else 1)"]
+#       interval: 30s
+#       timeout: 5s
+#       retries: 5
+# 
   agent-service:
     # Mantenido solo por compatibilidad con despliegues legacy que aún
     # apuntan AGENT_URL a v1. Si el cliente siempre usa v2, basta con

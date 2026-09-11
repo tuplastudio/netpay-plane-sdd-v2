@@ -1,8 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // Imagen Docker liviana: copia solo lo necesario para `node server.js`.
-  output: "standalone",
+  // En monorepo Next.js a veces infiere el workspace root equivocado y no
+  // detecta `apps/web/middleware.ts`. Fijamos la raíz del proyecto al
+  // directorio de este paquete para que la inferencia sea estable.
+  outputFileTracingRoot: import.meta.dirname,
+  // Imagen Docker liviana: usa `output: "standalone"` solo cuando se hace
+  // build con STANDALONE_BUILD=1 (Dockerfile lo setea). En Vercel queda
+  // apagado para no chocar con su output tracing (rompía `vercel deploy
+  // --prebuilt` con ENOENT en chunks de jest-worker).
+  ...(process.env.STANDALONE_BUILD === "1" ? { output: "standalone" } : {}),
   // El reverse proxy /api se hace en producción.
   // En dev usamos rewrite a localhost:4000 para evitar CORS.
   // /agent/:path* NO se reescribe acá: lo maneja

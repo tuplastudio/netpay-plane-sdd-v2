@@ -28,6 +28,8 @@ COPY . .
 # contenedor en marcha.
 ARG API_INTERNAL_URL=http://localhost:4000
 ENV API_INTERNAL_URL=$API_INTERNAL_URL
+# Habilita output: "standalone" en next.config.mjs (apagado en Vercel).
+ENV STANDALONE_BUILD=1
 RUN pnpm --filter @netpay/web... build
 
 # `output: "standalone"` (next.config.mjs) deja un server.js con solo los

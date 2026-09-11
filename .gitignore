@@ -42,3 +42,4 @@ apps/agent-v2/.settings/
 *.jpeg
 !/docs/**
 !/apps/web/public/**
+.vercel

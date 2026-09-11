@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -27,6 +27,15 @@ type FormValues = z.infer<typeof schema>;
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // El middleware mete `?next=<path>` cuando redirige aquí desde una ruta
+  // protegida. Aceptamos solo paths internos (mismo origen) para no abrir
+  // un open-redirect: cualquier URL externa se ignora y caemos a /catalog.
+  const safeNext = (() => {
+    const raw = searchParams.get("next");
+    if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/catalog";
+    return raw;
+  })();
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -70,7 +79,7 @@ export default function LoginPage() {
         },
       });
       toast.success("Sesión iniciada");
-      router.push("/catalog");
+      router.push(safeNext);
     } catch (err) {
       setFormError(
         // El texto de respaldo no repite el título del Alert.
