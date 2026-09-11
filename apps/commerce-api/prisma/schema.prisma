@@ -62,6 +62,7 @@ model Tenant {
   whatsappConnections WhatsAppConnection[]
   usageEvents  AgentUsageEvent[]
   conversationNotes ConversationNote[]
+  messageNotes MessageNote[]
 }
 
 enum TenantStatus {
@@ -88,6 +89,8 @@ model User {
   createdJobs  Job[]
   auditLog     AuditLog[]
   conversationNotes ConversationNote[]
+  messageNotes MessageNote[]
+  handoffThreads WhatsAppConversation[] @relation("ConversationHandoffUser")
 }
 
 model Membership {
@@ -96,6 +99,8 @@ model Membership {
   userId    String   @db.Uuid
   role      Role
   status    MembershipStatus @default(ACTIVE)
+  // Puede tomar/recibir hilos de WhatsApp transferidos (bandeja de agentes humanos).
+  isAgent   Boolean  @default(false)
   joinedAt  DateTime @default(now()) @db.Timestamptz
   createdAt DateTime @default(now()) @db.Timestamptz
   updatedAt DateTime @updatedAt @db.Timestamptz
@@ -894,15 +899,18 @@ model WhatsAppConversation {
   status          ConversationStatus @default(OPEN)
   handoffToHuman  Boolean  @default(false)
   handoffUserId   String?  @db.Uuid
+  // Etiquetas libres del hilo (p.ej. "vip", "reclamo", "mayoreo"), normalizadas en minúsculas.
+  tags            String[] @default([])
   lastMessageAt   DateTime?
   metadata        Json?
   createdAt       DateTime @default(now()) @db.Timestamptz
   updatedAt       DateTime @updatedAt @db.Timestamptz
   version         Int      @default(1)
 
-  connection WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  messages   WhatsAppMessage[]
-  notes      ConversationNote[]
+  connection  WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  handoffUser User?              @relation("ConversationHandoffUser", fields: [handoffUserId], references: [id], onDelete: SetNull)
+  messages    WhatsAppMessage[]
+  notes       ConversationNote[]
 
   @@unique([connectionId, externalPhone])
   @@index([tenantId, status])
@@ -932,9 +940,26 @@ model WhatsAppMessage {
   createdAt       DateTime @default(now()) @db.Timestamptz
 
   conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  notes        MessageNote[]
 
   @@index([tenantId, conversationId])
   @@index([conversationId, createdAt])
+}
+
+// Nota interna sobre UN mensaje puntual (no todo el hilo). Espejo de ConversationNote.
+model MessageNote {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  messageId String   @db.Uuid
+  authorId  String?  @db.Uuid
+  body      String
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  message WhatsAppMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  author  User?           @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([messageId, createdAt])
 }
 
 enum MessageDirection {

@@ -6,13 +6,31 @@ import {
   type ConversationFilters,
   type ConversationStatus,
   type HandoffFilter,
+  type InboxView,
   type RangeFilter,
+  type SortFilter,
 } from "./use-conversations";
 
 const HANDOFF_VALUES: HandoffFilter[] = ["all", "agent", "human"];
 const STATUS_VALUES: ConversationStatus[] = ["OPEN", "HANDED_OFF", "CLOSED"];
 const PROVIDER_VALUES = ["META", "EVOLUTION"];
 const RANGE_VALUES: RangeFilter[] = ["all", "today", "7d", "30d"];
+const SORT_VALUES: SortFilter[] = ["recent", "oldest"];
+const VIEW_VALUES: InboxView[] = ["inbox", "queue", "byAgent"];
+
+/**
+ * Claves que describen QUÉ se está filtrando, no CÓMO se está mirando. Solo
+ * estas cuentan para "hay filtros puestos" y para el botón de limpiar: la
+ * vista guardada y el orden son navegación, no un filtro que estorbe.
+ */
+const NARROWING_KEYS: Array<keyof ConversationFilters> = [
+  "q",
+  "handoff",
+  "status",
+  "provider",
+  "range",
+  "tag",
+];
 
 function oneOf<T extends string>(raw: string | null, allowed: readonly T[], fallback: T): T {
   return raw && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
@@ -26,13 +44,15 @@ export function parseFilters(params: URLSearchParams): ConversationFilters {
     status: oneOf(params.get("status"), STATUS_VALUES, "" as ConversationStatus | ""),
     provider: oneOf(params.get("provider"), PROVIDER_VALUES, ""),
     range: oneOf(params.get("range"), RANGE_VALUES, DEFAULT_FILTERS.range),
+    tag: params.get("tag")?.trim().toLowerCase() ?? "",
+    sort: oneOf(params.get("sort"), SORT_VALUES, DEFAULT_FILTERS.sort),
+    view: oneOf(params.get("view"), VIEW_VALUES, DEFAULT_FILTERS.view),
+    agent: params.get("agent")?.trim() ?? "",
   };
 }
 
 export function isFiltered(filters: ConversationFilters): boolean {
-  return (Object.keys(DEFAULT_FILTERS) as Array<keyof ConversationFilters>).some(
-    (k) => filters[k] !== DEFAULT_FILTERS[k],
-  );
+  return NARROWING_KEYS.some((k) => filters[k] !== DEFAULT_FILTERS[k]);
 }
 
 /**
@@ -64,9 +84,18 @@ export function useConversationFilters() {
     [pathname, router, searchParams],
   );
 
+  // Conserva `id` (el hilo abierto): "Limpiar filtros" no debe cerrar el panel.
+  // Conserva también la vista y el orden: son navegación, no filtros, y
+  // limpiar no debería devolverte de la Cola a la Bandeja.
   const clearFilters = useCallback(() => {
-    router.replace(pathname, { scroll: false });
-  }, [pathname, router]);
+    const next = new URLSearchParams();
+    for (const key of ["id", "view", "sort", "agent"]) {
+      const value = searchParams.get(key);
+      if (value) next.set(key, value);
+    }
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   return { filters, setFilters, clearFilters, filtered: isFiltered(filters) };
 }

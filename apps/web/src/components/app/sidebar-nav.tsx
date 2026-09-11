@@ -21,12 +21,17 @@ import {
   FlaskConical,
   Building2,
   Gauge,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useConnections } from "@/app/(app)/channels/_components/use-channels";
 import { useSession } from "./user-menu";
 import { PLATFORM_NAME, useTenantBranding, useTenantDocumentTitle } from "./use-tenant-branding";
+
+const AGENT_BASE = "/agent";
 
 export interface NavItem {
   href: string;
@@ -115,6 +120,34 @@ const PLATFORM_NAV: NavGroup = {
   ],
 };
 
+/**
+ * Compuerta de visibilidad del grupo "Agente IA": un tenant recién creado no
+ * tiene key de OpenRouter propia (o una de la plataforma) ni canal de
+ * WhatsApp, y mostrarle "Chat con el agente" o "Conversaciones" en ese estado
+ * solo lleva a un error. Se ocultan (no solo se deshabilitan) hasta que haya
+ * con qué trabajar.
+ *
+ * "Consola del agente" (`/agent`) y "Canales" (`/channels`) NUNCA se filtran
+ * aquí: son la salida de ese estado (ahí se configura la key / se conecta el
+ * canal) y ocultarlas dejaría al tenant sin forma de arreglarlo.
+ */
+function filterAgentGroup(
+  groups: NavGroup[],
+  opts: { chatVisible: boolean; conversationsVisible: boolean },
+): NavGroup[] {
+  return groups.map((group) => {
+    if (group.title !== "Agente IA") return group;
+    return {
+      ...group,
+      items: group.items.filter((item) => {
+        if (item.href === "/chat") return opts.chatVisible;
+        if (item.href === "/conversations") return opts.conversationsVisible;
+        return true;
+      }),
+    };
+  });
+}
+
 interface SidebarNavProps {
   onNavigate?: () => void;
   className?: string;
@@ -139,6 +172,13 @@ interface SidebarNavProps {
    * compite con el contenido.
    */
   showDescriptions?: boolean;
+  /**
+   * Riel de íconos: cada entrada queda reducida a su glifo y el rótulo se
+   * mueve al tooltip (y a un `sr-only`, que es lo que sigue nombrando el
+   * enlace). Solo lo enciende el sidebar de `lg+`; el drawer móvil nunca se
+   * contrae, ahí el panel es dedicado y el espacio no compite con nada.
+   */
+  collapsed?: boolean;
 }
 
 export function SidebarNav({
@@ -146,6 +186,7 @@ export function SidebarNav({
   className,
   label = "Navegación principal",
   showDescriptions = false,
+  collapsed = false,
 }: SidebarNavProps) {
   const pathname = usePathname();
   const groupId = React.useId();
@@ -154,24 +195,51 @@ export function SidebarNav({
   const isSuperAdmin = !!session?.isSuperAdmin;
   const impersonating = useImpersonation();
 
+  // Solo se consulta el estado del agente/canales cuando el grupo "Agente IA"
+  // va a existir en el nav: un super-admin sin impersonar no tiene tenant
+  // activo, y pegarle a estos endpoints sin uno solo produce errores.
+  const showTenantNav = !isSuperAdmin || impersonating;
+  const tenantId = session?.tenantId ?? null;
+
+  // Única señal de si el LLM realmente responde para este tenant. La fuente
+  // "de verdad" sería `GET /agent/diagnostics`, pero hoy ese endpoint no
+  // expone `llm.live` por tenant (devuelve engine/model/tools/budgets, ver
+  // apps/agent-v2/app/main.py `diagnostics()`): se usa el indicador
+  // conservador de `/agent/settings` en su lugar — si el tenant guardó su
+  // propia key de OpenRouter. Un tenant que opera solo con la key global de
+  // la plataforma (sin la suya) queda oculto de más; ver nota en el reporte.
+  const agentSettingsQuery = useQuery({
+    queryKey: ["agent-settings", tenantId],
+    queryFn: async (): Promise<{ settings: { openrouter_api_key_set: boolean } }> => {
+      const res = await fetch(`${AGENT_BASE}/settings?tenantId=${encodeURIComponent(tenantId!)}`);
+      if (!res.ok) throw new Error("agente no disponible");
+      return res.json();
+    },
+    enabled: showTenantNav && Boolean(tenantId),
+    staleTime: 30_000,
+  });
+  const chatVisible = agentSettingsQuery.data?.settings.openrouter_api_key_set === true;
+
+  // Cualquier conexión cuenta, sin importar su estado: una PENDING o en ERROR
+  // todavía significa "a medio configurar", no "sin configurar".
+  const connectionsQuery = useConnections({ enabled: showTenantNav });
+  const conversationsVisible =
+    connectionsQuery.isSuccess && (connectionsQuery.data?.length ?? 0) > 0;
+
   // Super-admin SIN impersonar: solo la consola de plataforma.
   // Super-admin IMPERSONANDO: muestra también la operación del tenant
   // (catálogo, pedidos, agente, admin) — ese es el punto entero del modo
   // empresa: que el super-admin pueda ver y tocar la app como la ve su
   // dueño.
   const nav = React.useMemo<NavGroup[]>(() => {
-    if (!isSuperAdmin) return NAV;
-    if (impersonating) {
-      // Plataforma primero, luego la operación del tenant impersonado.
-      // El rótulo del grupo "Inicio" lleva el slug para que se lea como
-      // "esta empresa" y no como "mi propia empresa".
-      return [
-        PLATFORM_NAV,
-        ...NAV,
-      ];
-    }
-    return [PLATFORM_NAV];
-  }, [isSuperAdmin, impersonating]);
+    const base: NavGroup[] = !isSuperAdmin
+      ? NAV
+      : impersonating
+        ? // Plataforma primero, luego la operación del tenant impersonado.
+          [PLATFORM_NAV, ...NAV]
+        : [PLATFORM_NAV];
+    return filterAgentGroup(base, { chatVisible, conversationsVisible });
+  }, [isSuperAdmin, impersonating, chatVisible, conversationsVisible]);
 
   // Con Plataforma + operación son 16 entradas y 5 rótulos: a la densidad
   // normal (~36px por renglón, gap-6 entre grupos) la barra pasa de 800px y
@@ -182,7 +250,12 @@ export function SidebarNav({
   return (
     <nav
       aria-label={label}
-      className={cn("flex flex-1 flex-col px-3 py-4", dense ? "gap-4" : "gap-6", className)}
+      className={cn(
+        "flex flex-1 flex-col py-4",
+        collapsed ? "px-2" : "px-3",
+        dense ? "gap-4" : "gap-6",
+        className,
+      )}
     >
       {nav.map((group, gi) => {
         const titleId = group.title ? `${groupId}-g${gi}` : undefined;
@@ -194,7 +267,12 @@ export function SidebarNav({
               // página (que ya tiene su h1 y los h2 de cada Section).
               <p
                 id={titleId}
-                className="px-2 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                className={cn(
+                  "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                  // Contraído el rótulo no cabe, pero sigue nombrando al <ul>
+                  // por aria-labelledby: se oculta a la vista, no al lector.
+                  collapsed ? "sr-only" : "px-2 pb-1",
+                )}
               >
                 {group.title}
               </p>
@@ -208,6 +286,7 @@ export function SidebarNav({
                     onClick={onNavigate}
                     showDescription={showDescriptions}
                     dense={dense}
+                    collapsed={collapsed}
                   />
                 </li>
               ))}
@@ -225,15 +304,53 @@ function SidebarLink({
   onClick,
   showDescription = false,
   dense = false,
+  collapsed = false,
 }: {
   item: NavItem;
   active: boolean;
   onClick?: () => void;
   showDescription?: boolean;
   dense?: boolean;
+  collapsed?: boolean;
 }) {
   const Icon = item.icon;
   const withDescription = showDescription && !!item.description;
+
+  // Riel de íconos: el rótulo sigue siendo el nombre accesible del enlace
+  // (`sr-only`) y además se ve al pasar el puntero o al enfocar con el
+  // teclado; sin eso el riel sería una fila de glifos sin nombre.
+  if (collapsed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            href={item.href}
+            onClick={onClick}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "group relative flex h-10 items-center justify-center rounded-lg transition-colors",
+              "before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-pill before:content-['']",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              active
+                ? "bg-muted text-foreground before:bg-primary"
+                : "text-foreground/80 before:bg-transparent hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <Icon
+              aria-hidden
+              className={cn(
+                "h-4 w-4 shrink-0",
+                active ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
+              )}
+            />
+            <span className="sr-only">{item.label}</span>
+          </Link>
+        </TooltipTrigger>
+        <TooltipContent side="right">{item.label}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
   return (
     <Link
       href={item.href}
@@ -311,7 +428,7 @@ function useImpersonation(): boolean {
  * sin empresa —o mientras carga— el nombre del producto. El título de la
  * pestaña sigue la misma regla: `<Empresa> · Easy Sell`.
  */
-export function Brand({ className }: { className?: string }) {
+export function Brand({ className, collapsed = false }: { className?: string; collapsed?: boolean }) {
   const { name, logoUrl, displayName } = useTenantBranding();
   useTenantDocumentTitle(name);
   const [logoBroken, setLogoBroken] = React.useState(false);
@@ -323,7 +440,8 @@ export function Brand({ className }: { className?: string }) {
       className={cn(
         // h-14: misma altura que la Topbar, para que la línea del header no se
         // rompa al cruzar del sidebar al contenido.
-        "flex h-14 shrink-0 items-center gap-2 px-3",
+        "flex h-14 shrink-0 items-center gap-2",
+        collapsed ? "justify-center px-2" : "px-3",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
         className,
       )}
@@ -342,13 +460,61 @@ export function Brand({ className }: { className?: string }) {
           <Sparkles className="h-4 w-4" aria-hidden />
         </span>
       )}
-      <span className="flex min-w-0 flex-col leading-tight">
-        <span className="truncate text-sm font-semibold">{displayName}</span>
-        <span className="truncate text-xs uppercase tracking-wider text-muted-foreground">
-          {name ? PLATFORM_NAME : "Portal operativo"}
+      {collapsed ? null : (
+        <span className="flex min-w-0 flex-col leading-tight">
+          <span className="truncate text-sm font-semibold">{displayName}</span>
+          <span className="truncate text-xs uppercase tracking-wider text-muted-foreground">
+            {name ? PLATFORM_NAME : "Portal operativo"}
+          </span>
         </span>
-      </span>
+      )}
     </Link>
+  );
+}
+
+/**
+ * Contraer / expandir el riel. Vive al pie de la navegación (no en la Topbar)
+ * porque es una preferencia de la barra, y quien la busca la busca ahí.
+ *
+ * `aria-expanded` describe el estado del riel y el `aria-label` cambia con él,
+ * así que un lector de pantalla anuncia la acción, no solo el ícono.
+ */
+export function SidebarCollapseToggle({
+  collapsed,
+  onToggle,
+  className,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  className?: string;
+}) {
+  const label = collapsed ? "Expandir la barra lateral" : "Contraer la barra lateral";
+  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
+  const button = (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={label}
+      aria-expanded={!collapsed}
+      className={cn(
+        "flex h-9 items-center gap-3 rounded-lg text-sm font-medium text-foreground/80 transition-colors",
+        "hover:bg-muted hover:text-foreground",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        collapsed ? "w-full justify-center" : "w-full px-3",
+        className,
+      )}
+    >
+      <Icon aria-hidden className="h-4 w-4 shrink-0 text-muted-foreground" />
+      {collapsed ? null : <span>Contraer</span>}
+    </button>
+  );
+
+  if (!collapsed) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -385,7 +551,37 @@ export function EnvBadge({ compact = false, className }: { compact?: boolean; cl
 }
 
 /** Pie del sidebar / del drawer: el chip de entorno más la versión. */
-export function EnvFooter({ className }: { className?: string }) {
+export function EnvFooter({
+  className,
+  collapsed = false,
+}: {
+  className?: string;
+  collapsed?: boolean;
+}) {
+  // En el riel no cabe ni el chip ni la versión, pero "estás en modo de
+  // pruebas" no puede desaparecer: se reduce al glifo, con el mismo texto en
+  // tooltip y en `sr-only`.
+  if (collapsed) {
+    return (
+      <div className={cn("flex flex-col items-center p-2", className)}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-warning-subtle text-warning-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <FlaskConical className="h-4 w-4" aria-hidden />
+              <span className="sr-only">Pagos en modo de pruebas — livemode=false</span>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="right" className="max-w-[16rem] text-pretty">
+            {DUMMY_MODE_HELP}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("flex flex-col items-start gap-2 p-3", className)}>
       <EnvBadge />

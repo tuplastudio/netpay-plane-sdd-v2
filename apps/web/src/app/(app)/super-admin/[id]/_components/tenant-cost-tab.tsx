@@ -171,8 +171,8 @@ export function TenantCostTab({ tenantId }: { tenantId: string }) {
         title="Gasto del mes"
         description="Periodo en curso. Estimado, no es la factura real del proveedor."
       >
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatTile
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <StatTile size="compact"
             {...tile}
             label="Costo del mes"
             tone="info"
@@ -180,7 +180,7 @@ export function TenantCostTab({ tenantId }: { tenantId: string }) {
             value={<Money value={current.data?.totalCostUsd} currency="USD" />}
             hint={current.data === undefined ? undefined : "Suma de todos los modelos"}
           />
-          <StatTile
+          <StatTile size="compact"
             {...tile}
             label="Turnos del agente"
             icon={<MessagesSquare className="h-4 w-4" />}
@@ -189,7 +189,7 @@ export function TenantCostTab({ tenantId }: { tenantId: string }) {
             )}
             hint={current.data === undefined ? undefined : "Mensajes atendidos"}
           />
-          <StatTile
+          <StatTile size="compact"
             {...tile}
             label="Tokens del mes"
             icon={<Cpu className="h-4 w-4" />}
@@ -203,8 +203,8 @@ export function TenantCostTab({ tenantId }: { tenantId: string }) {
         title="Acumulado"
         description="Todo el historial registrado por el agente para esta empresa."
       >
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatTile
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <StatTile size="compact"
             {...tile}
             label="Costo total"
             tone="info"
@@ -212,14 +212,14 @@ export function TenantCostTab({ tenantId }: { tenantId: string }) {
             value={<Money value={allTimeCost} currency="USD" />}
             hint={allTimeCost === undefined ? undefined : "Desde el primer evento"}
           />
-          <StatTile
+          <StatTile size="compact"
             {...tile}
             label="Turnos totales"
             icon={<MessagesSquare className="h-4 w-4" />}
             value={formatInt(allTimeEvents)}
             hint={allTimeCost === undefined ? undefined : "Suma de todos los periodos"}
           />
-          <StatTile
+          <StatTile size="compact"
             {...tile}
             label="Promedio mensual"
             icon={<TrendingUp className="h-4 w-4" />}

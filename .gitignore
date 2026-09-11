@@ -34,3 +34,11 @@ graphify-out/
 # Configuración del agente por tenant (runtime, no código): igual que uploads/,
 # vive en disco local y no se versiona.
 apps/agent-v2/.settings/
+
+# Artefactos del MCP de Playwright (screenshots, snapshots) durante pruebas E2E.
+.playwright-mcp/
+
+# Capturas de la conversación tomadas para revisión de UI.
+*.jpeg
+!/docs/**
+!/apps/web/public/**

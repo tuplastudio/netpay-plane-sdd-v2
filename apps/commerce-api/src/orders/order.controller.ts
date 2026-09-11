@@ -15,7 +15,13 @@ import {
 } from "@nestjs/common";
 import { Response } from "express";
 import { OrderService } from "./order.service.js";
-import { QuickChargeDto, RequestInvoiceDto } from "./order.dto.js";
+import {
+  CancelOrderDto,
+  CreateOrderDto,
+  QuickChargeDto,
+  RequestInvoiceDto,
+  StartCheckoutDto,
+} from "./order.dto.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { roleHas } from "../auth/policies.js";
 import { Public } from "../auth/guards/principal.guard.js";
@@ -59,14 +65,7 @@ export class OrderController {
 
   @Post()
   @RequireScopes("orders.write")
-  async createDirect(
-    @Body()
-    body: {
-      customerId: string;
-      lines: Array<{ variantId: string; quantity: string; discountPct?: number }>;
-      notes?: string;
-    },
-  ) {
+  async createDirect(@Body() body: CreateOrderDto) {
     const tenantId = this.requireTenant();
     const actorId = RequestContext.userId ?? null;
     return {
@@ -171,15 +170,7 @@ export class OrderController {
 
   @Post(":id/checkout")
   @RequireScopes("orders.write")
-  async startCheckout(
-    @Param("id") id: string,
-    @Body()
-    body: {
-      lines: Array<{ variantId: string; quantity: string; discountPct?: number }>;
-      deliveryMode: "PICKUP" | "LOCAL_DELIVERY";
-      addressId?: string;
-    },
-  ) {
+  async startCheckout(@Param("id") id: string, @Body() body: StartCheckoutDto) {
     const tenantId = this.requireTenant();
     const order = await this.orders.startCheckout(tenantId, id, body);
     // Crear token de acceso público al checkout (envío por email/WhatsApp).
@@ -248,7 +239,7 @@ export class OrderController {
 
   @Patch(":id/cancel")
   @RequireScopes("orders.cancel_own")
-  async cancel(@Param("id") id: string, @Body() body: { reason?: string }) {
+  async cancel(@Param("id") id: string, @Body() body: CancelOrderDto) {
     const tenantId = this.requireTenant();
     const actorId = RequestContext.userId ?? null;
     const principal = RequestContext.principal;

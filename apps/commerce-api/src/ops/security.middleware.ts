@@ -93,6 +93,16 @@ export function validateStartupConfig(): void {
   if (!process.env.TOKEN_ENCRYPTION_KEY_REF || process.env.TOKEN_ENCRYPTION_KEY_REF.length < 32) {
     errors.push("TOKEN_ENCRYPTION_KEY_REF debe tener >=32 chars");
   }
+  // Sin esto, PaymentService cae al literal "dev-webhook-secret" que está en
+  // el repo y cualquiera puede firmar un webhook de pago de cualquier empresa.
+  // En local se tolera para no trabar el arranque del entorno de desarrollo.
+  if (
+    (process.env.APP_ENV ?? "local") !== "local" &&
+    !process.env.DUMMY_WEBHOOK_SECRET_REF &&
+    !process.env.DUMMY_WEBHOOK_SECRET
+  ) {
+    errors.push("DUMMY_WEBHOOK_SECRET_REF requerido fuera de local");
+  }
 
   if (errors.length > 0) {
     logger.error("Configuración inválida:");

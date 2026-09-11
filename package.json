@@ -17,6 +17,13 @@
     "compose:up": "docker compose -f infra/compose.yaml up -d",
     "compose:down": "docker compose -f infra/compose.yaml down",
     "compose:logs": "docker compose -f infra/compose.yaml logs -f",
+    "deploy": "bash scripts/deploy.sh",
+    "deploy:rebuild": "bash scripts/deploy.sh --rebuild",
+    "deploy:logs": "bash scripts/deploy.sh --logs",
+    "deploy:stop": "bash scripts/deploy.sh --stop",
+    "deploy:status": "bash scripts/deploy.sh --status",
+    "deploy:migrate": "bash scripts/deploy.sh --migrate",
+    "deploy:rollback": "bash scripts/deploy.sh --rollback",
     "db:migrate": "pnpm --filter @netpay/commerce-api prisma:migrate",
     "db:seed": "pnpm --filter @netpay/commerce-api prisma:seed",
     "bootstrap": "pnpm --filter @netpay/commerce-api bootstrap",
@@ -27,7 +34,9 @@
     "agent-v2:setup": "cd apps/agent-v2 && python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt",
     "agent-v2:dev": "pnpm --filter @netpay/agent-v2 dev",
     "agent-v2:evals": "pnpm --filter @netpay/agent-v2 evals",
-    "agent-v2:test": "pnpm --filter @netpay/agent-v2 test"
+    "agent-v2:test": "pnpm --filter @netpay/agent-v2 test",
+    "cleanup:tenants": "tsx scripts/cleanup-tenants.ts",
+    "cleanup:tenants:apply": "tsx scripts/cleanup-tenants.ts --apply"
   },
   "devDependencies": {
     "typescript": "5.6.3"

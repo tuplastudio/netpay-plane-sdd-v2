@@ -10,6 +10,7 @@ import {
   Check,
   CircleHelp,
   FileText,
+  Globe,
   GraduationCap,
   MessageSquare,
   RefreshCw,
@@ -23,6 +24,7 @@ import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +36,15 @@ import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { AgentSettingsForm } from "@/components/app/agent-settings-form";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { DescriptionList, FieldRow } from "@/components/app/field-row";
+import { EntityId } from "@/components/app/entity-id";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 /**
  * Consola del agente organizada en 4 pestañas:
@@ -95,6 +106,27 @@ interface LearningSignal {
   docId: string | null;
 }
 
+interface WebPreviewSection {
+  heading: string;
+  body: string;
+}
+
+interface WebPreviewResult {
+  url: string;
+  title: string;
+  sections: WebPreviewSection[];
+}
+
+/** Valida http(s) sin llamar al backend, solo para habilitar "Previsualizar". */
+function isPreviewableUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function QueryError({
   title,
   onRetry,
@@ -126,6 +158,10 @@ export default function AgentConsolePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
+  const [webUrl, setWebUrl] = useState("");
+  const [selectedWebSections, setSelectedWebSections] = useState<Record<string, boolean>>({});
+  const [expandedWebSections, setExpandedWebSections] = useState<Set<string>>(new Set());
+  const [selectedTool, setSelectedTool] = useState<ToolSpec | null>(null);
 
   const knowledge = useQuery({
     queryKey: ["agent-knowledge"],
@@ -211,6 +247,83 @@ export default function AgentConsolePage() {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+
+  const webPreview = useMutation<WebPreviewResult, Error, string>({
+    mutationFn: async (url: string) => {
+      const res = await fetch(`${AGENT_BASE}/knowledge/web/preview`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail ?? "No pude leer la página");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      // Todas las secciones arrancan marcadas: el checkbox es para EXCLUIR,
+      // no para tener que elegir una por una.
+      setSelectedWebSections(
+        Object.fromEntries(data.sections.map((_, index) => [`${index}`, true])),
+      );
+      setExpandedWebSections(new Set());
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const webSectionEntries = (webPreview.data?.sections ?? []).map((section, index) => ({
+    section,
+    key: `${index}`,
+    checked: selectedWebSections[`${index}`] ?? true,
+  }));
+  const checkedWebSections = webSectionEntries.filter((entry) => entry.checked);
+  const webSelectedCharCount = checkedWebSections.reduce(
+    (sum, entry) => sum + entry.section.heading.length + entry.section.body.length,
+    0,
+  );
+
+  const webSave = useMutation<{ docId: string; chars: number }, Error, void>({
+    mutationFn: async () => {
+      const preview = webPreview.data;
+      if (!preview) throw new Error("Primero previsualiza la página");
+      const sections = checkedWebSections.map((entry) => entry.section.heading);
+      const res = await fetch(`${AGENT_BASE}/knowledge/web/save`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: preview.url, title: preview.title, sections }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail ?? "No pude guardar la página");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast.success(`${data.docId} indexado`);
+      setWebUrl("");
+      setSelectedWebSections({});
+      setExpandedWebSections(new Set());
+      webPreview.reset();
+      void queryClient.invalidateQueries({ queryKey: ["agent-knowledge"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  function runWebPreview() {
+    const url = webUrl.trim();
+    if (!isPreviewableUrl(url)) return;
+    webPreview.mutate(url);
+  }
+
+  function toggleWebSectionExpanded(key: string) {
+    setExpandedWebSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   const approveSignal = useMutation({
     mutationFn: async ({ id, answer }: { id: string; answer: string }) => {
@@ -576,6 +689,136 @@ export default function AgentConsolePage() {
 
             <Section
               as="h3"
+              title="Leer una página web"
+              description="Trae el contenido de una URL pública y guárdalo como conocimiento del negocio, igual que un .md subido a mano."
+            >
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="web-url">URL</Label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      id="web-url"
+                      type="url"
+                      inputMode="url"
+                      value={webUrl}
+                      onChange={(event) => setWebUrl(event.target.value)}
+                      placeholder="https://ejemplo.com/preguntas-frecuentes"
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          runWebPreview();
+                        }
+                      }}
+                    />
+                    <Button
+                      className="sm:w-auto"
+                      variant="outline"
+                      onClick={runWebPreview}
+                      loading={webPreview.isPending}
+                      disabled={!isPreviewableUrl(webUrl)}
+                    >
+                      <Globe aria-hidden className="h-4 w-4" />
+                      Previsualizar
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Solo páginas públicas (http/https). No se leen direcciones locales o de red interna.
+                  </p>
+                </div>
+
+                {webPreview.isError ? (
+                  <Alert variant="destructive">
+                    <AlertCircle aria-hidden />
+                    <AlertTitle>No pude leer la página</AlertTitle>
+                    <AlertDescription>{webPreview.error.message}</AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {webPreview.isPending ? (
+                  <SkeletonText lines={4} label="Leyendo la página…" />
+                ) : null}
+
+                {webPreview.data ? (
+                  <div className="space-y-3 rounded-lg border bg-card p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{webPreview.data.title}</p>
+                        <p className="truncate font-mono text-xs text-muted-foreground">
+                          {webPreview.data.url}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {webSelectedCharCount.toLocaleString("es-MX")} caracteres seleccionados
+                      </span>
+                    </div>
+
+                    {webSectionEntries.length === 0 ? (
+                      <EmptyState
+                        icon={<FileText className="h-6 w-6" />}
+                        title="Sin secciones"
+                        description="La página no tiene contenido de texto que se pueda guardar."
+                      />
+                    ) : (
+                      <ul className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                        {webSectionEntries.map(({ section, key, checked }) => {
+                          const isLong = section.body.length > 240;
+                          const isExpanded = expandedWebSections.has(key);
+                          const preview =
+                            isLong && !isExpanded ? `${section.body.slice(0, 240)}…` : section.body;
+                          const checkboxId = `web-section-${key}`;
+                          return (
+                            <li key={key} className="rounded-md border bg-background p-2.5">
+                              <div className="flex items-start gap-2">
+                                <Checkbox
+                                  id={checkboxId}
+                                  checked={checked}
+                                  onChange={(event) =>
+                                    setSelectedWebSections((prev) => ({
+                                      ...prev,
+                                      [key]: event.target.checked,
+                                    }))
+                                  }
+                                  className="mt-0.5"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <Label htmlFor={checkboxId} className="text-sm font-medium">
+                                    {section.heading}
+                                  </Label>
+                                  <p className="mt-1 whitespace-pre-line break-words text-xs text-muted-foreground">
+                                    {preview || "(sin contenido)"}
+                                  </p>
+                                  {isLong ? (
+                                    <button
+                                      type="button"
+                                      className="mt-1 text-xs font-medium text-primary underline-offset-2 hover:underline"
+                                      onClick={() => toggleWebSectionExpanded(key)}
+                                    >
+                                      {isExpanded ? "Ver menos" : "Ver más"}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+
+                    <Button
+                      onClick={() => webSave.mutate()}
+                      loading={webSave.isPending}
+                      disabled={checkedWebSections.length === 0}
+                    >
+                      <BookOpen aria-hidden className="h-4 w-4" />
+                      Guardar como conocimiento
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </Section>
+
+            <Section
+              as="h3"
               title="Probar una pregunta del negocio"
               description="Consulta el índice tal como lo hace el agente, sin gastar tokens del modelo."
             >
@@ -810,6 +1053,8 @@ export default function AgentConsolePage() {
                 error={tools.error}
                 onRetry={() => void tools.refetch()}
                 getRowId={(t) => t.name}
+                onRowClick={(t) => setSelectedTool(t)}
+                getRowActionLabel={(t) => `Ver detalle de ${t.name}`}
                 caption="Herramientas que el agente puede ejecutar, con su scope y su efecto."
                 empty={{
                   icon: <Wrench className="h-6 w-6" />,
@@ -832,7 +1077,79 @@ export default function AgentConsolePage() {
         pending={deleteDoc.isPending}
         onConfirm={() => docToDelete && deleteDoc.mutate(docToDelete)}
       />
+
+      <ToolDetailSheet
+        tool={selectedTool}
+        open={selectedTool !== null}
+        onOpenChange={(open) => !open && setSelectedTool(null)}
+      />
     </div>
+  );
+}
+
+/**
+ * Detalle de una herramienta autorizada, en panel lateral.
+ *
+ * `GET /agent/tools` (apps/agent-v2/app/main.py `list_tools`) hoy solo manda
+ * name/description/scope/mutating — la descripción ya es la primera línea
+ * del docstring de la tool en apps/agent-v2/app/tools.py. No hay parámetros
+ * ni "cuándo se usa" en la respuesta, así que el panel no los inventa: se
+ * queda en nombre, scope(s), efecto y descripción. Mostrar parámetros reales
+ * necesitaría que el backend los exponga (fuera de este cambio).
+ */
+function ToolDetailSheet({
+  tool,
+  open,
+  onOpenChange,
+}: {
+  tool: ToolSpec | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        title="Detalle de la herramienta"
+        className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg"
+      >
+        {tool ? (
+          <>
+            <SheetHeader className="border-b px-6 py-4">
+              <SheetTitle className="font-mono text-base">{tool.name}</SheetTitle>
+              <SheetDescription>
+                {tool.mutating ? "Escribe en la API comercial" : "Solo lee de la API comercial"}
+              </SheetDescription>
+            </SheetHeader>
+
+            <div className="flex-1 space-y-6 px-6 py-4">
+              <DescriptionList divided>
+                <FieldRow label="Herramienta">
+                  <EntityId value={tool.name} length={40} toastLabel="Nombre de la herramienta" />
+                </FieldRow>
+                <FieldRow label="Scope" mono>
+                  {tool.scope}
+                </FieldRow>
+                <FieldRow label="Efecto">
+                  <Badge variant={tool.mutating ? "warning" : "neutral"}>
+                    {tool.mutating ? "Escribe" : "Lee"}
+                  </Badge>
+                </FieldRow>
+              </DescriptionList>
+
+              <section aria-labelledby="tool-description-title" className="space-y-2">
+                <h3 id="tool-description-title" className="text-sm font-semibold">
+                  Qué hace
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  {tool.description || "El agente no declaró una descripción para esta herramienta."}
+                </p>
+              </section>
+            </div>
+          </>
+        ) : null}
+      </SheetContent>
+    </Sheet>
   );
 }
 

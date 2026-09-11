@@ -31,6 +31,24 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 export const IMPERSONATE_COOKIE =
   process.env.NODE_ENV === "production" ? "__Host-impersonate" : "impersonate";
 
+/**
+ * Atributos con los que se emiten las cookies de sesión e impersonación. Hay
+ * que repetirlos EXACTOS al borrarlas: en producción los nombres llevan el
+ * prefijo `__Host-`, y el navegador descarta cualquier Set-Cookie de una
+ * cookie `__Host-` que no venga con Secure y Path=/ (y sin Domain).
+ *
+ * `res.clearCookie(nombre, { path: "/" })` a secas emitía el borrado SIN
+ * Secure, así que en producción el navegador lo ignoraba y la cookie seguía
+ * viva: "salir de la impersonación" devolvía 200 pero el super-admin se
+ * quedaba dentro del tenant hasta que expiraban las 2h.
+ */
+export const COOKIE_ATTRS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/",
+} as const;
+
 const AGENT_SERVICE_SCOPES: ReadonlyArray<Scope> = [
   "catalog.read",
   "customers.read",
@@ -174,6 +192,12 @@ export class PrincipalGuard implements CanActivate {
         role: impersonatedRole ?? session.role,
         sessionId: session.sessionId,
         isSuperAdmin: session.isSuperAdmin,
+        // Marca de impersonación: sin esto, todo lo que el super-admin hace
+        // dentro del tenant queda auditado como si lo hubiera hecho el dueño.
+        // El middleware de AuditLog (PrismaService) la copia al metadata de
+        // cada fila escrita durante la petición.
+        impersonated: Boolean(impersonatedTenantId),
+        impersonatorUserId: impersonatedTenantId ? session.userId : undefined,
       });
       await this.sessions.touchActivity(session.sessionId);
       return true;

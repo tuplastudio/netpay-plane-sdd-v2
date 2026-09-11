@@ -3,7 +3,7 @@
  * Ver docs/10-wha.md T-WHA-01..07.
  */
 
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import {
@@ -24,6 +24,7 @@ import {
   type SendMessageInput,
   type SendMessageResult,
 } from "./channels.js";
+import { ReplyModerationService, type ModerationDecision } from "./reply-moderation.service.js";
 
 /** Tope de adjunto que manda un operador desde el portal (decodificado). */
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -45,6 +46,19 @@ export interface OperatorAttachmentInput {
   caption?: string;
 }
 
+/**
+ * Orden del listado.
+ *
+ * `recent` es el de siempre (lo último que se movió, arriba). `oldest` es el
+ * orden de triage de una cola: lo que lleva más tiempo sin moverse, primero.
+ * Para un hilo sin responder `lastMessageAt` **es** `lastInboundAt` (sin
+ * respuesta el último mensaje es el del cliente, por definición), así que
+ * ordenar por `lastMessageAt asc` es exactamente "el que lleva más tiempo
+ * esperando primero" — y se resuelve en el índice `(tenantId, lastMessageAt)`
+ * que ya existe, sin ordenar en memoria sobre una página truncada.
+ */
+export type ConversationSort = "recent" | "oldest";
+
 /** Filtros de `GET /whatsapp/conversations`. Todos opcionales. */
 export interface ConversationListFilters {
   /** Fragmento del teléfono (E.164) del cliente. */
@@ -57,7 +71,31 @@ export interface ConversationListFilters {
   from?: Date;
   to?: Date;
   limit?: number;
+  /** Una etiqueta del hilo (ver `WhatsAppConversation.tags`). */
+  tag?: string;
+  /** Solo hilos sin asignar / asignados a esta persona. */
+  assignee?: string;
+  sort?: ConversationSort;
 }
+
+/** Acciones de `AuditLog` que deja este módulo sobre un hilo. */
+export const CONVERSATION_AUDIT = {
+  closed: "whatsapp.conversation.closed",
+  reopened: "whatsapp.conversation.reopened",
+  handoff: "whatsapp.conversation.handoff",
+  claimed: "whatsapp.conversation.claimed",
+  returned: "whatsapp.conversation.returned",
+  tagsChanged: "whatsapp.conversation.tags_changed",
+  customerLinked: "whatsapp.conversation.customer_linked",
+} as const;
+
+/** Estados que un operador puede fijar a mano desde el portal. */
+export const MANUAL_STATUSES = ["OPEN", "CLOSED"] as const;
+export type ManualConversationStatus = (typeof MANUAL_STATUSES)[number];
+
+/** Tope de una etiqueta y del número de etiquetas por hilo (T-WHA / CRM básico). */
+export const MAX_TAG_LENGTH = 30;
+export const MAX_TAGS = 15;
 
 export interface ConversationStats {
   /** Hilos con `status = OPEN`. */
@@ -68,27 +106,55 @@ export interface ConversationStats {
   unanswered: number;
   /** Hilos con actividad hoy (día local del servidor). */
   today: number;
+  /** Transferidos pero sin dueño: la "Cola" de la bandeja. */
+  queue: number;
+  /** Transferidos y con dueño: la vista "Por agente". */
+  assigned: number;
 }
 
 export const DEFAULT_CONVERSATION_LIMIT = 50;
 
-/** Último mensaje del hilo, para saber quién habló al final. */
+/**
+ * Último mensaje del hilo: quién habló al final (`isUnanswered`) y un
+ * adelanto de texto para la lista de la bandeja (`lastMessagePreview`).
+ */
 const LATEST_MESSAGE = {
   take: 1,
   orderBy: { createdAt: "desc" },
-  select: { direction: true },
+  select: { direction: true, body: true, messageType: true },
 } satisfies Prisma.WhatsAppConversation$messagesArgs;
 
-function isUnanswered(latest: Array<{ direction: MessageDirection }>): boolean {
+type LatestMessageRow = { direction: MessageDirection; body: string; messageType: string };
+
+function isUnanswered(latest: LatestMessageRow[]): boolean {
   return latest[0]?.direction === "INBOUND";
+}
+
+const MEDIA_PREVIEW_LABEL: Record<string, string> = {
+  IMAGE: "📷 Imagen",
+  AUDIO: "🎤 Nota de voz",
+  VIDEO: "🎞️ Video",
+  DOCUMENT: "📎 Archivo",
+};
+
+/** Texto corto para la lista: media sin caption se anuncia por su tipo. */
+function previewOf(latest: LatestMessageRow[]): string | null {
+  const last = latest[0];
+  if (!last) return null;
+  if (last.body?.trim()) return last.body;
+  return MEDIA_PREVIEW_LABEL[last.messageType] ?? null;
 }
 
 @Injectable()
 export class WhatsAppService {
+  private readonly logger = new Logger(WhatsAppService.name);
   private readonly meta: MetaChannel;
   private readonly evolution: EvolutionChannel;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly moderation: ReplyModerationService,
+  ) {
     this.meta = new MetaChannel(prisma);
     this.evolution = new EvolutionChannel(prisma);
   }
@@ -166,6 +232,28 @@ export class WhatsAppService {
     return { webhookSecret: plainWebhookSecret };
   }
 
+  /**
+   * Cambia solo la URL pública del webhook. Conserva `webhookSecretHash` (no
+   * rota el secreto): si solo cambia el túnel (ngrok / dominio) sin comprometer
+   * la integración, esta ruta evita el desconectar/reconectar y conserva la
+   * configuración del provider y los webhooks que Evolution tiene apuntados.
+   */
+  async updateWebhookUrl(tenantId: string, id: string, webhookUrl: string) {
+    const conn = await this.prisma.whatsAppConnection.findFirst({
+      where: { id, tenantId },
+      select: { id: true, status: true, provider: true, webhookUrl: true, version: true },
+    });
+    if (!conn) throw new NotFoundException({ code: "NOT_FOUND", message: "Conexión no accesible" });
+    const { webhookSecretHash: _omit, ...safe } = await this.prisma.whatsAppConnection.update({
+      where: { id },
+      data: { webhookUrl, version: { increment: 1 } },
+    });
+    this.logger.log(
+      `webhookUrl de ${conn.provider} ${id} actualizada a ${webhookUrl} (anterior: ${conn.webhookUrl})`,
+    );
+    return safe;
+  }
+
   async disconnect(tenantId: string, id: string) {
     return this.prisma.whatsAppConnection.updateMany({
       where: { id, tenantId },
@@ -216,6 +304,23 @@ export class WhatsAppService {
       },
       update: { lastMessageAt: new Date() },
     });
+
+    // Un cliente que vuelve a escribir REABRE su ticket. Antes el upsert solo
+    // movía `lastMessageAt`, así que un hilo cerrado (a mano o por el job de
+    // inactividad) se quedaba en `CLOSED` mientras seguía recibiendo mensajes:
+    // desaparecía de la bandeja "abiertas" y el pendiente no lo veía nadie.
+    // Va como `updateMany` acotado por `status: CLOSED` —no como parte del
+    // upsert, que no sabe condicionar el `update`— y solo cuesta una consulta
+    // extra en el caso raro de que el hilo viniera cerrado.
+    if (conversation.status === "CLOSED") {
+      await this.prisma.whatsAppConversation.updateMany({
+        where: { id: conversation.id, status: "CLOSED" },
+        data: { status: "OPEN" },
+      });
+      await this.audit(input.tenantId, conversation.id, CONVERSATION_AUDIT.reopened, null, {
+        reason: "Mensaje nuevo del cliente",
+      });
+    }
 
     try {
       return await this.prisma.whatsAppMessage.create({
@@ -353,11 +458,17 @@ export class WhatsAppService {
   }
 
   /**
-   * Conversación del tenant que ya está con una persona. Es la regla de todo
-   * lo que manda un operador desde el portal: mientras el hilo lo lleve el
-   * agente, el operador no escribe encima (se pisarían las respuestas).
+   * Conversación del tenant, con su conexión (para poder mandar por el canal
+   * correcto). `requireHandoff` es la regla de todo lo que manda un operador
+   * desde el portal: mientras el hilo lo lleve el agente, el operador no
+   * escribe encima (se pisarían las respuestas); el envío de un link de
+   * cotización es la única excepción explícita (T-WHA, "Cotizar rápido").
    */
-  private async requireHandedOff(tenantId: string, conversationId: string) {
+  private async requireConversationWithConnection(
+    tenantId: string,
+    conversationId: string,
+    opts: { requireHandoff: boolean },
+  ) {
     const conv = await this.prisma.whatsAppConversation.findFirst({
       where: { id: conversationId, tenantId },
       include: { connection: true },
@@ -365,13 +476,17 @@ export class WhatsAppService {
     if (!conv) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Conversación no accesible" });
     }
-    if (!conv.handoffToHuman) {
+    if (opts.requireHandoff && !conv.handoffToHuman) {
       throw new BadRequestException({
         code: "RULE_VIOLATION",
         message: "La conversación sigue con el agente",
       });
     }
     return conv;
+  }
+
+  private requireHandedOff(tenantId: string, conversationId: string) {
+    return this.requireConversationWithConnection(tenantId, conversationId, { requireHandoff: true });
   }
 
   /** Persiste el saliente del operador y mueve `lastMessageAt`. */
@@ -420,6 +535,65 @@ export class WhatsAppService {
       });
     }
     const conv = await this.requireHandedOff(tenantId, conversationId);
+    // Filtro de respuestas humanas: si el tenant lo activó y la acción es
+    // `block`, esto lanza 422 y el mensaje nunca sale. Ver
+    // reply-moderation.service.ts (apagado por defecto y falla hacia abierto).
+    const decision = await this.moderation.enforce(tenantId, text);
+    const result = await this.adapterFor(conv.connection.provider).sendMessage(conv.connectionId, {
+      tenantId,
+      to: conv.externalPhone,
+      type: "text",
+      body: text,
+    });
+    const message = await this.persistOutbound(conv, { messageType: "TEXT", body: text, result });
+    await this.noteModerationWarning(tenantId, message.id, decision);
+    return message;
+  }
+
+  /**
+   * Con la acción `warn` el mensaje sale igual, pero el hallazgo tiene que
+   * quedar registrado. Se usa `MessageNote` —la tabla de notas internas de un
+   * mensaje puntual, que ya existe— en vez de agregar columnas o un modelo
+   * nuevo: es lo menos invasivo y el hilo ya sabe mostrar esas notas.
+   * Nunca rompe el envío: el mensaje ya salió cuando esto corre.
+   */
+  private async noteModerationWarning(
+    tenantId: string,
+    messageId: string,
+    decision: ModerationDecision,
+  ): Promise<void> {
+    if (decision.allowed || decision.action !== "warn") return;
+    try {
+      await this.prisma.messageNote.create({
+        data: {
+          tenantId,
+          messageId,
+          authorId: null,
+          body: ReplyModerationService.warningNote(decision),
+        },
+      });
+    } catch {
+      // Anotar es trazabilidad, no parte del envío.
+    }
+  }
+
+  /**
+   * Texto saliente (típicamente un link de cotización) que se manda aunque el
+   * hilo siga con el agente — a diferencia de `replyToConversation`, que exige
+   * el handoff. Endpoint dedicado y estrecho (T-WHA, "Cotizar rápido") para no
+   * aflojar la regla general de `reply`: solo sirve para esto.
+   */
+  async sendQuoteMessage(tenantId: string, conversationId: string, body: string) {
+    const text = body?.trim();
+    if (!text) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "El mensaje no puede ir vacío",
+      });
+    }
+    const conv = await this.requireConversationWithConnection(tenantId, conversationId, {
+      requireHandoff: false,
+    });
     const result = await this.adapterFor(conv.connection.provider).sendMessage(conv.connectionId, {
       tenantId,
       to: conv.externalPhone,
@@ -468,6 +642,10 @@ export class WhatsAppService {
     const adapter = this.adapterFor(conv.connection.provider);
     const mediatype = mediaTypeFromMime(mimetype);
     const caption = input.caption?.trim() || undefined;
+    // El pie de foto es texto libre que escribe la misma persona: pasa por el
+    // mismo filtro que una respuesta de texto. Sin pie no hay nada que revisar
+    // y `enforce` corta sin llamar al agente.
+    const decision = await this.moderation.enforce(tenantId, caption ?? "");
     const result: SendMessageResult = adapter.sendMedia
       ? await adapter.sendMedia(conv.connectionId, {
           tenantId,
@@ -483,11 +661,88 @@ export class WhatsAppService {
           status: "FAILED",
           error: `${conv.connection.provider} no soporta adjuntos todavía`,
         };
-    return this.persistOutbound(conv, {
+    const message = await this.persistOutbound(conv, {
       messageType: MEDIA_TO_MESSAGE_TYPE[mediatype],
       body: caption || filename,
       result,
     });
+    await this.noteModerationWarning(tenantId, message.id, decision);
+    return message;
+  }
+
+  /**
+   * Deja rastro de lo que le pasó a un hilo (cerrar, reabrir, transferir,
+   * tomar, devolver, etiquetar). De aquí sale la pestaña "Actividad" del panel
+   * de contexto, que antes no podía contar nada porque estas acciones no se
+   * registraban en ningún lado.
+   *
+   * A diferencia del autocierre —que escribe UNA entrada por lote— aquí sí va
+   * una por hilo, con `targetId`: son acciones de una persona sobre un hilo
+   * concreto, no un barrido. Nunca rompe la acción: anotar es trazabilidad.
+   */
+  private async audit(
+    tenantId: string,
+    conversationId: string,
+    action: string,
+    actorId: string | null | undefined,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId,
+          actorId: actorId ?? null,
+          action,
+          targetType: "WhatsAppConversation",
+          targetId: conversationId,
+          metadata: (metadata ?? {}) as never,
+        },
+      });
+    } catch {
+      // La bitácora no puede tumbar la operación que la produjo.
+    }
+  }
+
+  /**
+   * Cierra o reabre un hilo a mano (`PATCH conversations/:id/status`). Hasta
+   * ahora solo el job de inactividad podía cerrar, y nada podía reabrir: un
+   * ticket resuelto se quedaba en la bandeja hasta que el plazo lo alcanzara.
+   *
+   * Cerrar suelta el handoff, igual que hace el autocierre: un hilo cerrado no
+   * puede quedar marcado como "lo atiende fulano", porque entonces el bot
+   * tampoco volvería a contestarle a ese cliente. Reabrir lo devuelve al
+   * agente (`OPEN`); quien lo quiera para sí lo toma después.
+   */
+  async setStatus(
+    tenantId: string,
+    conversationId: string,
+    status: ManualConversationStatus,
+    actorId?: string,
+  ) {
+    const conv = await this.requireConversation(tenantId, conversationId);
+    if (status === "CLOSED" && conv.status === "CLOSED") {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La conversación ya está cerrada",
+      });
+    }
+    if (status === "OPEN" && conv.status !== "CLOSED") {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La conversación ya está abierta",
+      });
+    }
+    const updated = await this.prisma.whatsAppConversation.update({
+      where: { id: conversationId },
+      data: { status, handoffToHuman: false, handoffUserId: null },
+    });
+    await this.audit(
+      tenantId,
+      conversationId,
+      status === "CLOSED" ? CONVERSATION_AUDIT.closed : CONVERSATION_AUDIT.reopened,
+      actorId,
+    );
+    return updated;
   }
 
   private async requireConversation(tenantId: string, conversationId: string) {
@@ -531,13 +786,190 @@ export class WhatsAppService {
     });
   }
 
-  /** Devuelve el hilo al agente: a partir de aquí el bot vuelve a contestar. */
-  async returnToAgent(tenantId: string, conversationId: string) {
+  private async requireMessage(tenantId: string, messageId: string) {
+    const msg = await this.prisma.whatsAppMessage.findFirst({ where: { id: messageId, tenantId } });
+    if (!msg) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Mensaje no accesible" });
+    }
+    return msg;
+  }
+
+  /** Notas internas sobre UN mensaje puntual, más recientes primero. */
+  async listMessageNotes(tenantId: string, messageId: string) {
+    await this.requireMessage(tenantId, messageId);
+    return this.prisma.messageNote.findMany({
+      where: { tenantId, messageId },
+      include: { author: { select: { id: true, fullName: true, email: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+  }
+
+  async addMessageNote(
+    tenantId: string,
+    messageId: string,
+    authorId: string | undefined,
+    body: string,
+  ) {
+    const text = body?.trim();
+    if (!text) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "La nota no puede ir vacía",
+      });
+    }
+    await this.requireMessage(tenantId, messageId);
+    return this.prisma.messageNote.create({
+      data: { tenantId, messageId, authorId: authorId ?? null, body: text },
+      include: { author: { select: { id: true, fullName: true, email: true } } },
+    });
+  }
+
+  /**
+   * Reemplaza las etiquetas del hilo (CRM básico): normaliza a minúsculas,
+   * quita vacíos/duplicados y valida los topes de `MAX_TAGS`/`MAX_TAG_LENGTH`.
+   */
+  async setTags(
+    tenantId: string,
+    conversationId: string,
+    rawTags: string[],
+    actorId?: string,
+  ) {
     await this.requireConversation(tenantId, conversationId);
-    return this.prisma.whatsAppConversation.update({
+    const normalized = Array.from(
+      new Set(
+        (rawTags ?? [])
+          .filter((t): t is string => typeof t === "string")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+    if (normalized.length > MAX_TAGS) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `Máximo ${MAX_TAGS} etiquetas por conversación`,
+      });
+    }
+    const tooLong = normalized.find((t) => t.length > MAX_TAG_LENGTH);
+    if (tooLong) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `La etiqueta "${tooLong}" supera los ${MAX_TAG_LENGTH} caracteres`,
+      });
+    }
+    const updated = await this.prisma.whatsAppConversation.update({
+      where: { id: conversationId },
+      data: { tags: normalized },
+    });
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.tagsChanged, actorId, {
+      tags: normalized,
+    });
+    return updated;
+  }
+
+  /**
+   * Un agente humano toma un hilo de la cola sin asignar. A diferencia de
+   * `/handoff` (que cualquiera puede disparar hacia cualquier userId), esto es
+   * "yo lo tomo": falla si ya está asignado a otra persona.
+   */
+  async claim(tenantId: string, conversationId: string, userId: string) {
+    const conv = await this.requireConversation(tenantId, conversationId);
+    if (conv.handoffUserId && conv.handoffUserId !== userId) {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "Ya está asignada a otra persona",
+      });
+    }
+    const updated = await this.prisma.whatsAppConversation.update({
+      where: { id: conversationId },
+      data: { status: "HANDED_OFF", handoffToHuman: true, handoffUserId: userId },
+    });
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.claimed, userId);
+    return updated;
+  }
+
+  /**
+   * Vincula el hilo a una ficha de cliente (p. ej. recién creada desde el
+   * panel de contexto de la conversación, "Cliente sin ficha" → "Crear
+   * cliente"). De paso deja una `CustomerIdentity` para este canal/teléfono,
+   * si no existe otra ya: así la próxima vez que este número escriba, ya hay
+   * con quién asociarlo automáticamente.
+   */
+  async linkCustomer(
+    tenantId: string,
+    conversationId: string,
+    customerId: string,
+    actorId?: string,
+  ) {
+    const conv = await this.requireConversationWithConnection(tenantId, conversationId, {
+      requireHandoff: false,
+    });
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, tenantId },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Cliente no accesible" });
+    }
+    const channel = conv.connection.provider === "META" ? "WHATSAPP_META" : "WHATSAPP_EVOLUTION";
+    const existingIdentity = await this.prisma.customerIdentity.findUnique({
+      where: { channel_externalId: { channel, externalId: conv.externalPhone } },
+    });
+    if (!existingIdentity) {
+      await this.prisma.customerIdentity.create({
+        data: {
+          customerId,
+          channel,
+          externalId: conv.externalPhone,
+          verifiedAt: new Date(),
+        },
+      });
+    }
+    const updated = await this.prisma.whatsAppConversation.update({
+      where: { id: conversationId },
+      data: { customerId },
+    });
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.customerLinked, actorId);
+    return updated;
+  }
+
+  /**
+   * Personas activas como agente de WhatsApp (`Membership.isAgent`), con
+   * cuántos hilos llevan asignados ahora mismo — un solo `groupBy`, no N+1.
+   */
+  async listAgents(tenantId: string) {
+    const memberships = await this.prisma.membership.findMany({
+      where: { tenantId, status: "ACTIVE", isAgent: true },
+      select: { id: true, userId: true, user: { select: { fullName: true, email: true } } },
+      orderBy: { user: { fullName: "asc" } },
+    });
+    const userIds = memberships.map((m) => m.userId);
+    const counts = userIds.length
+      ? await this.prisma.whatsAppConversation.groupBy({
+          by: ["handoffUserId"],
+          where: { tenantId, status: "HANDED_OFF", handoffUserId: { in: userIds } },
+          _count: { _all: true },
+        })
+      : [];
+    const countByUser = new Map(counts.map((c) => [c.handoffUserId, c._count._all]));
+    return memberships.map((m) => ({
+      id: m.id,
+      userId: m.userId,
+      fullName: m.user.fullName,
+      email: m.user.email,
+      activeConversations: countByUser.get(m.userId) ?? 0,
+    }));
+  }
+
+  /** Devuelve el hilo al agente: a partir de aquí el bot vuelve a contestar. */
+  async returnToAgent(tenantId: string, conversationId: string, actorId?: string) {
+    await this.requireConversation(tenantId, conversationId);
+    const updated = await this.prisma.whatsAppConversation.update({
       where: { id: conversationId },
       data: { handoffToHuman: false, handoffUserId: null, status: "OPEN" },
     });
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.returned, actorId);
+    return updated;
   }
 
   async downloadMedia(
@@ -560,6 +992,7 @@ export class WhatsAppService {
     tenantId: string,
     conversationId: string,
     userId: string,
+    actorId?: string,
   ) {
     const conv = await this.prisma.whatsAppConversation.findFirst({
       where: { id: conversationId, tenantId },
@@ -567,14 +1000,21 @@ export class WhatsAppService {
     if (!conv) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Conversación no accesible" });
     }
-    return this.prisma.whatsAppConversation.update({
+    const updated = await this.prisma.whatsAppConversation.update({
       where: { id: conversationId },
       data: {
         status: "HANDED_OFF",
         handoffToHuman: true,
         handoffUserId: userId,
       },
+      include: { handoffUser: { select: { fullName: true } } },
     });
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.handoff, actorId, {
+      userId,
+      userName: updated.handoffUser?.fullName ?? null,
+    });
+    const { handoffUser: _handoffUser, ...conversation } = updated;
+    return conversation;
   }
 
   /**
@@ -589,7 +1029,7 @@ export class WhatsAppService {
     }
     const adapter = conn.provider === "META" ? this.meta : this.evolution;
     const start = Date.now();
-    const result = await adapter.healthCheck();
+    const result = await adapter.healthCheck(conn.id);
     return {
       ok: result.ok,
       latencyMs: Date.now() - start,
@@ -612,6 +1052,16 @@ export class WhatsAppService {
     if (filters.status) where.status = filters.status;
     if (filters.handoff) where.handoffToHuman = filters.handoff === "human";
     if (filters.provider) where.connection = { provider: filters.provider };
+    if (filters.tag) where.tags = { has: filters.tag };
+    // `unassigned` es la cola de la bandeja: transferido a una persona pero sin
+    // dueño. Va en el `where` (no filtrando en memoria la página ya truncada)
+    // para que "los 50 más viejos sin asignar" sean de verdad los más viejos.
+    if (filters.assignee === "unassigned") {
+      where.handoffToHuman = true;
+      where.handoffUserId = null;
+    } else if (filters.assignee) {
+      where.handoffUserId = filters.assignee;
+    }
     if (filters.from || filters.to) {
       where.lastMessageAt = {
         ...(filters.from ? { gte: filters.from } : {}),
@@ -624,31 +1074,51 @@ export class WhatsAppService {
       where,
       include: {
         connection: { select: { provider: true, phoneNumber: true } },
+        handoffUser: { select: { id: true, fullName: true } },
         messages: LATEST_MESSAGE,
       },
-      orderBy: { lastMessageAt: "desc" },
+      orderBy: { lastMessageAt: filters.sort === "oldest" ? "asc" : "desc" },
       take: limit,
     });
 
     // `lastInboundAt` exacto aunque el último mensaje sea nuestro: un
     // groupBy sobre los hilos ya acotados, en vez de traer todo el historial.
-    const lastInbound = rows.length
-      ? await this.prisma.whatsAppMessage.groupBy({
-          by: ["conversationId"],
-          where: {
-            tenantId,
-            direction: "INBOUND",
-            conversationId: { in: rows.map((r) => r.id) },
-          },
-          _max: { createdAt: true },
-        })
-      : [];
+    //
+    // El nombre del cliente va en la misma tanda: `WhatsAppConversation` no
+    // declara una relación a `Customer` (solo guarda `customerId`), así que en
+    // vez de agregar una FK con migración se resuelve con UN `findMany` por
+    // página — no una consulta por fila.
+    const customerIds = Array.from(
+      new Set(rows.map((r) => r.customerId).filter((id): id is string => !!id)),
+    );
+    const [lastInbound, customers] = await Promise.all([
+      rows.length
+        ? this.prisma.whatsAppMessage.groupBy({
+            by: ["conversationId"],
+            where: {
+              tenantId,
+              direction: "INBOUND",
+              conversationId: { in: rows.map((r) => r.id) },
+            },
+            _max: { createdAt: true },
+          })
+        : Promise.resolve([]),
+      customerIds.length
+        ? this.prisma.customer.findMany({
+            where: { tenantId, id: { in: customerIds } },
+            select: { id: true, fullName: true },
+          })
+        : Promise.resolve([]),
+    ]);
     const lastInboundById = new Map(lastInbound.map((g) => [g.conversationId, g._max.createdAt]));
+    const customerById = new Map(customers.map((c) => [c.id, c]));
 
     return rows.map(({ messages, ...row }) => ({
       ...row,
       unanswered: isUnanswered(messages),
       lastInboundAt: lastInboundById.get(row.id) ?? null,
+      lastMessagePreview: previewOf(messages),
+      customer: row.customerId ? (customerById.get(row.customerId) ?? null) : null,
     }));
   }
 
@@ -663,6 +1133,7 @@ export class WhatsAppService {
       select: {
         status: true,
         handoffToHuman: true,
+        handoffUserId: true,
         lastMessageAt: true,
         messages: LATEST_MESSAGE,
       },
@@ -670,10 +1141,22 @@ export class WhatsAppService {
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
 
-    const stats: ConversationStats = { open: 0, handedOff: 0, unanswered: 0, today: 0 };
+    const stats: ConversationStats = {
+      open: 0,
+      handedOff: 0,
+      unanswered: 0,
+      today: 0,
+      queue: 0,
+      assigned: 0,
+    };
     for (const c of rows) {
       if (c.status === "OPEN") stats.open += 1;
       if (c.handoffToHuman) stats.handedOff += 1;
+      // Los contadores de las pestañas salen de este mismo barrido: la
+      // "Cola" y "Por agente" son vistas guardadas de la bandeja, no otra
+      // consulta.
+      if (c.handoffToHuman && !c.handoffUserId) stats.queue += 1;
+      if (c.handoffToHuman && c.handoffUserId) stats.assigned += 1;
       // Un hilo cerrado con último mensaje del cliente no es un pendiente.
       if (c.status !== "CLOSED" && isUnanswered(c.messages)) stats.unanswered += 1;
       if (c.lastMessageAt && c.lastMessageAt >= startOfToday) stats.today += 1;

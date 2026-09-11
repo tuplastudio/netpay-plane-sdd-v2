@@ -58,13 +58,24 @@ from .knowledge import (
     save_uploaded_doc,
     search_knowledge,
 )
-from .agent_settings import DELIVERY_MODES, SALES_STYLES, get_settings_store
+from .agent_settings import (
+    DELIVERY_MODES,
+    HUMAN_REPLY_FILTER_ACTIONS,
+    SALES_STYLES,
+    get_settings_store,
+)
+from .moderation import (
+    DEFAULT_MODERATION_MODEL,
+    model_options as moderation_model_options,
+    moderate_reply,
+)
 from .audio import AudioTooLarge, AudioUnavailable, synthesize, transcribe
 from .scope_guard import is_off_topic, redirect_reply
 from .security import image_size_error
 from .state import TurnContext, cart_summary
 from .text import format_for_whatsapp
 from .tools import SALES_TOOLS
+from .web_reader import WebReadError, crawl_url, save_web_page
 
 settings = get_settings()
 log = logging.getLogger("agent-v2")
@@ -397,6 +408,13 @@ class AgentSettingsPayload(BaseModel):
     openrouter_api_key: str | None = None
     whatsapp_plain_text: bool | None = None
     auto_reply: bool | None = None
+    human_reply_filter_enabled: bool | None = None
+    human_reply_filter_model: str | None = None
+    human_reply_filter_action: str | None = None
+    auto_close_enabled: bool | None = None
+    # "" es un valor con significado (quitar el plazo), igual que la key de
+    # OpenRouter: pasa el filtro `if v is not None` de `put_settings`.
+    auto_close_after: str | None = None
 
 
 async def _settings_view(tenant_id: str) -> dict[str, Any]:
@@ -419,11 +437,16 @@ async def _settings_view(tenant_id: str) -> dict[str, Any]:
             "classifier_model": settings.model,
             "temperature": settings.temperature,
             "max_tokens": settings.max_tokens,
+            "human_reply_filter_model": DEFAULT_MODERATION_MODEL,
         },
         "options": {
             "sales_style": list(SALES_STYLES),
             "default_delivery_mode": list(DELIVERY_MODES),
             "models": [{"id": settings.model, "toolCalling": True, "notes": ""}],
+            # Modelos chicos para el filtro de respuestas humanas, los más
+            # baratos primero (`cheap` los marca para el panel).
+            "human_reply_filter_model": moderation_model_options(),
+            "human_reply_filter_action": list(HUMAN_REPLY_FILTER_ACTIONS),
         },
     }
 
@@ -443,6 +466,27 @@ async def put_settings(req: AgentSettingsPayload, tenantId: str = Query(...)) ->
 async def reset_settings(tenantId: str = Query(...)) -> dict[str, Any]:
     get_settings_store().reset(tenantId)
     return await _settings_view(tenantId)
+
+
+# ---------------- filtro de respuestas humanas ----------------
+
+
+class ModerationRequest(BaseModel):
+    tenantId: str
+    text: str = ""
+
+
+@app.post("/moderation/reply")
+async def moderate_human_reply(req: ModerationRequest) -> dict[str, Any]:
+    """Revisa una respuesta que un operador va a mandarle al cliente.
+
+    No-op (`allowed: true`) si el tenant tiene el filtro apagado, y siempre
+    hacia abierto ante cualquier falla: commerce-api usa esto para decidir si
+    bloquea el envío, así que un moderador caído no puede dejar al negocio sin
+    contestar. Ver `moderation.py`.
+    """
+    result = await moderate_reply(req.tenantId, req.text, settings=settings)
+    return result.to_dict()
 
 
 # ---------------- aprendizaje ----------------
@@ -531,6 +575,55 @@ async def knowledge_delete(doc_id: str, tenantId: str = DEFAULT_TENANT_ID) -> di
     if not removed:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
     return {"deleted": doc_id, "chars": len(reload_knowledge(tenantId))}
+
+
+# ---------------- conocimiento: leer una página web (crawl4ai) ----------------
+# El contenido bajado de la web se trata igual que un .md subido a mano: dato
+# del negocio, nunca instrucción para el modelo (ver docstring de
+# web_reader.py). tenantId llega igual que en el resto de /knowledge/*: query
+# param con default, que el proxy de apps/web siempre sobrescribe con el
+# tenant autenticado antes de reenviar la request.
+
+
+class WebPreviewRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+
+
+class WebSaveRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=2000)
+    title: str = Field(min_length=1, max_length=200)
+    # None = guardar todas las secciones detectadas en el preview.
+    sections: list[str] | None = None
+    filename: str | None = None
+
+
+@app.post("/knowledge/web/preview")
+async def knowledge_web_preview(
+    req: WebPreviewRequest, tenantId: str = DEFAULT_TENANT_ID  # noqa: ARG001 — solo lectura, no toca disco; se acepta por paridad con el resto de /knowledge/*
+) -> dict[str, Any]:
+    result = await crawl_url(req.url)
+    if result.error:
+        raise HTTPException(status_code=400, detail=result.error)
+    return {
+        "url": result.url,
+        "title": result.title,
+        "sections": [{"heading": s.heading, "body": s.body} for s in result.sections],
+    }
+
+
+@app.post("/knowledge/web/save")
+async def knowledge_web_save(req: WebSaveRequest, tenantId: str = DEFAULT_TENANT_ID) -> dict[str, Any]:
+    try:
+        doc_id, _ = await save_web_page(
+            tenantId,
+            url=req.url,
+            title=req.title,
+            selected_sections=req.sections,
+            filename=req.filename,
+        )
+    except (WebReadError, KnowledgeUploadError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"docId": doc_id, "chars": len(reload_knowledge(tenantId))}
 
 
 # ---------------- audio ----------------

@@ -22,7 +22,7 @@ import {
 } from "@nestjs/common";
 import { Request, Response } from "express";
 import { SuperAdminGuard } from "../auth/guards/super-admin.guard.js";
-import { IMPERSONATE_COOKIE } from "../auth/guards/principal.guard.js";
+import { COOKIE_ATTRS, IMPERSONATE_COOKIE } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { SuperAdminService } from "./super-admin.service.js";
@@ -81,6 +81,10 @@ export class SuperAdminController {
       // ventanas de impersonación eternas tras un descuido del super-admin.
       maxAge: 2 * 60 * 60 * 1000,
     });
+    // Traza en la auditoría DEL TENANT: es ahí donde su dueño puede ver que
+    // alguien de plataforma entró como él. Sin esta fila, la impersonación no
+    // dejaba rastro alguno.
+    await this.writeImpersonationAudit("superadmin.impersonation_started", tenant);
     return {
       data: { slug: tenant.slug, name: tenant.name },
       requestId: RequestContext.requestId,
@@ -92,9 +96,57 @@ export class SuperAdminController {
    * vuelven al modo super-admin normal (sin tenant activo).
    */
   @Delete("impersonate")
-  async stopImpersonating(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie(IMPERSONATE_COOKIE, { path: "/" });
+  async stopImpersonating(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Mismos atributos que al emitirla (ver COOKIE_ATTRS): sin Secure el
+    // navegador descarta el borrado de una cookie `__Host-` en producción.
+    const slug = (req.cookies as Record<string, string> | undefined)?.[IMPERSONATE_COOKIE];
+    res.clearCookie(IMPERSONATE_COOKIE, COOKIE_ATTRS);
+
+    // Cierra el par de la traza: la fila `_started` sin su `_stopped` deja
+    // abierta la ventana en la que hay que revisar qué se hizo. Si la cookie
+    // apuntaba a un slug que ya no existe no hay tenantId al que colgar la
+    // fila (AuditLog.tenantId es obligatorio) y se omite en silencio: no había
+    // impersonación efectiva que cerrar.
+    if (slug) {
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { slug },
+        select: { id: true, slug: true },
+      });
+      if (tenant) {
+        await this.writeImpersonationAudit("superadmin.impersonation_stopped", tenant);
+      }
+    }
     return { data: { ok: true }, requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Fila de auditoría de inicio/fin de impersonación. Va al tenant impersonado
+   * y el actor es el super-admin real (en estos dos endpoints el principal
+   * todavía no está sustituido: el guard solo impersona cuando la cookie ya
+   * venía en la petición, y `DELETE` la borra en la respuesta).
+   */
+  private async writeImpersonationAudit(
+    action: "superadmin.impersonation_started" | "superadmin.impersonation_stopped",
+    tenant: { id: string; slug: string },
+  ): Promise<void> {
+    const actorId = RequestContext.userId ?? null;
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: tenant.id,
+        actorId,
+        action,
+        targetType: "Tenant",
+        targetId: tenant.id,
+        metadata: {
+          userId: actorId,
+          impersonatorUserId: actorId,
+          tenantSlug: tenant.slug,
+        },
+      },
+    });
   }
 
   /**
@@ -105,8 +157,12 @@ export class SuperAdminController {
   async currentImpersonation(@Req() req: Request) {
     const slug = (req.cookies as Record<string, string> | undefined)?.[IMPERSONATE_COOKIE];
     if (!slug) return { data: null, requestId: RequestContext.requestId };
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { slug },
+    // Mismo criterio que PrincipalGuard, que solo impersona tenants ACTIVE:
+    // sin el filtro, un tenant suspendido a media sesión seguía saliendo en el
+    // banner ("estás dentro de ACME") mientras el guard ya había vuelto al
+    // tenant propio del super-admin, y las escrituras caían en otro lado.
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { slug, status: "ACTIVE" },
       select: { id: true, slug: true, name: true },
     });
     return { data: tenant, requestId: RequestContext.requestId };

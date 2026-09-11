@@ -146,8 +146,8 @@ export default function SuperAdminUsagePage() {
           title="Total del periodo"
           description={`${monthLabel(month)} · ${tenantLabel}`}
         >
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StatTile
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <StatTile size="compact"
               {...tile}
               label="Costo estimado"
               tone="info"
@@ -155,14 +155,14 @@ export default function SuperAdminUsagePage() {
               value={<Money value={u?.totalCostUsd} currency="USD" />}
               hint={u === undefined ? undefined : "Suma de todos los modelos"}
             />
-            <StatTile
+            <StatTile size="compact"
               {...tile}
               label="Tokens"
               icon={<Cpu className="h-4 w-4" />}
               value={formatInt(u?.totalTokens)}
               hint={u === undefined ? undefined : "Entrada + salida"}
             />
-            <StatTile
+            <StatTile size="compact"
               {...tile}
               label="Turnos del agente"
               icon={<MessagesSquare className="h-4 w-4" />}

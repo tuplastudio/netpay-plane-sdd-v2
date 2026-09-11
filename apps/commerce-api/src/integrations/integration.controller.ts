@@ -13,6 +13,7 @@ import {
 import { Request } from "express";
 import { IntegrationService } from "./integration.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
+import { CreateIntegrationDto, PublishIntegrationEventDto } from "./integration.dto.js";
 import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -38,16 +39,7 @@ export class IntegrationController {
   @Post()
   @HttpCode(201)
   @RequireScopes("integrations.write" as never)
-  async create(
-    @Body()
-    body: {
-      name: string;
-      provider: string;
-      direction: "INBOUND" | "OUTBOUND" | "BIDIRECTIONAL";
-      endpoint?: string;
-      secret?: string;
-    },
-  ) {
+  async create(@Body() body: CreateIntegrationDto) {
     const tenantId = RequestContext.tenantId!;
     return {
       data: await this.integrations.create(tenantId, body),
@@ -89,7 +81,7 @@ export class IntegrationController {
   @RequireScopes("integrations.write" as never)
   async publish(
     @Param("id") id: string,
-    @Body() body: { eventName: string; payload: Record<string, unknown>; secret: string },
+    @Body() body: PublishIntegrationEventDto,
   ) {
     const tenantId = RequestContext.tenantId!;
     return {
@@ -111,9 +103,21 @@ export class IntegrationController {
   async webhook(@Param("token") token: string, @Body() body: unknown, @Req() req: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const prisma = this.prisma as any;
-    const integration = await prisma.integration.findFirst({
-      where: { webhookUrl: { contains: token } },
-    });
+    // El token es el último segmento de webhookUrl (ver IntegrationService.create:
+    // `.../integrations/webhook/<randomBytes(12) hex>`), así que son 24 hex.
+    //
+    // Antes esto buscaba `webhookUrl: { contains: token }`: como la URL guardada
+    // contiene "api.example.com" y "/api/v1/", un POST a /integrations/webhook/api
+    // hacía match con TODAS las integraciones de TODAS las empresas, y findFirst
+    // (sin orderBy) devolvía una cualquiera — se escribía un IntegrationEvent en
+    // el tenant de otro. Además servía de oráculo: probando prefijos se extraía
+    // el token real carácter por carácter. Ahora el match es exacto.
+    const isWellFormed = /^[0-9a-f]{24}$/i.test(token);
+    const integration = isWellFormed
+      ? await prisma.integration.findFirst({
+          where: { webhookUrl: { endsWith: `/integrations/webhook/${token}` } },
+        })
+      : null;
     if (!integration) {
       throw new BadRequestException({
         code: "NOT_FOUND",

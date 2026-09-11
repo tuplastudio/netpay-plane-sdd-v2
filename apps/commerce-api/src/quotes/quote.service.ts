@@ -8,6 +8,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PricingService } from "../pricing/pricing.service.js";
 import { CustomerService } from "../customers/customer.service.js";
@@ -452,10 +453,22 @@ export class QuoteService {
     return t?.token ?? null;
   }
 
+  /**
+   * Token del link público de la cotización. Es una credencial portadora sin
+   * sesión: quien lo tenga ve datos del cliente y precios, así que tiene que
+   * salir de un CSPRNG.
+   *
+   * La versión anterior usaba `Math.random()` (24 chars de un alfabeto de 36 ≈
+   * 124 bits nominales, pero el estado interno del PRNG de V8 es de 128 bits y
+   * no es criptográfico: observando un par de tokens se predicen los
+   * siguientes). Ahora son 24 bytes de `randomBytes` en base64url —192 bits
+   * reales—, el mismo criterio que los CheckoutAccessToken de
+   * `order.controller.ts#createAccessToken`.
+   *
+   * Los tokens ya emitidos siguen siendo válidos: solo cambia cómo se generan
+   * los nuevos, el formato de la columna es texto libre y único.
+   */
   private randomToken(): string {
-    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    let s = "";
-    for (let i = 0; i < 24; i++) s += chars[Math.floor(Math.random() * chars.length)];
-    return s;
+    return randomBytes(24).toString("base64url");
   }
 }

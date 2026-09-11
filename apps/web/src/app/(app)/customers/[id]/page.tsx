@@ -11,6 +11,7 @@ import {
   AlertCircle,
   MapPin,
   MessageCircle,
+  Pencil,
   ShieldCheck,
   UserX,
 } from "lucide-react";
@@ -32,6 +33,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CustomerHistorySection } from "./_components/customer-history";
+import { CustomerEditSheet } from "./_components/customer-edit-sheet";
 
 /**
  * Forma real de `GET /customers/:id` (`customer.service.ts#get`): el registro
@@ -75,6 +77,8 @@ interface CustomerDetail {
   notes: string | null;
   /** `CustomerStatus` — ACTIVE | ARCHIVED. */
   status: string;
+  /** Versión actual (optimistic concurrency en PATCH). */
+  version: number;
   createdAt: string;
   updatedAt: string;
   addresses: CustomerAddress[];
@@ -112,6 +116,7 @@ export default function CustomerDetailPage() {
   const queryClient = useQueryClient();
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   const customerQ = useQuery({
     queryKey: ["customer", params.id],
@@ -269,17 +274,25 @@ export default function CustomerDetailPage() {
           </>
         }
         actions={
-          isArchived ? (
-            <Button variant="outline" onClick={() => setRestoreOpen(true)}>
-              <ArchiveRestore className="h-4 w-4" aria-hidden />
-              Restaurar cliente
-            </Button>
-          ) : (
-            <Button variant="destructive" onClick={() => setArchiveOpen(true)}>
-              <Archive className="h-4 w-4" aria-hidden />
-              Archivar cliente
-            </Button>
-          )
+          <>
+            {!isArchived ? (
+              <Button variant="outline" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-4 w-4" aria-hidden />
+                Editar
+              </Button>
+            ) : null}
+            {isArchived ? (
+              <Button variant="outline" onClick={() => setRestoreOpen(true)}>
+                <ArchiveRestore className="h-4 w-4" aria-hidden />
+                Restaurar cliente
+              </Button>
+            ) : (
+              <Button variant="destructive" onClick={() => setArchiveOpen(true)}>
+                <Archive className="h-4 w-4" aria-hidden />
+                Archivar cliente
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -456,6 +469,12 @@ export default function CustomerDetailPage() {
         variant="default"
         pending={unarchive.isPending}
         onConfirm={() => unarchive.mutate()}
+      />
+
+      <CustomerEditSheet
+        customer={customer}
+        open={editOpen}
+        onOpenChange={setEditOpen}
       />
     </div>
   );

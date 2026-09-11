@@ -55,6 +55,8 @@ export interface MemberRow {
   createdAt: Date;
   /** Solo invitaciones: cuándo caduca el enlace. */
   expiresAt: Date | null;
+  /** Activo como agente de WhatsApp: puede tomar/recibir hilos transferidos. Invitaciones: siempre false. */
+  isAgent: boolean;
 }
 
 const STATUS_ORDER: Record<string, number> = { ACTIVE: 0, INVITED: 1, DISABLED: 2 };
@@ -75,6 +77,7 @@ export class MembershipService {
         userId: true,
         role: true,
         status: true,
+        isAgent: true,
         joinedAt: true,
         createdAt: true,
         // Selección explícita: nunca passwordHash, totpSecret ni recoveryCodesHash.
@@ -112,6 +115,7 @@ export class MembershipService {
         joinedAt: m.joinedAt,
         createdAt: m.createdAt,
         expiresAt: null,
+        isAgent: m.isAgent,
       })),
       // Una invitación cuyo correo ya es miembro es ruido (p.ej. la que emite el
       // bootstrap para el owner): no se lista.
@@ -129,6 +133,7 @@ export class MembershipService {
           joinedAt: null,
           createdAt: i.createdAt,
           expiresAt: i.expiresAt,
+          isAgent: false,
         })),
     ];
 
@@ -462,6 +467,7 @@ export class MembershipService {
       joinedAt: Date;
       createdAt: Date;
       user: { email: string; fullName: string };
+      isAgent?: boolean;
     },
     selfUserId: string,
   ): MemberRow {
@@ -477,6 +483,75 @@ export class MembershipService {
       joinedAt: m.joinedAt,
       createdAt: m.createdAt,
       expiresAt: null,
+      isAgent: m.isAgent ?? false,
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // Agente de WhatsApp (bandeja de conversaciones)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Activa/desactiva a una persona como agente de WhatsApp. No es una
+   * escalada de privilegios (no toca `role`), así que no aplican las reglas
+   * de anti-lockout ni "no te toques a ti mismo": cualquier membresía activa
+   * se puede marcar, incluida la propia.
+   */
+  async setAgent(input: {
+    tenantId: string;
+    actor: MembershipActor;
+    membershipId: string;
+    isAgent: boolean;
+  }): Promise<MemberRow> {
+    return this.prisma.$transaction(async (tx) => {
+      await this.assertCanManage(tx, input.tenantId, input.actor);
+
+      const target = await tx.membership.findFirst({
+        where: { id: input.membershipId, tenantId: input.tenantId },
+        select: {
+          id: true,
+          userId: true,
+          role: true,
+          status: true,
+          joinedAt: true,
+          createdAt: true,
+          user: { select: { email: true, fullName: true } },
+        },
+      });
+      if (!target) {
+        throw new NotFoundException({
+          code: "NOT_FOUND",
+          message: "Membresía no encontrada",
+        });
+      }
+
+      const updated = await tx.membership.update({
+        where: { id: target.id },
+        data: { isAgent: input.isAgent, version: { increment: 1 } },
+        select: {
+          id: true,
+          userId: true,
+          role: true,
+          status: true,
+          isAgent: true,
+          joinedAt: true,
+          createdAt: true,
+          user: { select: { email: true, fullName: true } },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: input.tenantId,
+          actorId: input.actor.userId,
+          action: input.isAgent ? "user.agent_activated" : "user.agent_deactivated",
+          targetType: "Membership",
+          targetId: target.id,
+          metadata: { userId: target.userId, email: target.user.email },
+        },
+      });
+
+      return this.rowOf(updated, input.actor.userId);
+    });
   }
 }

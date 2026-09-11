@@ -13,6 +13,7 @@ import {
 import { Request } from "express";
 import { PaymentService } from "./payment.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
+import { RefundDto } from "./payment.dto.js";
 import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 
@@ -54,13 +55,10 @@ export class PaymentController {
   @Post("refunds")
   @HttpCode(200)
   @RequireScopes("payments.refund")
-  async refund(
-    @Body()
-    body: { sessionId: string; amount: string; reason: string },
-  ) {
+  async refund(@Body() body: RefundDto) {
     const tenantId = RequestContext.tenantId!;
     return {
-      data: await this.payments.refund(tenantId, body.sessionId, body.amount, body.reason),
+      data: await this.payments.refund(tenantId, body.sessionId, body.amount, body.reason ?? ""),
       requestId: RequestContext.requestId,
     };
   }

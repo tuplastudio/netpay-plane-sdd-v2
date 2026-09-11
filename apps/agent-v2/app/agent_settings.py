@@ -30,6 +30,49 @@ from .config import SERVICE_DIR, _env
 SALES_STYLES: tuple[str, ...] = ("cerrador", "consultivo", "informativo")
 DELIVERY_MODES: tuple[str, ...] = ("PICKUP", "LOCAL_DELIVERY")
 
+# Qué hacer cuando el filtro detecta que una respuesta humana maltrata al
+# cliente: "block" no la manda y le pide al operador que la reescriba;
+# "warn" la manda igual pero deja constancia del hallazgo.
+HUMAN_REPLY_FILTER_ACTIONS: tuple[str, ...] = ("block", "warn")
+
+# ---- Autocierre por inactividad ----
+# Formato compacto que pidió el negocio: 30s, 15m, 2h, 1d.
+_DURATION_RE = re.compile(r"^(\d{1,7})(s|m|h|d)$")
+_DURATION_UNIT_SECONDS: dict[str, int] = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+# Menos de 30s cerraría hilos vivos (el cliente todavía está tecleando) y más
+# de 30d no cierra nada en la práctica: los extremos se recortan, no se
+# rechazan, para que un valor raro no deje al panel sin poder guardar.
+AUTO_CLOSE_MIN_SECONDS = 30
+AUTO_CLOSE_MAX_SECONDS = 30 * 86400
+
+
+def duration_to_seconds(value: str) -> int:
+    """`"2h"` -> 7200. 0 si la cadena no tiene el formato compacto."""
+    match = _DURATION_RE.match((value or "").strip().lower())
+    if not match:
+        return 0
+    amount, unit = match.groups()
+    return int(amount) * _DURATION_UNIT_SECONDS[unit]
+
+
+def normalize_duration(value: str) -> str:
+    """Cadena canónica ya recortada al rango permitido, o "" si no es válida.
+
+    Se conserva la unidad que escribió la persona (`90m` no se reescribe a
+    `1h`): el panel muestra de vuelta lo que tecleó. Solo cambia si hubo que
+    recortar, y entonces se emite en la unidad más grande que dé exacto.
+    """
+    seconds = duration_to_seconds(value)
+    if seconds <= 0:
+        return ""
+    clamped = max(AUTO_CLOSE_MIN_SECONDS, min(AUTO_CLOSE_MAX_SECONDS, seconds))
+    if clamped == seconds:
+        return (value or "").strip().lower()
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60), ("s", 1)):
+        if clamped % size == 0:
+            return f"{clamped // size}{unit}"
+    return f"{clamped}s"
+
 
 def _secret_key() -> bytes:
     """Clave AES-256 derivada de AGENT_SECRET_KEY (env var, cualquier largo).
@@ -103,6 +146,21 @@ class AgentSettings:
     whatsapp_plain_text: bool = True
     auto_reply: bool = True
 
+    # ---- Atención humana: filtro de respuestas del operador ----
+    # Cada respuesta que escribe una persona pasa por un modelo pequeño antes
+    # de salir. Apagado por defecto: cada revisión es una llamada al LLM que
+    # el negocio paga, así que se activa a conciencia.
+    human_reply_filter_enabled: bool = False
+    # Vacío = el modelo barato por defecto del servicio (ver moderation.py).
+    human_reply_filter_model: str = ""
+    human_reply_filter_action: str = "block"  # block | warn
+
+    # ---- Atención humana: autocierre por inactividad ----
+    # Apagado ("desconfigurado") de fábrica. `auto_close_after` es la ventana
+    # sin mensajes en formato compacto: 30s, 15m, 2h, 1d.
+    auto_close_enabled: bool = False
+    auto_close_after: str = ""
+
     updated_at: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -119,14 +177,26 @@ class AgentSettings:
         """Key propia del tenant en claro, o "" si no configuró una."""
         return decrypt_secret(self.openrouter_api_key_encrypted)
 
+    def auto_close_seconds(self) -> int:
+        """Ventana de inactividad en segundos, o 0 si no hay autocierre.
+
+        El valor guardado se ignora mientras el check está apagado: así se
+        conserva lo que la persona escribió (para cuando lo vuelva a
+        encender) sin que el job lo tome como configuración activa.
+        """
+        if not self.auto_close_enabled:
+            return 0
+        return duration_to_seconds(self.auto_close_after)
+
 
 _BOOL_FIELDS = {"ask_name_before_quote", "ask_email_before_quote", "auto_history_lookup",
-                "whatsapp_plain_text", "auto_reply"}
+                "whatsapp_plain_text", "auto_reply", "human_reply_filter_enabled",
+                "auto_close_enabled"}
 _OPT_BOOL_FIELDS = {"emoji"}
 _STR_LIMITS = {
     "agent_name": 60, "business_name": 120, "tone": 300, "greeting": 300,
     "language": 10, "currency": 8, "forbidden_topics": 2000, "extra_rules": 4000,
-    "text_model": 120, "classifier_model": 120,
+    "text_model": 120, "classifier_model": 120, "human_reply_filter_model": 120,
 }
 
 
@@ -157,6 +227,13 @@ def sanitize(payload: dict[str, Any], base: AgentSettings | None = None) -> Agen
         elif key == "sales_style":
             style = str(value or "").strip().lower()
             data[key] = style if style in SALES_STYLES else "cerrador"
+        elif key == "human_reply_filter_action":
+            action = str(value or "").strip().lower()
+            data[key] = action if action in HUMAN_REPLY_FILTER_ACTIONS else "block"
+        elif key == "auto_close_after":
+            # Formato inválido = "" (sin autocierre), nunca un error duro: el
+            # panel ya valida en vivo y un valor raro no debe trabar el guardado.
+            data[key] = normalize_duration(str(value or ""))
         elif key == "default_delivery_mode":
             mode = str(value or "").strip().upper()
             data[key] = mode if mode in DELIVERY_MODES else "PICKUP"
@@ -219,7 +296,15 @@ class AgentSettingsStore:
         settings = sanitize(payload, base=self.get(tenant_id))
         path = self._path(tenant_id)
         tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(settings.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        # OJO: hay que persistir `asdict()`, NO `to_dict()`. `to_dict()` es la
+        # vista para el panel y BORRA `openrouter_api_key_encrypted` (lo sustituye
+        # por el booleano `openrouter_api_key_set`), así que guardar eso dejaba el
+        # blob cifrado fuera del JSON: la key sobrevivía solo en `self._cache` y se
+        # perdía en el primer reinicio (y el siguiente PUT la "borraba" al releer
+        # de disco un base sin key). El cifrado at-rest lo da encrypt_secret().
+        tmp.write_text(json.dumps(asdict(settings), ensure_ascii=False, indent=2), encoding="utf-8")
+        # El JSON ahora lleva el secreto cifrado: solo el dueño del proceso lo lee.
+        os.chmod(tmp, 0o600)
         tmp.replace(path)
         self._cache[tenant_id] = settings
         return settings

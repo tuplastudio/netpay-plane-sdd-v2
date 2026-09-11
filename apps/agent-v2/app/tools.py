@@ -285,9 +285,25 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "") -> Command:
     customer: CustomerFacts = dict(runtime.state.get("customer") or {})
     client = _client(runtime)
 
+    # T-CRM-01: toda cotización necesita el nombre real del cliente para que
+    # la base de clientes quede completa. No es negociable por configuración
+    # de tenant: sin nombre, la herramienta se niega y pide al modelo que lo
+    # consiga en el mensaje anterior de preguntar, en vez de emitir con el
+    # placeholder "Cliente de WhatsApp" (eso es lo que dejaba la BD incompleta).
+    full_name = (customer.get("name") or ctx.get("customer_name") or "").strip()
+    if not full_name:
+        return _tool_reply(
+            runtime,
+            _fail(
+                "Aún no tienes el nombre del cliente. Pídeselo primero (¿A nombre de "
+                "quién genero la cotización?) y vuelve a llamar a esta herramienta "
+                "cuando lo tengas; no emitas la cotización sin él."
+            ),
+        )
+
     created, error = await _safe(
         client.ensure_customer(
-            full_name=customer.get("name") or ctx.get("customer_name") or "Cliente de WhatsApp",
+            full_name=full_name,
             phone=customer.get("phone") or ctx.get("customer_phone"),
             email=customer.get("email") or ctx.get("customer_email"),
         )

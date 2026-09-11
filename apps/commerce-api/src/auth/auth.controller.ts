@@ -12,13 +12,18 @@ import { Request, Response } from "express";
 import { AuthService } from "./auth.service.js";
 import { BootstrapService } from "./bootstrap.service.js";
 import { RequestContext } from "../common/context/request-context.js";
-import { IMPERSONATE_COOKIE, Public } from "./guards/principal.guard.js";
+import { COOKIE_ATTRS, IMPERSONATE_COOKIE, Public } from "./guards/principal.guard.js";
 import { InviteService } from "./invite.service.js";
 import {
-  ForgotPasswordDto,
-  ResetPasswordDto,
+  AcceptInviteDto,
+  BootstrapTenantDto,
   ChangePasswordDto,
+  ForgotPasswordDto,
+  LoginDto,
+  MfaCodeDto,
+  ResetPasswordDto,
   SwitchTenantDto,
+  VerifyMfaDto,
 } from "./auth.dto.js";
 
 const SESSION_COOKIE =
@@ -34,15 +39,7 @@ export class AuthController {
 
   @Public()
   @Post("bootstrap")
-  async bootstrapTenant(
-    @Body() body: {
-      tenantName: string;
-      ownerEmail: string;
-      ownerFullName: string;
-      ownerPassword: string;
-      timezone: string;
-    },
-  ) {
+  async bootstrapTenant(@Body() body: BootstrapTenantDto) {
     const result = await this.bootstrap.run(body);
     return {
       data: {
@@ -59,7 +56,7 @@ export class AuthController {
   @Post("login")
   @HttpCode(200)
   async login(
-    @Body() body: { email: string; password: string; tenantSlug?: string },
+    @Body() body: LoginDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
@@ -98,7 +95,7 @@ export class AuthController {
   @Post("mfa/verify")
   @HttpCode(200)
   async verifyMfa(
-    @Body() body: { challengeToken: string; code: string },
+    @Body() body: VerifyMfaDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
@@ -140,7 +137,7 @@ export class AuthController {
 
   @Post("mfa/enroll/confirm")
   @HttpCode(200)
-  async confirmMfa(@Body() body: { code: string }) {
+  async confirmMfa(@Body() body: MfaCodeDto) {
     const userId = RequestContext.userId;
     if (!userId) {
       throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
@@ -152,7 +149,7 @@ export class AuthController {
   /** Apaga MFA en la cuenta propia; exige un código TOTP o recovery code vigente. */
   @Post("mfa/disable")
   @HttpCode(200)
-  async disableMfa(@Body() body: { code: string }) {
+  async disableMfa(@Body() body: MfaCodeDto) {
     const userId = RequestContext.userId;
     if (!userId) {
       throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
@@ -164,7 +161,7 @@ export class AuthController {
   /** Reemplaza los recovery codes vigentes; exige un código TOTP vigente. */
   @Post("mfa/recovery-codes/regenerate")
   @HttpCode(200)
-  async regenerateRecoveryCodes(@Body() body: { code: string }) {
+  async regenerateRecoveryCodes(@Body() body: MfaCodeDto) {
     const userId = RequestContext.userId;
     if (!userId) {
       throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
@@ -203,7 +200,7 @@ export class AuthController {
       throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
     }
     const result = await this.auth.switchTenant({ userId, sessionId, tenantId: body.tenantId });
-    res.clearCookie(IMPERSONATE_COOKIE, { path: "/" });
+    res.clearCookie(IMPERSONATE_COOKIE, COOKIE_ATTRS);
     return { data: result, requestId: RequestContext.requestId };
   }
 
@@ -215,7 +212,12 @@ export class AuthController {
   ): Promise<void> {
     const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
     await this.auth.logout(token);
-    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    res.clearCookie(SESSION_COOKIE, COOKIE_ATTRS);
+    // La cookie de impersonación no tiene estado en servidor: si no se borra
+    // aquí sobrevive al logout, y al volver a entrar desde el mismo navegador
+    // el super-admin reaparecía dentro del tenant que estaba impersonando sin
+    // haberlo pedido.
+    res.clearCookie(IMPERSONATE_COOKIE, COOKIE_ATTRS);
   }
 
   @Public()
@@ -245,7 +247,7 @@ export class AuthController {
   @Public()
   @Post("accept-invite")
   @HttpCode(200)
-  async acceptInvite(@Body() body: { token: string; password: string }) {
+  async acceptInvite(@Body() body: AcceptInviteDto) {
     const result = await this.invite.acceptInvite(body);
     return { data: result, requestId: RequestContext.requestId };
   }

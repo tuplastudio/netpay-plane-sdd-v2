@@ -5,8 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  CirclePlus,
-  FileText,
   Minus,
   Package,
   Plus,
@@ -26,11 +24,9 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Money, formatMoney } from "@/components/app/money";
-import { Section } from "@/components/app/section";
 import { apiErrorMessage } from "@/app/(app)/admin/_components/api-error";
 import { ProductDetailSheet } from "@/components/app/product-detail-sheet";
 
@@ -93,52 +89,42 @@ function titleGroup(title: string): string {
 /**
  * Cotizador rediseñado:
  *
- * - Botón en la lista que abre un **Sheet** ancho (más alto que un modal
- *   típico: 95% del viewport con un grid 3 columnas) para tener todo a la
+ * - Sheet ancho (95% del viewport, grid 3 columnas) para tener todo a la
  *   vista sin perder el contexto del listado de cotizaciones.
  * - Columna 1: tabs por inicial del título del producto. Cada tab es una
- *   rejilla de **cards de producto**: imagen, título, SKU y precio "desde".
+ *   rejilla de cards de producto: imagen, título, SKU y precio "desde".
  * - Columna 2: variantes del producto seleccionado. Una card por variante
- *   con precio, SKU y stock; tocar **Agrega** la empuja al carrito.
+ *   con precio, SKU y stock; tocar **Agregar** la empuja al carrito.
  * - Columna 3: carrito con líneas editables (cantidad, descuento) y totales
  *   calculados por el backend. Crear la cotización cierra el sheet.
  *
  * El sheet es una pieza grande a propósito: en el flujo real el vendedor
  * pasa del catálogo a la cotización con la misma ventana abierta y nunca
  * necesita abrir el detalle de cada variante en otra pestaña.
+ *
+ * **Cómo se abre:** el trigger vive en el `PageHeader` de la página
+ * `/quotes`, NO aquí dentro. Esta vista solo RENDERIZA el Sheet cuando el
+ * padre lo abre (`open=true`); tener el botón adentro duplicaba el título
+ * "Cotizaciones" tres veces (PageHeader, sección del trigger, sección del
+ * listado).
  */
-export function NewQuoteForm() {
-  const [open, setOpen] = useState(false);
-
+export function NewQuoteForm({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   return (
-    <Section
-      title="Cotizaciones"
-      headerIcon={<FileText className="h-4 w-4" />}
-      description="Arma una cotización con productos, variantes y cliente en un solo lugar."
-      actions={
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>
-            <Button size="sm">
-              <CirclePlus aria-hidden className="h-3.5 w-3.5" />
-              Nueva cotización
-            </Button>
-          </SheetTrigger>
-          <SheetContent
-            side="right"
-            title="Nueva cotización"
-            className="flex w-full flex-col gap-0 p-0 sm:max-w-[95vw]"
-          >
-            <QuoteSheet onDone={() => setOpen(false)} />
-          </SheetContent>
-        </Sheet>
-      }
-    >
-      <p className="text-sm text-muted-foreground">
-        Pulsa <strong className="font-semibold">Nueva cotización</strong> en la esquina superior
-        derecha para abrir el cotizador. Los totales los calcula el backend (no el navegador),
-        así que puedes confiar en el resultado antes de emitirla.
-      </p>
-    </Section>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        title="Nueva cotización"
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-[95vw]"
+      >
+        <QuoteSheet onDone={() => onOpenChange(false)} />
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -675,6 +661,17 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
           {create.isPending ? "Creando…" : "Crear cotización"}
         </Button>
       </div>
+
+      <ProductDetailSheet
+        product={selectedProduct}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onAddVariant={(v) => {
+          if (!selectedProduct) return;
+          addVariant(selectedProduct, v as Variant);
+          setDetailOpen(false);
+        }}
+      />
     </form>
   );
 
@@ -687,27 +684,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
       close();
     };
   }
-
-  return (
-    <ProductDetailSheet
-      product={selectedProduct}
-      open={detailOpen}
-      onOpenChange={setDetailOpen}
-      onAddVariant={(v) => {
-        if (!selectedProduct) return;
-        addVariant(selectedProduct, v as Variant);
-        setDetailOpen(false);
-      }}
-    />
-  );
 }
-
-/**
- * Sheet de detalle del producto seleccionado: descripción, tags, sinónimos,
- * claves SAT y todas sus variantes con precio/stock. Vive aparte del flujo
- * del cotizador para no romper el layout de 3 columnas.
- */
-/* usa ProductDetailSheet compartido — ver components/app/product-detail-sheet.tsx */
 
 /**
  * Card cuadrada para la rejilla de productos. Toca la card para que el panel
@@ -751,3 +728,6 @@ function ProductCard({
     </button>
   );
 }
+
+// Re-exports para que el type-check encuentre tipos del archivo viejo.
+export type { Product, Variant };

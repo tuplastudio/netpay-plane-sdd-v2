@@ -143,9 +143,9 @@ export default function CustomersPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => router.push(`/quotes?customerId=${c.id}`)}
+          onClick={() => router.push(`/customers/${c.id}`)}
         >
-          Cotizar
+          Ver
           <ArrowRight className="h-3.5 w-3.5" />
         </Button>
       ),
@@ -251,6 +251,8 @@ export default function CustomersPage() {
             isError={list.isError}
             error={list.error}
             onRetry={() => void list.refetch()}
+            getRowHref={(c) => `/customers/${c.id}`}
+            getRowActionLabel={(c) => `Ver ficha de ${c.fullName}`}
             caption="Clientes del comercio"
             empty={{
               icon: <Users className="h-6 w-6" />,

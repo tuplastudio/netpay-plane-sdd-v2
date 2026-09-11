@@ -1,4 +1,20 @@
-import { IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from "class-validator";
+import { Type } from "class-transformer";
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateNested,
+} from "class-validator";
 
 // Mismo motivo que quote.dto.ts / catalog.dto.ts: un `@Body() body: {...}` con
 // tipo literal no se valida en runtime pese al ValidationPipe global (el pipe
@@ -79,4 +95,75 @@ export class QuickChargeDto {
     message: "idempotencyKey debe ser un identificador opaco de 8 a 128 caracteres",
   })
   idempotencyKey?: string;
+}
+
+/**
+ * Línea de pedido. A diferencia de `QuoteLineDto` la cantidad NO se fija en
+ * `NN.NNN`: el panel manda lo que el operador escribe en el input ("2"),
+ * mientras que el flujo desde cotización y el agente mandan la decimal
+ * serializada de Prisma ("2.000"). Se acepta cualquier decimal razonable y el
+ * redondeo/validación de negocio lo sigue haciendo `PricingService`.
+ */
+export class OrderLineDto {
+  @IsUUID()
+  variantId!: string;
+
+  @IsString()
+  @Matches(/^\d{1,10}(\.\d{1,3})?$/, { message: "quantity debe ser un decimal de hasta 3 posiciones" })
+  quantity!: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountPct?: number;
+}
+
+/** Body de POST /orders (alta directa, sin cotización previa). */
+export class CreateOrderDto {
+  @IsUUID()
+  customerId!: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  // Mismo tope que PricingService.price (ADR-011): rechazarlo aquí evita
+  // cargar 10k variantes para luego fallar.
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => OrderLineDto)
+  lines!: OrderLineDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  notes?: string;
+}
+
+/** Body de POST /orders/:id/checkout. */
+export class StartCheckoutDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => OrderLineDto)
+  lines!: OrderLineDto[];
+
+  @IsIn(["PICKUP", "LOCAL_DELIVERY"], { message: "deliveryMode inválido" })
+  deliveryMode!: "PICKUP" | "LOCAL_DELIVERY";
+
+  /** Los agentes lo mandan como `null` explícito cuando no hay dirección. */
+  @IsOptional()
+  @IsUUID()
+  addressId?: string;
+}
+
+/**
+ * Body de PATCH /orders/:id/cancel. `reason` es opcional y libre: el panel
+ * manda "manual" y el agente un texto del cliente.
+ */
+export class CancelOrderDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }

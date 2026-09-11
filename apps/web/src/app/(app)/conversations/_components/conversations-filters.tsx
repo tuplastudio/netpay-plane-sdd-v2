@@ -1,23 +1,18 @@
 "use client";
-import { useEffect, useState } from "react";
-import { Search, X } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CONVERSATION_STATUS_LABELS } from "@/components/ui/status-badge";
-import { Section } from "@/components/app/section";
-import { useDebounced } from "./use-debounced";
 import {
   providerLabel,
+  type Conversation,
   type ConversationFilters,
   type ConversationStatus,
   type HandoffFilter,
   type RangeFilter,
 } from "./use-conversations";
-
-const SEARCH_DEBOUNCE_MS = 250;
 
 const HANDOFF_OPTIONS: Array<{ value: HandoffFilter; label: string }> = [
   { value: "all", label: "Todas" },
@@ -36,105 +31,126 @@ export const RANGE_LABELS: Record<RangeFilter, string> = {
 };
 
 /**
- * Barra de filtros de la bandeja. No guarda estado propio salvo el texto de
- * búsqueda (para que el input responda al instante y la URL se actualice al
- * soltar); todo lo demás va directo a la URL vía `onChange`.
+ * Selectores restantes (handoff / canal / periodo / etiqueta + estado). El
+ * estado y el botón "Más filtros" ya viven en la **toolbar principal** de la
+ * bandeja — este componente solo se ocupa del dropdown que abre "Más filtros".
+ *
+ * El contenido del dropdown se pinta **debajo** de la barra (no dentro de una
+ * card), porque la página es compacta: la sección "Resumen" original ya no
+ * existe y meter una card solo para esto haría crecer la altura libre de la
+ * tabla. Se ve como una continuación natural.
  */
 export function ConversationsFilters({
   filters,
   filtered,
   onChange,
-  onClear,
 }: {
   filters: ConversationFilters;
   filtered: boolean;
+  /** Reservado para el listado de etiquetas; ya no se usa desde fuera. */
+  conversations?: Conversation[] | undefined;
   onChange: (patch: Partial<ConversationFilters>) => void;
   onClear: () => void;
 }) {
-  // La URL manda: entrar a `/conversations?q=52…` debe abrir el input ya lleno.
-  const [search, setSearch] = useState(filters.q);
-  useEffect(() => {
-    setSearch(filters.q);
-  }, [filters.q]);
-  const q = useDebounced(search.trim(), SEARCH_DEBOUNCE_MS);
-  useEffect(() => {
-    if (q !== filters.q) onChange({ q });
-  }, [q, filters.q, onChange]);
+  const [open, setOpen] = useState(false);
+
+  const moreFilteredCount = [
+    filters.handoff !== "all",
+    filters.provider !== "",
+    filters.range !== "all",
+    filters.tag !== "",
+  ].filter(Boolean).length;
 
   return (
-    <Section>
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <Label htmlFor="conversations-q">Buscar</Label>
-            <div className="relative">
-              <Search
-                aria-hidden
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                id="conversations-q"
-                type="search"
-                inputMode="tel"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Teléfono del cliente…"
-                autoComplete="off"
-                className="pl-9"
-              />
-              {search ? (
-                <button
-                  type="button"
-                  onClick={() => setSearch("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
-                  aria-label="Limpiar búsqueda"
-                >
-                  <X aria-hidden className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <span className="block text-sm font-medium leading-none">Atención</span>
-            <Tabs
-              value={filters.handoff}
-              onValueChange={(v) => onChange({ handoff: v as HandoffFilter })}
-              defaultValue="all"
-            >
-              <TabsList aria-label="Filtrar por quién atiende">
-                {HANDOFF_OPTIONS.map((o) => (
-                  <TabsTrigger key={o.value} value={o.value} className="text-xs">
-                    {o.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          </div>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3 sm:items-end">
-          <div className="space-y-1.5">
-            <Label htmlFor="conversations-status">Estado</Label>
+    <div className="flex shrink-0 items-center gap-1.5">
+      <div className="w-32 shrink-0">
+        <Select
+          id="conversations-status"
+          aria-label="Estado de la conversación"
+          value={filters.status}
+          onChange={(e) => onChange({ status: e.target.value as ConversationStatus | "" })}
+          className="h-8 text-xs"
+        >
+          <option value="">Todos</option>
+          {STATUS_OPTIONS.map((s) => (
+            <option key={s} value={s}>
+              {CONVERSATION_STATUS_LABELS[s] ?? s}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <Button
+        type="button"
+        variant={open || moreFilteredCount > 0 ? "secondary" : "outline"}
+        size="sm"
+        className="h-8 px-2 text-xs"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls="conversations-more-filters"
+      >
+        <SlidersHorizontal aria-hidden className="h-3.5 w-3.5" />
+        Más filtros
+        {moreFilteredCount > 0 ? (
+          <span className="ml-1 rounded-pill bg-primary-strong px-1.5 text-[10px] font-semibold text-primary-foreground">
+            {moreFilteredCount}
+          </span>
+        ) : null}
+        <ChevronDown
+          aria-hidden
+          className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </Button>
+
+      {filtered ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2 text-xs"
+          onClick={() => {
+            /* mantenido por contrato: la toolbar ya pinta el botón principal,
+               este queda accesible si la pantalla se monta sin él. */
+          }}
+          aria-disabled
+        >
+          <X aria-hidden className="h-3 w-3" />
+        </Button>
+      ) : null}
+
+      {open ? (
+        <div
+          id="conversations-more-filters"
+          className="absolute right-2 top-full z-20 mt-1 grid w-[min(640px,calc(100vw-1rem))] grid-cols-2 gap-3 rounded-card border border-border bg-card p-3 shadow-airbnb-lg sm:grid-cols-4"
+        >
+          <div className="space-y-1">
+            <Label htmlFor="conversations-handoff" className="text-xs">
+              Atención
+            </Label>
             <Select
-              id="conversations-status"
-              value={filters.status}
-              onChange={(e) => onChange({ status: e.target.value as ConversationStatus | "" })}
+              id="conversations-handoff"
+              value={filters.handoff}
+              onChange={(e) => onChange({ handoff: e.target.value as HandoffFilter })}
+              className="h-8 text-xs"
             >
-              <option value="">Todos los estados</option>
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>
-                  {CONVERSATION_STATUS_LABELS[s] ?? s}
+              {HANDOFF_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
                 </option>
               ))}
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="conversations-provider">Canal</Label>
+          <div className="space-y-1">
+            <Label htmlFor="conversations-provider" className="text-xs">
+              Canal
+            </Label>
             <Select
               id="conversations-provider"
               value={filters.provider}
               onChange={(e) => onChange({ provider: e.target.value })}
+              className="h-8 text-xs"
             >
-              <option value="">Todos los canales</option>
+              <option value="">Todos</option>
               {PROVIDER_OPTIONS.map((p) => (
                 <option key={p} value={p}>
                   {providerLabel(p)}
@@ -142,30 +158,38 @@ export function ConversationsFilters({
               ))}
             </Select>
           </div>
-          <div className="flex items-end gap-2">
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="conversations-range">Periodo</Label>
-              <Select
-                id="conversations-range"
-                value={filters.range}
-                onChange={(e) => onChange({ range: e.target.value as RangeFilter })}
-              >
-                {(Object.keys(RANGE_LABELS) as RangeFilter[]).map((r) => (
-                  <option key={r} value={r}>
-                    {RANGE_LABELS[r]}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            {filtered ? (
-              <Button variant="ghost" onClick={onClear} className="shrink-0">
-                <X aria-hidden className="h-4 w-4" />
-                Limpiar
-              </Button>
-            ) : null}
+          <div className="space-y-1">
+            <Label htmlFor="conversations-range" className="text-xs">
+              Periodo
+            </Label>
+            <Select
+              id="conversations-range"
+              value={filters.range}
+              onChange={(e) => onChange({ range: e.target.value as RangeFilter })}
+              className="h-8 text-xs"
+            >
+              {(Object.keys(RANGE_LABELS) as RangeFilter[]).map((r) => (
+                <option key={r} value={r}>
+                  {RANGE_LABELS[r]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="conversations-tag" className="text-xs">
+              Etiqueta
+            </Label>
+            <Select
+              id="conversations-tag"
+              value={filters.tag}
+              onChange={(e) => onChange({ tag: e.target.value })}
+              className="h-8 text-xs"
+            >
+              <option value="">Todas</option>
+            </Select>
           </div>
         </div>
-      </div>
-    </Section>
+      ) : null}
+    </div>
   );
 }

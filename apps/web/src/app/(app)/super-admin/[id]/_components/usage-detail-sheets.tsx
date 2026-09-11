@@ -249,7 +249,7 @@ export function MonthUsageSheet({
         </SheetHeader>
 
         <div className="mt-6 space-y-6">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <StatTile
               {...tile}
               label="Costo del mes"
@@ -370,7 +370,7 @@ export function ModelUsageSheet({
         </SheetHeader>
 
         <div className="mt-6 space-y-6">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-2">
             <StatTile
               {...tile}
               label="Costo del periodo"

@@ -5,6 +5,7 @@ import {
   IsArray,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -166,4 +167,18 @@ export class UpdateVariantDto {
   @IsOptional()
   @IsIn(STATUS_VALUES)
   status?: (typeof STATUS_VALUES)[number];
+}
+
+/**
+ * Body de POST /catalog/imports/dry-run. Las filas son el CSV crudo tal cual
+ * (columna → valor), así que su forma interna la valida `dryRunImport` fila a
+ * fila y reporta los errores; aquí solo se acota que sea una lista de objetos
+ * y su tamaño (el servicio ya rechaza >10 000, pero llegaba después de
+ * deserializar el cuerpo entero).
+ */
+export class DryRunImportDto {
+  @IsArray()
+  @ArrayMaxSize(10_000, { message: "Máximo 10 000 filas por importación" })
+  @IsObject({ each: true, message: "cada fila debe ser un objeto" })
+  rows!: Array<Record<string, string>>;
 }

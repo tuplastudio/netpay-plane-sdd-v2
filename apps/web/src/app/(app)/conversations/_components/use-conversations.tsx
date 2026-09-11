@@ -17,16 +17,33 @@ export type ConversationStatus = "OPEN" | "HANDED_OFF" | "CLOSED";
 
 export interface Conversation {
   id: string;
+  customerId: string | null;
+  /** Ficha vinculada, resuelta por el API en una consulta por página. */
+  customer: { id: string; fullName: string } | null;
   externalPhone: string;
   /** ConversationStatus: OPEN | HANDED_OFF | CLOSED */
   status: string;
   handoffToHuman: boolean;
+  handoffUserId: string | null;
+  handoffUser: { id: string; fullName: string } | null;
+  tags: string[];
   lastMessageAt: string | null;
   /** El último mensaje es del cliente y nadie ha contestado. */
   unanswered: boolean;
   /** Última vez que escribió el cliente. */
   lastInboundAt: string | null;
+  /** Adelanto de texto del último mensaje, para la lista de la bandeja. */
+  lastMessagePreview: string | null;
   connection: { provider: string; phoneNumber: string | null };
+}
+
+/** Agente humano activo en WhatsApp, con cuántos hilos lleva ahora. */
+export interface Agent {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string;
+  activeConversations: number;
 }
 
 /** KPIs del tenant completo (el API los calcula sin aplicar los filtros). */
@@ -35,6 +52,10 @@ export interface ConversationStats {
   handedOff: number;
   unanswered: number;
   today: number;
+  /** Transferidos sin dueño: la pestaña "Cola". */
+  queue: number;
+  /** Transferidos con dueño: la pestaña "Por agente". */
+  assigned: number;
 }
 
 export interface ConversationList {
@@ -44,6 +65,19 @@ export interface ConversationList {
 
 export type HandoffFilter = "all" | "agent" | "human";
 export type RangeFilter = "all" | "today" | "7d" | "30d";
+/**
+ * Orden del listado. `oldest` es el orden de triage: lo que lleva más tiempo
+ * sin moverse, primero. Lo resuelve el API en el índice `(tenantId,
+ * lastMessageAt)`; no se reordena aquí una página ya truncada.
+ */
+export type SortFilter = "recent" | "oldest";
+
+/**
+ * Vistas guardadas de la bandeja. No son tres pantallas distintas: son el
+ * mismo listado con un `assignee` distinto, y TODOS los filtros aplican a las
+ * tres.
+ */
+export type InboxView = "inbox" | "queue" | "byAgent";
 
 /** Filtros de la bandeja. Viajan en la URL y de ahí al API. */
 export interface ConversationFilters {
@@ -52,6 +86,11 @@ export interface ConversationFilters {
   status: ConversationStatus | "";
   provider: string;
   range: RangeFilter;
+  tag: string;
+  sort: SortFilter;
+  view: InboxView;
+  /** Persona dueña del hilo; solo se usa dentro de la vista "Por agente". */
+  agent: string;
 }
 
 export const DEFAULT_FILTERS: ConversationFilters = {
@@ -60,7 +99,22 @@ export const DEFAULT_FILTERS: ConversationFilters = {
   status: "",
   provider: "",
   range: "all",
+  tag: "",
+  sort: "recent",
+  view: "inbox",
+  agent: "",
 };
+
+/**
+ * `assignee` que le toca a cada vista. La "Cola" es la cola sin dueño; "Por
+ * agente" acota a una persona si se eligió una, y si no deja que el API
+ * devuelva todo (el filtro `handoff=human` de la vista se encarga del resto).
+ */
+export function assigneeFor(filters: ConversationFilters): string | undefined {
+  if (filters.view === "queue") return "unassigned";
+  if (filters.view === "byAgent") return filters.agent || undefined;
+  return undefined;
+}
 
 /**
  * Tope del listado. El API no pagina conversaciones por cursor (ordena por
@@ -90,6 +144,9 @@ export interface ConversationNote {
   createdAt: string;
   author: { id: string; fullName: string; email: string } | null;
 }
+
+/** Nota interna sobre UN mensaje puntual (mismo shape que `ConversationNote`). */
+export type MessageNote = ConversationNote;
 
 /** Adjunto tal como lo recibe `POST conversations/:id/attachments`. */
 export interface AttachmentPayload {
@@ -137,6 +194,11 @@ export function useConversations(filters: ConversationFilters = DEFAULT_FILTERS)
           provider: filters.provider || undefined,
           from: rangeFrom(filters.range),
           limit: CONVERSATIONS_LIMIT,
+          tag: filters.tag || undefined,
+          sort: filters.sort === "recent" ? undefined : filters.sort,
+          assignee: assigneeFor(filters),
+          // "Por agente" son, por definición, los hilos que lleva una persona.
+          ...(filters.view === "byAgent" && !filters.agent ? { handoff: "human" } : {}),
         },
       });
       return res.data;
@@ -200,9 +262,18 @@ export function useHandoff(userId: string | undefined) {
   });
 }
 
-/** Mensaje del API cuando la regla o la validación rechazan la acción. */
-function apiErrorMessage(error: unknown, fallback: string): string {
-  const msg = (error as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+/**
+ * Mensaje del API cuando la regla o la validación rechazan la acción. El
+ * `HttpExceptionFilter` (apps/commerce-api/src/common/filters) manda el
+ * mensaje anidado en `error.message` (`{ error: { code, message, … },
+ * requestId }`), no plano en `data.message` — de ahí que se revise primero
+ * ese anidado y solo si falta se caiga al plano, antes del fallback fijo.
+ */
+export function apiErrorMessage(error: unknown, fallback: string): string {
+  const data = (
+    error as { response?: { data?: { message?: unknown; error?: { message?: unknown } } } }
+  )?.response?.data;
+  const msg = data?.error?.message ?? data?.message;
   return typeof msg === "string" && msg ? msg : fallback;
 }
 
@@ -268,6 +339,9 @@ export function useAddNote(conversationId: string | undefined) {
     onSuccess: async () => {
       toast.success("Nota guardada");
       await queryClient.invalidateQueries({ queryKey: ["whatsapp-notes", conversationId] });
+      // Las notas del hilo se asoman también en el panel de contexto y en la
+      // línea de tiempo: ambas viven en la query del contexto.
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", conversationId] });
     },
     onError: (error) => toast.error(apiErrorMessage(error, "No se pudo guardar la nota")),
   });
@@ -291,5 +365,139 @@ export function useReturnToAgent() {
       await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
     },
     onError: (error) => toast.error(apiErrorMessage(error, "No se pudo devolver al agente")),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Notas por mensaje, etiquetas de hilo y agentes humanos (bandeja fase 2)
+// ---------------------------------------------------------------------------
+
+export function useMessageNotes(messageId: string | undefined) {
+  return useQuery({
+    queryKey: ["whatsapp-message-notes", messageId],
+    queryFn: async () => {
+      const res = await api.get<{ data: MessageNote[] }>(`/whatsapp/messages/${messageId!}/notes`);
+      return res.data.data;
+    },
+    enabled: !!messageId,
+  });
+}
+
+export function useAddMessageNote(messageId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: string) => {
+      const res = await api.post<{ data: MessageNote }>(
+        `/whatsapp/messages/${messageId!}/notes`,
+        { body },
+      );
+      return res.data.data;
+    },
+    onSuccess: async () => {
+      toast.success("Nota guardada");
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-message-notes", messageId] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo guardar la nota")),
+  });
+}
+
+/** Reemplaza las etiquetas del hilo (chips: agregar/quitar). */
+export function useSetTags(conversationId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (tags: string[]) => {
+      const res = await api.patch<{ data: Conversation }>(
+        `/whatsapp/conversations/${conversationId!}/tags`,
+        { tags },
+      );
+      return res.data.data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", conversationId] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudieron guardar las etiquetas")),
+  });
+}
+
+/** Personas activas como agente de WhatsApp, con su carga actual. */
+export function useAgents() {
+  return useQuery({
+    queryKey: ["whatsapp-agents"],
+    queryFn: async () => {
+      const res = await api.get<{ data: Agent[] }>("/whatsapp/agents");
+      return res.data.data;
+    },
+  });
+}
+
+/** "Tomar": el usuario en sesión se asigna un hilo de la cola sin asignar. */
+export function useClaim() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      await api.post(`/whatsapp/conversations/${conversationId}/claim`);
+    },
+    onSuccess: async () => {
+      toast.success("Conversación asignada a ti");
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-agents"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context"] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo tomar la conversación")),
+  });
+}
+
+/**
+ * Cerrar / reabrir un hilo a mano (`PATCH conversations/:id/status`). Es lo que
+ * convierte la bandeja en una cola de tickets: hasta ahora solo el job de
+ * inactividad podía cerrar, y nada podía reabrir.
+ *
+ * Invalida también el contexto porque el cierre/reapertura deja una entrada en
+ * la línea de tiempo de "Actividad".
+ */
+export function useSetConversationStatus() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; status: "OPEN" | "CLOSED" }) => {
+      const res = await api.patch<{ data: Conversation }>(
+        `/whatsapp/conversations/${input.id}/status`,
+        { status: input.status },
+      );
+      return res.data.data;
+    },
+    onSuccess: async (_data, input) => {
+      toast.success(input.status === "CLOSED" ? "Conversación cerrada" : "Conversación reabierta");
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", input.id] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo cambiar el estado")),
+  });
+}
+
+/**
+ * Manda texto (típicamente un link de cotización) aunque el hilo siga con el
+ * agente. Endpoint dedicado: no afloja la regla de `useReply`.
+ */
+export function useSendQuoteMessage(conversationId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: string) => {
+      const res = await api.post<{ data: Message }>(
+        `/whatsapp/conversations/${conversationId!}/send-quote`,
+        { body },
+      );
+      return res.data.data;
+    },
+    onSuccess: async (message) => {
+      if (message.status === "FAILED") {
+        toast.error(message.errorMessage ?? "WhatsApp no aceptó el mensaje");
+      } else {
+        toast.success("Cotización enviada por WhatsApp");
+      }
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-messages", conversationId] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo enviar la cotización")),
   });
 }

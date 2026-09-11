@@ -15,6 +15,17 @@ export interface Principal {
   apiKeyId?: string;
   /** Gestiona /super-admin: crear/editar tenants, cross-tenant. Nunca viene de un API key de servicio. */
   isSuperAdmin?: boolean;
+  /**
+   * La petición corre bajo impersonación: `tenantId` y `role` son los del
+   * tenant impersonado, no los del usuario. Ver PrincipalGuard.
+   */
+  impersonated?: boolean;
+  /**
+   * Usuario real detrás de la impersonación (el super-admin). Coincide con
+   * `userId`, pero se guarda aparte para que quede explícito en la auditoría
+   * que la acción NO la hizo el dueño del tenant.
+   */
+  impersonatorUserId?: string;
 }
 
 interface RequestStore {
@@ -58,5 +69,30 @@ export const RequestContext = {
 
   get userId(): string | undefined {
     return storage.getStore()?.principal.userId;
+  },
+
+  /** La petición corre bajo impersonación de un super-admin. */
+  get impersonated(): boolean {
+    return storage.getStore()?.principal.impersonated === true;
+  },
+
+  /** Super-admin real detrás de la impersonación, si la hay. */
+  get impersonatorUserId(): string | undefined {
+    return storage.getStore()?.principal.impersonatorUserId;
+  },
+
+  /**
+   * Sello de impersonación para adjuntar al `metadata` de un AuditLog. Vacío
+   * cuando la petición no es impersonada, para no ensuciar las filas normales.
+   * Lo aplica automáticamente el middleware de Prisma (ver PrismaService), así
+   * que ningún servicio tiene que acordarse de llamarlo.
+   */
+  get auditImpersonationStamp(): Record<string, unknown> {
+    const principal = storage.getStore()?.principal;
+    if (!principal?.impersonated) return {};
+    return {
+      impersonated: true,
+      impersonatorUserId: principal.impersonatorUserId ?? principal.userId ?? null,
+    };
   },
 };

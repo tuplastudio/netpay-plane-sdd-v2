@@ -1,0 +1,210 @@
+# NetPay Plane — compose de PRODUCCIÓN (Droplet, una sola máquina).
+#
+# Diferencias vs infra/compose.yaml:
+#   - Postgres → Neon (gestionado). Solo se publica DATABASE_URL; no hay
+#     contenedor local de Postgres, no hay volumen `postgres_data`.
+#   - RabbitMQ → CloudAMQP. BROKER_URL apunta al cluster gestionado; el
+#     contenedor commerce-worker ya no necesita un broker "vecino" en
+#     compose, solo la URL.
+#   - MinIO → DigitalOcean Spaces (S3-compatible). OBJECT_STORAGE_*
+#     apunta al endpoint público; el volumen `minio_data` no existe.
+#   - Los secretos (SESSION_SECRET, TOKEN_ENCRYPTION_KEY, OPENROUTER_KEY,
+#     AGENT_INTERNAL_KEY, AGENT_SECRET_KEY, AGENT_API_KEY_REF, etc.) NO
+#     están aquí: vienen del entorno del Droplet o de un .env NO
+#     versionado en la máquina. Este archivo se lleva al repo solo
+#     porque la estructura de servicios (qué apps, qué redes, qué health
+#     checks) es código revisable.
+#
+# Uso (desde la raíz del repo, después de clonar y subir las .env):
+#   docker compose -f infra/compose.prod.yaml --env-file .env.prod up -d
+#
+# Punto de entrada público: web en :3000 (Caddy / Traefik delante para TLS).
+# No exponemos 4000/4100/8000/8010 al host: solo `web` ve el exterior; el
+# resto habla por la red interna `netpay_internal`.
+
+services:
+  commerce-api:
+    build:
+      context: ..
+      dockerfile: apps/commerce-api/Dockerfile
+    container_name: netpay_commerce_api
+    restart: unless-stopped
+    env_file:
+      - path: ./.env.prod
+        required: true
+    environment:
+      NODE_ENV: production
+      API_PORT: "4000"
+      # Servidor-a-servidor dentro del Droplet: el dummy-gateway vive en
+      # la misma red interna, así que su hostname es el del servicio.
+      DUMMY_BASE_URL: http://dummy-gateway:4100
+      # URL pública del API para servir los uploads (logos, fotos): el
+      # navegador llega a través del reverse proxy, así que va con HTTPS.
+      API_SELF_URL: ${API_SELF_URL:?Set API_SELF_URL=https://api.tu-dominio.com}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL=https://tu-dominio.com}
+      # Agente v2 visto por el API: misma red interna.
+      AGENT_URL: http://agent-v2:8010
+      AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:?Set AGENT_INTERNAL_KEY (>=32 chars)}
+      PAYMENT_PROVIDER: DUMMY
+      SESSION_SECRET_REF: ${SESSION_SECRET_REF:?Set SESSION_SECRET_REF (>=64 chars)}
+      TOKEN_ENCRYPTION_KEY_REF: ${TOKEN_ENCRYPTION_KEY_REF:?Set TOKEN_ENCRYPTION_KEY_REF (>=32 chars)}
+    depends_on:
+      dummy-gateway:
+        condition: service_healthy
+    networks: [netpay_internal]
+    # Solo accesible por la red interna; el reverse proxy NO expone 4000.
+    expose: ["4000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/v1/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  commerce-worker:
+    build:
+      context: ..
+      dockerfile: apps/commerce-worker/Dockerfile
+    container_name: netpay_commerce_worker
+    restart: unless-stopped
+    env_file:
+      - path: ./.env.prod
+        required: true
+    environment:
+      NODE_ENV: production
+      WORKER_PORT: "4101"
+      # La URL ya está en .env.prod apuntando a CloudAMQP; este contenedor
+      # no necesita RabbitMQ local, solo conexión.
+    networks: [netpay_internal]
+    expose: ["4101"]
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+      args:
+        # El `rewrites()` de Next lee API_INTERNAL_URL en `next build` y
+        # arma el destino del proxy /api/v1/*. Tiene que coincidir con el
+        # nombre del servicio en compose, no con localhost.
+        API_INTERNAL_URL: http://commerce-api:4000
+    container_name: netpay_web
+    restart: unless-stopped
+    env_file:
+      - path: ./.env.prod
+        required: true
+    environment:
+      NODE_ENV: production
+      # Solo el `web` se publica al host: es el único que recibe tráfico
+      # del navegador. El reverse proxy (Caddy / Traefik) que pongas
+      # delante mete TLS y enruta a localhost:3000.
+    ports:
+      - "3000:3000"
+    depends_on:
+      commerce-api:
+        condition: service_healthy
+    networks: [netpay_internal]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/login',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  dummy-gateway:
+    build:
+      context: ..
+      dockerfile: apps/dummy-gateway/Dockerfile
+    container_name: netpay_dummy_gateway
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DUMMY_PORT: "4100"
+    networks: [netpay_internal]
+    expose: ["4100"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4100/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  agent-v2:
+    build:
+      context: ../apps/agent-v2
+      dockerfile: Dockerfile
+    container_name: netpay_agent_v2
+    restart: unless-stopped
+    env_file:
+      - path: ./.env.prod
+        required: true
+    environment:
+      AGENT_PORT: "8010"
+      # Red interna: el API y el agente hablan por nombre de servicio.
+      COMMERCE_API_URL: http://commerce-api:4000/api/v1
+      AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:?Set AGENT_INTERNAL_KEY}
+      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:?Set OPENROUTER_KEY_REF}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
+      # Settings, checkpoints y learning viven en un volumen persistente:
+      # un `docker compose down` seguido de `up` los recupera. Sin esto,
+      # la OpenRouter key cifrada y los checkpoints de LangGraph se
+      # evaporan en cada recreate.
+      AGENT_V2_DATA_DIR: /data/agent-v2
+      AGENT_SETTINGS_DIR: /data/agent-v2/settings
+      AGENT_LEARNING_DIR: /data/agent-v2/learning
+      AGENT_CHECKPOINT_DIR: /data/agent-v2/checkpoints
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:?Set AGENT_SECRET_KEY}
+      # Si la persitencia la trae pgvector/Qdrant/etc, enciende el flag
+      # correspondiente aquí.
+    volumes:
+      - agent_data_prod:/data
+    # agent-v2 NO se expone al host: misma razón que en compose dev —
+      # solo confía en X-Internal-Key y no valida que el tenantId recibido
+      # sea el del llamante. El comercio-api lo alcanza por la red interna.
+    networks: [netpay_internal]
+    expose: ["8010"]
+    depends_on:
+      commerce-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8010/healthz', timeout=3).status_code==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  agent-service:
+    # Mantenido solo por compatibilidad con despliegues legacy que aún
+    # apuntan AGENT_URL a v1. Si el cliente siempre usa v2, basta con
+    # comentar este servicio y poner AGENT_URL=http://agent-v2:8010.
+    build:
+      context: ../apps/agent-service
+      dockerfile: Dockerfile
+    container_name: netpay_agent_service
+    restart: unless-stopped
+    env_file:
+      - path: ./.env.prod
+        required: true
+    environment:
+      AGENT_PORT: "8000"
+      COMMERCE_API_URL: http://commerce-api:4000/api/v1
+      AGENT_API_KEY_REF: ${AGENT_API_KEY_REF:-}
+      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
+      AGENT_SETTINGS_DIR: /data/agent/settings
+      AGENT_CHECKPOINT_DIR: /data/agent/checkpoints
+      AGENT_LEARNING_DIR: /data/agent/learning
+    volumes:
+      - agent_data_prod:/data
+    networks: [netpay_internal]
+    expose: ["8000"]
+    depends_on:
+      commerce-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8000/healthz', timeout=3).status_code==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+networks:
+  netpay_internal:
+    driver: bridge
+
+volumes:
+  agent_data_prod:

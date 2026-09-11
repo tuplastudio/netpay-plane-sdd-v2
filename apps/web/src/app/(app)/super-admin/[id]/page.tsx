@@ -159,8 +159,8 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
 
           <TabsContent value="summary" className="space-y-6">
             <Section title="Resumen" description={`Mes en curso · ${currentMonthLabel()}`}>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <StatTile
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <StatTile size="compact"
                   {...tile}
                   label="Usuarios activos"
                   icon={<Users className="h-4 w-4" />}
@@ -173,13 +173,13 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
                         : `${formatInt(t.memberships.length - activeUsers)} sin acceso o por aceptar`
                   }
                 />
-                <StatTile
+                <StatTile size="compact"
                   {...tile}
                   label="Productos"
                   icon={<Package className="h-4 w-4" />}
                   value={formatInt(t?._count.products)}
                 />
-                <StatTile
+                <StatTile size="compact"
                   {...tile}
                   label="Pedidos"
                   icon={<ShoppingCart className="h-4 w-4" />}

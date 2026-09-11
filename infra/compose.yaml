@@ -208,10 +208,17 @@ services:
       MODEL_ID: ${AGENT_V2_MODEL_ID:-openai/gpt-4o-mini}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3001}
       AGENT_V2_DATA_DIR: /data/agent-v2
+      # Sin esto el store escribía en /app/.settings (capa efímera del
+      # contenedor): las settings por tenant —incluida la key de OpenRouter
+      # cifrada— se perdían en cada recreate. Va al volumen persistente.
+      AGENT_SETTINGS_DIR: /data/agent-v2/settings
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-}
     volumes:
       - agent_data:/data
-    ports:
-      - "8010:8010"
+    # Sin `ports`: agent-v2 solo confía en X-Internal-Key y no valida que el
+    # tenantId recibido sea el del llamante, así que publicarlo en el host lo
+    # deja a un salto de cualquier lectura/escritura cruzada entre empresas.
+    # commerce-api y web lo alcanzan por la red de compose (http://agent-v2:8010).
     healthcheck:
       test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8010/healthz', timeout=3).status_code==200 else 1)"]
       interval: 10s

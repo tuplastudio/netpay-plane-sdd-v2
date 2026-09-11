@@ -12,6 +12,12 @@ import {
 } from "@nestjs/common";
 import { CustomerService } from "./customer.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
+import {
+  CreateCustomerDto,
+  CustomerAddressDto,
+  LinkCustomerIdentityDto,
+  UpdateCustomerDto,
+} from "./customer.dto.js";
 import { RequestContext } from "../common/context/request-context.js";
 
 @Controller("customers")
@@ -71,25 +77,7 @@ export class CustomerController {
 
   @Post()
   @RequireScopes("customers.write")
-  async create(
-    @Body()
-    body: {
-      fullName: string;
-      email?: string;
-      phone?: string;
-      taxId?: string;
-      addresses?: Array<{
-        label: string;
-        line1: string;
-        line2?: string;
-        city: string;
-        state: string;
-        postalCode: string;
-        country?: string;
-        isDefault?: boolean;
-      }>;
-    },
-  ) {
+  async create(@Body() body: CreateCustomerDto) {
     const tenantId = this.requireTenant();
     return {
       data: await this.customers.create(tenantId, body),
@@ -99,17 +87,7 @@ export class CustomerController {
 
   @Patch(":id")
   @RequireScopes("customers.write")
-  async update(
-    @Param("id") id: string,
-    @Body()
-    body: {
-      expectedVersion: number;
-      fullName?: string;
-      email?: string;
-      phone?: string;
-      taxId?: string;
-    },
-  ) {
+  async update(@Param("id") id: string, @Body() body: UpdateCustomerDto) {
     const tenantId = this.requireTenant();
     return {
       data: await this.customers.update(tenantId, id, body),
@@ -119,20 +97,7 @@ export class CustomerController {
 
   @Post(":id/addresses")
   @RequireScopes("customers.write")
-  async addAddress(
-    @Param("id") id: string,
-    @Body()
-    body: {
-      label: string;
-      line1: string;
-      line2?: string;
-      city: string;
-      state: string;
-      postalCode: string;
-      country?: string;
-      isDefault?: boolean;
-    },
-  ) {
+  async addAddress(@Param("id") id: string, @Body() body: CustomerAddressDto) {
     const tenantId = this.requireTenant();
     return {
       data: await this.customers.addAddress(tenantId, id, body),
@@ -144,7 +109,7 @@ export class CustomerController {
   @RequireScopes("customers.write")
   async linkIdentity(
     @Param("id") id: string,
-    @Body() body: { channel: "WHATSAPP_META" | "WHATSAPP_EVOLUTION"; externalId: string },
+    @Body() body: LinkCustomerIdentityDto,
   ) {
     const tenantId = this.requireTenant();
     return {

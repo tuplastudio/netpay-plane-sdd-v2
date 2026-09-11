@@ -66,7 +66,10 @@ export interface MediaKey {
 
 export interface ChannelAdapter {
   readonly provider: "META" | "EVOLUTION";
-  healthCheck(): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
+  // Recibe la conexión concreta a revisar. Sin este argumento cada adapter
+  // tomaba "la primera conexión ACTIVE del proveedor" de toda la base, así que
+  // el health de una empresa se ejecutaba con las credenciales de otra.
+  healthCheck(connectionId: string): Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
   sendMessage(connectionId: string, input: SendMessageInput): Promise<SendMessageResult>;
   sendDocument?(connectionId: string, input: SendDocumentInput): Promise<SendMessageResult>;
   /** Imagen, video, audio (nota de voz) o documento como adjunto. */
@@ -83,13 +86,14 @@ export class MetaChannel implements ChannelAdapter {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async healthCheck(): Promise<{ ok: boolean; error?: string }> {
+  async healthCheck(connectionId: string): Promise<{ ok: boolean; error?: string }> {
     // En V2 con credenciales reales: GET /<phone-id> con appId + token.
     // Sin credenciales: responde FIXTURE (T-WHA-07).
-    const conn = await this.prisma.whatsAppConnection.findFirst({
-      where: { provider: "META", status: "ACTIVE" },
+    // El llamador ya validó que la conexión es del tenant (WhatsAppService.health).
+    const conn = await this.prisma.whatsAppConnection.findUnique({
+      where: { id: connectionId },
     });
-    if (!conn) {
+    if (!conn || conn.provider !== "META" || conn.status !== "ACTIVE") {
       return { ok: false, error: "No active Meta connection" };
     }
     return { ok: true };
@@ -146,11 +150,14 @@ export class EvolutionChannel implements ChannelAdapter {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async healthCheck(): Promise<{ ok: boolean; error?: string }> {
-    const conn = await this.prisma.whatsAppConnection.findFirst({
-      where: { provider: "EVOLUTION", status: "ACTIVE" },
+  async healthCheck(connectionId: string): Promise<{ ok: boolean; error?: string }> {
+    // Igual que en MetaChannel: la conexión concreta, no "la primera ACTIVE"
+    // de cualquier empresa — si no, se salía a internet con el baseUrl y el
+    // apiKey de otro tenant y se le devolvía a este si respondía.
+    const conn = await this.prisma.whatsAppConnection.findUnique({
+      where: { id: connectionId },
     });
-    if (!conn) {
+    if (!conn || conn.provider !== "EVOLUTION" || conn.status !== "ACTIVE") {
       return { ok: false, error: "No active Evolution connection" };
     }
     const creds = (conn.credentials ?? {}) as { baseUrl?: string; apiKey?: string; instance?: string };

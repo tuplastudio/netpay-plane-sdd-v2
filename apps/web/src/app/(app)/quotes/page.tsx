@@ -1,7 +1,9 @@
 "use client";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileText } from "lucide-react";
+import { CirclePlus, FileText } from "lucide-react";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
@@ -62,35 +64,48 @@ export default function QuotesPage() {
     },
   });
 
+  // El Sheet del cotizador se controla desde la página (no desde el
+  // componente del form) para que el botón "Nueva cotización" viva en el
+  // `PageHeader` y no se duplique el título "Cotizaciones" entre
+  // encabezado, sección del cotizador y sección del listado.
+  const [newQuoteOpen, setNewQuoteOpen] = useState(false);
+
   return (
     <div>
       <PageHeader
         title="Cotizaciones"
         description="Cotiza varios productos y variantes en una sola cotización, emítela y comparte el link público."
+        actions={
+          <Button onClick={() => setNewQuoteOpen(true)}>
+            <CirclePlus aria-hidden className="h-4 w-4" />
+            Nueva cotización
+          </Button>
+        }
       />
 
-      <div className="space-y-6">
-        <NewQuoteForm />
+      {/* El listado vive sin `title=` para no repetir "Cotizaciones" arriba dos
+          veces: el `caption` del `DataTable` ya describe el contenido y el
+          PageHeader ya dio el nombre de la pantalla. */}
+      <Section padded={false}>
+        <DataTable
+          columns={columns}
+          rows={list.data}
+          isLoading={list.isLoading}
+          isError={list.isError}
+          error={list.error}
+          onRetry={() => void list.refetch()}
+          getRowHref={(q) => `/quotes/${q.id}`}
+          caption="Cotizaciones del comercio"
+          empty={{
+            icon: <FileText className="h-6 w-6" />,
+            title: "Sin cotizaciones",
+            description:
+              "Pulsa «Nueva cotización» arriba a la derecha para abrir el cotizador. Elige cliente, agrega variantes y emítela para compartir el link público.",
+          }}
+        />
+      </Section>
 
-        <Section title="Cotizaciones" padded={false}>
-          <DataTable
-            columns={columns}
-            rows={list.data}
-            isLoading={list.isLoading}
-            isError={list.isError}
-            error={list.error}
-            onRetry={() => void list.refetch()}
-            getRowHref={(q) => `/quotes/${q.id}`}
-            caption="Cotizaciones del comercio"
-            empty={{
-              icon: <FileText className="h-6 w-6" />,
-              title: "Sin cotizaciones",
-              description:
-                "Arma la primera con el formulario de arriba: elige cliente, agrega variantes y emítela para compartir el link público.",
-            }}
-          />
-        </Section>
-      </div>
+      <NewQuoteForm open={newQuoteOpen} onOpenChange={setNewQuoteOpen} />
     </div>
   );
 }

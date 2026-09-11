@@ -8,7 +8,7 @@ import {
   Query,
   UseGuards,
 } from "@nestjs/common";
-import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
+import { NoScopeRequired, RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { SuperAdminGuard } from "../auth/guards/super-admin.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { UsageService } from "./usage.service.js";
@@ -21,12 +21,16 @@ export class UsageController {
 
   /**
    * Interno: lo llama agent-v2 con su API key de servicio después de cada
-   * turno. Sin `@RequireScopes`: cualquier principal autenticado (sesión o
-   * API key) de este tenant puede reportar su propio consumo — el
-   * aislamiento ya lo da `requireTenant()`, no hace falta un scope extra
-   * para telemetría que nadie externo puede falsear a nombre de otro tenant.
+   * turno. Sin scope: cualquier principal autenticado (sesión o API key) de
+   * este tenant puede reportar su propio consumo — el aislamiento ya lo da
+   * `requireTenant()`, no hace falta un scope extra para telemetría que nadie
+   * externo puede falsear a nombre de otro tenant.
+   *
+   * `@NoScopeRequired()` lo declara a propósito: el `RoleGuard` pasó a ser
+   * fail-closed y una ruta suya sin política declarada ahora responde 403.
    */
   @Post("events")
+  @NoScopeRequired()
   async recordEvent(@Body() body: RecordUsageEventDto) {
     const tenantId = this.requireTenant();
     const event = await this.usage.record(tenantId, body);

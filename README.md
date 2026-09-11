@@ -11,6 +11,10 @@ Toda la especificación SDD vive en [`docs/`](docs/). Empieza por:
 - [`docs/02-fnd.md`](docs/02-fnd.md) — arquitectura y tareas base.
 - [`docs/18-backlog-y-trazabilidad.md`](docs/18-backlog-y-trazabilidad.md) — backlog y orden.
 
+### Despliegue
+
+- [`docs/DEPLOY_DIGITALOCEAN.md`](docs/DEPLOY_DIGITALOCEAN.md) — playbook para correr el stack en un Droplet con Neon (Postgres), CloudAMQP y DigitalOcean Spaces.
+
 ## Estructura
 
 ```

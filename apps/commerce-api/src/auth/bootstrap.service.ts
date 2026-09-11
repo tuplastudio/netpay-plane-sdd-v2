@@ -54,6 +54,26 @@ export class BootstrapService {
       };
     }
 
+    // SEGURIDAD: este endpoint es @Public(). El flag isSuperAdmin se concede
+    // SOLO cuando la instalación está genuinamente vacía (sin tenants y sin
+    // ningún super admin), que es el caso que documenta el comentario de
+    // abajo. Antes se ponía `isSuperAdmin: true` en TODO bootstrap de un
+    // tenant nuevo, así que cualquiera en internet podía crear una empresa con
+    // un slug libre y salir con permisos de plataforma sobre TODAS las demás
+    // (leer/renombrar/suspender tenants, emitir API keys, impersonar owners).
+    // Ambas condiciones se leen antes de crear nada, si no el propio tenant
+    // que estamos por insertar haría que el conteo dejara de ser cero.
+    const [tenantCount, superAdminCount] = await Promise.all([
+      this.prisma.tenant.count(),
+      this.prisma.user.count({ where: { isSuperAdmin: true } }),
+    ]);
+    const isFirstInstall = tenantCount === 0 && superAdminCount === 0;
+    if (!isFirstInstall) {
+      this.logger.warn(
+        `Bootstrap de '${slug}' sobre una instalación ya inicializada: se crea el tenant sin isSuperAdmin.`,
+      );
+    }
+
     const hash = await this.passwords.hash(input.ownerPassword);
 
     const tenant = await this.prisma.tenant.create({
@@ -66,14 +86,14 @@ export class BootstrapService {
 
     // El owner del primer bootstrap (DB vacía) es quien opera la
     // plataforma completa: se marca isSuperAdmin para que pueda entrar a
-    // /super-admin y dar de alta las empresas reales. Bootstraps
-    // posteriores (tenant ya existe) no vuelven a tocar este flag.
+    // /super-admin y dar de alta las empresas reales. Cualquier bootstrap
+    // posterior crea un owner normal, acotado a su propio tenant.
     const user = await this.prisma.user.create({
       data: {
         email: input.ownerEmail.toLowerCase(),
         fullName: input.ownerFullName,
         passwordHash: hash,
-        isSuperAdmin: true,
+        isSuperAdmin: isFirstInstall,
       },
     });
 

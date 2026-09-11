@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { fetchAuthMe } from "@/lib/api";
-import { Brand, EnvFooter, SidebarNav } from "./sidebar-nav";
+import { Brand, EnvFooter, SidebarCollapseToggle, SidebarNav } from "./sidebar-nav";
 import { Topbar } from "./topbar";
 import { ImpersonationBanner } from "./impersonation-banner";
 import { hexToHsl, hslShift } from "@/lib/hex-to-hsl";
@@ -110,9 +110,50 @@ function useRedirectIfSignedOut() {
   }, [data?.branding]);
 }
 
+const SIDEBAR_COLLAPSED_KEY = "netpay:sidebar-collapsed";
+
+/**
+ * Preferencia de riel contraído, recordada entre visitas.
+ *
+ * Arranca SIEMPRE expandida y se corrige en un efecto, no durante el render:
+ * `localStorage` no existe en el servidor, así que leerlo al inicializar el
+ * estado desincroniza la hidratación. El precio es un parpadeo en la primera
+ * pintura para quien la dejó contraída; a cambio no hay error de hidratación.
+ *
+ * Todo acceso va en try/catch: en una ventana privada (o con las cookies de
+ * sitio bloqueadas) `localStorage` lanza al tocarlo, y la app entera no puede
+ * caerse por una preferencia cosmética.
+ */
+function useSidebarCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = React.useState(false);
+
+  React.useEffect(() => {
+    try {
+      if (window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") setCollapsed(true);
+    } catch {
+      // Sin persistencia: se queda expandida, que es el default.
+    }
+  }, []);
+
+  const toggle = React.useCallback(() => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // Ídem: la sesión actual sí cambia, solo no se recuerda.
+      }
+      return next;
+    });
+  }, []);
+
+  return [collapsed, toggle];
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   useRedirectIfSignedOut();
   const [fullHeight, setFullHeight] = React.useState(false);
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   // Identidad estable: si cambiara en cada render, el efecto de
   // `FullHeightMain` se volvería a disparar en bucle.
   const setter = React.useCallback<SetFullHeight>((enabled) => setFullHeight(enabled), []);
@@ -142,15 +183,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               la navegación principal solo añade una entrada muda a la lista de
               regiones del lector de pantalla. Bajo lg se oculta con
               display:none y la navegación vive en el drawer de la Topbar. */}
-          <div className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r bg-background lg:flex lg:flex-col">
-            <Brand className="border-b" />
+          <div
+            className={cn(
+              "fixed inset-y-0 left-0 z-20 hidden border-r bg-background transition-[width] duration-200 lg:flex lg:flex-col",
+              collapsed ? "w-16" : "w-64",
+            )}
+          >
+            <Brand className="border-b" collapsed={collapsed} />
             <div className="flex-1 overflow-y-auto">
-              <SidebarNav />
+              <SidebarNav collapsed={collapsed} />
             </div>
-            <EnvFooter className="mt-auto border-t" />
+            <div className="mt-auto border-t p-2">
+              <SidebarCollapseToggle collapsed={collapsed} onToggle={toggleCollapsed} />
+            </div>
+            <EnvFooter className="border-t" collapsed={collapsed} />
           </div>
 
-          <div className={cn("lg:pl-64", fullHeight && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col")}>
+          <div
+            className={cn(
+              collapsed ? "lg:pl-16" : "lg:pl-64",
+              fullHeight && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col",
+            )}
+          >
             <Topbar />
             <ImpersonationBanner />
             <main
@@ -158,7 +212,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               tabIndex={-1}
               data-full-height={fullHeight ? "" : undefined}
               className={cn(
-                "mx-auto w-full max-w-7xl px-4 py-6 focus-visible:outline-none sm:px-6 lg:px-8",
+                "mx-auto w-full px-4 py-6 focus-visible:outline-none sm:px-6",
+                // Contraer la barra lateral tiene que devolver ancho de verdad:
+                // expandido el contenido se centra en 80rem (líneas legibles en
+                // pantallas anchas), contraído se suelta el tope y se recorta el
+                // padding lateral, que si no dejaba un carril muerto a cada lado.
+                collapsed ? "max-w-none lg:px-4" : "max-w-7xl lg:px-8",
                 fullHeight && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col",
               )}
             >

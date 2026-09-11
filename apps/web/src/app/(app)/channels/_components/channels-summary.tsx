@@ -25,8 +25,8 @@ export function ChannelsSummary({ connections }: { connections: UseQueryResult<C
   };
 
   return (
-    <div aria-label="Resumen de canales" className="grid gap-4 sm:grid-cols-3">
-      <StatTile
+    <div aria-label="Resumen de canales" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <StatTile size="compact"
         label="Canales conectados"
         value={active}
         tone={active > 0 ? "success" : withError > 0 ? "destructive" : "neutral"}
@@ -38,7 +38,7 @@ export function ChannelsSummary({ connections }: { connections: UseQueryResult<C
         }
         {...state}
       />
-      <StatTile
+      <StatTile size="compact"
         label="Pendientes"
         value={pending}
         tone={pending > 0 ? "warning" : "neutral"}
@@ -46,7 +46,7 @@ export function ChannelsSummary({ connections }: { connections: UseQueryResult<C
         hint={pending > 0 ? "Esperan el primer webhook" : "Ninguno en espera"}
         {...state}
       />
-      <StatTile
+      <StatTile size="compact"
         label="Con error"
         value={withError}
         tone={withError > 0 ? "destructive" : "neutral"}

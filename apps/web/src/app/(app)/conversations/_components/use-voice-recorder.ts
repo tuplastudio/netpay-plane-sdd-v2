@@ -8,17 +8,32 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *
  * `onRecorded` recibe el audio ya en base64 y el mimetype real que produjo
  * el navegador (audio/webm en Chrome/Firefox, audio/mp4 en Safari).
+ *
+ * Expone `elapsedMs` (cronómetro visible mientras se graba) y `cancel`
+ * (descarta la grabación en curso sin llamar a `onRecorded`, para poder
+ * arrepentirse antes de enviar).
  */
 export function useVoiceRecorder(onRecorded: (audio: { base64: string; mimetype: string }) => void) {
   const recorderRef = useRef<MediaRecorder | null>(null);
+  // `stop()` (enviar) y `cancel()` (descartar) llaman los dos a
+  // `MediaRecorder.stop()`; esta bandera es lo único que distingue, dentro
+  // de `onstop`, si debe correr `onRecorded` o tirar el audio.
+  const cancelledRef = useRef(false);
+  const startedAtRef = useRef(0);
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
 
-  const stop = useCallback(() => {
+  const stopInternal = useCallback((cancelled: boolean) => {
+    cancelledRef.current = cancelled;
     recorderRef.current?.stop();
     recorderRef.current = null;
     setRecording(false);
   }, []);
+
+  const stop = useCallback(() => stopInternal(false), [stopInternal]);
+  /** Descarta la nota en curso: no se sube ni se manda. */
+  const cancel = useCallback(() => stopInternal(true), [stopInternal]);
 
   const start = useCallback(async () => {
     setError(null);
@@ -29,6 +44,9 @@ export function useVoiceRecorder(onRecorded: (audio: { base64: string; mimetype:
       recorder.ondataavailable = (event) => chunks.push(event.data);
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
+        const wasCancelled = cancelledRef.current;
+        cancelledRef.current = false;
+        if (wasCancelled) return;
         const mimetype = (recorder.mimeType || "audio/webm").split(";")[0] ?? "audio/webm";
         const blob = new Blob(chunks, { type: mimetype });
         if (blob.size === 0) return;
@@ -36,6 +54,8 @@ export function useVoiceRecorder(onRecorded: (audio: { base64: string; mimetype:
       };
       recorder.start();
       recorderRef.current = recorder;
+      startedAtRef.current = Date.now();
+      setElapsedMs(0);
       setRecording(true);
     } catch {
       setError("No pude usar el micrófono. Revisa los permisos del navegador.");
@@ -46,6 +66,14 @@ export function useVoiceRecorder(onRecorded: (audio: { base64: string; mimetype:
     if (recording) stop();
     else void start();
   }, [recording, start, stop]);
+
+  // Cronómetro: se actualiza mientras se graba, para que la persona vea
+  // cuánto lleva antes de mandar (o descartar) la nota.
+  useEffect(() => {
+    if (!recording) return;
+    const id = setInterval(() => setElapsedMs(Date.now() - startedAtRef.current), 250);
+    return () => clearInterval(id);
+  }, [recording]);
 
   // Si el panel se cierra a media grabación, se suelta el micrófono.
   useEffect(() => {
@@ -59,7 +87,15 @@ export function useVoiceRecorder(onRecorded: (audio: { base64: string; mimetype:
     };
   }, []);
 
-  return { recording, error, toggle, stop };
+  return { recording, error, elapsedMs, toggle, stop, cancel };
+}
+
+/** `mm:ss` a partir de milisegundos, para el cronómetro de la grabación. */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 /**

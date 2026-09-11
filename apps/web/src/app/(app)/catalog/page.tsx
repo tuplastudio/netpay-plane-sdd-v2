@@ -34,9 +34,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
-import { StatTile } from "@/components/app/stat-tile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatMoney } from "@/components/app/money";
+import { cn } from "@/lib/utils";
 import {
   CATALOG_STATUS_OPTIONS,
   apiErrorMessage,
@@ -52,6 +52,80 @@ const SEARCH_DEBOUNCE_MS = 250;
 
 type StockFilter = "" | "in" | "out" | "external";
 type SortKey = "updated" | "title" | "price-asc" | "price-desc" | "stock";
+
+/**
+ * KPIs en una sola línea de píldoras para vivir junto al título sin comerse
+ * el alto del catálogo. Mismo patrón que la bandeja de conversaciones: se
+ * lee de un vistazo, los cuatro números juntos, y deja respirar a la rejilla
+ * de productos.
+ */
+function CatalogStatsStrip({
+  stats,
+  loading,
+  isError,
+}: {
+  stats: { total: number; active: number; draft: number; variants: number; outOfStock: number };
+  loading: boolean;
+  isError: boolean;
+}) {
+  const items = [
+    {
+      key: "active",
+      label: "Activos",
+      value: stats.active,
+      icon: CheckCircle2,
+      tone: stats.active > 0 ? "text-success-foreground" : "text-muted-foreground",
+    },
+    {
+      key: "draft",
+      label: "Borradores",
+      value: stats.draft,
+      icon: FilePen,
+      tone: stats.draft > 0 ? "text-warning-foreground" : "text-muted-foreground",
+    },
+    {
+      key: "variants",
+      label: "Variantes",
+      value: stats.variants,
+      icon: Layers,
+      tone: "text-muted-foreground",
+    },
+    {
+      key: "out",
+      label: "Sin existencias",
+      value: stats.outOfStock,
+      icon: PackageX,
+      tone: stats.outOfStock > 0 ? "text-destructive-subtle-foreground" : "text-muted-foreground",
+    },
+  ];
+  return (
+    <div
+      aria-label="Resumen del catálogo"
+      className={cn(
+        "flex shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-xs",
+        isError && "text-destructive",
+      )}
+    >
+      <span className="text-muted-foreground">Catálogo:</span>
+      {items.map((it) => {
+        const Icon = it.icon;
+        return (
+          <div
+            key={it.key}
+            title={`${it.label}: ${it.value}`}
+            className="flex shrink-0 items-center gap-1 rounded-pill border border-border bg-card px-2 py-0.5 tabular-nums"
+          >
+            <Icon aria-hidden className={cn("h-3 w-3 shrink-0", it.tone)} />
+            <span className="font-semibold leading-none text-foreground">
+              {loading ? "…" : it.value}
+            </span>
+            <span className="hidden text-muted-foreground sm:inline">{it.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function minPrice(p: Product): number {
   return priceRange(p) ? Number.parseFloat(priceRange(p)!.min) : Number.POSITIVE_INFINITY;
@@ -276,55 +350,16 @@ export default function CatalogPage() {
         }
       />
 
-      <div className="space-y-6">
-        <div
-          aria-label={isFiltered ? "Resumen según los filtros aplicados" : "Resumen del catálogo"}
-          className="grid grid-cols-2 gap-2 sm:grid-cols-4"
-        >
-          <StatTile
-            size="compact"
-            label="Activos"
-            value={stats.active}
-            tone={stats.active > 0 ? "success" : "neutral"}
-            icon={<CheckCircle2 className="h-4 w-4" />}
-            hint={`de ${stats.total} ${stats.total === 1 ? "producto" : "productos"}`}
-            isLoading={list.isLoading}
-            isError={list.isError}
-            onRetry={() => void list.refetch()}
-          />
-          <StatTile
-            size="compact"
-            label="Borradores"
-            value={stats.draft}
-            tone={stats.draft > 0 ? "warning" : "neutral"}
-            icon={<FilePen className="h-4 w-4" />}
-            hint="Aún no se ofrecen al cliente"
-            isLoading={list.isLoading}
-            isError={list.isError}
-            onRetry={() => void list.refetch()}
-          />
-          <StatTile
-            size="compact"
-            label="Variantes"
-            value={stats.variants}
-            icon={<Layers className="h-4 w-4" />}
-            hint="Presentaciones con precio"
-            isLoading={list.isLoading}
-            isError={list.isError}
-            onRetry={() => void list.refetch()}
-          />
-          <StatTile
-            size="compact"
-            label="Sin existencias"
-            value={stats.outOfStock}
-            tone={stats.outOfStock > 0 ? "destructive" : "neutral"}
-            icon={<PackageX className="h-4 w-4" />}
-            hint="Variantes con inventario en cero"
-            isLoading={list.isLoading}
-            isError={list.isError}
-            onRetry={() => void list.refetch()}
-          />
-        </div>
+      <div className="space-y-3">
+        {/* Fila de KPIs: una sola línea de píldoras junto al título.
+            El catálogo quiere rejilla de productos, no mosaicos: los cuatro
+            números juntos ocupan lo mismo que un renglón y dejan respirar al
+            grid de productos. */}
+        <CatalogStatsStrip
+          stats={stats}
+          loading={list.isLoading}
+          isError={list.isError}
+        />
 
         <Section>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">

@@ -101,8 +101,8 @@ export default function SuperAdminOverviewPage() {
 
       <div className="space-y-6">
         <Section title="Resumen" description={`Cifras del mes en curso · ${period}`}>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <StatTile
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+            <StatTile size="compact"
               {...tile}
               label="Empresas activas"
               tone="success"
@@ -116,14 +116,14 @@ export default function SuperAdminOverviewPage() {
                     : `${formatInt(o.tenants.disabled)} ${o.tenants.disabled === 1 ? "suspendida" : "suspendidas"}`
               }
             />
-            <StatTile
+            <StatTile size="compact"
               {...tile}
               label="Usuarios"
               icon={<Users className="h-4 w-4" />}
               value={formatInt(o?.users)}
               hint={o === undefined ? undefined : "Cuentas en toda la plataforma"}
             />
-            <StatTile
+            <StatTile size="compact"
               {...tile}
               label="Invitaciones pendientes"
               tone={o && o.pendingInvitations > 0 ? "warning" : "neutral"}
@@ -137,7 +137,7 @@ export default function SuperAdminOverviewPage() {
                     : "Sin aceptar todavía"
               }
             />
-            <StatTile
+            <StatTile size="compact"
               {...tile}
               label="Gasto del mes"
               tone="info"
@@ -149,7 +149,7 @@ export default function SuperAdminOverviewPage() {
                   : `${formatInt(o.usageMtd.events)} ${o.usageMtd.events === 1 ? "turno" : "turnos"} del agente · estimado`
               }
             />
-            <StatTile
+            <StatTile size="compact"
               {...tile}
               label="Tokens del mes"
               icon={<Cpu className="h-4 w-4" />}

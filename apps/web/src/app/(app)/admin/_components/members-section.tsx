@@ -7,6 +7,7 @@ import { AlertCircle, MoreHorizontal, Users } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -42,6 +43,7 @@ export interface Member {
   joinedAt: string | null;
   createdAt: string;
   expiresAt: string | null;
+  isAgent: boolean;
 }
 
 /** Clave de caché compartida: la usa también el alta de invitaciones. */
@@ -119,6 +121,22 @@ export function MembersSection() {
     onError: (error) => {
       setRoleTarget(null);
       setServerError(apiErrorMessage(error, "No se pudo cambiar el rol."));
+    },
+  });
+
+  const toggleAgent = useMutation({
+    mutationFn: async (input: { id: string; isAgent: boolean }) => {
+      await api.patch(`/iam/memberships/${input.id}/agent`, { isAgent: input.isAgent });
+    },
+    onSuccess: async (_data, input) => {
+      toast.success(
+        input.isAgent ? "Activado como agente de WhatsApp" : "Desactivado como agente de WhatsApp",
+      );
+      setServerError(null);
+      await invalidate();
+    },
+    onError: (error) => {
+      setServerError(apiErrorMessage(error, "No se pudo actualizar el agente de WhatsApp."));
     },
   });
 
@@ -210,6 +228,27 @@ export function MembersSection() {
       header: "Estado",
       width: "9rem",
       cell: (m) => <StatusBadge status={m.status} domain="membership" />,
+    },
+    {
+      key: "agent",
+      header: "Agente WhatsApp",
+      width: "10rem",
+      cell: (m) =>
+        m.kind === "INVITATION" || m.status === "DISABLED" ? (
+          <span aria-hidden className="text-muted-foreground">
+            —
+          </span>
+        ) : (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              aria-label={`Activo como agente de WhatsApp: ${m.fullName}`}
+              checked={m.isAgent}
+              disabled={toggleAgent.isPending && toggleAgent.variables?.id === m.id}
+              onChange={(e) => toggleAgent.mutate({ id: m.id, isAgent: e.target.checked })}
+            />
+            Activo
+          </label>
+        ),
     },
     {
       key: "since",

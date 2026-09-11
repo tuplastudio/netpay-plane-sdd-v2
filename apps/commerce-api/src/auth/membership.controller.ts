@@ -15,6 +15,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { RoleGuard, RequireScopes } from "./guards/role.guard.js";
+import { ChangeMemberRoleDto, SetMemberAgentDto } from "./iam.dto.js";
 import { PrincipalGuard } from "./guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { MembershipActor, MembershipService } from "./membership.service.js";
@@ -34,13 +35,26 @@ export class MembershipController {
 
   @Patch("memberships/:id")
   @RequireScopes("users.manage")
-  async changeRole(@Param("id") id: string, @Body() body: { role: string }) {
+  async changeRole(@Param("id") id: string, @Body() body: ChangeMemberRoleDto) {
     const tenantId = this.requireTenant();
     const data = await this.memberships.changeRole({
       tenantId,
       actor: this.requireActor(),
       membershipId: id,
-      role: body?.role,
+      role: body.role,
+    });
+    return { data, requestId: RequestContext.requestId };
+  }
+
+  @Patch("memberships/:id/agent")
+  @RequireScopes("users.manage")
+  async setAgent(@Param("id") id: string, @Body() body: SetMemberAgentDto) {
+    const tenantId = this.requireTenant();
+    const data = await this.memberships.setAgent({
+      tenantId,
+      actor: this.requireActor(),
+      membershipId: id,
+      isAgent: body.isAgent,
     });
     return { data, requestId: RequestContext.requestId };
   }

@@ -305,3 +305,39 @@ describe("QuoteService#update — efectos", () => {
     expect(released).toHaveLength(0);
   });
 });
+
+/**
+ * Hallazgo M7: el token del link público se generaba con `Math.random()`.
+ * Es una credencial portadora sin sesión —expone datos del cliente y precios—
+ * así que tiene que venir de un CSPRNG, igual que los CheckoutAccessToken.
+ */
+describe("token del link público de cotización", () => {
+  function tokensFromWrites(fake: ReturnType<typeof makeFake>): string[] {
+    return fake.writes
+      .filter((w) => w.table === "quoteShareToken")
+      .map((w) => ((w.args as { data: Row }).data.token as string));
+  }
+
+  it("no sale del alfabeto de 36 caracteres del PRNG anterior", async () => {
+    const fake = makeFake({ quote: baseQuote, shares: 1 });
+    const { service } = makeService(fake);
+    await service.update(TENANT, "quote-1", "user-1", { lines: newLines });
+
+    const [token] = tokensFromWrites(fake);
+    expect(token).toBeTruthy();
+    // base64url: incluye mayúsculas, que el alfabeto viejo (a-z0-9) no tenía.
+    expect(token).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(token!.length).toBeGreaterThanOrEqual(32);
+  });
+
+  it("dos tokens seguidos no se repiten", async () => {
+    const tokens: string[] = [];
+    for (let i = 0; i < 25; i++) {
+      const fake = makeFake({ quote: baseQuote, shares: 1 });
+      const { service } = makeService(fake);
+      await service.update(TENANT, "quote-1", "user-1", { lines: newLines });
+      tokens.push(...tokensFromWrites(fake));
+    }
+    expect(new Set(tokens).size).toBe(tokens.length);
+  });
+});

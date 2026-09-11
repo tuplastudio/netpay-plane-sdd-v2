@@ -49,6 +49,15 @@ interface AgentSettings {
   openrouter_api_key_set: boolean;
   whatsapp_plain_text: boolean;
   auto_reply: boolean;
+  /** Revisa con un modelo pequeño lo que una persona le escribe al cliente. */
+  human_reply_filter_enabled: boolean;
+  /** Vacío = el modelo barato por defecto del agente. */
+  human_reply_filter_model: string;
+  human_reply_filter_action: "block" | "warn";
+  /** Cierra solo los hilos sin actividad. Apagado de fábrica. */
+  auto_close_enabled: boolean;
+  /** Duración compacta: "30s", "15m", "2h", "1d". "" = sin plazo. */
+  auto_close_after: string;
   updated_at: number;
 }
 
@@ -60,6 +69,9 @@ interface SettingsView {
     sales_style: string[];
     default_delivery_mode: string[];
     models: Array<{ id: string; toolCalling: boolean; notes: string }>;
+    /** Modelos chicos para el filtro; `cheap` marca los de bajo costo. */
+    human_reply_filter_model?: Array<{ id: string; cheap: boolean; notes: string }>;
+    human_reply_filter_action?: string[];
   };
 }
 
@@ -90,6 +102,47 @@ const DELIVERY_MODE_LABEL: Record<string, string> = {
   LOCAL_DELIVERY: "Entrega local",
 };
 
+const FILTER_ACTION_LABEL: Record<string, string> = {
+  block: "Bloquear el envío y pedir que se reescriba",
+  warn: "Enviar de todos modos y dejar la advertencia en el hilo",
+};
+
+/**
+ * Duración compacta del autocierre. Mismo regex y mismos topes que
+ * `agent_settings.py` (`_DURATION_RE`, `AUTO_CLOSE_MIN_SECONDS`,
+ * `AUTO_CLOSE_MAX_SECONDS`), para que el panel avise antes de que el backend
+ * recorte el valor en silencio.
+ */
+const DURATION_RE = /^(\d{1,7})(s|m|h|d)$/;
+const DURATION_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+const AUTO_CLOSE_MIN_SECONDS = 30;
+const AUTO_CLOSE_MAX_SECONDS = 30 * 86400;
+
+function durationSeconds(value: string): number {
+  const match = DURATION_RE.exec(value.trim().toLowerCase());
+  if (!match) return 0;
+  return Number(match[1]) * DURATION_UNIT_SECONDS[match[2]!]!;
+}
+
+/** "2h" -> "2 horas". Texto para el hint, en español y en plural correcto. */
+function durationLabel(value: string): string {
+  const seconds = durationSeconds(value);
+  if (!seconds) return "";
+  const units: Array<[number, string, string]> = [
+    [86400, "día", "días"],
+    [3600, "hora", "horas"],
+    [60, "minuto", "minutos"],
+    [1, "segundo", "segundos"],
+  ];
+  for (const [size, one, many] of units) {
+    if (seconds % size === 0) {
+      const n = seconds / size;
+      return `${n} ${n === 1 ? one : many}`;
+    }
+  }
+  return `${seconds} segundos`;
+}
+
 /** Valores de fábrica del dataclass `AgentSettings` del backend. Son los que
  *  aplica «Restablecer» y los que se muestran como "Predeterminado" en los
  *  campos que no dependen de `negocio.md`. */
@@ -102,6 +155,10 @@ const FACTORY = {
   default_delivery_mode: "PICKUP",
   whatsapp_plain_text: true,
   auto_reply: true,
+  human_reply_filter_enabled: false,
+  human_reply_filter_action: "block",
+  auto_close_enabled: false,
+  auto_close_after: "",
 } as const;
 
 /**
@@ -120,6 +177,20 @@ function validate(draft: AgentSettings): Partial<Record<keyof AgentSettings, str
   }
   if (draft.max_tokens !== null && (draft.max_tokens < 64 || draft.max_tokens > 4000)) {
     errors.max_tokens = "Debe estar entre 64 y 4000.";
+  }
+  // El plazo solo se exige cuando el autocierre está encendido: apagado, el
+  // valor se conserva pero no gobierna nada.
+  if (draft.auto_close_enabled) {
+    const seconds = durationSeconds(draft.auto_close_after);
+    if (!draft.auto_close_after.trim()) {
+      errors.auto_close_after = "Indica cuánto tiempo sin mensajes debe pasar. Ej.: 30m, 2h, 1d.";
+    } else if (!seconds) {
+      errors.auto_close_after = "Formato no válido. Usa un número y una unidad: 30s, 15m, 2h, 1d.";
+    } else if (seconds < AUTO_CLOSE_MIN_SECONDS) {
+      errors.auto_close_after = "El mínimo es 30s.";
+    } else if (seconds > AUTO_CLOSE_MAX_SECONDS) {
+      errors.auto_close_after = "El máximo es 30d.";
+    }
   }
   return errors;
 }
@@ -321,6 +392,8 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
 
   const defaults = view.data!.defaults;
   const models = view.data!.options.models;
+  const filterModels = view.data!.options.human_reply_filter_model ?? [];
+  const filterActions = view.data!.options.human_reply_filter_action ?? ["block", "warn"];
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(view.data!.settings) ||
     openrouterKeyDraft !== "" ||
@@ -357,11 +430,22 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
     classifier_model: defaultOf(defaults, "classifier_model"),
     temperature: defaultOf(defaults, "temperature"),
     max_tokens: defaultOf(defaults, "max_tokens"),
+    human_reply_filter_model: defaultOf(defaults, "human_reply_filter_model"),
   };
   const emojiDefault =
     defaults.emoji === null || defaults.emoji === undefined
       ? null
       : Boolean(defaults.emoji);
+
+  // Defaults numéricos para los sliders: negocio.md/entorno si lo declaran,
+  // si no el mismo valor de fábrica que ya usa `agent_settings.py`.
+  const numericDefault = (key: "temperature" | "max_tokens", fallback: number): number => {
+    const raw = defaults[key];
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const temperatureDefault = numericDefault("temperature", 0.55);
+  const maxTokensDefault = numericDefault("max_tokens", 700);
 
   const textModelNotes = models.find((m) => m.id === draft.text_model)?.notes;
 
@@ -498,39 +582,45 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             <Field
               id="language"
               label="Idioma"
-              tip="Idioma en el que el agente atiende («Atiendes clientes en …»). Código corto: es, es-MX, en."
+              tip="Idioma en el que el agente atiende («Atiendes clientes en …»). Por ahora solo español; más idiomas próximamente."
               hint={emptyHint(d.language, "Vacío = español.")}
               defaultLabel={d.language || undefined}
               overridden={draft.language !== ""}
               onReset={() => set("language", "")}
             >
               {(aria) => (
-                <Input
+                <Select
                   {...aria}
                   value={draft.language}
-                  maxLength={STR_LIMITS.language}
                   onChange={(e) => set("language", e.target.value)}
-                  placeholder={d.language || "es"}
-                />
+                >
+                  <option value="">
+                    {d.language ? `Predeterminado (${d.language})` : "Predeterminado (es)"}
+                  </option>
+                  <option value="es">Español (es)</option>
+                </Select>
               )}
             </Field>
             <Field
               id="currency"
               label="Moneda"
-              tip="Moneda en la que el agente expresa importes y cotizaciones. Código ISO de 3 letras."
+              tip="Moneda en la que el agente expresa importes y cotizaciones. Por ahora solo pesos mexicanos; más monedas próximamente."
               hint={emptyHint(d.currency, "Vacío = MXN.")}
               defaultLabel={d.currency || undefined}
               overridden={draft.currency !== ""}
               onReset={() => set("currency", "")}
             >
               {(aria) => (
-                <Input
+                <Select
                   {...aria}
                   value={draft.currency}
-                  maxLength={STR_LIMITS.currency}
                   onChange={(e) => set("currency", e.target.value)}
-                  placeholder={d.currency || "MXN"}
-                />
+                >
+                  <option value="">
+                    {d.currency ? `Predeterminado (${d.currency})` : "Predeterminado (MXN)"}
+                  </option>
+                  <option value="MXN">Peso mexicano (MXN)</option>
+                </Select>
               )}
             </Field>
           </div>
@@ -589,15 +679,24 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             })}
           </RadioGroup>
 
-          <Toggle
-            id="ask_name_before_quote"
-            label="Pedir nombre antes de cotizar"
-            tip="Apagado: si no tiene el nombre, cotiza como «Cliente de WhatsApp» y sigue adelante."
-            hint="Encendido: no emite la cotización hasta tener el nombre del cliente."
-            checked={draft.ask_name_before_quote}
-            onChange={(v) => set("ask_name_before_quote", v)}
-            defaultLabel={FACTORY.ask_name_before_quote ? "activado" : "desactivado"}
-          />
+          <div className="flex items-start gap-3 rounded-lg border bg-muted/40 p-3">
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-sm font-medium">Pedir nombre antes de cotizar</span>
+                <InfoTip
+                  label="Pedir nombre antes de cotizar"
+                  text="El agente siempre pide el nombre del cliente y no emite una cotización sin él. No se puede apagar: es lo que mantiene completa la base de clientes."
+                />
+                <Badge variant="muted" size="sm">
+                  Siempre activo
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Cada cotización queda ligada a un cliente identificable, nunca a un
+                «Cliente de WhatsApp» genérico.
+              </p>
+            </div>
+          </div>
           <Toggle
             id="ask_email_before_quote"
             label="Pedir correo antes de cotizar"
@@ -629,20 +728,15 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
               onReset={() => set("max_products_per_message", FACTORY.max_products_per_message)}
             >
               {(aria) => (
-                <Input
+                <RangeControl
                   {...aria}
-                  type="number"
                   min={1}
                   max={10}
-                  className="tabular-nums"
+                  step={1}
                   value={draft.max_products_per_message}
-                  onChange={(e) =>
-                    set(
-                      "max_products_per_message",
-                      Number(e.target.value) || FACTORY.max_products_per_message,
-                    )
-                  }
-                  placeholder={String(FACTORY.max_products_per_message)}
+                  defaultValue={FACTORY.max_products_per_message}
+                  onChange={(v) => set("max_products_per_message", v)}
+                  formatValue={(v) => `${v} ${v === 1 ? "producto" : "productos"}`}
                 />
               )}
             </Field>
@@ -801,18 +895,15 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
               onReset={() => set("temperature", null)}
             >
               {(aria) => (
-                <Input
+                <RangeControl
                   {...aria}
-                  type="number"
-                  step="0.05"
                   min={0}
                   max={1.5}
-                  className="tabular-nums"
-                  value={draft.temperature ?? ""}
-                  onChange={(e) =>
-                    set("temperature", e.target.value === "" ? null : Number(e.target.value))
-                  }
-                  placeholder={d.temperature || "0.55"}
+                  step={0.05}
+                  value={draft.temperature ?? temperatureDefault}
+                  defaultValue={temperatureDefault}
+                  onChange={(v) => set("temperature", v)}
+                  formatValue={(v) => v.toFixed(2)}
                 />
               )}
             </Field>
@@ -827,17 +918,15 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
               onReset={() => set("max_tokens", null)}
             >
               {(aria) => (
-                <Input
+                <RangeControl
                   {...aria}
-                  type="number"
                   min={64}
                   max={4000}
-                  className="tabular-nums"
-                  value={draft.max_tokens ?? ""}
-                  onChange={(e) =>
-                    set("max_tokens", e.target.value === "" ? null : Number(e.target.value))
-                  }
-                  placeholder={d.max_tokens || "700"}
+                  step={10}
+                  value={draft.max_tokens ?? maxTokensDefault}
+                  defaultValue={maxTokensDefault}
+                  onChange={(v) => set("max_tokens", v)}
+                  formatValue={(v) => v.toLocaleString("es-MX")}
                 />
               )}
             </Field>
@@ -944,6 +1033,147 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             onChange={(v) => set("auto_reply", v)}
             defaultLabel={FACTORY.auto_reply ? "activado" : "desactivado"}
           />
+        </Section>
+
+        {/* ============== ATENCIÓN HUMANA ============== */}
+        <Section
+          as="h3"
+          title="Atención humana"
+          description="Reglas para los hilos que atiende una persona desde la bandeja: qué se le puede escribir al cliente y cuándo se da por terminada la conversación."
+          contentClassName="space-y-4"
+        >
+          <Toggle
+            id="human_reply_filter_enabled"
+            label="Revisar las respuestas del equipo antes de enviarlas"
+            tip="Cada respuesta que escribe una persona pasa por un modelo pequeño que detecta insultos, desprecio, amenazas, discriminación, contenido sexual, fuga de información interna o promesas que el negocio no puede cumplir. Cuesta una llamada al modelo por cada respuesta enviada, por eso viene apagado."
+            hint="Apagado: las respuestas salen sin revisión y sin costo extra."
+            checked={draft.human_reply_filter_enabled}
+            onChange={(v) => set("human_reply_filter_enabled", v)}
+            defaultLabel={FACTORY.human_reply_filter_enabled ? "activado" : "desactivado"}
+            overridden={draft.human_reply_filter_enabled !== FACTORY.human_reply_filter_enabled}
+            onReset={() => set("human_reply_filter_enabled", FACTORY.human_reply_filter_enabled)}
+          />
+
+          {draft.human_reply_filter_enabled ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field
+                id="human_reply_filter_model"
+                label="Modelo que revisa"
+                tip="Modelo pequeño que hace la revisión. Entre más barato, menos cuesta cada respuesta enviada; la revisión es una clasificación corta, no hace falta un modelo grande."
+                hint={
+                  filterModels.find((m) => m.id === draft.human_reply_filter_model)?.notes ||
+                  "Los marcados como económicos son los recomendados para esta tarea."
+                }
+                defaultLabel={d.human_reply_filter_model || undefined}
+                overridden={draft.human_reply_filter_model !== ""}
+                onReset={() => set("human_reply_filter_model", "")}
+              >
+                {(aria) => (
+                  <Select
+                    {...aria}
+                    value={draft.human_reply_filter_model}
+                    onChange={(e) => set("human_reply_filter_model", e.target.value)}
+                  >
+                    <option value="">
+                      {d.human_reply_filter_model
+                        ? `Predeterminado (${d.human_reply_filter_model})`
+                        : "Predeterminado del agente"}
+                    </option>
+                    {filterModels.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.id}
+                        {m.cheap ? " · económico" : ""}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+
+              <Field
+                id="human_reply_filter_action"
+                label="Si el mensaje se marca"
+                tip="«Bloquear» no envía nada y le muestra el motivo a quien escribió, para que lo reescriba. «Enviar de todos modos» sí lo manda, pero deja una nota de advertencia en el mensaje para revisarlo después."
+                hint={
+                  draft.human_reply_filter_action === "warn"
+                    ? "El cliente recibe el mensaje; la advertencia queda en el hilo."
+                    : "El mensaje no sale hasta que se corrija."
+                }
+                defaultLabel={FACTORY.human_reply_filter_action}
+                overridden={draft.human_reply_filter_action !== FACTORY.human_reply_filter_action}
+                onReset={() =>
+                  set("human_reply_filter_action", FACTORY.human_reply_filter_action)
+                }
+              >
+                {(aria) => (
+                  <Select
+                    {...aria}
+                    value={draft.human_reply_filter_action}
+                    onChange={(e) =>
+                      set(
+                        "human_reply_filter_action",
+                        e.target.value as AgentSettings["human_reply_filter_action"],
+                      )
+                    }
+                  >
+                    {filterActions.map((action) => (
+                      <option key={action} value={action}>
+                        {FILTER_ACTION_LABEL[action] ?? action}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+          ) : null}
+
+          <Toggle
+            id="auto_close_enabled"
+            label="Cerrar la conversación sola tras un rato sin mensajes"
+            tip="Pasado el tiempo que definas sin ningún mensaje nuevo, el hilo pasa a «Cerrada» y, si estaba tomado por una persona, se libera. Si el cliente vuelve a escribir, el hilo sigue ahí con todo su historial."
+            hint="Apagado: los hilos solo se cierran a mano."
+            checked={draft.auto_close_enabled}
+            onChange={(v) => set("auto_close_enabled", v)}
+            defaultLabel={FACTORY.auto_close_enabled ? "activado" : "desactivado"}
+            overridden={draft.auto_close_enabled !== FACTORY.auto_close_enabled}
+            onReset={() => {
+              set("auto_close_enabled", FACTORY.auto_close_enabled);
+              set("auto_close_after", FACTORY.auto_close_after);
+            }}
+          />
+
+          {draft.auto_close_enabled ? (
+            <Field
+              id="auto_close_after"
+              label="Tiempo sin mensajes"
+              tip="Un número y una unidad, sin espacios: s (segundos), m (minutos), h (horas) o d (días). Mínimo 30s, máximo 30d."
+              error={errors.auto_close_after}
+              hint={
+                durationLabel(draft.auto_close_after)
+                  ? `Se cerrará tras ${durationLabel(draft.auto_close_after)} sin mensajes.`
+                  : "Ej.: 30s, 15m, 2h, 1d."
+              }
+              defaultLabel="sin plazo"
+              overridden={draft.auto_close_after !== FACTORY.auto_close_after}
+              onReset={() => set("auto_close_after", FACTORY.auto_close_after)}
+            >
+              {(aria) => (
+                <Input
+                  {...aria}
+                  value={draft.auto_close_after}
+                  inputMode="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={8}
+                  // Se guarda siempre en minúsculas y sin espacios: es la
+                  // forma canónica que espera el backend ("2H " -> "2h").
+                  onChange={(e) =>
+                    set("auto_close_after", e.target.value.trim().toLowerCase())
+                  }
+                  placeholder="Ej.: 30m, 2h, 1d"
+                />
+              )}
+            </Field>
+          ) : null}
         </Section>
 
         {/* ============== AVANZADO ============== */}
@@ -1147,6 +1377,73 @@ function Field({
         onReset={onReset}
         resetLabel={`Usar el valor predeterminado en ${plainLabel}`}
       />
+    </div>
+  );
+}
+
+/**
+ * Slider nativo (`<input type="range">`) con el valor actual a la derecha y
+ * una marca vertical en el punto del predeterminado sobre la pista, para que
+ * "restablecer" tenga un destino visible en vez de un número suelto.
+ *
+ * La marca usa `%` sobre el rango [min, max]: es una posición aproximada (el
+ * pulgar nativo recorta unos px del track en cada extremo), suficiente como
+ * referencia visual, no como precisión de pixel.
+ */
+function RangeControl({
+  id,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
+  min,
+  max,
+  step,
+  value,
+  defaultValue,
+  onChange,
+  formatValue,
+}: FieldAria & {
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  defaultValue?: number;
+  onChange: (value: number) => void;
+  formatValue?: (value: number) => string;
+}) {
+  const tickPct =
+    defaultValue !== undefined && Number.isFinite(defaultValue)
+      ? ((Math.min(Math.max(defaultValue, min), max) - min) / (max - min)) * 100
+      : null;
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative flex-1 py-2">
+        {tickPct !== null ? (
+          <span
+            aria-hidden
+            title="Valor predeterminado"
+            className="pointer-events-none absolute top-0 h-3.5 w-0.5 -translate-x-1/2 rounded-full bg-foreground/30"
+            style={{ left: `${tickPct}%` }}
+          />
+        ) : null}
+        <input
+          id={id}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={ariaInvalid}
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="h-1.5 w-full cursor-pointer appearance-none rounded-pill bg-muted accent-primary"
+        />
+      </div>
+      <output
+        htmlFor={id}
+        className="w-16 shrink-0 text-right text-sm font-medium tabular-nums"
+      >
+        {formatValue ? formatValue(value) : value}
+      </output>
     </div>
   );
 }

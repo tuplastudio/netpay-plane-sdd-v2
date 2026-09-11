@@ -36,6 +36,7 @@ Especificación integral para implementar catálogo, cotizaciones, pedidos, chec
 | [18-backlog-y-trazabilidad.md](18-backlog-y-trazabilidad.md) | Todas las tareas, dependencias, responsables sugeridos y orden. |
 | [19-revision-cobertura-y-fuentes.md](19-revision-cobertura-y-fuentes.md) | Hallazgos corregidos, cobertura de V1 y fuentes. |
 | [20-escenarios-bdd-y-fixtures.md](20-escenarios-bdd-y-fixtures.md) | Dataset y25 pruebas integradas Given/When/Then. |
+| [DEPLOY_DIGITALOCEAN.md](DEPLOY_DIGITALOCEAN.md) | Runbook para desplegar el stack en un Droplet con Neon (Postgres), CloudAMQP y DO Spaces, vía `scripts/deploy.sh`. |
 
 ## Qué contiene cada tarea
 

@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -12,9 +13,13 @@ import {
 import argon2 from "argon2";
 import {
   DEFAULT_CONVERSATION_LIMIT,
+  MANUAL_STATUSES,
   WhatsAppService,
   type ConversationListFilters,
+  type ConversationSort,
+  type ManualConversationStatus,
 } from "./whatsapp.service.js";
+import { ConversationContextService } from "./conversation-context.service.js";
 import { MAX_PAGE_SIZE } from "../common/pagination.js";
 import { AgentBridgeService } from "./agent-bridge.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
@@ -24,6 +29,9 @@ import { RequestContext } from "../common/context/request-context.js";
 const CONVERSATION_STATUSES = ["OPEN", "HANDED_OFF", "CLOSED"] as const;
 const HANDOFF_FILTERS = ["agent", "human"] as const;
 const WHATSAPP_PROVIDERS = ["META", "EVOLUTION"] as const;
+const CONVERSATION_SORTS = ["recent", "oldest"] as const;
+/** UUID v4 o el literal `unassigned` (la cola sin dueño). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Valor de un query param acotado a una lista; vacío = sin filtro. */
 function parseEnum<T extends string>(
@@ -45,6 +53,21 @@ function parseDate(name: string, raw: string | undefined): Date | undefined {
   return d;
 }
 
+/**
+ * `assignee`: el id de la persona dueña del hilo, o `unassigned` para la cola
+ * sin dueño. Se valida la forma de UUID aquí para no mandar basura al `where`
+ * (Postgres revienta un uuid mal formado con un 500, no con un 400).
+ */
+function parseAssignee(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  if (value === "unassigned") return value;
+  if (!UUID_RE.test(value)) {
+    throw new BadRequestException("assignee must be a UUID or 'unassigned'");
+  }
+  return value;
+}
+
 function parseLimit(raw: string | undefined): number {
   if (!raw) return DEFAULT_CONVERSATION_LIMIT;
   const n = Number(raw);
@@ -60,6 +83,7 @@ export class WhatsAppController {
   constructor(
     private readonly wa: WhatsAppService,
     private readonly agent: AgentBridgeService,
+    private readonly context: ConversationContextService,
   ) {}
 
   @Get("connections")
@@ -106,6 +130,52 @@ export class WhatsAppController {
     };
   }
 
+  /**
+   * Cambia solo la URL pública del webhook (útil cuando se levanta otro túnel
+   * ngrok, Cloudflare Tunnel o cambia el dominio). Conserva el `webhookSecret`
+   * actual: NO lo rota. Si la URL debe validarse como HTTPS absoluto, se
+   * rechaza en runtime con `400`.
+   *
+   * Casos típicos:
+   * - Bot dejó de responder y el `webhookUrl` quedó apuntando a un túnel de
+   *   ngrok muerto (err 3200 al pegarle). Levantas uno nuevo, actualizas aquí.
+   * - Cambiaste de demo.ngrok.io a prod.midominio.com.
+   */
+  @Patch(":id/webhook-url")
+  @RequireScopes("chat.write" as never)
+  async updateWebhookUrl(
+    @Param("id") id: string,
+    @Body() body: { webhookUrl?: string },
+  ) {
+    const url = (body.webhookUrl ?? "").trim();
+    if (!url) {
+      throw new BadRequestException({
+        code: "VALIDATION",
+        message: "webhookUrl es obligatorio",
+      });
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new BadRequestException({
+        code: "VALIDATION",
+        message: "webhookUrl no es una URL válida",
+      });
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new BadRequestException({
+        code: "VALIDATION",
+        message: "webhookUrl debe ser http(s)",
+      });
+    }
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.updateWebhookUrl(tenantId, id, url),
+      requestId: RequestContext.requestId,
+    };
+  }
+
   @Post(":id/health")
   @RequireScopes("chat.read" as never)
   async health(@Param("id") id: string) {
@@ -130,6 +200,9 @@ export class WhatsAppController {
     @Query("from") from?: string,
     @Query("to") to?: string,
     @Query("limit") limit?: string,
+    @Query("tag") tag?: string,
+    @Query("sort") sort?: string,
+    @Query("assignee") assignee?: string,
   ) {
     const tenantId = RequestContext.tenantId!;
     const filters: ConversationListFilters = {
@@ -140,6 +213,9 @@ export class WhatsAppController {
       from: parseDate("from", from),
       to: parseDate("to", to),
       limit: parseLimit(limit),
+      tag: tag?.trim().toLowerCase() || undefined,
+      sort: parseEnum<ConversationSort>("sort", sort, CONVERSATION_SORTS),
+      assignee: parseAssignee(assignee),
     };
     const [data, stats] = await Promise.all([
       this.wa.listConversations(tenantId, filters),
@@ -154,6 +230,131 @@ export class WhatsAppController {
     const tenantId = RequestContext.tenantId!;
     return {
       data: await this.wa.listMessages(tenantId, id),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /**
+   * Contexto CRM completo del hilo en una sola lectura: ficha del cliente,
+   * agregados de gasto, pedidos/cotizaciones/pagos recientes, notas internas y
+   * la línea de tiempo fusionada. Ver `conversation-context.service.ts`.
+   */
+  @Get("conversations/:id/context")
+  @RequireScopes("chat.read" as never)
+  async conversationContext(@Param("id") id: string) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.context.get(tenantId, id),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /**
+   * Cerrar / reabrir un hilo a mano. Antes solo el job de inactividad podía
+   * cerrar y nada podía reabrir.
+   */
+  @Patch("conversations/:id/status")
+  @RequireScopes("chat.write" as never)
+  async setStatus(@Param("id") id: string, @Body() body: { status?: string }) {
+    const tenantId = RequestContext.tenantId!;
+    const status = parseEnum<ManualConversationStatus>("status", body?.status, MANUAL_STATUSES);
+    if (!status) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `status debe ser uno de: ${MANUAL_STATUSES.join(", ")}`,
+      });
+    }
+    return {
+      data: await this.wa.setStatus(tenantId, id, status, RequestContext.userId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /** Personas activas como agente de WhatsApp y cuántos hilos llevan ahora. */
+  @Get("agents")
+  @RequireScopes("chat.read" as never)
+  async agents() {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.listAgents(tenantId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Get("messages/:id/notes")
+  @RequireScopes("chat.read" as never)
+  async messageNotes(@Param("id") id: string) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.listMessageNotes(tenantId, id),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Post("messages/:id/notes")
+  @HttpCode(201)
+  @RequireScopes("chat.write" as never)
+  async addMessageNote(@Param("id") id: string, @Body() body: { body: string }) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.addMessageNote(tenantId, id, RequestContext.userId, body?.body),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /** Vincula el hilo a una ficha de cliente ("Cliente sin ficha" → "Crear cliente"). */
+  @Patch("conversations/:id/customer")
+  @RequireScopes("chat.write" as never)
+  async linkCustomer(@Param("id") id: string, @Body() body: { customerId: string }) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.linkCustomer(tenantId, id, body?.customerId, RequestContext.userId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  @Patch("conversations/:id/tags")
+  @RequireScopes("chat.write" as never)
+  async setTags(@Param("id") id: string, @Body() body: { tags: string[] }) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.setTags(
+        tenantId,
+        id,
+        Array.isArray(body?.tags) ? body.tags : [],
+        RequestContext.userId,
+      ),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /** Un agente humano toma un hilo de la cola sin asignar ("Tomar"). */
+  @Post("conversations/:id/claim")
+  @HttpCode(200)
+  @RequireScopes("chat.write" as never)
+  async claim(@Param("id") id: string) {
+    const tenantId = RequestContext.tenantId!;
+    const userId = RequestContext.userId;
+    if (!userId) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Esta acción requiere una sesión de usuario del portal",
+      });
+    }
+    return {
+      data: await this.wa.claim(tenantId, id, userId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /** Manda un link de cotización (u otro texto) aunque el hilo siga con el agente. */
+  @Post("conversations/:id/send-quote")
+  @HttpCode(201)
+  @RequireScopes("chat.write" as never)
+  async sendQuote(@Param("id") id: string, @Body() body: { body: string }) {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.wa.sendQuoteMessage(tenantId, id, body?.body),
       requestId: RequestContext.requestId,
     };
   }
@@ -194,7 +395,7 @@ export class WhatsAppController {
   ) {
     const tenantId = RequestContext.tenantId!;
     return {
-      data: await this.wa.handoffToHuman(tenantId, id, body.userId),
+      data: await this.wa.handoffToHuman(tenantId, id, body.userId, RequestContext.userId),
       requestId: RequestContext.requestId,
     };
   }
@@ -258,7 +459,7 @@ export class WhatsAppController {
   async returnToAgent(@Param("id") id: string) {
     const tenantId = RequestContext.tenantId!;
     return {
-      data: await this.wa.returnToAgent(tenantId, id),
+      data: await this.wa.returnToAgent(tenantId, id, RequestContext.userId),
       requestId: RequestContext.requestId,
     };
   }

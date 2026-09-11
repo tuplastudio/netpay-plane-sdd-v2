@@ -18,6 +18,11 @@ export interface Connection {
   phoneNumber: string | null;
   /** WhatsAppStatus: PENDING | ACTIVE | DISABLED | ERROR */
   status: string;
+  /** URL pública del webhook. La única forma de que un mensaje entrante
+   *  llegue al bot es que el operador de Evolution apunte a esta URL. */
+  webhookUrl: string | null;
+  /** Versión optimista del registro (PATCH envía `expectedVersion`). */
+  version: number;
   connectedAt: string | null;
   lastError: string | null;
   createdAt: string;
@@ -51,13 +56,17 @@ export function useMe() {
   });
 }
 
-export function useConnections() {
+export function useConnections(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["whatsapp-connections"],
     queryFn: async () => {
       const res = await api.get<{ data: Connection[] }>("/whatsapp/connections");
       return res.data.data;
     },
+    // Consumido también fuera de /channels (ver sidebar-nav.tsx) para saber si
+    // hay al menos un canal configurado; ahí se apaga cuando no hay tenant
+    // (super-admin sin impersonar) para no pegarle al endpoint sin contexto.
+    enabled: options?.enabled ?? true,
   });
 }
 
@@ -93,5 +102,42 @@ export function useCheckHealth() {
       else toast.error(data.error ?? "El canal no responde");
     },
     onError: () => toast.error("No se pudo verificar el canal"),
+  });
+}
+
+/**
+ * Cambia la URL pública del webhook sin tocar el `webhookSecret` (útil cuando
+ * se levanta un túnel nuevo y solo queremos reapuntar Evolution).
+ *
+ * Devuelve la conexión entera con `version` actualizado — el operador ve el
+ * cambio inmediatamente en la lista.
+ */
+export function useUpdateWebhookUrl(onDone?: () => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; webhookUrl: string }) => {
+      const res = await api.patch<{ data: Connection }>(
+        `/whatsapp/${input.id}/webhook-url`,
+        { webhookUrl: input.webhookUrl },
+      );
+      return res.data.data;
+    },
+    onSuccess: async () => {
+      toast.success("URL del webhook actualizada");
+      onDone?.();
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-connections"] });
+    },
+    onError: (error: unknown) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      const message = (error as { response?: { data?: { message?: string } } })?.response
+        ?.data?.message;
+      if (status === 400) {
+        toast.error(message ?? "La URL no es válida: debe ser http(s).");
+      } else if (status === 404) {
+        toast.error("Canal no encontrado en este comercio.");
+      } else {
+        toast.error(message ?? "No se pudo actualizar la URL del webhook");
+      }
+    },
   });
 }

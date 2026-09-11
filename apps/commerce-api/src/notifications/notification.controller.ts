@@ -12,6 +12,7 @@ import {
 import { Response } from "express";
 import { NotificationService } from "./notification.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
+import { ScheduleNotificationDto } from "./notification.dto.js";
 import { RequestContext } from "../common/context/request-context.js";
 
 @Controller("notifications")
@@ -65,17 +66,7 @@ export class NotificationController {
   @Post("schedule")
   @HttpCode(201)
   @RequireScopes("notifications.write" as never)
-  async schedule(
-    @Body()
-    body: {
-      recipientType: "CUSTOMER" | "USER";
-      recipientId: string;
-      channel: "EMAIL" | "WHATSAPP" | "SMS" | "PUSH";
-      templateKey: string;
-      payload: Record<string, unknown>;
-      scheduledAt?: string;
-    },
-  ) {
+  async schedule(@Body() body: ScheduleNotificationDto) {
     const tenantId = RequestContext.tenantId!;
     const n = await this.notifications.schedule({
       tenantId,

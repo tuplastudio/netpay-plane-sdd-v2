@@ -18,6 +18,7 @@ import { RequestContext } from "../common/context/request-context.js";
 import {
   AddVariantDto,
   CreateProductDto,
+  DryRunImportDto,
   UpdateProductDto,
   UpdateVariantDto,
 } from "./catalog.dto.js";
@@ -89,7 +90,7 @@ export class CatalogController {
   @Post("imports/dry-run")
   @RequireScopes("catalog.write")
   async dryRunImport(
-    @Body() body: { rows: Array<Record<string, string>> },
+    @Body() body: DryRunImportDto,
   ) {
     const tenantId = this.requireTenant();
     const result = await this.catalog.dryRunImport(tenantId, body.rows);

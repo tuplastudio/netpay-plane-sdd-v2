@@ -26,6 +26,25 @@ import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
 import { decideRefund, parseMoney, remainingRefundable, ZERO } from "./refund-math.js";
 
+/**
+ * Secreto HMAC del webhook del gateway dummy.
+ *
+ * Los despliegues definen `DUMMY_WEBHOOK_SECRET_REF` (ver .env / .env.example),
+ * que es la convención del repo para secretos — la misma que usa
+ * PrincipalGuard con AGENT_INTERNAL_KEY_REF. El código leía SOLO
+ * `DUMMY_WEBHOOK_SECRET`, que no lo define nadie, así que caía siempre al
+ * literal "dev-webhook-secret" que está commiteado: cualquiera podía firmar un
+ * webhook válido y marcar como PAGADA la orden de cualquier empresa.
+ * `validateStartupConfig()` ahora exige el secreto fuera de local.
+ */
+function dummyWebhookSecret(): string {
+  return (
+    process.env.DUMMY_WEBHOOK_SECRET_REF ??
+    process.env.DUMMY_WEBHOOK_SECRET ??
+    "dev-webhook-secret"
+  );
+}
+
 export interface CreateCheckoutInput {
   tenantId: string;
   orderId: string;
@@ -143,7 +162,7 @@ export class PaymentService {
     const baseUrl = process.env.DUMMY_BASE_URL ?? "http://localhost:4100";
     const publicBaseUrl = process.env.DUMMY_PUBLIC_URL ?? baseUrl;
     const apiKey = process.env.DUMMY_SERVICE_KEY ?? "npk_test_local";
-    const webhookSecret = process.env.DUMMY_WEBHOOK_SECRET ?? "dev-webhook-secret";
+    const webhookSecret = dummyWebhookSecret();
     // Dirección propia alcanzable por el dummy-gateway para el callback del
     // webhook — NUNCA la URL pública del navegador (dentro de Docker
     // "http://commerce-api:4000" ≠ "http://localhost:3001").
@@ -300,7 +319,7 @@ export class PaymentService {
 
   /** Recibe y verifica webhook firmado por el dummy. */
   async handleWebhook(rawBody: string, signature: string | undefined): Promise<void> {
-    const secret = process.env.DUMMY_WEBHOOK_SECRET ?? "dev-webhook-secret";
+    const secret = dummyWebhookSecret();
     if (!signature) {
       throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Firma requerida" });
     }
