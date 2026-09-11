@@ -1,10 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // En monorepo Next.js a veces infiere el workspace root equivocado y no
-  // detecta `apps/web/middleware.ts`. Fijamos la raíz del proyecto al
-  // directorio de este paquete para que la inferencia sea estable.
-  outputFileTracingRoot: import.meta.dirname,
+  // Nota: `outputFileTracingRoot: import.meta.dirname` removido. Causaba que
+  // Vercel no empaquetara `next/dist/server/node-environment.js` y el runtime
+  // del serverless fallara con "Cannot find module './node-environment'"
+  // cuando una página autenticada llamaba endpoints SSR. El middleware se
+  // detectó igual porque Vercel resuelve este caso vía rootDirectory=apps/web.
   // Imagen Docker liviana: usa `output: "standalone"` solo cuando se hace
   // build con STANDALONE_BUILD=1 (Dockerfile lo setea). En Vercel queda
   // apagado para no chocar con su output tracing (rompía `vercel deploy
