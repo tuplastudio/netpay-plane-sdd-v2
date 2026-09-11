@@ -107,10 +107,6 @@ export default function LoginPage() {
           <p>
             <AuthLink href="/recover">¿Olvidaste tu contraseña?</AuthLink>
           </p>
-          <p>
-            Demo: <code className="font-mono">owner@demo.local</code> /{" "}
-            <code className="font-mono">Demo1234!Demo1234!</code>
-          </p>
         </>
       }
     >

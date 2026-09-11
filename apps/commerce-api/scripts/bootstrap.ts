@@ -9,6 +9,20 @@ import { BootstrapService } from "../src/auth/bootstrap.service.js";
 
 async function main() {
   const logger = new Logger("Bootstrap");
+
+  // Hardening: no dejamos que un deploy de prod arranque con la
+  // contraseña de demo por accidente. Si NODE_ENV=production y
+  // BOOTSTRAP_OWNER_PASSWORD no está seteada (o quedó en el
+  // default), fallamos ruidosamente en lugar de crear el owner
+  // con "Demo1234!Demo1234!".
+  if (process.env.NODE_ENV === "production" &&
+      !process.env.BOOTSTRAP_OWNER_PASSWORD) {
+    throw new Error(
+      "BOOTSTRAP_OWNER_PASSWORD no está seteada en producción. " +
+      "Define una contraseña explícita (>=12 chars) antes de correr bootstrap.",
+    );
+  }
+
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ["error", "warn", "log"],
   });
