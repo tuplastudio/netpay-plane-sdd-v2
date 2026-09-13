@@ -43,3 +43,13 @@ apps/agent-v2/.settings/
 !/docs/**
 !/apps/web/public/**
 .vercel
+
+# Screenshots de testing/revisión (Playwright MCP, revisión de UI manual)
+# no deben subirse al repo. Solo bloquea las del root, NO las de assets.
+*-placeholders.png
+login-*.png
+recover-*.png
+super-admin-*.png
+customers-*.png
+channels-*.png
+/*.png

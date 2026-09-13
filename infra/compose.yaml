@@ -237,13 +237,17 @@ services:
     depends_on:
       commerce-api:
         condition: service_healthy
-      agent-service:
+      agent-v2:
         condition: service_healthy
     environment:
       NODE_ENV: production
       # Route handler server-side (apps/web/src/app/agent/[...path]/route.ts):
       # se lee en runtime, no en build, así que basta con env normal.
-      AGENT_INTERNAL_URL: http://agent-service:8000
+      # OJO: debe apuntar al MISMO agente que commerce-api (AGENT_URL). Si el
+      # panel edita ajustes/conocimiento en un agente y WhatsApp contesta con
+      # otro, las empresas ven configuración que el bot no usa.
+      AGENT_INTERNAL_URL: ${AGENT_URL:-http://agent-v2:8010}
+      AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:-}
     ports:
       - "3001:3000"
 
