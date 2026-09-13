@@ -15,7 +15,7 @@ import Handlebars from "handlebars";
 export interface SendEmailInput {
   to: string;
   subject: string;
-  template: "invitation" | "notification";
+  template: "invitation" | "notification" | "passwordReset";
   vars: Record<string, unknown>;
   from?: string;
 }

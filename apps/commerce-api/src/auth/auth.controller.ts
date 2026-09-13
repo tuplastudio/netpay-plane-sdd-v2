@@ -204,6 +204,48 @@ export class AuthController {
     return { data: result, requestId: RequestContext.requestId };
   }
 
+  /**
+   * Refresca la sesión: extiende el TTL de la cookie sin pedir credenciales.
+   *
+   * El frontend lo llama automáticamente cuando recibe un 401 de cualquier API
+   * (axios interceptor). Si el refresh succeede, el interceptor reintenta la
+   * petición original; si falla, redirige a /login.
+   *
+   * También valida el TTL de inactividad (30 min por defecto): si el navegador
+   * lleva > 30 min abierto sin hacer requests, la sesión expira y se devuelve
+   * 401 para forzar re-login.
+   */
+  @Post("refresh")
+  @HttpCode(200)
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const inactivityTtlMs = 30 * 60 * 1000; // 30 min
+    const result = await this.auth.sessions.refreshSession(token!, inactivityTtlMs);
+
+    if (!result) {
+      throw new UnauthorizedException({
+        code: "SESSION_EXPIRED",
+        message: "Sesión expirada o inactividad prolongada. Inicia sesión de nuevo.",
+      });
+    }
+
+    res.cookie(SESSION_COOKIE, token!, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      expires: result.expiresAt,
+    });
+
+    return {
+      data: { ok: true, expiresAt: result.expiresAt.toISOString() },
+      requestId: RequestContext.requestId,
+    };
+  }
+
   @Post("logout")
   @HttpCode(204)
   async logout(

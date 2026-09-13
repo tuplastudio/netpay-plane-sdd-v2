@@ -33,7 +33,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly rateLimit: RateLimitService,
-    private readonly sessions: SessionService,
+    readonly sessions: SessionService,
     private readonly mfa: MfaService,
   ) {}
 
@@ -136,6 +136,7 @@ export class AuthService {
       userId: user.id,
       tenantId: membership.tenantId,
       role: membership.role,
+      isSuperAdmin: user.isSuperAdmin,
       mfaRequired: false,
       mfaSetupRecommended: ["OWNER", "ADMIN", "FINANCE"].includes(membership.role),
       expiresAt: session.expiresAt.toISOString(),
@@ -267,6 +268,7 @@ export class AuthService {
       userId: challenge.userId,
       tenantId: challenge.tenantId,
       role: challenge.role,
+      isSuperAdmin: user.isSuperAdmin,
       mfaRequired: false,
       expiresAt: session.expiresAt.toISOString(),
     };

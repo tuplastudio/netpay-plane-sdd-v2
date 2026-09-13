@@ -14,6 +14,7 @@ import { MfaService } from "./mfa.service.js";
 import { ApiKeyService } from "./api-key.service.js";
 import { MembershipService } from "./membership.service.js";
 import { InvitationMailer } from "./invitation-mailer.service.js";
+import { PasswordResetMailer } from "./password-reset-mailer.service.js";
 import { AuthenticatedGuard } from "./guards/authenticated.guard.js";
 import { PrincipalGuard } from "./guards/principal.guard.js";
 import { RoleGuard } from "./guards/role.guard.js";
@@ -34,6 +35,7 @@ import { SuperAdminGuard } from "./guards/super-admin.guard.js";
     ApiKeyService,
     MembershipService,
     InvitationMailer,
+    PasswordResetMailer,
     AuthenticatedGuard,
     PrincipalGuard,
     RoleGuard,
@@ -49,6 +51,7 @@ import { SuperAdminGuard } from "./guards/super-admin.guard.js";
     ApiKeyService,
     MembershipService,
     InvitationMailer,
+    PasswordResetMailer,
     AuthenticatedGuard,
     PrincipalGuard,
     RoleGuard,

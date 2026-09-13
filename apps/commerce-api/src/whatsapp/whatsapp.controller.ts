@@ -7,10 +7,13 @@ import {
   Param,
   Patch,
   Post,
+  Delete,
   Query,
+  Res,
   UseGuards,
 } from "@nestjs/common";
 import argon2 from "argon2";
+import type { Response } from "express";
 import {
   DEFAULT_CONVERSATION_LIMIT,
   MANUAL_STATUSES,
@@ -22,6 +25,7 @@ import {
 import { ConversationContextService } from "./conversation-context.service.js";
 import { MAX_PAGE_SIZE } from "../common/pagination.js";
 import { AgentBridgeService } from "./agent-bridge.service.js";
+import { EvolutionApiError, EvolutionOnboardingService } from "./evolution-onboarding.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
@@ -84,6 +88,7 @@ export class WhatsAppController {
     private readonly wa: WhatsAppService,
     private readonly agent: AgentBridgeService,
     private readonly context: ConversationContextService,
+    private readonly evolutionOnboarding: EvolutionOnboardingService,
   ) {}
 
   @Get("connections")
@@ -184,6 +189,117 @@ export class WhatsAppController {
       data: await this.wa.health(tenantId, id),
       requestId: RequestContext.requestId,
     };
+  }
+
+  // ---- Self-registration con Evolution -------------------------------------
+  // Hasta ahora el operador tenía que entrar a `evolution.dominio/manager`,
+  // crear la instancia a mano y luego pegar credenciales en este portal. Los
+  // endpoints de abajo cierran ese paso: desde el portal Web basta con pedir
+  // "alta" — el backend crea la instancia en Evolution, registra el webhook
+  // y devuelve el QR ya listo.
+
+  /** `POST /whatsapp/evolution/provision`. Crea una instancia nueva y la conecta al tenant. */
+  @Post("evolution/provision")
+  @HttpCode(201)
+  @RequireScopes("chat.write" as never)
+  async provisionEvolution(@Body() body: { phoneNumber?: string }) {
+    const tenantId = RequestContext.tenantId!;
+    try {
+      const result = await this.wa.provisionEvolution(tenantId, body.phoneNumber);
+      return { data: result, requestId: RequestContext.requestId };
+    } catch (err) {
+      if (err instanceof EvolutionApiError) {
+        throw new BadRequestException({
+          code: "EVOLUTION_API_ERROR",
+          message: err.message,
+          status: err.status,
+        });
+      }
+      throw err;
+    }
+  }
+
+  /** `GET /whatsapp/evolution/qr/:instance`. Refresca el QR (rota cada ~60s). */
+  @Get("evolution/qr/:instance")
+  @RequireScopes("chat.read" as never)
+  async evolutionQrCode(@Param("instance") instance: string) {
+    const tenantId = RequestContext.tenantId!;
+    const base64 = await this.evolutionOnboarding.fetchQrCode(tenantId, instance);
+    return { data: { qrCodeBase64: base64 }, requestId: RequestContext.requestId };
+  }
+
+  /** `GET /whatsapp/evolution/image/:instance`. Devuelve el QR como PNG. */
+  @Get("evolution/image/:instance")
+  @RequireScopes("chat.read" as never)
+  async evolutionQrImage(
+    @Param("instance") instance: string,
+    @Res() res: Response,
+  ) {
+    const tenantId = RequestContext.tenantId!;
+    const base64 = await this.evolutionOnboarding.fetchQrCode(tenantId, instance);
+    if (!base64) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "QR no disponible" } });
+      return;
+    }
+    const match = base64.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (!match) {
+      res.status(502).json({ error: { code: "BAD_QR_FORMAT", message: "Evolution devolvió un QR inesperado" } });
+      return;
+    }
+    const buf = Buffer.from(match[2] ?? "", "base64");
+    res.setHeader("content-type", `image/${match[1]}`);
+    res.setHeader("cache-control", "no-store");
+    res.send(buf);
+  }
+
+  /** `GET /whatsapp/evolution/state/:instance`. Estado de la instancia. */
+  @Get("evolution/state/:instance")
+  @RequireScopes("chat.read" as never)
+  async evolutionState(@Param("instance") instance: string) {
+    const tenantId = RequestContext.tenantId!;
+    try {
+      const state = await this.evolutionOnboarding.connectionState(tenantId, instance);
+      return { data: state, requestId: RequestContext.requestId };
+    } catch (err) {
+      if (err instanceof EvolutionApiError) {
+        throw new BadRequestException({
+          code: "EVOLUTION_API_ERROR",
+          message: err.message,
+          status: err.status,
+        });
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * `POST /whatsapp/evolution/finalize/:instance`. Confirma la instancia y
+   * la deja en `ACTIVE` guardando `WhatsAppConnection`. Se llama cuando el
+   * cliente ya escaneó el QR y el estado de Evolution es `open`.
+   */
+  @Post("evolution/finalize/:instance")
+  @HttpCode(200)
+  @RequireScopes("chat.write" as never)
+  async finalizeEvolution(
+    @Param("instance") instance: string,
+    @Body() body: { phoneNumber?: string },
+  ) {
+    const tenantId = RequestContext.tenantId!;
+    const result = await this.wa.finalizeEvolutionConnection(
+      tenantId,
+      instance,
+      body.phoneNumber,
+    );
+    return { data: result, requestId: RequestContext.requestId };
+  }
+
+  /** `DELETE /whatsapp/evolution/instance/:instance`. Limpia la instancia en Evolution. */
+  @Delete("evolution/instance/:instance")
+  @HttpCode(204)
+  @RequireScopes("chat.write" as never)
+  async evolutionCleanup(@Param("instance") instance: string) {
+    const tenantId = RequestContext.tenantId!;
+    await this.evolutionOnboarding.disconnectAndDelete(tenantId, instance);
   }
 
   /**

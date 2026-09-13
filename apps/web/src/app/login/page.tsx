@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -8,27 +9,17 @@ import { toast } from "sonner";
 import { api, syncSessionAfterAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  AuthCard,
-  AuthError,
-  AuthField,
-  AuthForm,
-  AuthLink,
-  authErrorMessage,
-} from "@/components/app/auth-card";
+import { Label } from "@/components/ui/label";
+import { AuthSplitLayout } from "@/components/app/auth-split-layout";
+import { AuthError, authErrorMessage } from "@/components/app/auth-card";
 
 const schema = z.object({
   email: z.string().email("Escribe un correo válido"),
   password: z.string().min(12, "Mínimo 12 caracteres"),
-  tenantSlug: z.string().optional(),
 });
-
 type FormValues = z.infer<typeof schema>;
 
 function readSafeNext(): string {
-  // El middleware mete `?next=<path>` cuando redirige aquí desde una ruta
-  // protegida. Aceptamos solo paths internos (mismo origen) para no abrir
-  // un open-redirect: cualquier URL externa se ignora y caemos a /catalog.
   if (typeof window === "undefined") return "/catalog";
   const raw = new URLSearchParams(window.location.search).get("next");
   if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/catalog";
@@ -44,13 +35,9 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<FormValues>({
+  const { register, handleSubmit, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: "", password: "", tenantSlug: "" },
+    defaultValues: { email: "", password: "" },
   });
 
   const onSubmit = handleSubmit(async (values) => {
@@ -61,33 +48,26 @@ export default function LoginPage() {
         data: {
           mfaRequired: boolean;
           mfaChallengeToken?: string;
-          /** Solo cuando la sesión quedó abierta (sin MFA pendiente). */
           role?: string;
+          isSuperAdmin?: boolean;
         };
       }>("/auth/login", values);
       const result = res.data.data;
       if (result.mfaRequired && result.mfaChallengeToken) {
-        // Con MFA pendiente la autenticación NO terminó: no hay cookie de
-        // sesión todavía, así que tampoco se guarda identidad. La escribe
-        // /mfa/verify cuando el segundo factor pasa.
         router.push(`/mfa/verify?token=${encodeURIComponent(result.mfaChallengeToken)}`);
         return;
       }
-      // Sesión abierta: la cookie HttpOnly la puso el backend. Aquí solo se
-      // cachea la identidad de pantalla; el token nunca toca el navegador.
       await syncSessionAfterAuth({
         role: result.role,
         fallback: {
           email: values.email,
           ...(result.role ? { role: result.role } : {}),
-          ...(values.tenantSlug ? { tenantSlug: values.tenantSlug } : {}),
         },
       });
       toast.success("Sesión iniciada");
-      router.push(safeNext);
+      router.push(result.isSuperAdmin ? "/super-admin" : safeNext);
     } catch (err) {
       setFormError(
-        // El texto de respaldo no repite el título del Alert.
         authErrorMessage(err, "Inténtalo de nuevo en un momento.", {
           401: "Credenciales inválidas",
           429: "Demasiados intentos. Intenta en 15 minutos.",
@@ -99,65 +79,61 @@ export default function LoginPage() {
   });
 
   return (
-    <AuthCard
-      title="Iniciar sesión"
-      description="Ingresa con tu cuenta del portal."
-      footer={
-        <>
-          <p>
-            <AuthLink href="/recover">¿Olvidaste tu contraseña?</AuthLink>
+    <AuthSplitLayout>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <h1 className="text-2xl font-bold tracking-tight">Iniciar sesión</h1>
+          <p className="text-balance text-sm text-muted-foreground">
+            Ingresa con tu correo del portal para abrir tu tienda.
           </p>
-        </>
-      }
-    >
-      <AuthForm onSubmit={onSubmit}>
-        <AuthError message={formError} title="No se pudo iniciar sesión" />
-
-        <AuthField id="email" label="Correo electrónico" error={errors.email?.message}>
-          {(field) => (
-            <Input
-              {...field}
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              autoFocus
-              {...register("email")}
-            />
-          )}
-        </AuthField>
-
-        <AuthField id="password" label="Contraseña" error={errors.password?.message}>
-          {(field) => (
-            <Input
-              {...field}
-              type="password"
-              autoComplete="current-password"
-              {...register("password")}
-            />
-          )}
-        </AuthField>
-
-        <AuthField
-          id="tenantSlug"
-          label="Tenant (opcional)"
-          hint="Solo si perteneces a más de un comercio."
-          error={errors.tenantSlug?.message}
-        >
-          {(field) => (
-            <Input
-              {...field}
-              type="text"
-              placeholder="demo"
-              autoComplete="organization"
-              {...register("tenantSlug")}
-            />
-          )}
-        </AuthField>
-
-        <Button type="submit" className="w-full" loading={submitting}>
-          Entrar
-        </Button>
-      </AuthForm>
-    </AuthCard>
+        </div>
+        <form noValidate onSubmit={onSubmit} className="flex flex-col gap-6">
+          <AuthError message={formError} title="No se pudo iniciar sesión" />
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="email">Correo electrónico</Label>
+              <Input
+                id="email"
+                type="email"
+                inputMode="email"
+                placeholder="correo@ejemplo.com"
+                autoComplete="email"
+                autoFocus
+                aria-invalid={errors.email ? true : undefined}
+                {...register("email")}
+              />
+              {errors.email && (
+                <p className="text-xs text-destructive">{errors.email.message}</p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <div className="flex items-center">
+                <Label htmlFor="password">Contraseña</Label>
+                <Link
+                  href="/recover"
+                  className="ml-auto text-sm underline-offset-4 hover:underline"
+                >
+                  ¿Olvidaste tu contraseña?
+                </Link>
+              </div>
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                autoComplete="current-password"
+                aria-invalid={errors.password ? true : undefined}
+                {...register("password")}
+              />
+              {errors.password && (
+                <p className="text-xs text-destructive">{errors.password.message}</p>
+              )}
+            </div>
+            <Button type="submit" className="w-full" loading={submitting}>
+              Entrar
+            </Button>
+          </div>
+        </form>
+      </div>
+    </AuthSplitLayout>
   );
 }

@@ -141,3 +141,110 @@ export function useUpdateWebhookUrl(onDone?: () => void) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Self-registration con Evolution (T-WHA-03)
+// ---------------------------------------------------------------------------
+
+export interface ProvisionResult {
+  instanceName: string;
+  hash: string;
+  qrCodeBase64: string | null;
+  state: string;
+}
+
+export interface EvolutionState {
+  instanceName: string;
+  instanceId: string;
+  state: string;
+  number: string | null;
+  profileName: string | null;
+}
+
+/**
+ * Da de alta una instancia de Evolution desde el portal. Crea la instancia en
+ * Evolution, registra el webhook y devuelve el QR listo para mostrar.
+ * Fallaba: pide `phoneNumber` opcional (la mayoría no lo sabe al escanear).
+ */
+export function useProvisionEvolution(onSuccess?: (data: ProvisionResult) => void) {
+  return useMutation({
+    mutationFn: async (input: { phoneNumber?: string }) => {
+      const res = await api.post<{ data: ProvisionResult }>("/whatsapp/evolution/provision", input);
+      return res.data.data;
+    },
+    onSuccess: (data) => {
+      onSuccess?.(data);
+    },
+    onError: (error: unknown) => {
+      const message =
+        (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ??
+        (error as { message?: string })?.message;
+      toast.error(message ?? "No se pudo crear la instancia en Evolution");
+    },
+  });
+}
+
+/** Trae un QR fresco de Evolution. El QR rota cada ~60s. */
+export function useEvolutionQr() {
+  return useMutation({
+    mutationFn: async (instanceName: string) => {
+      const res = await api.get<{ data: { qrCodeBase64: string | null } }>(
+        `/whatsapp/evolution/qr/${encodeURIComponent(instanceName)}`,
+      );
+      return res.data.data.qrCodeBase64;
+    },
+    onError: () => {
+      // Silencioso: si el QR ya no está disponible significa que el cliente
+      // ya escaneó, así que el siguiente poll de `state` mostrará `open`.
+    },
+  });
+}
+
+/** Estado de una instancia de Evolution (`connecting` | `open` | `close`). */
+export function useEvolutionState() {
+  return useMutation({
+    mutationFn: async (instanceName: string) => {
+      const res = await api.get<{ data: EvolutionState }>(
+        `/whatsapp/evolution/state/${encodeURIComponent(instanceName)}`,
+      );
+      return res.data.data;
+    },
+  });
+}
+
+/**
+ * Promueve la instancia escaneada a `WhatsAppConnection` con estado `ACTIVE`.
+ * Se llama una vez que `useEvolutionState` confirma que pasó a `open`:
+ * crea/actualiza la fila, deja el webhook ya registrado y devuelve el secreto.
+ */
+export function useFinalizeEvolution(onSuccess?: (connection: Connection) => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { instanceName: string; phoneNumber?: string }) => {
+      const res = await api.post<{ data: Connection }>(
+        `/whatsapp/evolution/finalize/${encodeURIComponent(input.instanceName)}`,
+        { phoneNumber: input.phoneNumber },
+      );
+      return res.data.data;
+    },
+    onSuccess: async (conn) => {
+      toast.success("Canal listo y conectado");
+      onSuccess?.(conn);
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-connections"] });
+    },
+    onError: (error: unknown) => {
+      const message =
+        (error as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      toast.error(message ?? "No se pudo finalizar el alta");
+    },
+  });
+}
+
+/** Limpia una instancia en Evolution. Útil al cancelar a mitad de flujo. */
+export function useEvolutionCleanup() {
+  return useMutation({
+    mutationFn: async (instanceName: string) => {
+      await api.delete(`/whatsapp/evolution/instance/${encodeURIComponent(instanceName)}`);
+    },
+  });
+}

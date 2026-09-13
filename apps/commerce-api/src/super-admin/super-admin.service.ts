@@ -99,7 +99,20 @@ export class SuperAdminService {
   async overview() {
     const { gte, lte } = this.mtdRange();
     const now = new Date();
-    const [tenantsByStatus, users, pendingInvitations, usage] = await Promise.all([
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const [
+      tenantsByStatus,
+      users,
+      pendingInvitations,
+      usage,
+      newTenantsThisMonth,
+      activeConversations,
+      ordersMtd,
+      revenueMtd,
+      usageTrend,
+      recentActivity,
+    ] = await Promise.all([
       this.prisma.tenant.groupBy({ by: ["status"], _count: { _all: true } }),
       // Usuarios distintos con al menos una membresía (cualquier estado).
       this.prisma.user.count({ where: { memberships: { some: {} } } }),
@@ -108,6 +121,65 @@ export class SuperAdminService {
         where: { createdAt: { gte, lte } },
         _count: { _all: true },
         _sum: { inputTokens: true, outputTokens: true, costUsd: true },
+      }),
+      // Nuevas empresas creadas este mes
+      this.prisma.tenant.count({
+        where: { createdAt: { gte: firstDayOfMonth, lte: now } },
+      }),
+      // Conversaciones activas (no cerradas) cross-tenant
+      this.prisma.whatsAppConversation.count({
+        where: { status: { in: ["OPEN", "HANDED_OFF"] } },
+      }),
+      // Pedidos del mes
+      this.prisma.order.count({
+        where: { createdAt: { gte, lte } },
+      }),
+      // Suma de ventas del mes (solo pedidos pagados o entregados)
+      this.prisma.order.aggregate({
+        where: { createdAt: { gte, lte }, status: { in: ["PAID", "FULFILLED"] } },
+        _sum: { total: true },
+      }),
+      // Tendencia de uso últimos 7 días
+      this.prisma.agentUsageEvent.groupBy({
+        by: ["createdAt"],
+        where: { createdAt: { gte: sevenDaysAgo, lte: now } },
+      }).then(async () => {
+        // Construir serie día-por-día en JS (es barato, son 7 puntos)
+        const events = await this.prisma.agentUsageEvent.findMany({
+          where: { createdAt: { gte: sevenDaysAgo, lte: now } },
+          select: { createdAt: true, inputTokens: true, outputTokens: true, costUsd: true },
+        });
+        const byDay = new Map<string, { tokens: number; cost: number; events: number }>();
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          byDay.set(key, { tokens: 0, cost: 0, events: 0 });
+        }
+        for (const e of events) {
+          const d = e.createdAt;
+          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          const cur = byDay.get(key);
+          if (cur) {
+            cur.tokens += (e.inputTokens ?? 0) + (e.outputTokens ?? 0);
+            cur.cost += Number(e.costUsd);
+            cur.events += 1;
+          }
+        }
+        return Array.from(byDay.entries()).map(([day, v]) => ({
+          day,
+          events: v.events,
+          tokens: v.tokens,
+          costUsd: v.cost.toFixed(6),
+        }));
+      }),
+      // Auditoría reciente cross-tenant (últimos 8 eventos)
+      this.prisma.auditLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        include: {
+          actor: { select: { id: true, email: true, fullName: true } },
+          tenant: { select: { id: true, name: true, slug: true } },
+        },
       }),
     ]);
 
@@ -121,6 +193,22 @@ export class SuperAdminService {
       users,
       pendingInvitations,
       usageMtd: usageOf(usage),
+      // Métricas adicionales para el dashboard
+      newTenantsThisMonth,
+      activeConversations,
+      ordersMtd,
+      revenueMtd: (revenueMtd?._sum.total ?? 0).toString(),
+      usageTrend,
+      recentActivity: recentActivity.map((r) => ({
+        id: r.id,
+        action: r.action,
+        targetType: r.targetType,
+        targetId: r.targetId,
+        metadata: r.metadata,
+        createdAt: r.createdAt,
+        actor: r.actor,
+        tenant: r.tenant,
+      })),
       from: gte,
       to: lte,
     };

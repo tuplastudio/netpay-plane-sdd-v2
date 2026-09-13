@@ -27,6 +27,24 @@ export interface Overview {
   users: number;
   pendingInvitations: number;
   usageMtd: UsageMtd;
+  /** Métricas extra del dashboard (T-SA-08). */
+  newTenantsThisMonth: number;
+  activeConversations: number;
+  ordersMtd: number;
+  revenueMtd: string;
+  /** Serie de 7 días del gasto del agente (más viejo → más nuevo). */
+  usageTrend: Array<{ day: string; events: number; tokens: number; costUsd: string }>;
+  /** Eventos recientes del AuditLog de TODA la plataforma. */
+  recentActivity: Array<{
+    id: string;
+    action: string;
+    targetType: string | null;
+    targetId: string | null;
+    metadata: unknown;
+    createdAt: string;
+    actor: { id: string; email: string; fullName: string | null } | null;
+    tenant: { id: string; name: string; slug: string } | null;
+  }>;
   from: string;
   to: string;
 }

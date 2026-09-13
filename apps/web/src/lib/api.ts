@@ -11,6 +11,10 @@ import {
  * Cliente HTTP. Se reescribe a /api/v1 en el proxy de Next.js (next.config.mjs)
  * y reenvía al backend NestJS. Cookies de sesión se reenvían automáticamente
  * con `withCredentials`.
+ *
+ * Refresh token: cuando el backend devuelve 401, el interceptor intenta un
+ * `POST /auth/refresh` una vez. Si succeede, reintenta el request original.
+ * Si falla, borra la sesión y deja que la pantalla decida (normalmente /login).
  */
 export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
   const client = axios.create({
@@ -20,17 +24,69 @@ export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
     timeout: 30_000,
   });
 
-  // Un 401 significa que el servidor ya no reconoce la cookie (expiró o la
-  // revocaron). La caché de identidad se borra en el acto para que el menú de
-  // cuenta no siga mostrando a un usuario que el backend desconoce. No se
-  // redirige desde aquí: la pantalla decide qué hacer (login y MFA también
-  // contestan 401 con credenciales malas, y ahí no hay a dónde ir).
+  let isRefreshing = false;
+  let refreshQueue: Array<{
+    resolve: (token: string) => void;
+    reject: (err: unknown) => void;
+  }> = [];
+
+  function onRefreshSuccess() {
+    isRefreshing = false;
+    refreshQueue.forEach((cb) => cb.resolve("refreshed"));
+    refreshQueue = [];
+  }
+
+  function onRefreshFailure() {
+    isRefreshing = false;
+    refreshQueue.forEach((cb) => cb.reject(new Error("Refresh failed")));
+    refreshQueue = [];
+  }
+
+  async function attemptRefresh(): Promise<void> {
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        refreshQueue.push({ resolve, reject });
+      }) as unknown as Promise<void>;
+    }
+
+    isRefreshing = true;
+    try {
+      await client.post("/auth/refresh");
+      onRefreshSuccess();
+    } catch {
+      clearSession();
+      onRefreshFailure();
+      throw new Error("Session expired");
+    }
+  }
+
   client.interceptors.response.use(
     (response) => response,
-    (error: unknown) => {
-      if ((error as { response?: { status?: number } })?.response?.status === 401) {
-        clearSession();
+    async (error: unknown) => {
+      const axiosError = error as {
+        response?: { status?: number };
+        config?: { _retry?: boolean };
+      };
+
+      // 401 → intentar refresh una vez por request
+      if (axiosError.response?.status === 401 && !axiosError.config?._retry) {
+        const config = axiosError.config;
+        if (config) config._retry = true;
+
+        try {
+          await attemptRefresh();
+          // Refresh ok: reintentar el request original
+          return client(config! as Parameters<typeof client>[0]);
+        } catch {
+          // Refresh falló: limpiar sesión y rechazar para que la UI
+          // haga lo que tenga que hacer (normalmente redirect a /login).
+          clearSession();
+          if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+            window.location.href = "/login";
+          }
+        }
       }
+
       return Promise.reject(error);
     },
   );

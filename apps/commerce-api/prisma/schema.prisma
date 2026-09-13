@@ -351,6 +351,16 @@ model CustomerConsent {
   granted    Boolean
   grantedAt  DateTime?
   revokedAt  DateTime?
+  /// Justificación / observación del otorgamiento. Para WHATSAPP auto-otorgado
+  /// al recibir un mensaje se guarda "Auto-otorgado: el cliente envió un
+  /// mensaje por WhatsApp el …". Para MARKETING / DATA_PROCESSING lo escribe
+  /// el operador que pidió el consentimiento (formulario firmado, llamada,
+  /// etc.).
+  note       String?
+  /// "auto" cuando el sistema lo otorga solo (mensaje entrante), "manual"
+  /// cuando lo registra una persona. Sirve para colorear la ficha y para que
+  /// la UI no muestre un campo de nota editable cuando no aplica.
+  source     String?
   createdAt  DateTime @default(now()) @db.Timestamptz
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)

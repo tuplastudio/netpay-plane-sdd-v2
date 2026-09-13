@@ -9,6 +9,8 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { PasswordService } from "./password.service.js";
 import { TokenService } from "./token.service.js";
 import { RateLimitService } from "./rate-limit.service.js";
+import { PasswordResetMailer } from "./password-reset-mailer.service.js";
+
 
 /**
  * Invitaciones, recuperación de contraseña y MFA challenge.
@@ -34,6 +36,7 @@ export class InviteService {
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly rateLimit: RateLimitService,
+    private readonly passwordResetMailer: PasswordResetMailer,
   ) {}
 
   async createInvite(input: {
@@ -174,6 +177,22 @@ export class InviteService {
         targetType: "User",
         targetId: user.id,
       },
+    });
+
+    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+    const resetUrl = `${base}/reset?token=${encodeURIComponent(issued.token)}`;
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: membership.tenantId },
+      select: { primaryColor: true, accentColor: true },
+    });
+
+    await this.passwordResetMailer.sendBestEffort({
+      email: user.email,
+      fullName: user.fullName,
+      resetUrl,
+      primaryColor: tenant?.primaryColor ?? "#18181b",
+      accentColor: tenant?.accentColor ?? "#2563eb",
     });
 
     return { token: issued.token };

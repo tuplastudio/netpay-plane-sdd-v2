@@ -60,6 +60,15 @@ export class SessionService {
     if (session.revokedAt) return null;
     if (session.expiresAt.getTime() <= Date.now()) return null;
 
+    // Sesión abierta pero con inactividad > 30 min → se rechaza.
+    // El frontend debería refrescar antes de ese límite; si el navegador se
+    // quedó abierto sin requests, forzamos re-login.
+    const INACTIVITY_TTL_MS = 30 * 60 * 1000;
+    if (session.lastActivityAt) {
+      const idleMs = Date.now() - new Date(session.lastActivityAt).getTime();
+      if (idleMs > INACTIVITY_TTL_MS) return null;
+    }
+
     const membership = await this.prisma.membership.findUnique({
       where: {
         tenantId_userId: { tenantId: session.tenantId, userId: session.userId },
@@ -108,6 +117,40 @@ export class SessionService {
       where: { id: sessionId },
       data: { lastActivityAt: new Date() },
     });
+  }
+
+  /**
+   * Extiende la vida de la sesión. Llamado por `POST /auth/refresh`.
+   *
+   * - Si `inactivityTtlMs` está configurado y la sesión lleva más inactiva, se
+   *   rechaza (el navegador debería haber refresh antes de ese límite).
+   * - Si la sesión no existe, está revocada o ya expiró, devuelve null.
+   *
+   * Devuelve la nueva fecha de expiración para que el frontend confirme al
+   * usuario cuánto le queda.
+   */
+  async refreshSession(
+    token: string,
+    inactivityTtlMs?: number,
+  ): Promise<{ expiresAt: Date } | null> {
+    const hash = hashToken(token);
+    const session = await this.prisma.session.findUnique({ where: { tokenHash: hash } });
+    if (!session) return null;
+    if (session.revokedAt) return null;
+    if (session.expiresAt.getTime() <= Date.now()) return null;
+
+    if (inactivityTtlMs && session.lastActivityAt) {
+      const idleMs = Date.now() - new Date(session.lastActivityAt).getTime();
+      if (idleMs > inactivityTtlMs) return null;
+    }
+
+    const newExpiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
+    await this.prisma.session.update({
+      where: { id: session.id },
+      data: { expiresAt: newExpiresAt, lastActivityAt: new Date() },
+    });
+
+    return { expiresAt: newExpiresAt };
   }
 
   async revoke(token: string): Promise<void> {
