@@ -88,5 +88,50 @@ export function useDashboardData() {
     },
   });
 
-  return { summary, activity, NEAR_EXPIRY_DAYS };
+  const unified = useQuery({
+    queryKey: ["reports-dashboard"],
+    queryFn: async () => {
+      const res = await api.get<{ data: UnifiedDashboard }>("/reports/dashboard");
+      return res.data.data;
+    },
+    refetchInterval: 60_000,
+  });
+
+  return { summary, activity, unified, NEAR_EXPIRY_DAYS };
+}
+
+/**
+ * Respuesta de `GET /reports/dashboard`. Concentra KPIs operativos + serie
+ * de 7 días + listas cortas de pedidos, conversaciones y bitácora para
+ * alimentar la home del portal sin muestrear nada en cliente.
+ */
+export interface UnifiedDashboard {
+  kpis: {
+    customers: { total: number; newToday: number };
+    orders: { today: number; mtd: number };
+    revenue: { today: string; mtd: string };
+    captured: { gross: string; refunded: string; net: string };
+    outstanding: { total: string; count: number };
+    issuedQuotes: number;
+    products: { active: number; draft: number };
+    conversations: { open: number; escalated: number };
+  };
+  salesTrend: Array<{ day: string; orders: number; revenueUsd: string }>;
+  recentOrders: Array<{
+    id: string;
+    status: string;
+    total: string;
+    createdAt: string;
+    customer: { id: string; fullName: string | null } | null;
+  }>;
+  recentConversations: Array<{
+    id: string;
+    externalPhone: string;
+    status: string;
+    handoffToHuman: boolean;
+    lastMessageAt: string | null;
+    customerId: string | null;
+  }>;
+  recentActivity: Array<AuditEvent & { actor: { id: string; email: string; fullName: string | null } | null }>;
+  generatedAt: string;
 }

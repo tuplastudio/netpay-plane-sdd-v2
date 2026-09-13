@@ -6,132 +6,55 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAuthMe } from "@/lib/api";
 import {
+  Activity,
   ArrowRight,
   Banknote,
   Bot,
+  CircleDollarSign,
   FileText,
-  History,
   Hourglass,
   MessageSquare,
   MessagesSquare,
   Package,
-  Settings,
-  ShieldCheck,
+  Plus,
+  Receipt,
   ShoppingCart,
-  Sparkles,
+  TrendingUp,
+  UserPlus,
   Users,
 } from "lucide-react";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
-import { DescriptionList, FieldRow } from "@/components/app/field-row";
-import { DataTable, type DataTableColumn } from "@/components/app/data-table";
-import { DateTime } from "@/components/app/date-time";
-import { Money, formatMoney } from "@/components/app/money";
 import { StatTile } from "@/components/app/stat-tile";
-import { useDashboardData, type AuditEvent } from "./_dashboard/use-dashboard-data";
+import { Money, formatMoney } from "@/components/app/money";
+import { DateTime } from "@/components/app/date-time";
+import { useDashboardData, type UnifiedDashboard } from "./_dashboard/use-dashboard-data";
 
 /**
- * Panorama operativo.
+ * Panorama operativo del portal.
  *
- * Los cinco mosaicos son los mismos de siempre, pero ahora cada cifra la
- * calcula el backend con agregados SQL sobre las tablas completas
- * (`GET /reports/summary`). Antes se sumaban aquí las filas de cinco listados
- * truncados a 50/100, así que ninguna cifra era el total del negocio y cada
- * mosaico tenía que avisarlo. Ya no hay ventana que revelar ni aritmética de
- * cliente: los importes llegan como string decimal y van tal cual a `<Money>`.
+ * Datos en una sola consulta a `/reports/dashboard`. Cifras vienen agregadas
+ * en SQL (no se muestrean listados truncados) y el dinero viaja como string
+ * decimal directo a `<Money>`.
+ *
+ * Estructura visual, misma que el dashboard de super-admin para que ambos
+ * paneles se lean igual: KPIs en dos filas, tendencia de ventas a 7 días,
+ * acciones rápidas y actividad reciente.
  */
-
-/** Acciones de auditoría escritas hoy por el backend. Lo desconocido cae al token crudo. */
-const AUDIT_ACTION_LABELS: Record<string, string> = {
-  "order.cancelled": "Pedido cancelado",
-  "quote.cancelled": "Cotización cancelada",
-  "tenant.bootstrap": "Alta del comercio",
-  "user.invited": "Usuario invitado",
-};
-
-/** `AuditLog.targetType` tal cual lo escribe el backend. */
-const AUDIT_TARGET_LABELS: Record<string, string> = {
-  Order: "Pedido",
-  Quote: "Cotización",
-  User: "Usuario",
-  Tenant: "Comercio",
-};
-
-function auditHref(event: AuditEvent): string | undefined {
-  if (!event.targetId) return undefined;
-  if (event.targetType === "Order") return `/orders/${event.targetId}`;
-  if (event.targetType === "Quote") return `/quotes/${event.targetId}`;
-  return undefined;
-}
-
-const activityColumns: Array<DataTableColumn<AuditEvent>> = [
-  {
-    key: "createdAt",
-    header: "Cuándo",
-    width: "12rem",
-    cell: (e) => <DateTime value={e.createdAt} className="text-muted-foreground" />,
-  },
-  {
-    key: "action",
-    header: "Acción",
-    cell: (e) => {
-      const label = AUDIT_ACTION_LABELS[e.action];
-      return label ? (
-        <span className="font-medium">{label}</span>
-      ) : (
-        <span className="font-mono text-xs">{e.action}</span>
-      );
-    },
-  },
-  {
-    key: "target",
-    header: "Objeto",
-    width: "16rem",
-    cell: (e) =>
-      e.targetType ? (
-        <span className="flex flex-wrap items-baseline gap-1.5">
-          <span>{AUDIT_TARGET_LABELS[e.targetType] ?? e.targetType}</span>
-          {e.targetId ? (
-            <span className="font-mono text-xs text-muted-foreground" title={e.targetId}>
-              {e.targetId.slice(0, 8)}…
-            </span>
-          ) : null}
-        </span>
-      ) : (
-        <>
-          <span aria-hidden className="text-muted-foreground">
-            —
-          </span>
-          <span className="sr-only">Sin objeto</span>
-        </>
-      ),
-  },
-];
-
 export default function HomePage() {
   const router = useRouter();
-  const d = useDashboardData();
-  const s = d.summary.data;
+  const { summary, unified } = useDashboardData();
 
-  // El super-admin trabaja en la consola de plataforma — tenga o no empresa
-  // propia. El portal operativo (catálogo, pedidos, agente, admin) es para
-  // sesiones de tenant; el super-admin no debe aterrizar ahí.
   const me = useQuery({ queryKey: ["auth-me"], queryFn: fetchAuthMe, retry: false });
   useEffect(() => {
     if (me.data?.isSuperAdmin) router.replace("/super-admin");
   }, [me.data, router]);
 
-  const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-
-  // Los cinco mosaicos de dinero y conteos salen de la MISMA consulta, así que
-  // comparten estado de carga, de error y el botón de reintentar.
   const tile = {
-    isLoading: d.summary.isLoading,
-    isError: d.summary.isError,
-    onRetry: () => void d.summary.refetch(),
+    isLoading: unified.isLoading,
+    isError: unified.isError,
+    onRetry: () => void unified.refetch(),
   };
 
   return (
@@ -151,295 +74,522 @@ export default function HomePage() {
       />
 
       <div className="space-y-6">
-        <Section title="Resumen operativo">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
-            {/* 1 · Cobrado — capturedNet: bruto cobrado menos reembolsos */}
-            <StatTile size="compact"
-              {...tile}
-              label="Cobrado"
-              tone="success"
-              icon={<Banknote className="h-4 w-4" />}
-              value={<Money value={s?.capturedNet} />}
-              hint={
-                s === undefined
-                  ? undefined
-                  : s.capturedGross === "0.00"
-                    ? "Todavía no hay cobros."
-                    : s.refundedTotal === "0.00"
-                      ? "Sin reembolsos registrados"
-                      : `Bruto ${formatMoney(s.capturedGross)} · reembolsado ${formatMoney(
-                          s.refundedTotal,
-                        )}`
-              }
-            />
-
-            {/* 2 · Por pagar — pedidos AWAITING_PAYMENT y CHECKOUT_OPEN */}
-            <StatTile size="compact"
-              {...tile}
-              label="Por pagar"
-              tone="warning"
-              icon={<Hourglass className="h-4 w-4" />}
-              value={<Money value={s?.outstandingTotal} />}
-              hint={
-                s === undefined
-                  ? undefined
-                  : s.outstandingCount === 0
-                    ? "Ningún pedido espera cobro."
-                    : `${s.outstandingCount} ${plural(
-                        s.outstandingCount,
-                        "pedido",
-                        "pedidos",
-                      )} esperando pago`
-              }
-            />
-
-            {/* 3 · Cotizaciones emitidas y cuáles vencen pronto */}
-            <StatTile size="compact"
-              {...tile}
-              label="Cotizaciones emitidas"
-              tone={s && s.quotesExpiringWithin7Days > 0 ? "warning" : "info"}
-              icon={<FileText className="h-4 w-4" />}
-              value={s?.issuedQuotes ?? 0}
-              hint={
-                s === undefined
-                  ? undefined
-                  : s.issuedQuotes === 0
-                    ? "Ninguna cotización emitida."
-                    : s.quotesExpiringWithin7Days > 0
-                      ? `${s.quotesExpiringWithin7Days} ${plural(
-                          s.quotesExpiringWithin7Days,
-                          "vence",
-                          "vencen",
-                        )} en ${d.NEAR_EXPIRY_DAYS} días`
-                      : `Ninguna vence en ${d.NEAR_EXPIRY_DAYS} días`
-              }
-            />
-
-            {/* 4 · Catálogo — productos por estado */}
-            <StatTile size="compact"
-              {...tile}
-              label="Productos activos"
-              tone="neutral"
-              icon={<Package className="h-4 w-4" />}
-              value={s?.activeProducts ?? 0}
-              hint={
-                s === undefined
-                  ? undefined
-                  : s.activeProducts === 0 && s.draftProducts === 0
-                    ? "El catálogo está vacío."
-                    : `${s.draftProducts} en borrador`
-              }
-            />
-
-            {/* 5 · Conversaciones abiertas y escaladas a una persona */}
-            <StatTile size="compact"
-              {...tile}
-              label="Conversaciones abiertas"
-              tone={s && s.escalatedConversations > 0 ? "warning" : "neutral"}
-              icon={<MessagesSquare className="h-4 w-4" />}
-              value={s?.openConversations ?? 0}
-              hint={
-                s === undefined
-                  ? undefined
-                  : s.escalatedConversations > 0
-                    ? `${s.escalatedConversations} ${plural(
-                        s.escalatedConversations,
-                        "escalada a una persona",
-                        "escaladas a una persona",
-                      )}`
-                    : s.openConversations === 0
-                      ? "Ningún hilo abierto."
-                      : "Ninguna escalada a una persona"
-              }
-            />
-          </div>
-        </Section>
-
-        <Section title="Accesos rápidos" description="Las pantallas de operación diaria.">
-          <nav aria-label="Accesos rápidos">
-            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <Shortcut
-                href="/catalog"
-                title="Catálogo"
-                desc="Productos, variantes y claves SAT."
-                icon={Package}
-              />
-              <Shortcut
-                href="/quotes"
-                title="Cotizaciones"
-                desc="Borrador, revisión y links públicos."
-                icon={FileText}
-              />
-              <Shortcut
-                href="/orders"
-                title="Pedidos"
-                desc="Checkout y pasarela de pruebas."
-                icon={ShoppingCart}
-              />
-              <Shortcut
-                href="/customers"
-                title="Clientes"
-                desc="Contactos e identidad."
-                icon={Users}
-              />
-              <Shortcut
-                href="/chat"
-                title="Chat con el agente"
-                desc="Cotiza y resuelve por chat."
-                icon={MessageSquare}
-              />
-              <Shortcut
-                href="/agent"
-                title="Consola del agente"
-                desc="Conocimiento, modelo y herramientas."
-                icon={Bot}
-              />
-            </ul>
-          </nav>
-        </Section>
-
-        <Section
-          title="Actividad reciente"
-          description="Últimos eventos registrados en la bitácora del comercio."
-          padded={false}
-          actions={
-            <Button asChild variant="outline" size="sm">
-              <Link href="/admin">Ver toda la auditoría</Link>
-            </Button>
-          }
-        >
-          <DataTable
-            columns={activityColumns}
-            rows={d.activity.data}
-            isLoading={d.activity.isLoading}
-            isError={d.activity.isError}
-            error={d.activity.error}
-            onRetry={() => void d.activity.refetch()}
-            getRowHref={auditHref}
-            caption="Últimos eventos de auditoría del comercio"
-            empty={{
-              icon: <History className="h-6 w-6" />,
-              title: "Sin actividad todavía",
-              description:
-                "Cuando alguien emita una cotización, cancele un pedido o invite a un usuario, la acción aparecerá aquí.",
-              action: (
-                <Button asChild variant="outline">
-                  <Link href="/quotes">Crear una cotización</Link>
-                </Button>
-              ),
-            }}
+        {/* Fila 1: KPIs financieros clásicos. */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+          <StatTile size="compact"
+            {...tile}
+            label="Cobrado (neto)"
+            tone="success"
+            icon={<Banknote className="h-4 w-4" />}
+            value={<Money value={unified.data?.kpis.captured.net} />}
+            hint={
+              unified.data === undefined
+                ? undefined
+                : unified.data.kpis.captured.gross === "0.00"
+                  ? "Todavía no hay cobros."
+                  : `Bruto ${formatMoney(unified.data.kpis.captured.gross)} · reembolsado ${formatMoney(
+                      unified.data.kpis.captured.refunded,
+                    )}`
+            }
           />
-        </Section>
+          <StatTile size="compact"
+            {...tile}
+            label="Por pagar"
+            tone={unified.data && unified.data.kpis.outstanding.count > 0 ? "warning" : "neutral"}
+            icon={<Hourglass className="h-4 w-4" />}
+            value={<Money value={unified.data?.kpis.outstanding.total} />}
+            hint={
+              unified.data === undefined
+                ? undefined
+                : unified.data.kpis.outstanding.count === 0
+                  ? "Ningún pedido espera cobro."
+                  : `${unified.data.kpis.outstanding.count} esperando pago`
+            }
+          />
+          <StatTile size="compact"
+            {...tile}
+            label="Cotizaciones emitidas"
+            tone="info"
+            icon={<FileText className="h-4 w-4" />}
+            value={unified.data?.kpis.issuedQuotes ?? 0}
+            hint={
+              summary.data === undefined
+                ? undefined
+                : summary.data.quotesExpiringWithin7Days > 0
+                  ? `${summary.data.quotesExpiringWithin7Days} vence(n) en 7 días`
+                  : "Ninguna vence pronto"
+            }
+          />
+          <StatTile size="compact"
+            {...tile}
+            label="Productos activos"
+            icon={<Package className="h-4 w-4" />}
+            value={unified.data?.kpis.products.active ?? 0}
+            hint={
+              unified.data === undefined
+                ? undefined
+                : `${unified.data.kpis.products.draft} en borrador`
+            }
+          />
+          <StatTile size="compact"
+            {...tile}
+            label="Conversaciones abiertas"
+            tone={unified.data && unified.data.kpis.conversations.escalated > 0 ? "warning" : "neutral"}
+            icon={<MessagesSquare className="h-4 w-4" />}
+            value={unified.data?.kpis.conversations.open ?? 0}
+            hint={
+              unified.data === undefined
+                ? undefined
+                : unified.data.kpis.conversations.escalated > 0
+                  ? `${unified.data.kpis.conversations.escalated} escalada(s) a una persona`
+                  : "Ninguna escalada"
+            }
+          />
+        </div>
+
+        {/* Fila 2: KPIs del día/mes (operativos). */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <StatTile size="compact"
+            {...tile}
+            label="Ventas cobradas hoy"
+            tone="success"
+            icon={<CircleDollarSign className="h-4 w-4" />}
+            value={<Money value={unified.data?.kpis.revenue.today} />}
+            hint={unified.data ? <Money value={unified.data.kpis.revenue.mtd} /> : undefined}
+          />
+          <StatTile size="compact"
+            {...tile}
+            label="Pedidos hoy"
+            icon={<Receipt className="h-4 w-4" />}
+            value={unified.data?.kpis.orders.today ?? 0}
+            hint={unified.data ? `${unified.data.kpis.orders.mtd} en el mes` : undefined}
+          />
+          <StatTile size="compact"
+            {...tile}
+            label="Clientes totales"
+            icon={<Users className="h-4 w-4" />}
+            value={unified.data?.kpis.customers.total ?? 0}
+            hint={unified.data ? `${unified.data.kpis.customers.newToday} nuevo(s) hoy` : undefined}
+          />
+          <StatTile size="compact"
+            {...tile}
+            label="Ventas cobradas (mes)"
+            tone="success"
+            icon={<CircleDollarSign className="h-4 w-4" />}
+            value={<Money value={unified.data?.kpis.revenue.mtd} />}
+            hint={unified.data ? `${unified.data.kpis.orders.mtd} pedidos del mes` : undefined}
+          />
+        </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
+          {/* Tendencia de ventas 7 días. */}
           <Section
+            title="Ventas cobradas · últimos 7 días"
+            description="Total diario de pedidos PAID/FULFILLED."
+            headerIcon={<TrendingUp className="h-4 w-4" />}
+            density="compact"
             className="lg:col-span-2"
-            title="Cómo funciona"
-            headerIcon={<Sparkles className="h-4 w-4 text-primary" />}
-            description="El portal es la consola de tu tienda. El agente habla con tus clientes, cotiza contra el backend y manda el enlace de pago."
           >
-            <ol className="grid gap-3 sm:grid-cols-3">
-              <Step num="1" title="Carga tu catálogo" desc="Productos, variantes, stock y claves SAT." />
-              <Step num="2" title="Conecta canales" desc="Web, WhatsApp Meta o Evolution/Baileys." />
-              <Step
-                num="3"
-                title="Cobra en modo de pruebas"
-                desc="El agente emite cotización y la pasarela de pruebas simula el pago."
-              />
-            </ol>
+            <SalesTrendMini data={unified.data?.salesTrend ?? []} isLoading={unified.isLoading} />
           </Section>
 
+          {/* Acciones rápidas. */}
           <Section
-            title="Estado del sistema"
-            headerIcon={<ShieldCheck className="h-4 w-4 text-primary" />}
-            description="Variables operativas del entorno actual."
+            title="Acciones rápidas"
+            description="Lo que más usa un operador al entrar al portal."
+            headerIcon={<Plus className="h-4 w-4" />}
+            density="compact"
           >
-            <DescriptionList divided>
-              <FieldRow label="Proveedor de pago">Modo de pruebas (simulado)</FieldRow>
-              <FieldRow label="Modo producción">
-                <Badge variant="neutral">Desactivado</Badge>
-              </FieldRow>
-              <FieldRow label="Multi-tenant">Aislado en SQL, caché y storage</FieldRow>
-              <FieldRow label="MFA">Requerido para propietarios</FieldRow>
-              <FieldRow label="Idempotencia">Obligatoria en mutaciones</FieldRow>
-            </DescriptionList>
+            <ul className="space-y-1.5 text-sm">
+              <li>
+                <Link
+                  href="/chat"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                >
+                  <span className="flex items-center gap-2">
+                    <MessageSquare aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+                    Hablar con el agente
+                  </span>
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/quotes"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                >
+                  <span className="flex items-center gap-2">
+                    <FileText aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+                    Crear cotización
+                  </span>
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/orders"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                >
+                  <span className="flex items-center gap-2">
+                    <ShoppingCart aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+                    Ver pedidos
+                  </span>
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/customers"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                >
+                  <span className="flex items-center gap-2">
+                    <UserPlus aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+                    Dar de alta un cliente
+                  </span>
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/agent"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                >
+                  <span className="flex items-center gap-2">
+                    <Bot aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+                    Consola del agente
+                  </span>
+                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </li>
+            </ul>
           </Section>
         </div>
 
-        <Section
-          title="¿Necesitas ajustar algo?"
-          description={
-            <>
-              Toda la configuración vive en el panel admin. Las reglas de negocio se editan en los
-              Markdown de{" "}
-              <code className="font-mono text-xs">apps/agent-service/knowledge</code>.
-            </>
-          }
-        >
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline">
-              <Link href="/admin">
-                <Settings className="h-4 w-4" />
-                Admin
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/agent">Consola del agente</Link>
-            </Button>
-            <Button asChild variant="ghost">
-              <Link href="/catalog">Ver catálogo</Link>
-            </Button>
-          </div>
-        </Section>
+        <div className="grid gap-6 lg:grid-cols-3">
+          {/* Pedidos recientes. */}
+          <Section
+            title="Pedidos recientes"
+            description="Últimos 5 pedidos del comercio."
+            headerIcon={<ShoppingCart className="h-4 w-4" />}
+            density="compact"
+            padded={false}
+            actions={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/orders">Ver todos</Link>
+              </Button>
+            }
+          >
+            <RecentOrders rows={unified.data?.recentOrders ?? []} isLoading={unified.isLoading} />
+          </Section>
+
+          {/* Conversaciones recientes. */}
+          <Section
+            title="Conversaciones recientes"
+            description="Últimos hilos con actividad."
+            headerIcon={<MessagesSquare className="h-4 w-4" />}
+            density="compact"
+            padded={false}
+            actions={
+              <Button asChild variant="outline" size="sm">
+                <Link href="/conversations">Ver bandeja</Link>
+              </Button>
+            }
+          >
+            <RecentConversations
+              rows={unified.data?.recentConversations ?? []}
+              isLoading={unified.isLoading}
+            />
+          </Section>
+
+          {/* Auditoría reciente. */}
+          <Section
+            title="Actividad reciente"
+            description="Últimos eventos de la bitácora."
+            headerIcon={<Activity className="h-4 w-4" />}
+            density="compact"
+          >
+            <RecentActivity
+              rows={unified.data?.recentActivity ?? []}
+              isLoading={unified.isLoading}
+            />
+          </Section>
+        </div>
       </div>
     </div>
   );
 }
 
-function Shortcut({
-  href,
-  title,
-  desc,
-  icon: Icon,
+/**
+ * Gráfico compacto de 7 días. Mismo lenguaje visual que la versión del
+ * super-admin, pero con el dato de "ventas cobradas" (no gasto del agente).
+ * Construido en SVG inline para que sea server-renderizable.
+ */
+function SalesTrendMini({
+  data,
+  isLoading,
 }: {
-  href: string;
-  title: string;
-  desc: string;
-  icon: React.ComponentType<{ className?: string }>;
+  data: UnifiedDashboard["salesTrend"];
+  isLoading: boolean;
 }) {
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-7 items-end gap-2 px-1 pt-2" aria-label="Cargando tendencia de ventas…">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="h-24 w-full animate-pulse rounded-md bg-muted" />
+        ))}
+      </div>
+    );
+  }
+  if (data.length === 0) {
+    return (
+      <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+        Sin ventas cobradas en los últimos 7 días.
+      </div>
+    );
+  }
+  const maxRevenue = data.reduce((acc, p) => Math.max(acc, Number(p.revenueUsd)), 0);
+  const totalOrders = data.reduce((acc, p) => acc + p.orders, 0);
+  const totalRevenue = data.reduce((acc, p) => acc + Number(p.revenueUsd), 0);
+
   return (
-    <li>
-      <Card asChild className="h-full">
-        <Link
-          href={href}
-          className="group block h-full p-4 shadow-airbnb transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
-        >
-          <div className="flex items-center justify-between">
-            <span
-              aria-hidden
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-secondary text-primary"
-            >
-              <Icon className="h-4 w-4" />
-            </span>
-            <ArrowRight
-              aria-hidden
-              className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5"
-            />
-          </div>
-          <h3 className="mt-3 text-sm font-semibold">{title}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
-        </Link>
-      </Card>
-    </li>
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        7 días: <Money value={totalRevenue.toFixed(2)} /> · {totalOrders.toLocaleString("es-MX")} pedidos
+      </p>
+      <div className="grid grid-cols-7 items-end gap-2 pt-1" aria-label="Tendencia de ventas">
+        {data.map((p, idx) => {
+          const revenue = Number(p.revenueUsd);
+          const ratio = maxRevenue > 0 ? revenue / maxRevenue : 0;
+          const isPeak = revenue > 0 && revenue === maxRevenue;
+          const heightPx = Math.max(8, Math.round(ratio * 96));
+          return (
+            <div key={p.day} className="flex flex-col items-center gap-1">
+              <div className="relative flex h-24 w-full items-end justify-center">
+                <div
+                  className={cn(
+                    "w-full rounded-t-md",
+                    revenue > 0 ? "bg-primary/20" : "bg-muted",
+                    isPeak && "bg-primary",
+                  )}
+                  style={{ height: `${heightPx}px` }}
+                  aria-hidden
+                />
+                <span
+                  className={cn(
+                    "absolute -top-4 text-[10px] font-medium tabular-nums",
+                    isPeak ? "text-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {revenue > 0 ? compactMoney(p.revenueUsd) : "—"}
+                </span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">{formatDayLabel(p.day)}</span>
+              <span className="text-[9px] tabular-nums text-muted-foreground">{p.orders}</span>
+              {idx === data.length - 1 ? <span className="sr-only">Hoy</span> : null}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm bg-primary" aria-hidden />
+          Pico del periodo
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm bg-primary/20" aria-hidden />
+          Día con venta
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm bg-muted" aria-hidden />
+          Sin venta
+        </span>
+      </div>
+    </div>
   );
 }
 
-function Step({ num, title, desc }: { num: string; title: string; desc: string }) {
+function RecentOrders({
+  rows,
+  isLoading,
+}: {
+  rows: UnifiedDashboard["recentOrders"];
+  isLoading: boolean;
+}) {
+  if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Cargando…</div>;
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
+        <ShoppingCart aria-hidden className="h-6 w-6" />
+        <p>Sin pedidos todavía.</p>
+      </div>
+    );
+  }
   return (
-    <li className="rounded-card border bg-muted p-3">
-      <span className="text-xs font-semibold tabular-nums text-primary-strong">Paso {num}</span>
-      <p className="mt-1 text-sm font-medium">{title}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
-    </li>
+    <ul aria-label="Pedidos recientes" className="divide-y">
+      {rows.map((o) => (
+        <li key={o.id} className="px-4 py-3">
+          <Link
+            href={`/orders/${o.id}`}
+            className="flex items-center justify-between gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">
+                {o.customer?.fullName ?? "Cliente"}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                <span className="font-mono">{o.id.slice(0, 8)}</span> ·{" "}
+                <DateTime value={o.createdAt} />
+              </span>
+            </span>
+            <span className="shrink-0 text-sm">
+              <Money value={o.total} className="tabular-nums" />
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RecentConversations({
+  rows,
+  isLoading,
+}: {
+  rows: UnifiedDashboard["recentConversations"];
+  isLoading: boolean;
+}) {
+  if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Cargando…</div>;
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
+        <MessagesSquare aria-hidden className="h-6 w-6" />
+        <p>Sin conversaciones todavía.</p>
+      </div>
+    );
+  }
+  return (
+    <ul aria-label="Conversaciones recientes" className="divide-y">
+      {rows.map((c) => (
+        <li key={c.id} className="px-4 py-3">
+          <Link
+            href={`/conversations?id=${c.id}`}
+            className="flex items-center justify-between gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+          >
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">
+                {c.customerId ?? c.externalPhone}
+              </span>
+              <span className="block font-mono text-xs text-muted-foreground">
+                {c.externalPhone}
+              </span>
+            </span>
+            <span className="shrink-0 text-xs">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-[10px] font-medium",
+                  c.handoffToHuman
+                    ? "border-warning bg-warning-subtle text-warning-foreground"
+                    : "border-info bg-info-subtle text-info-foreground",
+                )}
+              >
+                {c.handoffToHuman ? "Con persona" : "Bot"}
+              </span>
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function RecentActivity({
+  rows,
+  isLoading,
+}: {
+  rows: UnifiedDashboard["recentActivity"];
+  isLoading: boolean;
+}) {
+  if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Cargando…</div>;
+  if (rows.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
+        <Activity aria-hidden className="h-6 w-6" />
+        <p>Sin actividad reciente.</p>
+      </div>
+    );
+  }
+  return (
+    <ol aria-label="Actividad reciente" className="space-y-0">
+      {rows.map((row, i) => (
+        <li
+          key={row.id}
+          className={cn(
+            "py-2 text-xs",
+            i < rows.length - 1 && "border-b border-border",
+          )}
+        >
+          <p className="font-medium leading-snug">{humanize(row.action)}</p>
+          <p className="text-muted-foreground">
+            {row.actor?.fullName ?? row.actor?.email ?? "Sin actor"} ·{" "}
+            <DateTime value={row.createdAt} />
+          </p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// Helpers compartidos ---------------------------------------------------------
+
+function cn(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(" ");
+}
+
+const SHORT_DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function formatDayLabel(day: string): string {
+  const parts = day.split("-").map(Number);
+  const y = parts[0] ?? 1970;
+  const m = parts[1] ?? 1;
+  const d = parts[2] ?? 1;
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return day;
+  const dow = SHORT_DAYS[date.getDay()] ?? "";
+  return `${dow} ${d}`;
+}
+
+function compactMoney(value: string): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return "—";
+  if (n < 1) return `$${n.toFixed(3)}`;
+  if (n < 1000) return `$${n.toFixed(0)}`;
+  if (n < 100_000) return `$${(n / 1000).toFixed(1)}k`;
+  return `$${(n / 1000).toFixed(0)}k`;
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  "order.created": "Pedido creado",
+  "order.cancelled": "Pedido cancelado",
+  "order.paid": "Pedido pagado",
+  "order.refunded": "Pedido reembolsado",
+  "order.fulfilled": "Pedido entregado",
+  "quote.created": "Cotización creada",
+  "quote.sent": "Cotización enviada",
+  "quote.cancelled": "Cotización cancelada",
+  "quote.expired": "Cotización vencida",
+  "customer.created": "Cliente creado",
+  "customer.archived": "Cliente archivado",
+  "user.invited": "Usuario invitado",
+  "user.role_changed": "Rol cambiado",
+  "tenant.bootstrap": "Comercio dado de alta",
+  "apikey.created": "API key creada",
+  "apikey.revoked": "API key revocada",
+};
+
+function humanize(action: string): string {
+  return (
+    ACTION_LABELS[action] ??
+    action.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
   );
 }

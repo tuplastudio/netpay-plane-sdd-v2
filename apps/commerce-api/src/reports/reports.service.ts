@@ -134,6 +134,202 @@ export class ReportsService {
   }
 
   /**
+   * Resumen unificado del dashboard operativo del tenant: KPIs financieros,
+   * comerciales y la lista corta de actividad reciente. Se consolidó en un
+   * solo endpoint porque el frontend abre la home y necesita 6-8 lecturas
+   * entrelazadas sin muestreo en cliente.
+   *
+   * Costos agregados en una sola SQL contra varias tablas. Los conteos se
+   * calculan con `groupBy` o `count` directo; los recientes son `findMany`
+   * con `take` chiquito, no `count > listar en JS`.
+   */
+  async dashboard(tenantId: string) {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      moneyRows,
+      outstandingAgg,
+      issuedQuotes,
+      productsByStatus,
+      conversationsByStatus,
+      customersTotal,
+      newCustomersToday,
+      ordersToday,
+      ordersMtd,
+      revenueToday,
+      revenueMtd,
+      salesTrend,
+      recentOrders,
+      recentConversations,
+      recentActivity,
+    ] = await Promise.all([
+      this.money(tenantId),
+      this.prisma.order.aggregate({
+        where: { tenantId, status: { in: [...OUTSTANDING_ORDER_STATUSES] } },
+        _sum: { total: true },
+        _count: { _all: true },
+      }),
+      this.prisma.quote.count({ where: { tenantId, status: "ISSUED" } }),
+      this.prisma.product.groupBy({ by: ["status"], where: { tenantId }, _count: { _all: true } }),
+      this.prisma.whatsAppConversation.groupBy({
+        by: ["status", "handoffToHuman"],
+        where: { tenantId },
+        _count: { _all: true },
+      }),
+      this.prisma.customer.count({ where: { tenantId } }),
+      this.prisma.customer.count({
+        where: { tenantId, createdAt: { gte: startOfToday, lte: now } },
+      }),
+      this.prisma.order.count({
+        where: { tenantId, createdAt: { gte: startOfToday, lte: now } },
+      }),
+      this.prisma.order.count({
+        where: { tenantId, createdAt: { gte: startOfMonth, lte: now } },
+      }),
+      this.prisma.order.aggregate({
+        where: { tenantId, createdAt: { gte: startOfToday, lte: now }, status: { in: ["PAID", "FULFILLED"] } },
+        _sum: { total: true },
+      }),
+      this.prisma.order.aggregate({
+        where: { tenantId, createdAt: { gte: startOfMonth, lte: now }, status: { in: ["PAID", "FULFILLED"] } },
+        _sum: { total: true },
+      }),
+      this.salesTrend(tenantId, sevenDaysAgo, now),
+      this.prisma.order.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: { customer: { select: { id: true, fullName: true } } },
+      }),
+      this.prisma.whatsAppConversation.findMany({
+        where: { tenantId },
+        orderBy: { lastMessageAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          externalPhone: true,
+          status: true,
+          handoffToHuman: true,
+          lastMessageAt: true,
+          customerId: true,
+        },
+      }),
+      this.prisma.auditLog.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+        include: { actor: { select: { id: true, email: true, fullName: true } } },
+      }),
+    ]);
+
+    const row = moneyRows[0];
+    const capturedGross = new Prisma.Decimal(row?.capturedGross ?? 0);
+    const refunded = new Prisma.Decimal(row?.refundedTotal ?? 0);
+    const net = capturedGross.minus(refunded);
+
+    const productCount = (status: string) =>
+      productsByStatus.find((p) => p.status === status)?._count._all ?? 0;
+
+    const conversationCount = (
+      predicate: (r: (typeof conversationsByStatus)[number]) => boolean,
+    ) => conversationsByStatus.filter(predicate).reduce((n, r) => n + r._count._all, 0);
+
+    return {
+      kpis: {
+        customers: {
+          total: customersTotal,
+          newToday: newCustomersToday,
+        },
+        orders: {
+          today: ordersToday,
+          mtd: ordersMtd,
+        },
+        revenue: {
+          today: money(revenueToday._sum.total),
+          mtd: money(revenueMtd._sum.total),
+        },
+        captured: {
+          gross: capturedGross.toFixed(2),
+          refunded: refunded.toFixed(2),
+          net: net.lessThan(0) ? "0.00" : net.toFixed(2),
+        },
+        outstanding: {
+          total: money(outstandingAgg._sum.total),
+          count: outstandingAgg._count._all,
+        },
+        issuedQuotes,
+        products: {
+          active: productCount("ACTIVE"),
+          draft: productCount("DRAFT"),
+        },
+        conversations: {
+          open: conversationCount((r) => r.status === "OPEN"),
+          escalated: conversationCount((r) => r.handoffToHuman),
+        },
+      },
+      salesTrend,
+      recentOrders: recentOrders.map((o) => ({
+        id: o.id,
+        status: o.status,
+        total: o.total.toFixed(2),
+        createdAt: o.createdAt,
+        customer: o.customer,
+      })),
+      recentConversations,
+      recentActivity: recentActivity.map((r) => ({
+        id: r.id,
+        action: r.action,
+        targetType: r.targetType,
+        targetId: r.targetId,
+        metadata: r.metadata,
+        createdAt: r.createdAt,
+        actor: r.actor,
+      })),
+      generatedAt: now,
+    };
+  }
+
+  /**
+   * Serie día-por-día de los últimos N días: total de ventas (PAID+FULFILLED),
+   * número de pedidos y número de órdenes cobradas. Construimos los 7 días en
+   * memoria y rellenamos con cero los días sin movimiento (la serie siempre
+   * tiene exactamente 7 puntos).
+   */
+  private async salesTrend(tenantId: string, from: Date, to: Date) {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        tenantId,
+        createdAt: { gte: from, lte: to },
+        status: { in: ["PAID", "FULFILLED"] },
+      },
+      select: { createdAt: true, total: true },
+    });
+    const byDay = new Map<string, { orders: number; revenue: number }>();
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(to.getTime() - i * 24 * 60 * 60 * 1000);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      byDay.set(key, { orders: 0, revenue: 0 });
+    }
+    for (const o of orders) {
+      const d = o.createdAt;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const cur = byDay.get(key);
+      if (cur) {
+        cur.orders += 1;
+        cur.revenue += Number(o.total.toString());
+      }
+    }
+    return Array.from(byDay.entries()).map(([day, v]) => ({
+      day,
+      orders: v.orders,
+      revenueUsd: v.revenue.toFixed(2),
+    }));
+  }
+
+  /**
    * Bruto cobrado y reembolsado en una sola pasada por SQL.
    *
    * Dos escaneos independientes agregados a nivel de base — no se cruzan con

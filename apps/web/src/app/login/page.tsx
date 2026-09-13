@@ -20,15 +20,15 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 function readSafeNext(): string {
-  if (typeof window === "undefined") return "/catalog";
+  if (typeof window === "undefined") return "/";
   const raw = new URLSearchParams(window.location.search).get("next");
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/catalog";
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
   return raw;
 }
 
 export default function LoginPage() {
   const router = useRouter();
-  const [safeNext, setSafeNext] = useState("/catalog");
+  const [safeNext, setSafeNext] = useState("/");
   useEffect(() => {
     setSafeNext(readSafeNext());
   }, []);

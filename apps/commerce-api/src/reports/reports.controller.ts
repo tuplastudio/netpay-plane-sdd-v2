@@ -30,4 +30,23 @@ export class ReportsController {
       requestId: RequestContext.requestId,
     };
   }
+
+  /**
+   * Dashboard operativo: KPIs unificados + lista corta de actividad reciente
+   * (pedidos, conversaciones, bitácora) y serie de ventas de 7 días.
+   *
+   * Scope: `payments.read` (mismo razonamiento que `summary`: el rol FINANCE
+   * es el que vive en esta pantalla y no tiene `chat.read`; abrir la
+   * combinación `payments.read + chat.read + orders.read + catalog.read`
+   * dejaría fuera al FINANCE).
+   */
+  @Get("dashboard")
+  @RequireScopes("payments.read")
+  async dashboard() {
+    const tenantId = RequestContext.tenantId!;
+    return {
+      data: await this.reports.dashboard(tenantId),
+      requestId: RequestContext.requestId,
+    };
+  }
 }
