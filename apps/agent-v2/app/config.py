@@ -139,6 +139,53 @@ class Settings:
         default_factory=lambda: Path(_env("KNOWLEDGE_DIR") or str(SERVICE_DIR / "knowledge"))
     )
 
+    # ---- Prompts versionados (ver app/prompts/registry.py) ----
+    # Carpeta con `vX.Y.Z/` y versión por defecto del proceso ("latest" o una
+    # concreta). El tenant puede fijar otra desde el panel
+    # (`AgentSettings.prompt_version`); esa gana sobre esta.
+    prompts_dir: Path = field(
+        default_factory=lambda: Path(_env("PROMPTS_DIR") or str(SERVICE_DIR / "prompts"))
+    )
+    prompt_version: str = field(default_factory=lambda: _env("PROMPT_VERSION", "latest"))
+
+    # ---- Guardas de entrada/salida ----
+    # El clasificador de tema (LLM) falla hacia abierto por defecto (ver
+    # guards/scope.py). En producción se puede pedir que un fallo del
+    # proveedor bloquee en vez de dejar pasar.
+    scope_guard_fail_closed: bool = field(
+        default_factory=lambda: _env_bool("AGENT_SCOPE_GUARD_FAIL_CLOSED", False)
+    )
+    # Heurísticas deterministas (inyección, fuera de tema obvio) antes del
+    # LLM: no cuestan tokens y no dependen del proveedor.
+    input_heuristics_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_INPUT_HEURISTICS", True)
+    )
+    # Revisión de la respuesta del modelo antes de salir al canal
+    # (fuga de prompt/notas internas, código, URLs inventadas, secretos).
+    output_guard_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_OUTPUT_GUARD", True)
+    )
+
+    # ---- Higiene de contexto (ver memory/context.py) ----
+    # Cuando el historial persistido supera este tamaño en caracteres se
+    # compacta antes de invocar al modelo: resumen + últimos N turnos.
+    compact_after_chars: int = field(
+        default_factory=lambda: _env_int("AGENT_COMPACT_AFTER_CHARS", 20_000)
+    )
+    compact_keep_turns: int = field(default_factory=lambda: _env_int("AGENT_COMPACT_KEEP_TURNS", 6))
+
+    # ---- Memoria episódica (ver memory/episodic.py) ----
+    episodic_memory_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_EPISODIC_MEMORY", True)
+    )
+    # Modelo para extraer el episodio (vacío = el modelo por defecto). Solo se
+    # usa si hay key; sin LLM se guarda la versión heurística.
+    episodic_model: str = field(default_factory=lambda: _env("EPISODIC_MODEL_ID", ""))
+    # Cuántas lecciones agregadas entran al prompt (0 = ninguna).
+    episodic_lessons_in_prompt: int = field(
+        default_factory=lambda: _env_int("AGENT_EPISODIC_LESSONS", 5)
+    )
+
     @property
     def llm_live(self) -> bool:
         return bool(self.openrouter_key)
@@ -156,6 +203,10 @@ class Settings:
     @property
     def store_path(self) -> Path:
         return self.data_dir / "memory.sqlite"
+
+    @property
+    def episodes_path(self) -> Path:
+        return self.data_dir / "episodes.sqlite"
 
 
 @lru_cache(maxsize=1)

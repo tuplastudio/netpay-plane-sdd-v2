@@ -1,0 +1,8 @@
+version: 1.0.0
+status: stable
+created: 2026-09-13
+description: >-
+  Prompt heredado de app/prompts.py (reglas portadas de agent-service v1 y
+  pulidas con el cliente). Se conserva íntegro como línea base y para rollback.
+changelog:
+  - Primera versión bajo el registro de prompts versionados.

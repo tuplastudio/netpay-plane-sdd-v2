@@ -38,9 +38,11 @@ function hasSessionCookie(req: NextRequest): boolean {
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
-  // Raíz: si hay sesión → /catalog, si no → /login.
+  // Raíz: si hay sesión → /dashboard (la home del portal), si no → /login.
+  // El propio /dashboard decide si redirigir al super-admin o mostrar el
+  // panel del tenant, según la cookie de sesión que el navegador traiga.
   if (pathname === "/") {
-    const dest = hasSessionCookie(req) ? "/catalog" : "/login";
+    const dest = hasSessionCookie(req) ? "/dashboard" : "/login";
     return NextResponse.redirect(new URL(dest, req.url));
   }
 

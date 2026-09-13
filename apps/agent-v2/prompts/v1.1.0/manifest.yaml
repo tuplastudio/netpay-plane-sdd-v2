@@ -1,0 +1,12 @@
+version: 1.1.0
+status: stable
+created: 2026-09-13
+description: >-
+  Endurecimiento de seguridad y privacidad: bloque explícito de alcance,
+  datos vs. instrucciones (delimitadores), no revelación de configuración,
+  manejo de datos personales (PII) y rechazo de temas ilegales. Es la
+  versión que toma "latest".
+changelog:
+  - Nuevo bloque 05_seguridad_y_privacidad.md (alcance estricto, inyección, PII, secretos).
+  - 40_que_nunca_haces.md reescrito para referirse a los delimitadores <catalogo>, <informacion_negocio>, <memoria_conversacion>.
+  - 10_como_hablas.md: si preguntan si es un bot, no lo niega ni da detalles técnicos.

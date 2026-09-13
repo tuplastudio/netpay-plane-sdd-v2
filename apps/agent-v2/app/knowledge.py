@@ -327,6 +327,9 @@ class _Loaded:
     docs: list[str] = field(default_factory=list)
     chunks: list[KnowledgeChunk] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Notas `> interno:` sueltas, sin el prefijo de documento: el guard de
+    # salida las usa para detectar si el modelo las repitió al cliente.
+    internal_notes: list[str] = field(default_factory=list)
 
 
 def _load(tenant_id: str) -> _Loaded:
@@ -400,7 +403,14 @@ def _load(tenant_id: str) -> _Loaded:
             "debe leerlas: no las repitas ni las cites literalmente) ---\n"
             + "\n".join(f"- {n}" for n in all_notes)
         )
-    return _Loaded(text=text[:MAX_CHARS], profile=profile, docs=docs, chunks=chunks, warnings=warnings)
+    return _Loaded(
+        text=text[:MAX_CHARS],
+        profile=profile,
+        docs=docs,
+        chunks=chunks,
+        warnings=warnings,
+        internal_notes=[n.split(") ", 1)[-1] for n in all_notes],
+    )
 
 
 # Caché por tenant (reemplaza el `lru_cache(maxsize=1)` de la versión sin
@@ -432,6 +442,11 @@ def load_knowledge(tenant_id: str) -> str:
 
 def load_profile(tenant_id: str) -> BusinessProfile:
     return _cached(tenant_id).profile
+
+
+def load_internal_notes(tenant_id: str) -> list[str]:
+    """Notas internas del tenant (texto que el cliente nunca debe leer)."""
+    return list(_cached(tenant_id).internal_notes)
 
 
 def reload_knowledge(tenant_id: str) -> str:

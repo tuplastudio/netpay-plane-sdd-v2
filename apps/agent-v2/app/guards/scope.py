@@ -1,4 +1,6 @@
-"""Guardarraíl de tema: el agente vende, no es un asistente de propósito general.
+"""Guardarraíl de tema (LLM): el agente vende, no es un asistente de propósito general.
+
+Segunda capa, después de las heurísticas deterministas de ``injection.py``.
 
 El modelo base sabe de todo y, sin freno, contesta lo que sea: preguntado por
 Node.js soltaba un tutorial completo, y por una receta de pozole, la receta.
@@ -7,9 +9,10 @@ responder cosas de las que no puede hacerse responsable.
 
 Reglas del diseño:
 
-  * Falla hacia abierto. Ante duda, error del proveedor o respuesta rara del
-    clasificador, se deja pasar el mensaje al agente. Bloquear a un cliente
-    real que sí quería comprar es mucho más caro que responder de más.
+  * Falla hacia abierto por defecto. Ante duda, error del proveedor o
+    respuesta rara del clasificador, se deja pasar el mensaje al agente.
+    Bloquear a un cliente real que sí quería comprar es mucho más caro que
+    responder de más. ``AGENT_SCOPE_GUARD_FAIL_CLOSED=1`` invierte esto.
   * Corre ANTES del grafo. Un mensaje fuera de tema no debe pagar el bucle de
     herramientas ni ensuciar el hilo de la conversación.
   * El negocio manda. `forbidden_topics` de la configuración por tenant se
@@ -25,7 +28,7 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from .config import Settings
+from ..config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -101,10 +104,19 @@ async def is_off_topic(
     business: str = "",
     forbidden_topics: str = "",
     last_reply: str = "",
+    fail_closed: bool | None = None,
 ) -> bool:
-    """True solo si el clasificador dice con claridad que el mensaje es ajeno."""
+    """True solo si el clasificador dice con claridad que el mensaje es ajeno.
+
+    ``fail_closed`` (por defecto ``settings.scope_guard_fail_closed``): si el
+    proveedor falla o devuelve algo ilegible, ``True`` bloquea el mensaje en
+    vez de dejarlo pasar. Las heurísticas deterministas de
+    ``guards/injection.py`` corren antes y cubren los casos obvios, así que
+    aquí el fallo abierto sigue siendo el default razonable.
+    """
     if not settings.scope_guard_enabled or not text.strip():
         return False
+    closed = settings.scope_guard_fail_closed if fail_closed is None else fail_closed
     try:
         result = await model.ainvoke(
             [
@@ -117,11 +129,14 @@ async def is_off_topic(
                 ),
             ]
         )
-    except Exception:  # noqa: BLE001 - nunca bloquear por un fallo del proveedor
-        logger.warning("guardarraíl de tema no disponible, se deja pasar", exc_info=True)
-        return False
+    except Exception:  # noqa: BLE001 - un fallo del proveedor no debe tumbar el turno
+        logger.warning(
+            "guardarraíl de tema no disponible, %s", "se bloquea" if closed else "se deja pasar",
+            exc_info=True,
+        )
+        return closed
 
     on_topic = _parse(getattr(result, "content", "") or "")
     if on_topic is None:
-        return False
+        return closed
     return not on_topic

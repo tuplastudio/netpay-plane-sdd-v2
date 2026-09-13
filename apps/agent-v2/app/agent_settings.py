@@ -142,6 +142,11 @@ class AgentSettings:
     # nunca se guarda ni se devuelve en texto plano fuera de build_model.
     openrouter_api_key_encrypted: str = ""
 
+    # Prompt versionado (ver app/prompts/registry.py). "" = usar el default del
+    # proceso (`PROMPT_VERSION`, normalmente "latest"); "latest" explícito o
+    # "X.Y.Z" fijan una versión. Una versión inexistente degrada a latest.
+    prompt_version: str = ""
+
     # Canal
     whatsapp_plain_text: bool = True
     auto_reply: bool = True
@@ -198,6 +203,7 @@ _STR_LIMITS = {
     "language": 10, "currency": 8, "forbidden_topics": 2000, "extra_rules": 4000,
     "text_model": 120, "classifier_model": 120, "human_reply_filter_model": 120,
 }
+_PROMPT_VERSION_RE = re.compile(r"^(latest|v?\d+\.\d+\.\d+)$")
 
 
 def sanitize(payload: dict[str, Any], base: AgentSettings | None = None) -> AgentSettings:
@@ -224,6 +230,12 @@ def sanitize(payload: dict[str, Any], base: AgentSettings | None = None) -> Agen
             data[key] = bool(value)
         elif key in _OPT_BOOL_FIELDS:
             data[key] = None if value is None else bool(value)
+        elif key == "prompt_version":
+            # Solo "latest" o semver; cualquier otra cosa = "" (default del
+            # proceso). La existencia real de la versión la valida el registro
+            # al resolver, degradando a latest si no está.
+            raw_version = str(value or "").strip().lower()
+            data[key] = raw_version.lstrip("v") if _PROMPT_VERSION_RE.match(raw_version) else ""
         elif key == "sales_style":
             style = str(value or "").strip().lower()
             data[key] = style if style in SALES_STYLES else "cerrador"
