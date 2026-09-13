@@ -36,7 +36,7 @@ _INJECTION_PATTERNS: tuple[tuple[str, bool, re.Pattern[str]], ...] = (
         "ignorar_reglas",
         True,
         re.compile(
-            r"\b(ignora|ignorá|olvida|olvidá|omite|desobedece|salta|sáltate|deja\s+de\s+lado|haz\s+caso\s+omiso\s+(a|de))\s+"
+            r"\b(ignor(a|á|es|en|ar|ando)|olvid(a|á|es|en|ar)|omit(e|as|an|ir)|desobedec(e|es|er)|salt(a|es|ar)|sáltate|deja\s+de\s+lado|haz\s+caso\s+omiso\s+(a|de))\s+"
             r"(todas?\s+|todo\s+)?(tus|las|sus|esas|estas|cualquier)?\s*"
             r"(reglas?|instrucciones?|indicaciones?|restricciones?|directrices|l[ií]mites|prompt|programaci[oó]n)",
             _FLAGS,
@@ -124,9 +124,14 @@ _INJECTION_PATTERNS: tuple[tuple[str, bool, re.Pattern[str]], ...] = (
     (
         "nuevas_instrucciones",
         False,
+        re.compile(r"\b(nuevas?\s+instrucciones?|new\s+instructions?)\b", _FLAGS),
+    ),
+    (
+        "sistema_habla",
+        False,
         re.compile(
-            r"\b(nuevas?\s+instrucciones?|instrucci[oó]n\s+del\s+sistema|el\s+sistema\s+(dice|indica|te\s+ordena)|"
-            r"anula\s+(tus|las)\s+reglas|reemplaza\s+(tus|las)\s+(reglas|instrucciones)|new\s+instructions?)\b",
+            r"\b(instrucci[oó]n(es)?\s+del\s+sistema|el\s+sistema\s+(dice|indica|te\s+ordena|te\s+pide)|"
+            r"anula\s+(tus|las)\s+reglas|reemplaza\s+(tus|las)\s+(reglas|instrucciones))\b",
             _FLAGS,
         ),
     ),
@@ -246,11 +251,16 @@ def detect_injection(text: str) -> InjectionVerdict:
     Una categoría fuerte basta; dos débiles también. Devuelve todas las
     categorías que dispararon (para logs/métricas).
     """
-    body = neutralize(text)
+    raw = strip_hidden_unicode(text or "")
+    body = neutralize(raw)
     if not body:
         return InjectionVerdict(False)
     strong: list[str] = []
     weak: list[str] = []
+    # Los tokens de control de otros formatos de chat se quitan en
+    # `neutralize`, pero su sola presencia ya es un intento de inyección.
+    if _CONTROL_TOKENS_RE.search(raw):
+        strong.append("marcador_de_rol")
     for category, is_strong, pattern in _INJECTION_PATTERNS:
         if pattern.search(body):
             (strong if is_strong else weak).append(category)

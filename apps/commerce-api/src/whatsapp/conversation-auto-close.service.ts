@@ -31,6 +31,7 @@
 
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { AgentLifecycleClient } from "./agent-lifecycle.client.js";
 import { AgentSettingsClient, AgentTenantSettings } from "./agent-settings.client.js";
 import { autoCloseSeconds } from "./duration.js";
 
@@ -38,6 +39,9 @@ import { autoCloseSeconds } from "./duration.js";
 export const AUTO_CLOSE_INTERVAL_MS = 60_000;
 
 export const AUTO_CLOSE_AUDIT_ACTION = "whatsapp.conversation.auto_closed";
+
+/** Tope de hilos por tenant y pasada: el resto cae en la siguiente (un minuto después). */
+export const MAX_CLOSE_PER_RUN = 500;
 
 export interface AutoCloseRun {
   tenantsChecked: number;
@@ -55,6 +59,7 @@ export class ConversationAutoCloseService implements OnModuleInit, OnModuleDestr
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentSettings: AgentSettingsClient,
+    private readonly agentLifecycle: AgentLifecycleClient,
   ) {}
 
   onModuleInit(): void {
@@ -99,18 +104,35 @@ export class ConversationAutoCloseService implements OnModuleInit, OnModuleDestr
     }
   }
 
-  /** Cierra en lote los hilos inactivos de un tenant y deja un solo AuditLog. */
+  /** Cierra en lote los hilos inactivos de un tenant y deja un solo AuditLog.
+   *
+   * Primero se leen los ids (una sola consulta acotada, no N+1): hacen falta
+   * para avisarle al agente hilo por hilo, que guarda su memoria episódica y
+   * borra el checkpoint. El cierre en la base sigue siendo UN `updateMany`.
+   */
   private async closeInactive(tenantId: string, seconds: number, now: Date): Promise<number> {
     const cutoff = new Date(now.getTime() - seconds * 1000);
+    const where = {
+      tenantId,
+      status: { not: "CLOSED" as const },
+      lastMessageAt: { lt: cutoff },
+    };
+    const stale = await this.prisma.whatsAppConversation.findMany({
+      where,
+      select: { id: true },
+      take: MAX_CLOSE_PER_RUN,
+    });
+    if (stale.length === 0) return 0;
+    const ids = stale.map((c) => c.id);
     const { count } = await this.prisma.whatsAppConversation.updateMany({
-      where: {
-        tenantId,
-        status: { not: "CLOSED" },
-        lastMessageAt: { lt: cutoff },
-      },
+      where: { ...where, id: { in: ids } },
       data: { status: "CLOSED", handoffToHuman: false, handoffUserId: null },
     });
     if (count === 0) return 0;
+
+    // Del otro lado: episodio + borrado del hilo en el agente. Best-effort y
+    // después del updateMany, así un agente caído no impide cerrar aquí.
+    await this.agentLifecycle.closeMany(tenantId, ids);
 
     // Una entrada por lote, no por hilo: con un plazo corto un tenant grande
     // llenaría la bitácora de ruido.

@@ -25,6 +25,7 @@ import {
   type SendMessageResult,
 } from "./channels.js";
 import { ReplyModerationService, type ModerationDecision } from "./reply-moderation.service.js";
+import { AgentLifecycleClient } from "./agent-lifecycle.client.js";
 import {
   EvolutionApiError,
   EvolutionOnboardingService,
@@ -160,6 +161,7 @@ export class WhatsAppService {
     private readonly prisma: PrismaService,
     private readonly moderation: ReplyModerationService,
     private readonly evolutionOnboarding: EvolutionOnboardingService,
+    private readonly agentLifecycle: AgentLifecycleClient,
   ) {
     this.meta = new MetaChannel(prisma);
     this.evolution = new EvolutionChannel(prisma);
@@ -422,6 +424,11 @@ export class WhatsAppService {
       await this.audit(input.tenantId, conversation.id, CONVERSATION_AUDIT.reopened, null, {
         reason: "Mensaje nuevo del cliente",
       });
+      // El agente también debe soltar cualquier handoff viejo de ese hilo (si
+      // el cierre no alcanzó a borrarlo). Sin esperar: el webhook no debe
+      // demorarse por esto, y el puente además tolera el desfase (ver
+      // agent-bridge.service.ts, reintento por HUMAN_ACTIVE).
+      void this.agentLifecycle.release(input.tenantId, conversation.id);
     }
 
     try {
@@ -838,6 +845,14 @@ export class WhatsAppService {
       where: { id: conversationId },
       data: { status, handoffToHuman: false, handoffUserId: null },
     });
+    // Mismo estado del otro lado: cerrar guarda el episodio y borra el hilo
+    // del agente (un cliente que vuelve no hereda carritos viejos); reabrir
+    // suelta el handoff en el agente, no solo aquí.
+    if (status === "CLOSED") {
+      await this.agentLifecycle.close(tenantId, conversationId, { delete: true });
+    } else {
+      await this.agentLifecycle.release(tenantId, conversationId);
+    }
     await this.audit(
       tenantId,
       conversationId,
@@ -1070,6 +1085,10 @@ export class WhatsAppService {
       where: { id: conversationId },
       data: { handoffToHuman: false, handoffUserId: null, status: "OPEN" },
     });
+    // Sin esto el agente seguía con `handoff=True` en su propio estado y
+    // contestaba vacío (HUMAN_ACTIVE) al siguiente mensaje: el bot "volvía"
+    // solo en la base de datos.
+    await this.agentLifecycle.release(tenantId, conversationId);
     await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.returned, actorId);
     return updated;
   }

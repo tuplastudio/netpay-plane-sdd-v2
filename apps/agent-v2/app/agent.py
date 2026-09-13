@@ -1,5 +1,10 @@
 """Construcción del agente v2 (LangGraph + deepagents).
 
+Un solo grafo compilado sirve a todos los tenants: lo que cambia por negocio
+(identidad, catálogo, conocimiento, versión de prompt, modelo) se resuelve
+por turno en ``tenant_context.py`` y entra por ``sales_prompt`` y por el
+middleware de modelo. Ver docs/ARCHITECTURE.md.
+
 Qué resuelve frente al v1:
 
   * El hilo no se pierde. LangGraph guarda un checkpoint por conversación
@@ -17,7 +22,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import replace
 from typing import Any
 
 from deepagents import create_deep_agent
@@ -27,13 +31,22 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.errors import GraphBubbleUp
 
-from .commerce import CommerceClient, CommerceError, CommerceUnavailable
-from .config import Settings, get_settings
 from .agent_settings import get_agent_settings
-from .knowledge import BusinessProfile, load_knowledge, load_profile
-from .prompts import turn_prompt
+from .config import Settings, get_settings
+from .prompts import assemble_prompt
 from .state import SalesState, TurnContext, working_memory_block
+from .tenant_context import load_company_context, resolve_tenant_bundle, warm_catalog
 from .tools import SALES_TOOLS
+
+__all__ = [
+    "PRICE_PER_1K",
+    "build_agent",
+    "build_model",
+    "build_scope_model",
+    "load_company_context",
+    "sales_prompt",
+    "warm_catalog",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +69,8 @@ def build_model(
     extra: dict[str, Any] = {}
     # Serializar las tool calls evita que varias lean el mismo snapshot del
     # estado en un turno (el orden importa, p. ej. cotizar después de agregar).
-    # La corrección de fondo del carrito vive en el reducer `_merge_cart`, así
-    # que esto es defensa en profundidad, no el único arreglo.
+    # La corrección de fondo del carrito vive en el reducer `_merge_carts`,
+    # así que esto es defensa en profundidad, no el único arreglo.
     # OpenRouter rechaza el parámetro para la familia Anthropic
     # ("tool_choice.auto.disable_parallel_tool_use: Extra inputs are not
     # permitted"), y mandarlo haría fallar cada turno de un tenant que elija
@@ -268,121 +281,30 @@ def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
     return _override
 
 
-class CatalogCache:
-    """El catálogo entra completo al prompt, así que se cachea por tenant.
-
-    Sin esto cada turno pagaría una llamada al backend solo para armar el
-    bloque de catálogo.
-    """
-
-    def __init__(self, ttl_seconds: float = 120.0) -> None:
-        self.ttl = ttl_seconds
-        self._entries: dict[str, tuple[float, str]] = {}
-        self._lock = asyncio.Lock()
-
-    async def get(self, tenant_id: str) -> str:
-        now = asyncio.get_running_loop().time()
-        cached = self._entries.get(tenant_id)
-        if cached and now - cached[0] < self.ttl:
-            return cached[1]
-        async with self._lock:
-            cached = self._entries.get(tenant_id)
-            if cached and now - cached[0] < self.ttl:
-                return cached[1]
-            block = await self._render(tenant_id)
-            self._entries[tenant_id] = (now, block)
-            return block
-
-    @staticmethod
-    async def _render(tenant_id: str) -> str:
-        client = CommerceClient(tenant_id=tenant_id)
-        if not client.live:
-            return ""
-        try:
-            variants = await client.search_products(None, limit=100)
-        except (CommerceError, CommerceUnavailable):
-            return ""
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for variant in variants:
-            if variant.get("status") != "ACTIVE":
-                continue
-            grouped.setdefault(variant["productTitle"] or variant["title"], []).append(variant)
-        lines: list[str] = []
-        for product, items in grouped.items():
-            lines.append(f"{product}:")
-            for v in items:
-                stock = v.get("stock")
-                warn = " SIN EXISTENCIA" if stock is not None and stock <= 0 else ""
-                lines.append(f"  - {v['title']} | {v['sku']} | ${v['price']}{warn}")
-        return "\n".join(lines)
-
-
-_CATALOG = CatalogCache()
-
-
-class CompanyContextCache:
-    """Identidad canónica de la empresa, aislada y cacheada por UUID de tenant."""
-
-    def __init__(self, ttl_seconds: float = 120.0) -> None:
-        self.ttl = ttl_seconds
-        self._entries: dict[str, tuple[float, dict[str, Any]]] = {}
-        self._lock = asyncio.Lock()
-
-    async def get(self, tenant_id: str) -> dict[str, Any]:
-        now = asyncio.get_running_loop().time()
-        cached = self._entries.get(tenant_id)
-        if cached and now - cached[0] < self.ttl:
-            return cached[1]
-        async with self._lock:
-            cached = self._entries.get(tenant_id)
-            if cached and now - cached[0] < self.ttl:
-                return cached[1]
-            try:
-                value = await CommerceClient(tenant_id=tenant_id).get_company_context()
-            except (CommerceError, CommerceUnavailable):
-                value = {}
-            self._entries[tenant_id] = (now, value)
-            return value
-
-
-_COMPANY_CONTEXT = CompanyContextCache()
-
-
-async def load_company_context(tenant_id: str) -> dict[str, Any]:
-    return await _COMPANY_CONTEXT.get(tenant_id)
-
-
-async def warm_catalog(tenant_id: str = "") -> None:
-    """Precalienta la caché del catálogo al arrancar (ver _warmup en main.py)."""
-    await _CATALOG.get(tenant_id)
-
-
 @dynamic_prompt
 async def sales_prompt(request) -> SystemMessage:  # type: ignore[no-untyped-def]
-    """Reinyecta el hilo comercial y el catálogo en cada llamada al modelo."""
+    """Prompt de sistema del turno: versión de prompt del tenant + contexto.
+
+    Se arma en CADA llamada al modelo (no una vez por grafo) porque el grafo
+    es único y compartido entre tenants: aquí es donde entra la identidad, el
+    catálogo, el conocimiento, las lecciones y el hilo comercial del tenant
+    y la conversación concretos (ver ``tenant_context.resolve_tenant_bundle``
+    y ``prompts.assemble_prompt``).
+    """
     state: dict[str, Any] = request.state
     context: TurnContext = dict(getattr(request, "runtime", None).context or {})  # type: ignore[union-attr]
     tenant_id = context.get("tenant_id", "")
-
-    if tenant_id:
-        catalog, company = await asyncio.gather(
-            _CATALOG.get(tenant_id), load_company_context(tenant_id)
-        )
-    else:
-        catalog, company = "", {}
-    profile: BusinessProfile = load_profile(tenant_id)
-    # Commerce API es la fuente canónica del nombre del tenant. Los Markdown
-    # enriquecen tono/horarios, pero nunca deben hacer que una empresa hable
-    # con el nombre heredado de otra.
-    if company.get("name"):
-        profile = replace(profile, name=str(company["name"]))
+    bundle = await resolve_tenant_bundle(tenant_id)
+    assert bundle.prompt is not None
     return SystemMessage(
-        turn_prompt(
+        assemble_prompt(
+            bundle.prompt,
+            profile=bundle.profile,
+            overrides=bundle.overrides,
             working_memory=working_memory_block(state),
-            catalog=catalog,
-            knowledge=load_knowledge(tenant_id),
-            profile=profile,
-            overrides=get_agent_settings(tenant_id) if tenant_id else None,
+            catalog=bundle.catalog,
+            knowledge=bundle.knowledge,
+            lessons=bundle.lessons,
         )
     )
 

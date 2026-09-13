@@ -42,6 +42,9 @@ interface AgentSettings {
   extra_rules: string;
   text_model: string;
   classifier_model: string;
+  /** Versión del prompt versionado (`prompts/vX.Y.Z/`). "" = la del proceso
+   * (normalmente `latest`); "latest" o "X.Y.Z" la fijan para este negocio. */
+  prompt_version: string;
   temperature: number | null;
   max_tokens: number | null;
   /** true si el tenant ya guardó su propia OpenRouter key. La key en claro
@@ -69,6 +72,8 @@ interface SettingsView {
     sales_style: string[];
     default_delivery_mode: string[];
     models: Array<{ id: string; toolCalling: boolean; notes: string }>;
+    /** `["latest", "1.2.0", "1.1.0", ...]`: versiones de prompt cargadas. */
+    prompt_version?: string[];
     /** Modelos chicos para el filtro; `cheap` marca los de bajo costo. */
     human_reply_filter_model?: Array<{ id: string; cheap: boolean; notes: string }>;
     human_reply_filter_action?: string[];
@@ -428,6 +433,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
     currency: defaultOf(defaults, "currency"),
     text_model: defaultOf(defaults, "text_model"),
     classifier_model: defaultOf(defaults, "classifier_model"),
+    prompt_version: defaultOf(defaults, "prompt_version"),
     temperature: defaultOf(defaults, "temperature"),
     max_tokens: defaultOf(defaults, "max_tokens"),
     human_reply_filter_model: defaultOf(defaults, "human_reply_filter_model"),
@@ -879,6 +885,33 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                       {m.id}
                     </option>
                   ))}
+              </Select>
+            )}
+          </Field>
+
+          <Field
+            id="prompt_version"
+            label="Versión del prompt"
+            tip="Las reglas del agente viven en versiones numeradas (prompts/vX.Y.Z). Fijar una deja a este negocio en esa versión aunque se publique una más nueva; «latest» toma siempre la última estable."
+            hint="Cambia cómo razona y qué reglas sigue el agente. Útil para probar una versión nueva en un negocio antes de todos, o para volver atrás."
+            defaultLabel={d.prompt_version ? `latest → ${d.prompt_version}` : undefined}
+            overridden={draft.prompt_version !== ""}
+            onReset={() => set("prompt_version", "")}
+          >
+            {(aria) => (
+              <Select
+                {...aria}
+                value={draft.prompt_version}
+                onChange={(e) => set("prompt_version", e.target.value)}
+              >
+                <option value="">
+                  {d.prompt_version ? `Predeterminado (${d.prompt_version})` : "Predeterminado del entorno"}
+                </option>
+                {(view.data!.options.prompt_version ?? []).map((version) => (
+                  <option key={version} value={version}>
+                    {version === "latest" ? "latest (la más nueva estable)" : `v${version}`}
+                  </option>
+                ))}
               </Select>
             )}
           </Field>

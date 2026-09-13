@@ -9,3 +9,5 @@ langgraph-checkpoint-sqlite==3.1.1
 langchain-openai==1.6.1
 aiosqlite==0.22.1
 cryptography>=43.0.0
+pyyaml>=6.0
+python-dotenv>=1.0

@@ -31,7 +31,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from ..agent import build_agent
 from ..commerce import CommerceClient, CommerceError, CommerceUnavailable
 from ..config import Settings, get_settings
-from ..state import TurnContext
+from ..state import TurnContext, open_carts, overall_stage
 from .dataset import EvalCase, Turn, build_dataset
 
 MONEY = re.compile(r"\$\s?([\d.,]+)")
@@ -154,7 +154,14 @@ def _evaluate_turn(turn: Turn, *, tools_called: list[str], reply: str, state: di
     if turn.expect_handoff is not None and bool(state.get("handoff")) != turn.expect_handoff:
         failures.append(f"handoff {bool(state.get('handoff'))} ≠ {turn.expect_handoff}")
 
-    cart_skus = {line.get("sku") for line in (state.get("cart") or [])}
+    # `cart_skus`/`quote_id`/`checkout_link` son la UNIÓN de todos los
+    # carritos abiertos: la mayoría de los casos del dataset llevan un solo
+    # pedido implícito, y ahí la unión es exactamente ese carrito — cero
+    # cambio de comportamiento para esos casos. Los casos que sí llevan
+    # varios pedidos a la vez usan `expect_carts_count` y `carritoId` en el
+    # texto del turno para exigir separación.
+    carts = state.get("carts") or {}
+    cart_skus = {line.get("sku") for record in carts.values() for line in (record.get("lines") or [])}
     for sku in turn.expect_cart_skus:
         if sku not in cart_skus:
             failures.append(f"el carrito no tiene {sku} (tiene: {sorted(s for s in cart_skus if s)})")
@@ -168,13 +175,27 @@ def _evaluate_turn(turn: Turn, *, tools_called: list[str], reply: str, state: di
             failures.append(f"el cliente no tiene {field_name} guardado")
 
     if turn.expect_quote_issued is not None:
-        has_quote = bool(state.get("quote_id"))
+        has_quote = any(record.get("quoteId") for record in carts.values())
         if has_quote != turn.expect_quote_issued:
             failures.append(f"cotización emitida={has_quote} ≠ {turn.expect_quote_issued}")
     if turn.expect_checkout_issued is not None:
-        has_checkout = bool(state.get("checkout_link"))
+        has_checkout = any(record.get("checkoutLink") for record in carts.values())
         if has_checkout != turn.expect_checkout_issued:
             failures.append(f"enlace de pago emitido={has_checkout} ≠ {turn.expect_checkout_issued}")
+    if turn.expect_carts_count is not None:
+        open_count = len(open_carts(carts))
+        if open_count != turn.expect_carts_count:
+            failures.append(
+                f"carritos abiertos={open_count} ≠ {turn.expect_carts_count} "
+                f"(ids: {sorted(open_carts(carts))}) — ¿se mezclaron dos pedidos distintos "
+                "o se abrió uno de más?"
+            )
+    if turn.expect_multi_quote_isolation:
+        # Cada carrito emitido debe tener SU PROPIO folio: si dos comparten
+        # quoteId, uno pisó al otro (justo el bug que este soporte evita).
+        quote_ids = [record["quoteId"] for record in carts.values() if record.get("quoteId")]
+        if len(quote_ids) != len(set(quote_ids)):
+            failures.append(f"dos carritos comparten la misma cotización: {quote_ids}")
 
     for pattern in turn.expect_reply_patterns:
         if not re.search(pattern, reply):
@@ -254,13 +275,12 @@ async def _run_case(
         for key in totals_usage:
             totals_usage[key] += usage[key]
 
+        carts = result.get("carts") or {}
         state = {
-            "stage": result.get("stage"),
+            "stage": result.get("stage") or overall_stage(carts),
             "handoff": result.get("handoff"),
-            "cart": result.get("cart"),
+            "carts": carts,
             "customer": result.get("customer"),
-            "quote_id": result.get("quote_id"),
-            "checkout_link": result.get("checkout_link"),
         }
         failures = _evaluate_turn(turn, tools_called=tools_called, reply=reply, state=state)
         if invented:
@@ -285,10 +305,16 @@ async def _run_case(
                 "state": {
                     "stage": state["stage"],
                     "handoff": state["handoff"],
-                    "cartSkus": [c.get("sku") for c in (state["cart"] or [])],
+                    "openCarts": sorted(open_carts(state["carts"])),
+                    "cartSkus": sorted(
+                        s
+                        for record in state["carts"].values()
+                        for s in {line.get("sku") for line in (record.get("lines") or [])}
+                        if s
+                    ),
                     "customerFields": sorted((state["customer"] or {}).keys()),
-                    "quoteIssued": bool(state["quote_id"]),
-                    "checkoutIssued": bool(state["checkout_link"]),
+                    "quoteIssued": any(r.get("quoteId") for r in state["carts"].values()),
+                    "checkoutIssued": any(r.get("checkoutLink") for r in state["carts"].values()),
                 },
                 "pass": passed,
                 "failures": failures,

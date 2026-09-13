@@ -22,6 +22,43 @@ entre turnos (olvidar el carrito, volver a pedir el nombre, perder la
 cotización a medio camino). Es justo lo que la suite de evals de este
 directorio mide con más peso (`continuidad_multiturno`).
 
+## Arquitectura, seguridad y memoria
+
+Ver `docs/ARCHITECTURE.md` (mapa del código, flujo de un turno, tabla de
+riesgos → capa) y `prompts/README.md` (cómo versionar el prompt). Resumen de
+lo que hay además del grafo:
+
+| Capa | Módulo | Qué hace |
+|---|---|---|
+| Prompts versionados | `app/prompts/`, `prompts/vX.Y.Z/` | Bloques `.md` por versión, `latest` automático, versión fijable por tenant (`PUT /settings {"prompt_version": "1.0.0"}`) o por proceso (`PROMPT_VERSION`). `GET /prompts`, `POST /prompts/reload`. |
+| Varios pedidos a la vez | `app/state.py` (`carts`), `app/tools.py` (`carritoId`) | El carrito no es único: es un diccionario de carritos por conversación, cada uno con su propia cotización/pedido/pago, aislados entre sí. Un solo pedido —el caso normal— se comporta igual que antes. Ver "Varios pedidos a la vez" en `docs/ARCHITECTURE.md`. |
+| Sincronía con commerce-api | `POST /conversations/{id}/release` y `/close` | commerce-api los llama al devolver/reabrir/cerrar un hilo (y el autocierre) para que el handoff y los carritos no queden desfasados entre la base y el agente. Ver "Integración" en `docs/ARCHITECTURE.md`. |
+| Contexto por tenant | `app/tenant_context.py` | Un solo grafo para todos los negocios: perfil + panel + catálogo + conocimiento + lecciones se arman por turno y se cachean por tenant. |
+| Heurísticas de entrada | `app/guards/injection.py` | Inyección ("ignora tus reglas", "modo desarrollador", suplantar al admin) y fuera de alcance obvio (código, clima, tareas, ilegal) sin gastar tokens. |
+| Clasificador de tema | `app/guards/scope.py` | LLM barato; falla abierto salvo `AGENT_SCOPE_GUARD_FAIL_CLOSED=1`. |
+| Guard de salida | `app/guards/output.py` | Bloquea fugas del prompt/notas internas/secretos y código; enmascara tarjeta/CLABE/CURP; sustituye URLs que no vengan de una herramienta. También reescribe el `AIMessage` del hilo. |
+| PII | `app/guards/pii.py` | Redacción en logs, señales de aprendizaje y memoria episódica. |
+| Higiene de contexto | `app/memory/context.py` | Compactación automática por `AGENT_COMPACT_AFTER_CHARS` (resumen + últimos `AGENT_COMPACT_KEEP_TURNS` turnos) y manual: `POST /conversations/{id}/compact`, `DELETE /conversations/{id}/messages`. |
+| Memoria episódica | `app/memory/episodic.py` | Al cerrar una conversación (`POST /conversations/{id}/close`, handoff, borrado) se guarda un episodio de *comportamiento* (ánimo, fricción, mejoras) sin datos de personas ni del negocio; se agrega como `<lecciones>` en el prompt. `GET /memory/episodes`, `/memory/episodes/stats`, `/memory/lessons`. |
+
+Variables nuevas (todas opcionales): `PROMPTS_DIR`, `PROMPT_VERSION`,
+`AGENT_INPUT_HEURISTICS`, `AGENT_SCOPE_GUARD_FAIL_CLOSED`, `AGENT_OUTPUT_GUARD`,
+`AGENT_COMPACT_AFTER_CHARS`, `AGENT_COMPACT_KEEP_TURNS`, `AGENT_EPISODIC_MEMORY`,
+`EPISODIC_MODEL_ID`, `AGENT_EPISODIC_LESSONS`. `GET /diagnostics` reporta el
+estado de cada capa.
+
+## Pruebas
+
+```bash
+cd apps/agent-v2
+./.venv/bin/pip install -r requirements-dev.txt
+./.venv/bin/python -m pytest -q
+```
+
+Sin red: la key es falsa y el grafo se sustituye por un doble en las pruebas
+de API. Cubren prompts, PII, inyección/alcance, guard de salida,
+compactación, memoria episódica, settings y la API.
+
 ## Cómo correrlo
 
 ### Local (venv)

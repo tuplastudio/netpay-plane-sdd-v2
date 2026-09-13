@@ -29,6 +29,16 @@ export interface CartLine {
   unitPrice: string | null;
 }
 
+/** Un pedido dentro de una conversación con varios (ver `AgentResponse.carts`). */
+export interface AgentCart {
+  cartId: string;
+  lines: CartLine[];
+  totals: Record<string, unknown> | null;
+  quote: { quoteId: string; total?: string | null; linkRef: string } | null;
+  checkout: { orderId?: string | null; linkRef: string } | null;
+  stage: string | null;
+}
+
 export interface AgentResponse {
   conversationId: string;
   reply: string;
@@ -37,9 +47,13 @@ export interface AgentResponse {
   candidates: Candidate[];
   suggestions: string[];
   totals: Record<string, unknown> | null;
-  quote: { quoteId: string; total: string; linkRef: string } | null;
-  checkout: { orderId: string; linkRef: string } | null;
+  /** Carrito ACTIVO (compatibilidad). Con varios pedidos a la vez, ver `carts`. */
+  quote: { quoteId: string; total?: string | null; linkRef: string } | null;
+  checkout: { orderId?: string | null; linkRef: string } | null;
   cart: CartLine[];
+  /** Todos los pedidos abiertos de la conversación (agent-v2): cada uno con su
+   * carrito, total, cotización y pago. Vacío o de un elemento en el caso normal. */
+  carts?: AgentCart[];
   knowledgeRefs: string[];
   toolCalls: Array<{ tool: string; ok: boolean; latencyMs: number }>;
   engine: string;

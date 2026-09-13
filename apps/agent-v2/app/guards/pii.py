@@ -31,7 +31,7 @@ _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", re.UNICODE)
 _CURP_RE = re.compile(r"\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b", re.IGNORECASE)
 _RFC_RE = re.compile(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", re.IGNORECASE)
 # Grupos de dígitos separados por espacio/guion/punto: tarjeta, CLABE, teléfono.
-_DIGIT_RUN_RE = re.compile(r"(?<![\w@])\+?\d[\d\s().-]{5,24}\d(?![\w@])")
+_DIGIT_RUN_RE = re.compile(r"(?<![\w@])\+?\(?\d[\d\s().-]{5,24}\d(?![\w@])")
 _LONG_DIGITS_RE = re.compile(r"(?<!\d)\d{6,}(?!\d)")
 
 MASKS = {

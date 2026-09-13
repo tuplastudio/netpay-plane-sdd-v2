@@ -12,15 +12,23 @@
 
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { AgentLifecycleClient } from "./agent-lifecycle.client.js";
 import { WhatsAppService } from "./whatsapp.service.js";
 
-interface AgentReply {
+/** Respuesta de `POST /chat` (agent-v2). Solo lo que el canal necesita: el
+ *  resto del contrato (carts, totals, quote, checkout, ...) lo consumen el
+ *  panel y el chat web, no WhatsApp. */
+export interface AgentReply {
   conversationId: string;
   reply: string;
   handoff: boolean;
   intent: string | null;
+  engine?: string;
   attachment?: { filename: string; mimetype: string; base64: string } | null;
 }
+
+/** `intent` con el que el agente dice "una persona lleva este hilo, no contesto". */
+export const HUMAN_ACTIVE_INTENT = "HUMAN_ACTIVE";
 
 @Injectable()
 export class AgentBridgeService {
@@ -29,6 +37,7 @@ export class AgentBridgeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wa: WhatsAppService,
+    private readonly agentLifecycle: AgentLifecycleClient,
   ) {}
 
   private get agentUrl(): string {
@@ -63,41 +72,43 @@ export class AgentBridgeService {
     });
     if (!conversation || conversation.handoffToHuman) return null;
 
-    let payload: AgentReply;
-    try {
-      const response = await fetch(`${this.agentUrl}/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...this.agentHeaders },
-        body: JSON.stringify({
-          tenantId: input.tenantId,
-          conversationId: input.conversationId,
-          messageId: input.messageId,
-          text: input.text,
-          imageBase64: input.imageBase64,
-          channel: "whatsapp",
-          customerPhone: input.externalPhone,
-          // Scopes del canal: el agente ya valida cada herramienta con su
-          // propia API key contra este mismo backend.
-          principalScopes: [
-            "catalog.read",
-            "quotes.read",
-            "quotes.write",
-            "orders.read",
-            "orders.write",
-            "chat.read",
-            "chat.write",
-          ],
-        }),
-        signal: AbortSignal.timeout(input.imageBase64 ? 45_000 : 30_000),
-      });
-      if (!response.ok) {
-        this.logger.warn(`Agente respondió ${response.status} para ${input.conversationId}`);
-        return null;
+    const body = {
+      tenantId: input.tenantId,
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      text: input.text,
+      imageBase64: input.imageBase64,
+      channel: "whatsapp",
+      customerPhone: input.externalPhone,
+      // Scopes del canal: el agente ya valida cada herramienta con su
+      // propia API key contra este mismo backend.
+      principalScopes: [
+        "catalog.read",
+        "quotes.read",
+        "quotes.write",
+        "orders.read",
+        "orders.write",
+        "chat.read",
+        "chat.write",
+      ],
+    };
+    const timeoutMs = input.imageBase64 ? 45_000 : 30_000;
+
+    let payload = await this.callAgent(body, timeoutMs, input.conversationId);
+    if (!payload) return null;
+
+    // Desfase de handoff: la base dice que el bot atiende (si no, no
+    // habríamos llegado aquí) pero el agente aún cree que una persona lleva
+    // el hilo. Pasa si se devolvió/reabrió el hilo sin avisarle (o el aviso
+    // falló). Se libera y se reintenta UNA vez con el mismo messageId; sin
+    // esto el cliente se quedaba sin respuesta para siempre.
+    if (payload.handoff && payload.intent === HUMAN_ACTIVE_INTENT && !payload.reply?.trim()) {
+      this.logger.warn(`Handoff desfasado en ${input.conversationId}: liberando en el agente y reintentando`);
+      const released = await this.agentLifecycle.release(input.tenantId, input.conversationId);
+      if (released) {
+        const retried = await this.callAgent(body, timeoutMs, input.conversationId);
+        if (retried) payload = retried;
       }
-      payload = (await response.json()) as AgentReply;
-    } catch (error) {
-      this.logger.warn(`Agente no disponible: ${(error as Error).message}`);
-      return null;
     }
 
     if (payload.reply?.trim()) {
@@ -131,5 +142,29 @@ export class AgentBridgeService {
     }
 
     return payload;
+  }
+
+  /** Un `POST /chat`. `null` si el agente no respondió o devolvió error. */
+  private async callAgent(
+    body: Record<string, unknown>,
+    timeoutMs: number,
+    conversationId: string,
+  ): Promise<AgentReply | null> {
+    try {
+      const response = await fetch(`${this.agentUrl}/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...this.agentHeaders },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) {
+        this.logger.warn(`Agente respondió ${response.status} para ${conversationId}`);
+        return null;
+      }
+      return (await response.json()) as AgentReply;
+    } catch (error) {
+      this.logger.warn(`Agente no disponible: ${(error as Error).message}`);
+      return null;
+    }
   }
 }

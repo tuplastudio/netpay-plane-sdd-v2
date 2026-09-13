@@ -39,8 +39,22 @@ const NO_MODERATION = {
 
 type Call = Record<string, unknown>;
 
+/** Lo que el servicio le avisa al agente al cerrar/reabrir/devolver un hilo. */
+const agentCalls: Array<{ op: "release" | "close"; conversationId: string }> = [];
+const AGENT_LIFECYCLE = {
+  release: async (_tenantId: string, conversationId: string) => {
+    agentCalls.push({ op: "release", conversationId });
+    return true;
+  },
+  close: async (_tenantId: string, conversationId: string) => {
+    agentCalls.push({ op: "close", conversationId });
+    return { ok: true, episodeCaptured: true };
+  },
+} as never;
+
 function makeService(prisma: Record<string, unknown>) {
-  return new WhatsAppService(prisma as never, NO_MODERATION);
+  agentCalls.length = 0;
+  return new WhatsAppService(prisma as never, NO_MODERATION, undefined as never, AGENT_LIFECYCLE);
 }
 
 describe("setStatus: cerrar y reabrir a mano", () => {
@@ -86,6 +100,8 @@ describe("setStatus: cerrar y reabrir a mano", () => {
       targetType: "WhatsAppConversation",
       targetId: CONV,
     });
+    // El agente cierra su hilo (memoria episódica + borrado del checkpoint).
+    expect(agentCalls).toEqual([{ op: "close", conversationId: CONV }]);
   });
 
   it("reabre un hilo cerrado y lo deja con el agente", async () => {
@@ -98,6 +114,8 @@ describe("setStatus: cerrar y reabrir a mano", () => {
       handoffUserId: null,
     });
     expect(fake.audits[0]).toMatchObject({ action: CONVERSATION_AUDIT.reopened });
+    // Reabrir suelta el handoff también en el agente, no solo en la base.
+    expect(agentCalls).toEqual([{ op: "release", conversationId: CONV }]);
   });
 
   it("rechaza cerrar lo ya cerrado y abrir lo ya abierto, sin escribir", async () => {
@@ -164,6 +182,8 @@ describe("ingestInbound: un cliente que vuelve a escribir reabre su ticket", () 
       targetId: CONV,
       actorId: null,
     });
+    // Y suelta cualquier handoff viejo del agente (sin bloquear el webhook).
+    expect(agentCalls).toEqual([{ op: "release", conversationId: CONV }]);
   });
 
   it("no toca el estado cuando el hilo ya venía abierto", async () => {
@@ -171,6 +191,7 @@ describe("ingestInbound: un cliente que vuelve a escribir reabre su ticket", () 
     await makeService(fake.prisma).ingestInbound(inbound);
     expect(fake.updateManys).toHaveLength(0);
     expect(fake.audits).toHaveLength(0);
+    expect(agentCalls).toHaveLength(0);
   });
 
   it("tampoco lo reabre si el mensaje era un duplicado del webhook", async () => {

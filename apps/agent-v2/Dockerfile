@@ -8,9 +8,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY knowledge ./knowledge
+COPY prompts ./prompts
 
 ENV PYTHONUNBUFFERED=1 \
     KNOWLEDGE_DIR=/app/knowledge \
+    PROMPTS_DIR=/app/prompts \
     AGENT_V2_DATA_DIR=/data/agent-v2
 
 EXPOSE 8010

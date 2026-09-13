@@ -22,6 +22,8 @@ import type { AgentTenantSettings } from "../src/whatsapp/agent-settings.client.
  *    válido: apagado, el valor guardado no gobierna nada.
  *  - El cierre es un `updateMany` acotado por tenant + `lastMessageAt` y
  *    excluyendo lo ya cerrado (idempotente, sin N+1), y suelta el handoff.
+ *    Antes se leen los ids (una consulta) para avisarle al agente hilo por
+ *    hilo (`AgentLifecycleClient.closeMany`): memoria episódica + borrado.
  *  - Hay una entrada de bitácora por lote, no por hilo, y ninguna cuando no
  *    se cerró nada.
  */
@@ -46,9 +48,15 @@ interface UpdateManyCall {
   data: Record<string, unknown>;
 }
 
+/** Ids de los hilos inactivos que "encuentra" el doble para cada tenant. */
+function staleIds(tenantId: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `${tenantId.slice(0, 4)}-conv-${i + 1}`);
+}
+
 function makeFakePrisma(opts: { tenants?: string[]; closedPerTenant?: Record<string, number> }) {
   const updates: UpdateManyCall[] = [];
   const audits: Array<Record<string, unknown>> = [];
+  const lists: Array<Record<string, unknown>> = [];
   const prisma = {
     tenant: {
       findMany: async ({ where }: { where: { status: string } }) => {
@@ -57,13 +65,18 @@ function makeFakePrisma(opts: { tenants?: string[]; closedPerTenant?: Record<str
       },
     },
     whatsAppConversation: {
+      // UNA lectura de ids por tenant (select id, acotada), no N+1.
+      findMany: async (call: { where: Record<string, unknown>; select: { id: boolean }; take: number }) => {
+        lists.push(call);
+        expect(call.select).toEqual({ id: true });
+        expect(call.take).toBeGreaterThan(0);
+        const tenantId = call.where.tenantId as string;
+        return staleIds(tenantId, opts.closedPerTenant?.[tenantId] ?? 0).map((id) => ({ id }));
+      },
       updateMany: async (call: UpdateManyCall) => {
         updates.push(call);
         const tenantId = call.where.tenantId as string;
         return { count: opts.closedPerTenant?.[tenantId] ?? 0 };
-      },
-      findMany: () => {
-        throw new Error("no se permiten listados: el cierre va en un solo updateMany");
       },
       update: () => {
         throw new Error("no se permite actualizar hilo por hilo");
@@ -76,7 +89,21 @@ function makeFakePrisma(opts: { tenants?: string[]; closedPerTenant?: Record<str
       },
     },
   };
-  return { prisma, updates, audits };
+  return { prisma, updates, audits, lists };
+}
+
+/** Doble del cliente de ciclo de vida del agente: registra qué hilos cerró. */
+function makeLifecycle() {
+  const closed: Array<{ tenantId: string; ids: string[] }> = [];
+  return {
+    closed,
+    client: {
+      closeMany: async (tenantId: string, ids: string[]) => {
+        closed.push({ tenantId, ids });
+        return ids.length;
+      },
+    },
+  };
 }
 
 function makeSettingsClient(byTenant: Record<string, AgentTenantSettings | null>) {
@@ -135,25 +162,31 @@ describe("ConversationAutoCloseService.runOnce", () => {
     const settingsClient = makeSettingsClient({
       [TENANT_A]: settings({ auto_close_enabled: true, auto_close_after: "2h" }),
     });
+    const lifecycle = makeLifecycle();
     const svc = new ConversationAutoCloseService(
       fake.prisma as never,
       settingsClient.client as never,
+      lifecycle.client as never,
     );
 
     const run = await svc.runOnce(NOW);
 
     expect(run).toEqual({ tenantsChecked: 1, tenantsEnabled: 1, closed: 3 });
+    expect(fake.lists).toHaveLength(1);
     expect(fake.updates).toHaveLength(1);
     expect(fake.updates[0]!.where).toEqual({
       tenantId: TENANT_A,
       status: { not: "CLOSED" },
       lastMessageAt: { lt: new Date("2026-09-10T10:00:00.000Z") },
+      id: { in: staleIds(TENANT_A, 3) },
     });
     expect(fake.updates[0]!.data).toEqual({
       status: "CLOSED",
       handoffToHuman: false,
       handoffUserId: null,
     });
+    // El agente se entera de cada hilo cerrado (episodio + borrado del checkpoint).
+    expect(lifecycle.closed).toEqual([{ tenantId: TENANT_A, ids: staleIds(TENANT_A, 3) }]);
   });
 
   it("escribe una sola entrada de bitácora por lote", async () => {
@@ -164,6 +197,7 @@ describe("ConversationAutoCloseService.runOnce", () => {
     await new ConversationAutoCloseService(
       fake.prisma as never,
       settingsClient.client as never,
+      makeLifecycle().client as never,
     ).runOnce(NOW);
 
     expect(fake.audits).toHaveLength(1);
@@ -188,6 +222,7 @@ describe("ConversationAutoCloseService.runOnce", () => {
     const run = await new ConversationAutoCloseService(
       fake.prisma as never,
       settingsClient.client as never,
+      makeLifecycle().client as never,
     ).runOnce(NOW);
 
     expect(run.closed).toBe(0);
@@ -204,6 +239,7 @@ describe("ConversationAutoCloseService.runOnce", () => {
     const run = await new ConversationAutoCloseService(
       fake.prisma as never,
       settingsClient.client as never,
+      makeLifecycle().client as never,
     ).runOnce(NOW);
 
     expect(settingsClient.asked).toEqual([TENANT_A, TENANT_B]);
@@ -218,6 +254,7 @@ describe("ConversationAutoCloseService.runOnce", () => {
     const run = await new ConversationAutoCloseService(
       fake.prisma as never,
       settingsClient.client as never,
+      makeLifecycle().client as never,
     ).runOnce(NOW);
 
     expect(run).toEqual({ tenantsChecked: 1, tenantsEnabled: 0, closed: 0 });

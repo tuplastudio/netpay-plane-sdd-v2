@@ -1,0 +1,16 @@
+version: 1.2.0
+status: stable
+created: 2026-09-13
+description: >-
+  Soporta varios pedidos/cotizaciones a la vez en la misma conversación
+  (`carritoId` en las tools de carrito). Nuevo bloque
+  65_carritos_multiples.md; ajustes menores en 70_como_trabajas.md para
+  hablar de "el carrito correspondiente" en vez de asumir uno solo.
+changelog:
+  - >-
+    Nuevo bloque 65_carritos_multiples.md: cuándo abrir un carrito nuevo vs.
+    seguir el mismo, cómo referirse a uno entre varios, que cotizar uno no
+    toca los demás.
+  - >-
+    70_como_trabajas.md: las reglas de carrito/cotización/pedido ahora dicen
+    "ese carrito" en vez de asumir un único carrito implícito.

@@ -14,6 +14,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -37,9 +38,38 @@ _ROOT_ENV = Path(__file__).resolve().parents[1] / ".env"
 if _ROOT_ENV.exists():
     load_dotenv(_ROOT_ENV, override=False)
 
-from .agent import build_agent, build_scope_model, load_company_context, warm_catalog
+from .agent import build_agent, build_model, build_scope_model
 from .commerce import CommerceClient
 from .config import get_settings
+from .guards import (
+    OutputGuard,
+    detect_injection,
+    install_log_redaction,
+    is_off_topic,
+    neutralize,
+    off_scope_category,
+    redact_pii,
+    redirect_reply,
+    urls_from_messages,
+)
+from .memory import (
+    Episode,
+    build_llm_summarizer,
+    clear_history,
+    compact_thread,
+    enrich_with_llm,
+    forbidden_terms_from_state,
+    get_episode_store,
+    heuristic_episode,
+    history_chars,
+)
+from .prompts import PromptVersionNotFound, get_prompt_registry
+from .tenant_context import (
+    invalidate_tenant_caches,
+    load_company_context,
+    resolve_tenant_bundle,
+    warm_catalog,
+)
 from .learning import (
     SignalNotFoundError,
     SignalTenantMismatchError,
@@ -70,9 +100,8 @@ from .moderation import (
     moderate_reply,
 )
 from .audio import AudioTooLarge, AudioUnavailable, synthesize, transcribe
-from .scope_guard import is_off_topic, redirect_reply
 from .security import image_size_error
-from .state import TurnContext, cart_summary
+from .state import CartRecord, TurnContext, cart_summary, open_carts, overall_stage
 from .text import format_for_whatsapp
 from .tools import SALES_TOOLS
 from .web_reader import WebReadError, crawl_url, save_web_page
@@ -214,6 +243,10 @@ class _Runtime:
         self.thread_locks = _ThreadLocks()
         self.scope_model: Any = None
         self.idempotency = _IdempotencyStore(settings.data_dir / "idempotency.sqlite")
+        self.output_guard = OutputGuard(settings)
+        # Modelo para resúmenes de compactación y extracción episódica: tareas
+        # internas, así que usan el modelo fijo del proceso, no el del tenant.
+        self.utility_model: Any = None
 
     async def start(self) -> None:
         self._stack = contextlib.AsyncExitStack()
@@ -222,6 +255,11 @@ class _Runtime:
         )
         self.agent = build_agent(self.checkpointer, settings)
         self.scope_model = build_scope_model(settings)
+        self.utility_model = (
+            build_model(settings, model=settings.episodic_model or settings.summary_model or settings.model, temperature=0.2, max_tokens=600)
+            if settings.llm_live
+            else None
+        )
         await self.idempotency.start()
 
     async def stop(self) -> None:
@@ -242,6 +280,9 @@ async def _lifespan(_: FastAPI):
     # se deja que la excepción suba: uvicorn debe morir en vez de quedar
     # "arriba" con `runtime.agent is None" respondiendo 503 a todo para
     # siempre sin que nadie lo note.
+    # Los ids de conversación llevan el teléfono del cliente y los mensajes
+    # pueden traer correos: ningún log del proceso debe escribirlos en claro.
+    install_log_redaction()
     await runtime.start()
     # El primer turno tras arrancar tardaba ~28s (catálogo sin cachear,
     # conocimiento sin leer, cliente del modelo sin inicializar) y el puente de
@@ -307,10 +348,17 @@ class ChatResponse(BaseModel):
     handoff: bool = False
     intent: str | None = None
     stage: str | None = None
+    # Compatibilidad con v1 / paneles que aún no leen `carts`: reflejan el
+    # carrito ACTIVO (ver `_primary_cart`). Con un solo pedido en curso —el
+    # caso normal— son exactamente lo que eran antes.
     cart: list[dict[str, Any]] = Field(default_factory=list)
     totals: dict[str, Any] | None = None
     quote: dict[str, Any] | None = None
     checkout: dict[str, Any] | None = None
+    # Todos los carritos abiertos de la conversación, cada uno con su propio
+    # carrito/total/cotización/pedido/pago — así un panel o un canal que sí
+    # sepa de esto puede mostrar varios pedidos a la vez sin adivinar.
+    carts: list[dict[str, Any]] = Field(default_factory=list)
     customer: dict[str, Any] = Field(default_factory=dict)
     todos: list[dict[str, Any]] = Field(default_factory=list)
     toolCalls: list[dict[str, Any]] = Field(default_factory=list)
@@ -369,8 +417,56 @@ async def diagnostics() -> dict[str, Any]:
             "turnTimeoutSeconds": settings.turn_timeout_seconds,
             "summarizeAfterMessages": settings.summarize_after_messages,
             "keepMessages": settings.keep_messages,
+            "compactAfterChars": settings.compact_after_chars,
+            "compactKeepTurns": settings.compact_keep_turns,
+        },
+        "prompts": {
+            "default": settings.prompt_version,
+            "latest": get_prompt_registry().latest(),
+            "versions": get_prompt_registry().versions(),
+        },
+        "guards": {
+            "inputHeuristics": settings.input_heuristics_enabled,
+            "scopeGuard": settings.scope_guard_enabled,
+            "scopeGuardFailClosed": settings.scope_guard_fail_closed,
+            "outputGuard": settings.output_guard_enabled,
+        },
+        "episodicMemory": {
+            "enabled": settings.episodic_memory_enabled,
+            "lessonsInPrompt": settings.episodic_lessons_in_prompt,
         },
     }
+
+
+# ---------------- prompts versionados ----------------
+
+
+@app.get("/prompts")
+async def prompts_index() -> dict[str, Any]:
+    """Versiones de prompt disponibles y cuál resuelve `latest`."""
+    return {**get_prompt_registry().to_dict(), "processDefault": settings.prompt_version}
+
+
+@app.get("/prompts/{version}")
+async def prompt_detail(version: str, text: bool = False) -> dict[str, Any]:
+    """Manifest y bloques de una versión (`?text=true` incluye el contenido).
+
+    Solo detrás de `X-Internal-Key`, como el resto: el prompt es
+    configuración interna, nunca se expone al canal.
+    """
+    try:
+        loaded = get_prompt_registry().get(version)
+    except PromptVersionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Versión de prompt no encontrada") from exc
+    return loaded.to_dict(include_text=text)
+
+
+@app.post("/prompts/reload")
+async def prompts_reload() -> dict[str, Any]:
+    """Relee `prompts/` de disco (nueva versión desplegada sin reiniciar)."""
+    registry = get_prompt_registry()
+    registry.reload()
+    return {"latest": registry.latest(), "versions": registry.versions()}
 
 
 @app.post("/knowledge/reload")
@@ -406,6 +502,7 @@ class AgentSettingsPayload(BaseModel):
     # No pasa por el filtro `if v is not None` de abajo con "" porque "" no es
     # None, así que sí llega a sanitize() para poder limpiarla.
     openrouter_api_key: str | None = None
+    prompt_version: str | None = None
     whatsapp_plain_text: bool | None = None
     auto_reply: bool | None = None
     human_reply_filter_enabled: bool | None = None
@@ -438,8 +535,10 @@ async def _settings_view(tenant_id: str) -> dict[str, Any]:
             "temperature": settings.temperature,
             "max_tokens": settings.max_tokens,
             "human_reply_filter_model": DEFAULT_MODERATION_MODEL,
+            "prompt_version": settings.prompt_version,
         },
         "options": {
+            "prompt_version": ["latest", *get_prompt_registry().versions()],
             "sales_style": list(SALES_STYLES),
             "default_delivery_mode": list(DELIVERY_MODES),
             "models": [{"id": settings.model, "toolCalling": True, "notes": ""}],
@@ -703,6 +802,51 @@ async def list_tools() -> dict[str, Any]:
 # ---------------- conversación ----------------
 
 
+def _quote_payload(record: CartRecord) -> dict[str, Any] | None:
+    """`{quoteId, linkRef, total}`: el chat web pinta `total` si viene."""
+    if not record.get("quoteId"):
+        return None
+    totals = record.get("lastTotals") or {}
+    body = totals.get("totals", totals) if isinstance(totals, dict) else {}
+    return {
+        "quoteId": record["quoteId"],
+        "linkRef": record.get("quoteLink"),
+        "total": body.get("total") if isinstance(body, dict) else None,
+    }
+
+
+def _checkout_payload(record: CartRecord) -> dict[str, Any] | None:
+    if not record.get("checkoutLink"):
+        return None
+    return {"linkRef": record["checkoutLink"], "orderId": record.get("orderId")}
+
+
+def _cart_payload(cart_id: str, record: CartRecord) -> dict[str, Any]:
+    """Un carrito, en la forma que expone la API (`carts[]` de `ChatResponse`)."""
+    return {
+        "cartId": cart_id,
+        "lines": list(record.get("lines") or []),
+        "totals": record.get("lastTotals"),
+        "quote": _quote_payload(record),
+        "checkout": _checkout_payload(record),
+        "stage": record.get("stage"),
+    }
+
+
+def _primary_cart(values: dict[str, Any]) -> tuple[str, CartRecord]:
+    """El carrito que llenan los campos singulares de compatibilidad: el
+    activo si tiene algo que mostrar, si no el más avanzado, si no vacío."""
+    carts: dict[str, CartRecord] = values.get("carts") or {}
+    active = values.get("active_cart_id")
+    visible = open_carts(carts)
+    if active and active in visible:
+        return active, visible[active]
+    if visible:
+        cart_id = max(visible, key=lambda cid: len((visible[cid].get("lines") or [])) + bool(visible[cid].get("quoteId")))
+        return cart_id, visible[cart_id]
+    return "", {}
+
+
 def _response_from_values(
     conversation_id: str,
     values: dict[str, Any],
@@ -719,18 +863,19 @@ def _response_from_values(
     Se comparte entre el turno normal, la rama de handoff activo y la
     degradación por error: las tres devuelven la misma forma de contrato.
     """
+    carts: dict[str, CartRecord] = values.get("carts") or {}
+    _primary_id, primary = _primary_cart(values)
     return ChatResponse(
         conversationId=conversation_id,
         reply=reply,
         handoff=handoff,
         intent=intent,
-        stage=values.get("stage"),
-        cart=list(values.get("cart") or []),
-        totals=values.get("last_totals"),
-        quote={"quoteId": values["quote_id"], "linkRef": values.get("quote_link")}
-        if values.get("quote_id")
-        else None,
-        checkout={"linkRef": values["checkout_link"]} if values.get("checkout_link") else None,
+        stage=values.get("stage") or overall_stage(carts),
+        cart=list(primary.get("lines") or []),
+        totals=primary.get("lastTotals"),
+        quote=_quote_payload(primary),
+        checkout=_checkout_payload(primary),
+        carts=[_cart_payload(cart_id, record) for cart_id, record in open_carts(carts).items()],
         customer=dict(values.get("customer") or {}),
         todos=list(values.get("todos") or []),
         toolCalls=tool_calls or [],
@@ -741,9 +886,21 @@ def _response_from_values(
     )
 
 
+def _channel_text(reply: str, channel: str) -> str:
+    return format_for_whatsapp(reply) if channel == "whatsapp" else reply
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
-    text = (req.text or "").strip()[: settings.max_input_chars]
+    """Un turno de conversación. Orden de las capas (ver docs/ARCHITECTURE.md):
+
+    idempotencia → handoff activo → heurísticas de inyección/fuera de tema →
+    clasificador LLM de tema → compactación por presupuesto → grafo →
+    guard de salida → señal de aprendizaje → respuesta.
+    """
+    # `neutralize` quita Unicode invisible y tokens de control de otros
+    # formatos de chat antes de que el texto toque cualquier otra capa.
+    text = neutralize((req.text or "").strip()[: settings.max_input_chars])
     if not text and req.imageBase64:
         text = "[el cliente envió una imagen]"
     if not text:
@@ -809,32 +966,63 @@ async def chat(req: ChatRequest) -> ChatResponse:
             return response
 
         started = asyncio.get_running_loop().time()
+        business = _business_name(req.tenantId)
 
-        # Guardarraíl de tema antes del grafo: un mensaje ajeno al negocio no
-        # debe pagar el bucle de herramientas ni quedar en el hilo como si
-        # fuera parte de la venta. Solo aplica a texto: una imagen o una nota
-        # de voz ya transcrita se dejan pasar al agente.
+        def _redirect(intent: str, engine: str, reply: str) -> ChatResponse:
+            return _response_from_values(
+                conversation_id,
+                state_values,
+                reply=_channel_text(reply, req.channel),
+                handoff=False,
+                intent=intent,
+                engine=engine,
+                latency_ms=int((asyncio.get_running_loop().time() - started) * 1000),
+            )
+
+        # Capa 1 (determinista, sin tokens): inyección y fuera de tema obvio.
+        # Un mensaje así no debe pagar el clasificador ni el grafo, ni quedar
+        # en el hilo como si fuera parte de la venta.
+        if settings.input_heuristics_enabled:
+            verdict = detect_injection(text)
+            if verdict.is_injection:
+                log.info("intento de inyección (%s) en tenant %s", verdict.label, req.tenantId)
+                response = _redirect("INYECCION", "injection-guard", redirect_reply(business, text))
+                await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
+                return response
+            category = off_scope_category(text) if not req.imageBase64 else None
+            if category:
+                log.info("fuera de tema (%s) por heurística en tenant %s", category, req.tenantId)
+                response = _redirect("FUERA_DE_TEMA", f"scope-heuristic:{category}", redirect_reply(business, text))
+                await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
+                return response
+
+        # Capa 2 (LLM barato): clasificador de tema. Solo texto: una imagen o
+        # una nota de voz ya transcrita se dejan pasar al agente.
         if not req.imageBase64 and await is_off_topic(
             text,
             model=runtime.scope_model,
             settings=settings,
-            business=_business_name(req.tenantId),
+            business=business,
             forbidden_topics=get_settings_store().get(req.tenantId).forbidden_topics,
             last_reply=_last_assistant_reply(state_values),
         ):
-            log.info("mensaje fuera de tema en %s, no se invoca al agente", conversation_id)
-            reply = redirect_reply(_business_name(req.tenantId), text)
-            response = _response_from_values(
-                conversation_id,
-                state_values,
-                reply=format_for_whatsapp(reply) if req.channel == "whatsapp" else reply,
-                handoff=False,
-                intent="FUERA_DE_TEMA",
-                engine="scope-guard",
-                latency_ms=int((asyncio.get_running_loop().time() - started) * 1000),
-            )
+            log.info("mensaje fuera de tema por clasificador en tenant %s", req.tenantId)
+            response = _redirect("FUERA_DE_TEMA", "scope-guard", redirect_reply(business, text))
             await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
             return response
+
+        # Higiene de contexto: si el historial ya pesa más que el presupuesto,
+        # se compacta ANTES de invocar (resumen + últimos turnos). Los hechos
+        # comerciales viven en el estado y no dependen de esto.
+        if settings.compact_after_chars > 0 and history_chars(state_values.get("messages")) > settings.compact_after_chars:
+            with contextlib.suppress(Exception):
+                await compact_thread(
+                    runtime.agent,
+                    config,
+                    keep_turns=settings.compact_keep_turns,
+                    summarizer=build_llm_summarizer(runtime.utility_model) if runtime.utility_model else None,
+                    reason="presupuesto",
+                )
 
         try:
             result = await asyncio.wait_for(
@@ -871,7 +1059,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             response = _response_from_values(
                 conversation_id,
                 state_values,
-                reply=format_for_whatsapp(_FALLBACK_REPLY) if req.channel == "whatsapp" else _FALLBACK_REPLY,
+                reply=_channel_text(_FALLBACK_REPLY, req.channel),
                 handoff=True,
                 intent=reason,
                 engine="error-fallback",
@@ -883,10 +1071,38 @@ async def chat(req: ChatRequest) -> ChatResponse:
         latency_ms = int((asyncio.get_running_loop().time() - started) * 1000)
         messages = result.get("messages", [])
         reply = ""
+        reply_message: AIMessage | None = None
         for message in reversed(messages):
             if isinstance(message, AIMessage) and isinstance(message.content, str) and message.content.strip():
                 reply = message.content.strip()
+                reply_message = message
                 break
+
+        # Capa 3: guard de salida. Si el modelo filtró el prompt, notas
+        # internas, código o un enlace inventado, la respuesta se sustituye y
+        # el AIMessage del hilo también (para que el siguiente turno no lo
+        # vea como "algo que ya dije").
+        engine = "langgraph"
+        if reply and settings.output_guard_enabled:
+            bundle = await resolve_tenant_bundle(req.tenantId, include_catalog=False, include_lessons=False)
+            verdict = runtime.output_guard.check(
+                reply,
+                business=business,
+                protected_lines=bundle.prompt.protected_lines() if bundle.prompt else (),
+                internal_notes=bundle.internal_notes,
+                allowed_urls=urls_from_messages(messages) | _urls_in(bundle.knowledge),
+                seed=f"{thread_id}:{req.messageId or text}",
+            )
+            if verdict.changed:
+                log.warning("guard de salida (%s) en tenant %s", ",".join(verdict.reasons), req.tenantId)
+                reply = verdict.reply
+                engine = "output-guard" if not verdict.allowed else "langgraph"
+                if reply_message is not None and getattr(reply_message, "id", None):
+                    with contextlib.suppress(Exception):
+                        await runtime.agent.aupdate_state(
+                            config,
+                            {"messages": [AIMessage(content=reply, id=reply_message.id)]},
+                        )
 
         if reply and req.channel == "whatsapp":
             reply = format_for_whatsapp(reply)
@@ -907,6 +1123,10 @@ async def chat(req: ChatRequest) -> ChatResponse:
             messages=messages,
             handoff_reason=result.get("handoff_reason"),
         )
+        if handoff:
+            # La conversación pasa a una persona: para el agente terminó. Se
+            # captura el episodio (comportamiento, sin datos) en segundo plano.
+            _schedule_episode(req.tenantId, conversation_id, req.channel, messages, result)
 
         response = _response_from_values(
             conversation_id,
@@ -914,7 +1134,7 @@ async def chat(req: ChatRequest) -> ChatResponse:
             reply=reply,
             handoff=handoff,
             intent=result.get("stage"),
-            engine="langgraph",
+            engine=engine,
             latency_ms=latency_ms,
             tool_calls=tool_calls,
         )
@@ -927,6 +1147,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
         await runtime.idempotency.put(thread_id, req.messageId, response.model_dump())
         return response
+
+
+_URL_IN_TEXT = re.compile(r"https?://[^\s<>()\"']+", re.IGNORECASE)
+
+
+def _urls_in(text: str) -> set[str]:
+    return {m.group(0).rstrip(".,;:") for m in _URL_IN_TEXT.finditer(text or "")}
 
 
 def _business_name(tenant_id: str) -> str:
@@ -975,17 +1202,19 @@ async def _record_learning(
                         break
                 if summary:
                     break
+            # La señal la lee el dueño del negocio en el panel: va sin
+            # teléfonos, correos ni tarjetas del cliente.
             await store.record_handoff(
                 tenant_id=tenant_id,
                 conversation_id=conversation_id,
-                summary=summary or question,
+                summary=redact_pii(summary or question),
                 reason=reason,
             )
         elif reply and looks_like_unanswered(reply):
             await store.record_unanswered_question(
                 tenant_id=tenant_id,
                 conversation_id=conversation_id,
-                question=question,
+                question=redact_pii(question),
             )
     except Exception:  # noqa: BLE001 - registrar la señal nunca puede tumbar el turno
         log.warning("no se pudo registrar la señal de aprendizaje", exc_info=True)
@@ -1001,30 +1230,208 @@ async def get_conversation(conversation_id: str, tenantId: str = Query(...)) -> 
     values = snapshot.values or {}
     if not values:
         raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    carts: dict[str, CartRecord] = values.get("carts") or {}
+    _primary_id, primary = _primary_cart(values)
     return {
         "conversationId": conversation_id,
-        "stage": values.get("stage"),
+        "stage": values.get("stage") or overall_stage(carts),
         "customer": values.get("customer") or {},
-        "cart": values.get("cart") or [],
-        "cartSummary": cart_summary(values.get("cart")),
-        "quoteId": values.get("quote_id"),
-        "orderId": values.get("order_id"),
-        "checkoutLink": values.get("checkout_link"),
+        # Compatibilidad: el carrito activo, como antes de soportar varios.
+        "cart": primary.get("lines") or [],
+        "cartSummary": cart_summary(primary.get("lines")),
+        "quoteId": primary.get("quoteId"),
+        "orderId": primary.get("orderId"),
+        "checkoutLink": primary.get("checkoutLink"),
+        # Todos los pedidos abiertos de esta conversación, cada uno completo.
+        "carts": [_cart_payload(cart_id, record) for cart_id, record in open_carts(carts).items()],
         "handoff": bool(values.get("handoff")),
         "todos": values.get("todos") or [],
         "messages": len(values.get("messages") or []),
     }
 
 
-@app.delete("/conversations/{conversation_id}")
-async def delete_conversation(conversation_id: str, tenantId: str = Query(...)) -> dict[str, str]:
-    """Borra el hilo completo (checkpoint + cache de idempotencia)."""
+# ---------------- memoria episódica ----------------
+
+
+async def _capture_episode(
+    tenant_id: str,
+    conversation_id: str,
+    channel: str,
+    messages: list[Any],
+    values: dict[str, Any],
+    *,
+    extra_friction: tuple[str, ...] = (),
+) -> Episode | None:
+    """Extrae y guarda el episodio de una conversación terminada. Nunca lanza."""
+    if not settings.episodic_memory_enabled or not tenant_id:
+        return None
+    try:
+        bundle = await resolve_tenant_bundle(tenant_id, include_catalog=False, include_lessons=False)
+        overrides = bundle.overrides
+        episode = heuristic_episode(
+            messages,
+            values,
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            channel=channel,
+            prompt_version=bundle.prompt_version,
+            model=overrides.effective_model(settings.model),
+            extra_friction=extra_friction,
+        )
+        if runtime.utility_model is not None and messages:
+            terms = forbidden_terms_from_state(
+                values,
+                bundle.business_name,
+                bundle.profile.agent_name,
+                overrides.agent_name,
+                str(bundle.company.get("name") or ""),
+            )
+            episode = await enrich_with_llm(
+                episode, messages, model=runtime.utility_model, forbidden_terms=terms
+            )
+        await get_episode_store().save(episode)
+        return episode
+    except Exception:  # noqa: BLE001 - la memoria episódica nunca afecta al cliente
+        log.warning("no se pudo guardar el episodio de la conversación", exc_info=True)
+        return None
+
+
+def _schedule_episode(
+    tenant_id: str, conversation_id: str, channel: str, messages: list[Any], values: dict[str, Any]
+) -> None:
+    """Fire-and-forget: el turno no espera a la extracción."""
+    if not settings.episodic_memory_enabled:
+        return
+    asyncio.ensure_future(
+        _capture_episode(tenant_id, conversation_id, channel, list(messages), dict(values))
+    )
+
+
+@app.get("/memory/episodes")
+async def list_episodes(tenantId: str = Query(...), limit: int = 50) -> dict[str, Any]:
+    """Episodios (comportamiento conversacional, sin datos) del tenant."""
+    episodes = await get_episode_store().list(tenantId, limit=limit)
+    return {"tenantId": tenantId, "episodes": [e.to_dict() for e in episodes]}
+
+
+@app.get("/memory/episodes/stats")
+async def episode_stats(tenantId: str = Query(...)) -> dict[str, Any]:
+    return await get_episode_store().stats(tenantId)
+
+
+@app.get("/memory/lessons")
+async def episode_lessons(tenantId: str = Query(...)) -> dict[str, Any]:
+    """El bloque `<lecciones>` tal como entra al prompt del tenant."""
+    lessons = await get_episode_store().lessons(tenantId, limit=settings.episodic_lessons_in_prompt)
+    return {"tenantId": tenantId, "lessons": lessons}
+
+
+@app.delete("/memory/episodes")
+async def delete_episodes(tenantId: str = Query(...)) -> dict[str, Any]:
+    return {"deleted": await get_episode_store().delete_tenant(tenantId)}
+
+
+# ---------------- ciclo de vida del hilo ----------------
+
+
+@app.post("/conversations/{conversation_id}/compact")
+async def compact_conversation(
+    conversation_id: str, tenantId: str = Query(...), keepTurns: int | None = None
+) -> dict[str, Any]:
+    """Compacta el historial: resumen + últimos `keepTurns` turnos del cliente.
+
+    El carrito, el cliente y la cotización no se tocan (viven en el estado).
+    """
+    if runtime.agent is None:
+        raise HTTPException(status_code=503, detail="El agente todavía no está listo")
+    thread_id = f"{tenantId}:{conversation_id}"
+    config = {"configurable": {"thread_id": thread_id}}
+    async with (await runtime.thread_locks.acquire(thread_id)):
+        snapshot = await runtime.agent.aget_state(config)
+        if not snapshot.values:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+        result = await compact_thread(
+            runtime.agent,
+            config,
+            keep_turns=settings.compact_keep_turns if keepTurns is None else max(0, keepTurns),
+            summarizer=build_llm_summarizer(runtime.utility_model) if runtime.utility_model else None,
+            reason="manual",
+        )
+    return {"conversationId": conversation_id, **result.to_dict()}
+
+
+@app.delete("/conversations/{conversation_id}/messages")
+async def clear_conversation_messages(conversation_id: str, tenantId: str = Query(...)) -> dict[str, Any]:
+    """Vacía el historial de mensajes conservando carrito, cliente y cotización."""
+    if runtime.agent is None:
+        raise HTTPException(status_code=503, detail="El agente todavía no está listo")
+    thread_id = f"{tenantId}:{conversation_id}"
+    config = {"configurable": {"thread_id": thread_id}}
+    async with (await runtime.thread_locks.acquire(thread_id)):
+        snapshot = await runtime.agent.aget_state(config)
+        if not snapshot.values:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+        removed = await clear_history(runtime.agent, config)
+    return {"conversationId": conversation_id, "removedMessages": removed}
+
+
+@app.post("/conversations/{conversation_id}/close")
+async def close_conversation(
+    conversation_id: str,
+    tenantId: str = Query(...),
+    channel: str = "whatsapp",
+    delete: bool = False,
+) -> dict[str, Any]:
+    """Cierra la conversación: extrae el episodio y, si `delete`, borra el hilo.
+
+    Lo llama el autocierre por inactividad de commerce-api o el panel.
+    """
     if runtime.agent is None or runtime.checkpointer is None:
         raise HTTPException(status_code=503, detail="El agente todavía no está listo")
     thread_id = f"{tenantId}:{conversation_id}"
-    await runtime.checkpointer.adelete_thread(thread_id)
-    await runtime.idempotency.delete_thread(thread_id)
-    return {"status": "deleted"}
+    config = {"configurable": {"thread_id": thread_id}}
+    async with (await runtime.thread_locks.acquire(thread_id)):
+        snapshot = await runtime.agent.aget_state(config)
+        values = dict(snapshot.values or {})
+        if not values:
+            raise HTTPException(status_code=404, detail="Conversación no encontrada")
+        episode = await _capture_episode(
+            tenantId, conversation_id, channel, list(values.get("messages") or []), values
+        )
+        if delete:
+            await runtime.checkpointer.adelete_thread(thread_id)
+            await runtime.idempotency.delete_thread(thread_id)
+    return {
+        "conversationId": conversation_id,
+        "deleted": delete,
+        "episode": episode.to_dict() if episode else None,
+    }
+
+
+@app.delete("/conversations/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str, tenantId: str = Query(...), capture: bool = True
+) -> dict[str, Any]:
+    """Borra el hilo completo (checkpoint + cache de idempotencia).
+
+    Antes de borrar captura el episodio (`capture=false` lo evita).
+    """
+    if runtime.agent is None or runtime.checkpointer is None:
+        raise HTTPException(status_code=503, detail="El agente todavía no está listo")
+    thread_id = f"{tenantId}:{conversation_id}"
+    config = {"configurable": {"thread_id": thread_id}}
+    episode = None
+    async with (await runtime.thread_locks.acquire(thread_id)):
+        if capture:
+            snapshot = await runtime.agent.aget_state(config)
+            values = dict(snapshot.values or {})
+            if values.get("messages"):
+                episode = await _capture_episode(
+                    tenantId, conversation_id, "", list(values.get("messages") or []), values
+                )
+        await runtime.checkpointer.adelete_thread(thread_id)
+        await runtime.idempotency.delete_thread(thread_id)
+    return {"status": "deleted", "episodeCaptured": episode is not None}
 
 
 @app.post("/conversations/{conversation_id}/release")
@@ -1056,10 +1463,12 @@ async def release_conversation(conversation_id: str, tenantId: str = Query(...))
 
 
 def _suggestions(state: dict[str, Any]) -> list[str]:
-    if state.get("checkout_link"):
+    carts: dict[str, CartRecord] = state.get("carts") or {}
+    visible = list(open_carts(carts).values())
+    if any(c.get("checkoutLink") for c in visible):
         return ["Ya pagué", "¿Cuándo llega mi pedido?"]
-    if state.get("quote_id"):
+    if any(c.get("quoteId") for c in visible):
         return ["Sí, quiero pagar", "Tengo una duda"]
-    if state.get("cart"):
+    if visible:
         return ["Emitir cotización", "Cambiar cantidad"]
     return ["¿Qué venden?", "Quiero cotizar", "¿Hacen envíos?"]

@@ -16,6 +16,7 @@ import { Composer } from "./composer";
 import { ContextPanels } from "./context-panels";
 import { MessageBubble, TypingBubble } from "./message-bubble";
 import type {
+  AgentCart,
   AgentHealth,
   AgentResponse,
   CartLine,
@@ -54,6 +55,7 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [carts, setCarts] = useState<AgentCart[]>([]);
   const [quote, setQuote] = useState<AgentResponse["quote"]>(null);
   const [checkout, setCheckout] = useState<AgentResponse["checkout"]>(null);
   const [handoff, setHandoff] = useState(false);
@@ -206,6 +208,7 @@ export default function ChatPage() {
         markOutbound("DELIVERED");
         setConversationId(data.conversationId);
         setCart(data.cart ?? []);
+        setCarts(data.carts ?? []);
         if (data.quote) setQuote(data.quote);
         if (data.checkout) setCheckout(data.checkout);
         if (data.handoff) setHandoff(true);
@@ -307,6 +310,7 @@ export default function ChatPage() {
       setMessages([]);
       setConversationId(null);
       setCart([]);
+      setCarts([]);
       setQuote(null);
       setCheckout(null);
       setHandoff(false);
@@ -550,6 +554,7 @@ export default function ChatPage() {
           >
             <ContextPanels
               cart={cart}
+              carts={carts}
               quote={quote}
               checkout={checkout}
               messages={messages}

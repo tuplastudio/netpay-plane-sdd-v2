@@ -11,10 +11,11 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Section } from "@/components/app/section";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { Money } from "@/components/app/money";
-import type { AgentHealth, AgentResponse, CartLine, ChatMessage } from "./types";
+import type { AgentCart, AgentHealth, AgentResponse, CartLine, ChatMessage } from "./types";
 
 export function ContextPanels({
   cart,
+  carts = [],
   quote,
   checkout,
   messages,
@@ -26,6 +27,8 @@ export function ContextPanels({
   retryingCatalog,
 }: {
   cart: CartLine[];
+  /** Todos los pedidos abiertos; se pintan aparte solo cuando hay más de uno. */
+  carts?: AgentCart[];
   quote: AgentResponse["quote"];
   checkout: AgentResponse["checkout"];
   messages: ChatMessage[];
@@ -67,7 +70,68 @@ export function ContextPanels({
         </Alert>
       ) : null}
 
-      <Section title="Carrito en borrador" contentClassName="text-sm">
+      {carts.length > 1 ? (
+        <Section
+          title={`Pedidos abiertos (${carts.length})`}
+          contentClassName="space-y-3 text-sm"
+        >
+          <p className="text-xs text-muted-foreground">
+            El cliente lleva varios pedidos a la vez. Cada uno tiene su propio carrito, total,
+            cotización y enlace de pago; el agente no los mezcla.
+          </p>
+          <ul className="space-y-3">
+            {carts.map((entry) => {
+              const total = (entry.totals as { totals?: { total?: string } } | null)?.totals?.total
+                ?? (entry.totals as { total?: string } | null)?.total;
+              return (
+                <li key={entry.cartId} className="rounded-md border p-2">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="font-mono text-xs">[{entry.cartId}]</span>
+                    <StatusBadge status={entry.stage ?? "ARMANDO_CARRITO"} />
+                  </div>
+                  <ul className="space-y-1 text-xs">
+                    {entry.lines.map((line) => (
+                      <li key={line.variantId} className="flex items-baseline justify-between gap-2">
+                        <span className="min-w-0 truncate">
+                          <span className="tabular-nums">{line.quantity}</span> × {line.title}
+                        </span>
+                        <span className="shrink-0 font-mono text-muted-foreground">{line.sku}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {total ? (
+                    <div className="mt-1 text-xs">
+                      Total: <Money value={total} />
+                    </div>
+                  ) : null}
+                  {entry.quote ? (
+                    <a
+                      className="mt-1 block text-xs underline"
+                      href={entry.quote.linkRef}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Cotización {entry.quote.quoteId.slice(0, 8)}
+                    </a>
+                  ) : null}
+                  {entry.checkout ? (
+                    <a
+                      className="mt-1 block text-xs underline"
+                      href={entry.checkout.linkRef}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Enlace de pago
+                    </a>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      ) : null}
+
+      <Section title={carts.length > 1 ? "Carrito activo" : "Carrito en borrador"} contentClassName="text-sm">
         {cart.length === 0 ? (
           <EmptyState
             className="px-0 py-6"
@@ -93,7 +157,7 @@ export function ContextPanels({
         <Section title="Cotización emitida" contentClassName="space-y-3 text-sm">
           <DescriptionList>
             <FieldRow label="Total" numeric emphasis>
-              <Money value={quote.total} />
+              {quote.total ? <Money value={quote.total} /> : <span className="text-muted-foreground">—</span>}
             </FieldRow>
           </DescriptionList>
           <Button asChild variant="outline" size="sm" className="w-full">
