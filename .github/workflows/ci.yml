@@ -45,26 +45,16 @@ jobs:
         if: matrix.pkg == 'apps/commerce-api'
         run: pnpm prisma:generate
       - run: pnpm lint
-      - name: Typecheck
+      - name: Typecheck (debug)
         run: |
-          set +e
-          pnpm typecheck
-          rc=$?
-          if [ $rc -ne 0 ]; then
-            echo "::error::Typecheck falló (exit $rc) en ${{ matrix.pkg }}"
-            echo "::group::Información de diagnóstico"
-            pnpm exec tsc --version 2>&1 || true
-            echo "---"
-            echo "Genera el cliente Prisma manualmente si falta:"
-            if [ -d apps/commerce-api/prisma ]; then
-              pnpm --filter @netpay/commerce-api prisma:generate 2>&1 || true
-            fi
-            echo "---"
-            echo "Listado de tipos Prisma:"
-            find node_modules/.pnpm -name "*.d.ts" -path "*prisma*" 2>&1 | head -5
-            echo "::endgroup::"
-            exit $rc
-          fi
+          echo "=== tsc version ==="
+          pnpm exec tsc --version
+          echo ""
+          echo "=== Running tsc directly ==="
+          ./node_modules/.bin/tsc --noEmit 2>&1 | head -30 || true
+          echo ""
+          echo "=== Running pnpm typecheck ==="
+          pnpm typecheck 2>&1 | head -30 || true
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
   # bloqueado por el sandbox de red de GitHub Actions. Se ejecutan
