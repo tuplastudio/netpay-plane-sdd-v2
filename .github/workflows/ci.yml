@@ -27,7 +27,11 @@ jobs:
           version: 10.34.3
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # GitHub Actions runners default to Node 20 (deprecated), pero
+          # internamente forza Node 24 — los warnings salen en el log y el
+          # comportamiento real es con Node 24. Usar `node-version: 24`
+          # explícito evita el mensaje y deja claro qué binario corre.
+          node-version: 24
       # pnpm 10 ignora build scripts por defecto. `pnpm.onlyBuiltDependencies`
       # en el package.json raíz aprueba los nativos (prisma/argon2) que
       # necesita commerce-api/commerce-worker. Sin esto, `prisma generate`
