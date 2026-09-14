@@ -59,5 +59,6 @@ jobs:
           cache-dependency-path: apps/agent-v2/requirements.txt
       - working-directory: apps/agent-v2
         run: |
+          python -m pip install --dry-run -r requirements.txt 2>&1 | head -20
           python -m pip install --only-binary=:all: -r requirements.txt
           python -m pytest -q
