@@ -20,6 +20,9 @@ jobs:
           - apps/web
           - packages/contracts
           - packages/domain
+    defaults:
+      run:
+        working-directory: ${{ matrix.pkg }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -29,12 +32,16 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # El Prisma client se genera en el `postinstall` del root, pero solo
+      # funciona si las dependencias nativas (prisma, argon2) ya corrieron
+      # sus build scripts. pnpm 10 los aprueba via `pnpm.onlyBuiltDependencies`
+      # del package.json.
       - run: pnpm install --frozen-lockfile
-      - name: Lint + Typecheck
-        working-directory: ${{ matrix.pkg }}
-        run: |
-          pnpm lint
-          pnpm typecheck
+      - name: Generate Prisma client
+        working-directory: apps/commerce-api
+        run: pnpm prisma:generate
+      - run: pnpm lint
+      - run: pnpm typecheck
 
   agent-pytest:
     name: Agent Python tests (agent-v2)
