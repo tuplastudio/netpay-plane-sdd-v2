@@ -45,29 +45,16 @@ jobs:
         if: matrix.pkg == 'apps/commerce-api'
         run: pnpm prisma:generate
       - run: pnpm lint
-      - name: Typecheck (debug)
+      - name: Typecheck (with diagnostic output)
         run: |
-          echo "=== tsc version ==="
-          pnpm exec tsc --version
-          echo ""
           echo "=== Running tsc directly ==="
-          ./node_modules/.bin/tsc --noEmit > /tmp/tsc.log 2>&1 || echo "EXIT $?"
-          echo "First 50 lines of tsc output:"
-          head -50 /tmp/tsc.log
+          set +e
+          ./node_modules/.bin/tsc --noEmit 2>&1 | tee /tmp/tsc.log | head -50
+          rc=${PIPESTATUS[0]}
+          set -e
           echo ""
-          echo "Artifact: tsc-errors-${{ matrix.pkg }}.log"
-          mkdir -p /tmp/artifacts
-          cp /tmp/tsc.log "/tmp/artifacts/tsc-${{ matrix.pkg }}.log" 2>/dev/null || true
-          if [ -s /tmp/tsc.log ]; then
-            exit 1
-          fi
-      - name: Upload logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tsc-errors-${{ matrix.pkg }}
-          path: /tmp/tsc.log
-          retention-days: 3
+          echo "=== Exit code: $rc ==="
+          if [ "$rc" -ne 0 ]; then exit $rc; fi
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
   # bloqueado por el sandbox de red de GitHub Actions. Se ejecutan
