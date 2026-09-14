@@ -32,13 +32,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      # El Prisma client se genera en el `postinstall` del root, pero solo
-      # funciona si las dependencias nativas (prisma, argon2) ya corrieron
-      # sus build scripts. pnpm 10 los aprueba via `pnpm.onlyBuiltDependencies`
-      # del package.json.
+      # pnpm 10 ignora build scripts por defecto. `pnpm.onlyBuiltDependencies`
+      # en el package.json raíz aprueba los nativos (prisma/argon2) que
+      # necesita commerce-api/commerce-worker. Sin esto, `prisma generate`
+      # no corre en postinstall y el typecheck falla por tipos faltantes.
       - run: pnpm install --frozen-lockfile
+      # `prisma generate` corre desde la raíz (postinstall del package.json),
+      # pero el typecheck de commerce-api corre en su cwd. Volver a generar
+      # explícito en su directorio garantiza que `pnpm exec tsc` encuentra
+      # los tipos aunque el `postinstall` del root haya fallado silenciosamente.
       - name: Generate Prisma client
-        working-directory: apps/commerce-api
+        if: matrix.pkg == 'apps/commerce-api'
         run: pnpm prisma:generate
       - run: pnpm lint
       - run: pnpm typecheck
