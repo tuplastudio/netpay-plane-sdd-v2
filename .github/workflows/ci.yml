@@ -33,6 +33,13 @@ jobs:
       # necesita commerce-api/commerce-worker. Sin esto, `prisma generate`
       # no corre en postinstall y el typecheck falla por tipos faltantes.
       - run: pnpm install --frozen-lockfile
+      # packages/contracts y packages/domain exponen tipos vía dist/, que
+      # commerce-api importa como `@netpay/contracts` y `@netpay/domain`.
+      # Sin build fresh en CI, el dist/ no existe y tsc reporta
+      # 'Cannot find module @netpay/contracts'.
+      - name: Build workspace packages
+        if: matrix.pkg == 'apps/commerce-api' || matrix.pkg == 'apps/commerce-worker' || matrix.pkg == 'apps/dummy-gateway' || matrix.pkg == 'apps/web'
+        run: pnpm --filter @netpay/contracts --filter @netpay/domain build
       # `prisma generate` corre desde la raíz (postinstall del package.json),
       # pero el typecheck de commerce-api corre en su cwd. Volver a generar
       # explícito en su directorio garantiza que `pnpm exec tsc` encuentra
