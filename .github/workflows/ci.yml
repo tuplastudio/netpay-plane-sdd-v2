@@ -49,13 +49,17 @@ jobs:
           pwd
           echo "=== node ==="
           node --version
-          echo "=== tsc version ==="
-          ./node_modules/.bin/tsc --version
-          echo "=== Typecheck (with full output) ==="
-          ./node_modules/.bin/tsc --noEmit 2>&1
+          echo "=== Running pnpm typecheck ==="
+          pnpm --filter ${{ matrix.name }} typecheck 2>&1
           rc=$?
           echo ""
           echo "=== Exit: $rc ==="
+          if [ "$rc" -ne 0 ]; then
+            # Run tsc directly to capture all errors
+            cd "${{ matrix.pkg }}"
+            echo "=== Direct tsc from package dir ==="
+            pnpm exec tsc --noEmit 2>&1 | head -50
+          fi
           exit $rc
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
