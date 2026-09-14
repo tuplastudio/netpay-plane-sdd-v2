@@ -51,10 +51,23 @@ jobs:
           pnpm exec tsc --version
           echo ""
           echo "=== Running tsc directly ==="
-          ./node_modules/.bin/tsc --noEmit 2>&1 | head -30 || true
+          ./node_modules/.bin/tsc --noEmit > /tmp/tsc.log 2>&1 || echo "EXIT $?"
+          echo "First 50 lines of tsc output:"
+          head -50 /tmp/tsc.log
           echo ""
-          echo "=== Running pnpm typecheck ==="
-          pnpm typecheck 2>&1 | head -30 || true
+          echo "Artifact: tsc-errors-${{ matrix.pkg }}.log"
+          mkdir -p /tmp/artifacts
+          cp /tmp/tsc.log "/tmp/artifacts/tsc-${{ matrix.pkg }}.log" 2>/dev/null || true
+          if [ -s /tmp/tsc.log ]; then
+            exit 1
+          fi
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsc-errors-${{ matrix.pkg }}
+          path: /tmp/tsc.log
+          retention-days: 3
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
   # bloqueado por el sandbox de red de GitHub Actions. Se ejecutan
