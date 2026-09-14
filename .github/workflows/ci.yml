@@ -45,20 +45,14 @@ jobs:
       - name: Typecheck
         run: |
           set +e
-          echo "=== pwd ==="
-          pwd
-          echo "=== node ==="
-          node --version
-          echo "=== Running pnpm typecheck ==="
-          pnpm --filter ${{ matrix.name }} typecheck 2>&1
+          out=$(pnpm --filter ${{ matrix.name }} typecheck 2>&1)
           rc=$?
-          echo ""
-          echo "=== Exit: $rc ==="
+          echo "$out"
           if [ "$rc" -ne 0 ]; then
-            # Run tsc directly to capture all errors
-            cd "${{ matrix.pkg }}"
-            echo "=== Direct tsc from package dir ==="
-            pnpm exec tsc --noEmit 2>&1 | head -50
+            echo "::error::${{ matrix.pkg }} typecheck falló (exit $rc)"
+            # Si falló por imports rotos, mostramos lo que tsc reporta.
+            echo "--- tsc directo ---"
+            cd "${{ matrix.pkg }}" && pnpm exec tsc --noEmit 2>&1 | head -50 || true
           fi
           exit $rc
 
