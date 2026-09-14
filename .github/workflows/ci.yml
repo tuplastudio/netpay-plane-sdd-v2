@@ -20,9 +20,13 @@ jobs:
           - apps/web
           - packages/contracts
           - packages/domain
-    defaults:
-      run:
-        working-directory: ${{ matrix.pkg }}
+        pkg_name:
+          - "@netpay/commerce-api"
+          - "@netpay/commerce-worker"
+          - "@netpay/dummy-gateway"
+          - "@netpay/web"
+          - "@netpay/contracts"
+          - "@netpay/domain"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -43,18 +47,11 @@ jobs:
       # los tipos aunque el `postinstall` del root haya fallado silenciosamente.
       - name: Generate Prisma client
         if: matrix.pkg == 'apps/commerce-api'
-        run: pnpm prisma:generate
-      - run: pnpm lint
-      - name: Typecheck (with diagnostic output)
-        run: |
-          echo "=== Running tsc directly ==="
-          set +e
-          ./node_modules/.bin/tsc --noEmit 2>&1 | tee /tmp/tsc.log | head -50
-          rc=${PIPESTATUS[0]}
-          set -e
-          echo ""
-          echo "=== Exit code: $rc ==="
-          if [ "$rc" -ne 0 ]; then exit $rc; fi
+        run: pnpm --filter ${{ matrix.pkg_name }} prisma:generate
+      - name: Lint
+        run: pnpm --filter ${{ matrix.pkg_name }} lint
+      - name: Typecheck
+        run: pnpm --filter ${{ matrix.pkg_name }} typecheck
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
   # bloqueado por el sandbox de red de GitHub Actions. Se ejecutan
