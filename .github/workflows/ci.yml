@@ -43,7 +43,19 @@ jobs:
       - name: Lint
         run: pnpm --filter ${{ matrix.name }} lint
       - name: Typecheck
-        run: pnpm --filter ${{ matrix.name }} typecheck
+        run: |
+          echo "=== tsc version ==="
+          pnpm exec tsc --version
+          echo ""
+          echo "=== Listing ts files included ==="
+          pnpm exec tsc --noEmit --listFiles 2>&1 | grep -v node_modules | head -20
+          echo ""
+          echo "=== Running tsc ==="
+          pnpm exec tsc --noEmit 2>&1 | head -30 || true
+          echo ""
+          echo "=== Exit was \$? ==="
+          # Force fail if typecheck failed
+          pnpm --filter ${{ matrix.name }} typecheck || exit 1
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
   # bloqueado por el sandbox de red de GitHub Actions. Se ejecutan
