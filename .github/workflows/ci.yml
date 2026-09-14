@@ -45,7 +45,8 @@ jobs:
         if: matrix.pkg == 'apps/commerce-api'
         run: pnpm prisma:generate
       - run: pnpm lint
-      - run: pnpm typecheck
+      - name: Typecheck (with diagnostic output on failure)
+        run: pnpm typecheck || (echo '--- tsc --noEmit verbose output ---' && pnpm exec tsc --noEmit --listFiles | tail -5; echo '--- end ---'; exit 1)
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
   # bloqueado por el sandbox de red de GitHub Actions. Se ejecutan
