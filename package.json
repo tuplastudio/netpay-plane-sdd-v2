@@ -11,9 +11,10 @@
   "scripts": {
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter @netpay/commerce-api prisma:generate && pnpm -r typecheck",
     "test": "pnpm -r test",
     "dev": "pnpm -r --parallel dev",
+    "postinstall": "pnpm --filter @netpay/commerce-api prisma:generate",
     "compose:up": "docker compose -f infra/compose.yaml up -d",
     "compose:down": "docker compose -f infra/compose.yaml down",
     "compose:logs": "docker compose -f infra/compose.yaml logs -f",
@@ -40,5 +41,16 @@
   },
   "devDependencies": {
     "typescript": "5.6.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "esbuild",
+      "prisma",
+      "unrs-resolver"
+    ]
   }
 }
