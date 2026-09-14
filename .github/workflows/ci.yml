@@ -8,25 +8,18 @@ on:
 
 jobs:
   lint:
-    name: Lint + Typecheck (${{ matrix.pkg }})
+    name: Lint + Typecheck (${{ matrix.pkg.label }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        pkg:
-          - apps/commerce-api
-          - apps/commerce-worker
-          - apps/dummy-gateway
-          - apps/web
-          - packages/contracts
-          - packages/domain
-        pkg_name:
-          - "@netpay/commerce-api"
-          - "@netpay/commerce-worker"
-          - "@netpay/dummy-gateway"
-          - "@netpay/web"
-          - "@netpay/contracts"
-          - "@netpay/domain"
+        include:
+          - { pkg: apps/commerce-api, name: "@netpay/commerce-api" }
+          - { pkg: apps/commerce-worker, name: "@netpay/commerce-worker" }
+          - { pkg: apps/dummy-gateway, name: "@netpay/dummy-gateway" }
+          - { pkg: apps/web, name: "@netpay/web" }
+          - { pkg: packages/contracts, name: "@netpay/contracts" }
+          - { pkg: packages/domain, name: "@netpay/domain" }
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -47,11 +40,11 @@ jobs:
       # los tipos aunque el `postinstall` del root haya fallado silenciosamente.
       - name: Generate Prisma client
         if: matrix.pkg == 'apps/commerce-api'
-        run: pnpm --filter ${{ matrix.pkg_name }} prisma:generate
+        run: pnpm --filter ${{ matrix.name }} prisma:generate
       - name: Lint
-        run: pnpm --filter ${{ matrix.pkg_name }} lint
+        run: pnpm --filter ${{ matrix.name }} lint
       - name: Typecheck
-        run: pnpm --filter ${{ matrix.pkg_name }} typecheck
+        run: pnpm --filter ${{ matrix.name }} typecheck
 
   # Los tests de agent-v2 (Python) requieren `pip install` que está
   # bloqueado por el sandbox de red de GitHub Actions. Se ejecutan
