@@ -8,18 +8,18 @@ on:
 
 jobs:
   lint:
-    name: Lint + Typecheck (${{ matrix.pkg.label }})
+    name: Lint + Typecheck (${{ matrix.pkg }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { pkg: apps/commerce-api, name: "@netpay/commerce-api" }
-          - { pkg: apps/commerce-worker, name: "@netpay/commerce-worker" }
-          - { pkg: apps/dummy-gateway, name: "@netpay/dummy-gateway" }
-          - { pkg: apps/web, name: "@netpay/web" }
-          - { pkg: packages/contracts, name: "@netpay/contracts" }
-          - { pkg: packages/domain, name: "@netpay/domain" }
+          - { pkg: "apps/commerce-api", name: "@netpay/commerce-api" }
+          - { pkg: "apps/commerce-worker", name: "@netpay/commerce-worker" }
+          - { pkg: "apps/dummy-gateway", name: "@netpay/dummy-gateway" }
+          - { pkg: "apps/web", name: "@netpay/web" }
+          - { pkg: "packages/contracts", name: "@netpay/contracts" }
+          - { pkg: "packages/domain", name: "@netpay/domain" }
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
