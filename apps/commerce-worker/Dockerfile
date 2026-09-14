@@ -15,6 +15,7 @@ FROM base AS deps
 WORKDIR /repo
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY apps/commerce-api/package.json apps/commerce-api/package.json
+COPY apps/commerce-api/prisma apps/commerce-api/prisma
 COPY apps/web/package.json apps/web/package.json
 COPY apps/dummy-gateway/package.json apps/dummy-gateway/package.json
 COPY apps/commerce-worker/package.json apps/commerce-worker/package.json
