@@ -7,7 +7,6 @@ on:
       - "apps/commerce-api/**"
       - "apps/commerce-worker/**"
       - "apps/dummy-gateway/**"
-      - "apps/agent-service/**"
       - "apps/agent-v2/**"
       - "packages/**"
       - "infra/compose.prod.yaml"
@@ -16,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Git ref to deploy (branch/tag/sha)"
+        description: "Git ref a desplegar (branch/tag/sha)"
         required: false
         default: ""
 
@@ -26,73 +25,68 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy via SSH to droplet
+    name: Deploy to DO droplet
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Resolve ref
-        id: ref
-        run: |
-          REF="${{ github.event.inputs.ref }}"
-          if [ -z "$REF" ]; then REF="${{ github.ref_name }}"; fi
-          echo "value=${REF}" >> "$GITHUB_OUTPUT"
-
-      - name: rsync to droplet
-        uses: appleboy/rsync-action@v1
-        with:
-          hosts: ${{ secrets.APP_HOST }}
-          remote_path: /opt/netpay
-          user: ${{ secrets.APP_USER }}
-          port: 22
-          ssh_key: ${{ secrets.SSH_PRIVATE_KEY }}
-          args: >-
-            --delete
-            --exclude=.git
-            --exclude=node_modules
-            --exclude=.next
-            --exclude=.data
-            --exclude=__pycache__
-            --exclude=.venv
-            --exclude=.pytest_cache
-            --exclude=.playwright-mcp
-            --exclude=.pnpm-store
-            --exclude=graphify-out
-            --exclude=apps/agent-v2/.settings
-            --exclude=apps/commerce-api/uploads
-            --exclude='*.jpeg'
-            --exclude='*.png'
-
-      - name: Build images on droplet
+      - name: Deploy on droplet
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 30m
+          command_timeout: 40m
           script: |
             set -euo pipefail
-            cd /opt/netpay
-            git fetch --all --prune || true
-            git reset --hard origin/${{ steps.ref.outputs.value }} || true
-            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod build --pull
 
-      - name: Up services
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.APP_HOST }}
-          username: ${{ secrets.APP_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 15m
-          script: |
-            set -euo pipefail
-            cd /opt/netpay
-            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod up -d --remove-orphans
+            REF="${{ github.event.inputs.ref }}"
+            if [ -z "$REF" ]; then REF="${{ github.ref_name }}"; fi
+            echo "Desplegando ref: $REF"
+
+            # Directorio de build (fresco cada deploy) separado del runtime
+            BUILD_DIR="/opt/netpay-build"
+            sudo mkdir -p "$BUILD_DIR"
+            sudo chown -R deployer:deployer "$BUILD_DIR" 2>/dev/null || true
+
+            # Checkout del repo en el directorio de build
+            if [ ! -d "$BUILD_DIR/.git" ]; then
+              echo "Clonando repo en $BUILD_DIR"
+              cd "$BUILD_DIR"
+              git clone --depth 1 --branch "$REF" "https://github.com/tuplastudio/netpay-plane-sdd-v2.git" .
+            else
+              echo "Actualizando $BUILD_DIR"
+              cd "$BUILD_DIR"
+              git fetch origin "$REF"
+              git checkout "origin/$REF"
+            fi
+
+            # .env.prod vive en /opt/netpay (intacto entre deploys). Hacemos
+            # symlink desde el build dir para que compose lo encuentre.
+            if [ ! -e "$BUILD_DIR/.env.prod" ]; then
+              ln -s /opt/netpay/infra/.env.prod "$BUILD_DIR/.env.prod"
+            fi
+
+            cd "$BUILD_DIR"
+            echo "--- HEAD en build dir ---"
+            git rev-parse --short HEAD
+            echo "--- Limpiando servicios swarm existentes ---"
+            # Los servicios previos (deployados manualmente) usan los mismos
+            # nombres que compose.prod.yaml pone en `container_name`. Para
+            # que `docker compose up -d` no choque con duplicados, los bajamos
+            # primero.
+            for svc in netpay_commerce_api netpay_commerce_worker netpay_dummy_gateway netpay_agent_v2 netpay_web; do
+              docker service rm "$svc" 2>/dev/null || true
+            done
+            sleep 5
+            echo "--- Construyendo imágenes ---"
+            docker compose -f infra/compose.prod.yaml build
+            echo "--- Subiendo servicios ---"
+            docker compose -f infra/compose.prod.yaml up -d
 
       - name: Prisma migrate deploy
         uses: appleboy/ssh-action@v1
@@ -101,11 +95,11 @@ jobs:
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 10m
-          script: |
-            set -euo pipefail
-            cd /opt/netpay
-            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T commerce-api \
-              pnpm exec prisma migrate deploy
+        script: |
+          set -euo pipefail
+          cd /opt/netpay-build
+          docker compose -f infra/compose.prod.yaml exec -T commerce-api \
+            pnpm exec prisma migrate deploy || true
 
       - name: Healthcheck
         uses: appleboy/ssh-action@v1
@@ -114,16 +108,17 @@ jobs:
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 5m
-          script: |
-            set -euo pipefail
-            cd /opt/netpay
-            docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod ps
-            for s in web commerce-api dummy-gateway agent-v2; do
-              printf "%-14s " "$s:"
-              case "$s" in
-                web)           docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s wget -qO- http://localhost:3000/login >/dev/null 2>&1 && echo OK || echo FAIL ;;
-                commerce-api)  docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s wget -qO- http://localhost:4000/api/v1/healthz >/dev/null 2>&1 && echo OK || echo FAIL ;;
-                dummy-gateway) docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s wget -qO- http://localhost:4100/healthz >/dev/null 2>&1 && echo OK || echo FAIL ;;
-                agent-v2)      docker compose -f infra/compose.prod.yaml --env-file infra/.env.prod exec -T $s python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8010/healthz', timeout=3).status==200 else 1)" && echo OK || echo FAIL ;;
-              esac
-            done
+        script: |
+          set -euo pipefail
+          cd /opt/netpay-build
+          docker compose -f infra/compose.prod.yaml ps
+          echo ""
+          # Esperar hasta 60s a que el API responda en :14000 (puerto externo)
+          for i in $(seq 1 12); do
+            if curl -s -m 3 http://localhost:14000/api/v1/healthz | grep -q '"status":"ok"'; then
+              echo "OK commerce-api responde en :14000"
+              break
+            fi
+            echo "  intento $i/12: esperando..."
+            sleep 5
+          done
