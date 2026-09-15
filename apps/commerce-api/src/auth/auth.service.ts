@@ -10,6 +10,7 @@ import { Prisma } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PasswordService } from "./password.service.js";
+import { scopesFor } from "./policies.js";
 import { RateLimitService } from "./rate-limit.service.js";
 import { SessionService } from "./session.service.js";
 import { MfaService } from "./mfa.service.js";
@@ -411,6 +412,11 @@ export class AuthService {
             logoUrl: tenant.logoUrl,
           }
         : null,
+      // Scopes del rol activo (la membresía viva, no la sesión). El frontend
+      // los usa para filtrar el sidebar/tabs y para mostrar/ocultar botones.
+      // Si el usuario no tiene membresía ACTIVE (caso raro), scopes queda
+      // como VIEWER — el más restrictivo.
+      scopes: scopesFor(membership?.status === "ACTIVE" ? membership.role : "VIEWER"),
     };
   }
 

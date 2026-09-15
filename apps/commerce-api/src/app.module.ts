@@ -20,6 +20,7 @@ import { TenantsModule } from "./tenants/tenants.module.js";
 import { UsageModule } from "./usage/usage.module.js";
 import { SuperAdminModule } from "./super-admin/super-admin.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
+import { AgentProxyModule } from "./agent-proxy.module.js";
 import { CommonModule } from "./common/common.module.js";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter.js";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware.js";
@@ -50,6 +51,7 @@ import { RateLimitMiddleware, SecurityHeadersMiddleware } from "./ops/security.m
     TenantsModule,
     UsageModule,
     SuperAdminModule,
+    AgentProxyModule,
   ],
   providers: [
     {

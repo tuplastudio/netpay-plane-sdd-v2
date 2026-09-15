@@ -36,6 +36,12 @@ export interface SessionUser {
   tenantName?: string;
   /** Gestiona /super-admin (crear/editar empresas). Sin relación con `role`. */
   isSuperAdmin?: boolean;
+  /**
+   * Scopes efectivos del rol actual. El sidebar los usa para ocultar items
+   * a los que el usuario no tiene acceso (en lugar de mostrar pinchos
+   * que devuelven 403). Se hidrata desde `GET /auth/me#scopes`.
+   */
+  scopes?: readonly string[];
 }
 
 /** Una empresa a la que el usuario puede entrar (`GET /auth/me#memberships`). */
@@ -77,6 +83,12 @@ export interface AuthMe {
    * entre ellas con `POST /auth/switch-tenant`.
    */
   memberships: AuthMembership[];
+  /**
+   * Scopes efectivos del rol actual (calculados server-side por
+   * `auth.service.ts#me` con la matriz de `auth/policies.ts`). El sidebar los
+   * usa para ocultar items a los que el usuario no tiene acceso.
+   */
+  scopes?: readonly string[];
 }
 
 /**
@@ -95,6 +107,7 @@ export function sessionFromMe(me: AuthMe, fallbackRole?: string): SessionUser {
     ...(me.tenantSlug ? { tenantSlug: me.tenantSlug } : {}),
     ...(me.tenantName ? { tenantName: me.tenantName } : {}),
     isSuperAdmin: me.isSuperAdmin,
+    ...(me.scopes ? { scopes: me.scopes } : {}),
   };
 }
 

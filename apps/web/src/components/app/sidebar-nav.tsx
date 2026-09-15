@@ -49,6 +49,14 @@ export interface NavItem {
    * P. ej. el detalle `/super-admin/{id}` pertenece a "Empresas".
    */
   activePattern?: RegExp;
+  /**
+   * Scope necesario para ver este item en el sidebar. Si el usuario activo
+   * no lo tiene, el item se oculta (no se muestra deshabilitado — pinchar un
+   * item oculto es mejor UX que pinchar uno que devuelve 403).
+   *
+   * Sin scope, el item se muestra siempre (comportamiento legacy).
+   */
+  requiresScope?: string;
 }
 
 export interface NavGroup {
@@ -65,21 +73,21 @@ const NAV: NavGroup[] = [
   {
     title: "Operación",
     items: [
-      { href: "/catalog", label: "Catálogo", icon: Package, description: "Productos y variantes" },
-      { href: "/quotes", label: "Cotizaciones", icon: FileText, description: "Borradores y emitidas" },
-      { href: "/quick-charge", label: "Cobro rápido", icon: Zap, description: "Cobra sin cotización" },
-      { href: "/orders", label: "Pedidos", icon: ShoppingCart, description: "Checkout y pagos de prueba" },
-      { href: "/payments", label: "Pagos", icon: Wallet, description: "Ledger y reembolsos" },
-      { href: "/customers", label: "Clientes", icon: Users, description: "Contactos e identidad" },
+      { href: "/catalog", label: "Catálogo", icon: Package, description: "Productos y variantes", requiresScope: "catalog.read" },
+      { href: "/quotes", label: "Cotizaciones", icon: FileText, description: "Borradores y emitidas", requiresScope: "quotes.read" },
+      { href: "/quick-charge", label: "Cobro rápido", icon: Zap, description: "Cobra sin cotización", requiresScope: "orders.write" },
+      { href: "/orders", label: "Pedidos", icon: ShoppingCart, description: "Checkout y pagos de prueba", requiresScope: "orders.read" },
+      { href: "/payments", label: "Pagos", icon: Wallet, description: "Ledger y reembolsos", requiresScope: "payments.read" },
+      { href: "/customers", label: "Clientes", icon: Users, description: "Contactos e identidad", requiresScope: "customers.read" },
     ],
   },
   {
     title: "Agente IA",
     items: [
-      { href: "/chat", label: "Chat con el agente", icon: MessageSquare, description: "Probar el bot" },
-      { href: "/agent", label: "Consola del agente", icon: Bot, description: "Conocimiento y herramientas" },
-      { href: "/channels", label: "Canales", icon: Radio, description: "Conexiones de WhatsApp" },
-      { href: "/conversations", label: "Conversaciones", icon: MessagesSquare, description: "Bandeja de WhatsApp y handoff" },
+      { href: "/chat", label: "Chat con el agente", icon: MessageSquare, description: "Probar el bot", requiresScope: "chat.read" },
+      { href: "/agent", label: "Consola del agente", icon: Bot, description: "Conocimiento y herramientas", requiresScope: "chat.write" },
+      { href: "/channels", label: "Canales", icon: Radio, description: "Conexiones de WhatsApp", requiresScope: "chat.write" },
+      { href: "/conversations", label: "Conversaciones", icon: MessagesSquare, description: "Bandeja de WhatsApp y handoff", requiresScope: "chat.read" },
     ],
   },
   {
@@ -133,7 +141,11 @@ const PLATFORM_NAV: NavGroup = {
  */
 function filterAgentGroup(
   groups: NavGroup[],
-  opts: { chatVisible: boolean; conversationsVisible: boolean },
+  opts: {
+    chatVisible: boolean;
+    conversationsVisible: boolean;
+    scopes: readonly string[] | null;
+  },
 ): NavGroup[] {
   return groups.map((group) => {
     if (group.title !== "Agente IA") return group;
@@ -146,6 +158,25 @@ function filterAgentGroup(
       }),
     };
   });
+}
+
+/**
+ * Filtra items cuyo `requiresScope` no esté en los scopes del usuario.
+ * Si los scopes no están hidratados todavía (login en curso, sesión vacía)
+ * se muestran todos: evita parpadeo durante el render inicial y deja que
+ * el backend haga la última palabra si alguien fuerza la URL.
+ */
+function filterByScope(
+  groups: NavGroup[],
+  scopes: readonly string[] | undefined,
+): NavGroup[] {
+  if (!scopes || scopes.length === 0) return groups;
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => !item.requiresScope || scopes.includes(item.requiresScope),
+    ),
+  }));
 }
 
 interface SidebarNavProps {
@@ -238,8 +269,15 @@ export function SidebarNav({
         ? // Plataforma primero, luego la operación del tenant impersonado.
           [PLATFORM_NAV, ...NAV]
         : [PLATFORM_NAV];
-    return filterAgentGroup(base, { chatVisible, conversationsVisible });
-  }, [isSuperAdmin, impersonating, chatVisible, conversationsVisible]);
+    return filterByScope(
+      filterAgentGroup(base, {
+        chatVisible,
+        conversationsVisible,
+        scopes: session?.scopes ?? null,
+      }),
+      session?.scopes,
+    );
+  }, [isSuperAdmin, impersonating, chatVisible, conversationsVisible, session?.scopes]);
 
   // Con Plataforma + operación son 16 entradas y 5 rótulos: a la densidad
   // normal (~36px por renglón, gap-6 entre grupos) la barra pasa de 800px y
