@@ -12,6 +12,10 @@ const config: Config = {
     extend: {
       fontFamily: {
         sans: ["var(--font-inter)", "Circular", "-apple-system", "system-ui", "sans-serif"],
+        /* Solo para h1/h2 (PageHeader, Section, hero de auth). Cuerpo y
+           controles se quedan en `font-sans`: el salto de peso 700→400 es
+           la voz del sistema, no algo que se use en párrafos densos. */
+        display: ["var(--font-display)", "var(--font-inter)", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -81,6 +85,21 @@ const config: Config = {
           DEFAULT: "hsl(var(--neutral))",
           foreground: "hsl(var(--neutral-foreground))",
           subtle: "hsl(var(--neutral-subtle))",
+        },
+        // Acento de MAYOR intención (emitir cotización, generar pago, entrar).
+        // Nunca decoración genérica: para eso sigue mandando `primary`.
+        cta: {
+          DEFAULT: "hsl(var(--cta))",
+          hover: "hsl(var(--cta-hover))",
+          active: "hsl(var(--cta-active))",
+          foreground: "hsl(var(--cta-foreground))",
+        },
+        // Acento de resalte (insignias, superficies de feature). Nunca botones
+        // de acción — para eso `primary` o `cta`.
+        highlight: {
+          DEFAULT: "hsl(var(--highlight))",
+          strong: "hsl(var(--highlight-strong))",
+          foreground: "hsl(var(--highlight-foreground))",
         },
         card: {
           DEFAULT: "hsl(var(--card))",

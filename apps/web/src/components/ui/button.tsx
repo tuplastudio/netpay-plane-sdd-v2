@@ -24,6 +24,15 @@ export const buttonVariants = cva(
         warning:
           "border border-warning bg-warning-subtle text-warning-foreground hover:bg-warning/15 active:bg-warning/25",
         link: "text-primary-strong underline-offset-4 hover:underline active:text-primary-strong-active",
+        /**
+         * Acento de MAYOR intención (verde eléctrico): la acción con la que de
+         * verdad se quiere que el usuario salga de la pantalla — emitir
+         * cotización, generar enlace de pago, entrar al portal. No es un
+         * segundo botón "primary": úsalo UNA vez por pantalla como máximo, para
+         * la acción que de verdad importa más que las demás. Para todo lo
+         * demás sigue mandando `default` (primary).
+         */
+        cta: "bg-cta text-cta-foreground hover:bg-cta-hover active:bg-cta-active",
       },
       size: {
         default: "h-10 px-4 py-2",

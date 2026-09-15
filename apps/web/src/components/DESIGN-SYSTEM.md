@@ -1,12 +1,18 @@
-# Sistema de diseño — NetPay Plane (portal operativo)
+# Sistema de diseño — Easy Sell (portal operativo)
 
 Referencia de la capa de primitivas. Todo lo de aquí ya existe y compila: no
 reimplementes nada, no copies clases de una pantalla a otra.
 
-- Identidad: **Rausch** — un solo acento cromático en **dos niveles**
-  (`primary` `#ff3859` ornamento · `primary-strong` `#db0025` texto), grises
-  neutros, radios 8px (botones) / 14px (tarjetas), dos sombras, sin dark mode.
-  Fuente del tema: `src/app/globals.css` + `tailwind.config.ts`.
+- Identidad: **Arcade** — canvas indigo profundo (`canvas` `#0a091a`, sin light
+  mode), acorde de tres acentos de marca: `primary` indigo-violeta (dos
+  niveles: `#5d52e0` ornamento · `#776cef` texto/relleno), `cta` verde
+  eléctrico (`#44e499`, la acción de MAYOR intención — una por pantalla) y
+  `highlight` magenta (`#ee63bb` texto · `#dc1895` relleno, solo insignias y
+  resaltados, nunca botones). Tipografía display (Space Grotesk 600/700) en
+  h1/h2, `font-sans` (Inter) en todo lo demás. Radios 12px (controles) / 20px
+  (tarjetas). Fuente del tema: `src/app/globals.css` + `tailwind.config.ts` —
+  cada hex de ahí viene de una fórmula de contraste WCAG real, no a ojo; si
+  cambias un HSL, recalcula el contraste antes de subirlo.
 - Idioma de UI: **es-MX**. Todo texto visible en español.
 - Dueño de esta capa: Design System Lead. Si te falta una prop, **pídela**; no
   hagas un fork del componente en tu pantalla.
@@ -69,39 +75,54 @@ Un solo `<h1>` por pantalla. `Section` rinde `<h2>`; si anidas, pasa `as="h3"`.
 
 | Token | Uso |
 | --- | --- |
-| `primary` | acento **ornamento**: íconos, bordes de selección, rieles, `accent-color`, tintes. Nunca texto encima, nunca como tinta |
-| `primary-strong` (+ `-hover`, `-active`) | acento **texto**: todo lo que renderiza texto sobre el acento o usa el acento como tinta |
+| `primary` | acento de marca **ornamento**: íconos, bordes de selección, rieles, `accent-color`, tintes. Nunca texto encima, nunca como tinta |
+| `primary-strong` (+ `-hover`, `-active`) | acento de marca **texto y relleno**: todo lo que renderiza texto sobre el acento o usa el acento como tinta |
+| `cta` (+ `-hover`, `-active`) | acento de **mayor intención** (verde): la acción con la que de verdad se quiere que el usuario salga de la pantalla. Una por pantalla, nunca decoración |
+| `highlight` / `highlight-strong` | acento de **resalte** (magenta): insignias, "nuevo", categoría destacada. Nunca botones de acción, nunca comunica estado |
 | `primary-disabled` | relleno de control inhabilitado (exento de contraste) |
 | `foreground` `body-text` `muted-foreground` | tinta |
-| `background` `card` `muted` `secondary` `popover` | superficies |
+| `canvas` `background` `card` `muted` `secondary` `popover` | superficies (todas oscuras — sin light mode) |
 | `input` | **límite de control**: borde de `Input`/`Select`/`Textarea`/`Checkbox`/`RadioCard` |
 | `border` / `hairline` `hairline-soft` `hairline-strong` | separadores estructurales y hairlines decorativas |
 | `success` `warning` `info` `neutral` `destructive` | **solo estado**, nunca decoración |
 
-#### El acento tiene dos niveles
+#### El acento de marca tiene dos niveles — y en oscuro el porqué cambia
 
-`#ff3859` da **3.52:1** contra blanco. Eso alcanza para objeto gráfico
-(WCAG 1.4.11 pide 3:1) pero **no** para texto (1.4.3 pide 4.5:1). Por eso:
+En un canvas claro, "texto del acento sobre el canvas" y "texto claro sobre
+el acento como relleno" mejoran con el MISMO cambio (más oscuro). Sobre un
+canvas oscuro dejan de tirar en la misma dirección: un violeta más claro
+mejora su lectura como texto-sobre-negro pero empeora la de un texto blanco
+encima suyo (el relleno se acerca al blanco). La solución: el relleno lleva
+SIEMPRE tinta oscura (`primary-foreground`, casi negro), nunca blanca — así
+"más claro" vuelve a mejorar los dos contrastes a la vez. Mismo patrón en
+`cta` y en el relleno sólido de `destructive`.
 
 | Si el acento… | usa | mide |
 | --- | --- | --- |
-| lleva texto encima (`Button` default, `Badge` default) | `bg-primary-strong` | 5.20:1 |
-| **es** la tinta (`Button` link, `text-…`) | `text-primary-strong` | 5.20:1 |
-| es adorno: ícono, riel, borde de opción marcada, `accent-color` | `primary` | 3.52:1 ✓ 1.4.11 |
+| lleva texto encima (`Button` default, `Badge` default) | `bg-primary-strong` + `text-primary-foreground` | 4.85:1 |
+| **es** la tinta (`Button` link, `text-…`) | `text-primary-strong` | 4.85:1 sobre `canvas` |
+| es adorno: ícono, riel, borde de opción marcada, `accent-color` | `primary` | 3.51:1 ✓ 1.4.11 |
 
-Rampa de estados del nivel fuerte — mismo tono 350° y misma saturación 100%,
-solo cambia la luminosidad, así que sigue siendo el rojo de marca:
+Rampa del nivel fuerte — mismo tono 245° y misma saturación, solo cambia la
+luminosidad. En oscuro el hover/activo ACLARA (al revés que en un sistema
+claro: sobre canvas negro, más claro = más énfasis):
 
-| estado | token | hex | blanco encima |
+| estado | token | hex | contraste |
 | --- | --- | --- | --- |
-| reposo | `primary-strong` | `#db0025` | 5.20:1 |
-| hover | `primary-strong-hover` | `#c20020` | 6.34:1 |
-| activo | `primary-strong-active` | `#a8001c` | 7.83:1 |
+| reposo | `primary-strong` | `#776cef` | 4.85:1 sobre `canvas` y con `primary-foreground` |
+| hover | `primary-strong-hover` | `#9088f2` | 6.55:1 |
+| activo | `primary-strong-active` | `#a29af4` | 7.93:1 |
 
-Los tres son sólidos, **no** `bg-primary/90`: el alfa sobre blanco aclara el
-relleno y hunde el contraste del texto blanco (el hover viejo medía 3.23:1).
+Los tres son sólidos, **no** `bg-primary/90`: el alfa sobre un canvas oscuro
+mueve el contraste de forma impredecible según lo que haya debajo.
 `primary-active` sigue existiendo como alias de `primary-strong-active` para
 call sites viejos; no lo uses en código nuevo.
+
+`cta` (verde, `#44e499`, 12.00:1 sobre `canvas`) y `highlight` (magenta,
+ornamento/texto `#ee63bb` 6.69:1 · relleno `highlight-strong` `#dc1895` con
+tinta BLANCA 4.56:1 — este relleno sí es lo bastante oscuro) siguen la misma
+lógica de niveles. `highlight-strong` es la única excepción con tinta blanca
+en el relleno: es notablemente más oscuro que `primary-strong`/`cta`.
 
 #### Las líneas tienen tres papeles
 
@@ -111,16 +132,16 @@ que a propósito no:
 
 | Token | Papel | Contraste | ¿3:1? |
 | --- | --- | --- | --- |
-| `input` `#8a8a8a` | **límite de control**: el campo es blanco sobre página blanca, el borde es lo único que lo delimita | 3.45:1 blanco · 3.22:1 `muted` · 3.08:1 `secondary` | **sí, obligatorio** |
-| `border` / `hairline` `#dedede` | **separador estructural**: canto de `Card`, reglas de `Table`, `Separator`, capas flotantes, `Badge outline` | 1.35:1 | no aplica |
-| `hairline-soft` `#ebebeb` | **hairline decorativa**: `divide-hairline-soft` entre pares etiqueta/valor | 1.19:1 | no aplica |
-| `hairline-strong` `#c2c2c2` | **relleno**, no borde: solo `active:bg-hairline-strong/40` | — | no aplica |
+| `input` `#5c5f84` | **límite de control**: el campo es `bg-background` sobre canvas del mismo tono, el borde es lo único que lo delimita | 3.21:1 sobre `canvas` | **sí, obligatorio** |
+| `border` / `hairline` `#2d2d43` | **separador estructural**: canto de `Card`, reglas de `Table`, `Separator`, capas flotantes, `Badge outline` | 1.47:1 | no aplica |
+| `hairline-soft` `#232337` | **hairline decorativa**: `divide-hairline-soft` entre pares etiqueta/valor | aún más tenue | no aplica |
+| `hairline-strong` | **relleno**, no borde: solo `active:bg-hairline-strong/40` | — | no aplica |
 
-Los estructurales se quedan claros a propósito: la tarjeta ya se separa por
-sombra y padding, las filas por posición y contenido, el badge por su texto a
-16:1. Subirlos a 3:1 dibujaría una retícula gris sobre toda la app sin resolver
-ninguna barrera real. **Si un control nuevo necesita borde, es `border-input`,
-nunca `border-border`.**
+Los estructurales se quedan tenues a propósito: la tarjeta ya se separa por el
+resplandor violeta y el padding, las filas por posición y contenido, el badge
+por su propio texto. Subirlos a 3:1 dibujaría una retícula sobre toda la app
+sin resolver ninguna barrera real. **Si un control nuevo necesita borde, es
+`border-input`, nunca `border-border`.**
 
 Cada tono semántico tiene tres slots:
 
@@ -128,35 +149,41 @@ Cada tono semántico tiene tres slots:
 - `--<tono>-subtle` → tinte de fondo (`bg-success-subtle`).
 - `--<tono>-foreground` → tinta sobre ese tinte (`text-success-foreground`).
 
-Contraste tinta/tinte verificado (WCAG 2.1): success 7.46:1 · warning 7.63:1 ·
-info 8.42:1 · neutral 8.98:1 · destructive 7.31:1. Todos AA y AAA.
+Contraste tinta/tinte verificado (WCAG 2.1) sobre el canvas oscuro: success
+9.54:1 · warning 9.27:1 · info 8.96:1 · neutral 8.74:1 · destructive 7.70:1.
+Todos AA y AAA.
 
-**Excepción:** `--destructive-foreground` es blanco (texto sobre el rojo
-sólido) porque ya lo consumían `Button`/`Badge`. La tinta sobre el tinte rojo es
+**Excepción:** `--destructive-foreground` es tinta OSCURA (no blanca — ver
+"por qué cambia" arriba) porque además es relleno sólido de `Button`/`Badge`
+(`variant="destructive"`). La tinta sobre el tinte rojo es
 `text-destructive-subtle-foreground`. El `:active` del botón destructivo usa
-`destructive-active` (`#9a2e13`, 7.57:1) y no `bg-destructive/80`, que aclaraba
-el fondo hasta 3.91:1.
+`destructive-active` (`#f3a198`, más claro, mismo patrón "aclarar = énfasis"
+en oscuro) y no `bg-destructive/80`.
 
 #### Exento de contraste, dicho en voz alta
 
-- `primary-disabled` (1.32:1) y `muted-soft` (3.15:1) no cumplen 4.5:1 **y no
-  tienen que hacerlo**: WCAG 2.1 exime explícitamente a los componentes
-  inhabilitados de 1.4.3 y 1.4.11. El estado tampoco depende solo del color —
-  los primitivos ponen `disabled:opacity-50` y el atributo `disabled`.
-- `legal-link` es `#0060e6` (5.50:1). Antes era `#4d97ff` (2.92:1); mismo tono
-  (215°) y misma saturación, solo más oscuro.
+- `primary-disabled` y `muted-soft` no cumplen 4.5:1 **y no tienen que
+  hacerlo**: WCAG 2.1 exime explícitamente a los componentes inhabilitados de
+  1.4.3 y 1.4.11. El estado tampoco depende solo del color — los primitivos
+  ponen `disabled:opacity-50` y el atributo `disabled`.
+- `legal-link` es `#47bef5` (9.33:1 sobre `canvas`).
 
-Anillo de foco: `ring-foreground` (`#212121`) da 14.4–16.1:1 contra **todas**
-las superficies claras. `ring-offset-background` intercala 2px blancos entre el
-anillo y el relleno, así que en un botón de acento el par que importa es blanco
-contra `primary-strong` = 5.20:1.
+Anillo de foco: `ring-foreground` (`#f5f7f9`) da 18.33:1 contra el canvas
+oscuro. `ring-offset-background` intercala 2px del color de fondo entre el
+anillo y el relleno.
 
 ### Sombras y radios
 
-- `shadow-airbnb` → superficies en reposo. `shadow-airbnb-lg` → capas flotantes
-  (dialog, sheet, dropdown, tooltip). No hay una tercera.
-- `rounded-lg` (8px) botones e inputs · `rounded-card` (14px) tarjetas ·
+- En oscuro una sombra negra no se ve: `shadow-airbnb` y `shadow-airbnb-lg`
+  son un resplandor violeta muy sutil (tono de `primary`) + un borde de 1px
+  casi invisible. `shadow-airbnb` → superficies en reposo. `shadow-airbnb-lg`
+  → capas flotantes (dialog, sheet, dropdown, tooltip). No hay una tercera.
+- `rounded-lg` (12px) botones e inputs · `rounded-card` (20px) tarjetas ·
   `rounded-pill` insignias.
+- `font-display` (Space Grotesk 600/700) en h1 (`PageHeader`) y h2 (`Section`)
+  únicamente. Todo lo demás — cuerpo, tablas, controles — se queda en
+  `font-sans` (Inter): el salto de peso es la voz del sistema, no algo para
+  párrafos densos.
 
 ---
 
@@ -165,7 +192,7 @@ contra `primary-strong` = 5.20:1.
 ### `Button`
 
 ```ts
-variant: "default" | "secondary" | "outline" | "ghost" | "destructive" | "link"
+variant: "default" | "secondary" | "outline" | "ghost" | "destructive" | "warning" | "link" | "cta"
 size:    "sm" | "default" | "lg" | "icon"
 loading?: boolean   // muestra Spinner, aplica aria-busy y disabled
 asChild?: boolean   // con asChild, `loading` se ignora
@@ -407,7 +434,7 @@ Etiqueta genérica (conteos, tags). Para estados de dominio usa `StatusBadge`.
 
 ```ts
 variant: "default" | "secondary" | "outline" | "success" | "warning" | "info"
-       | "neutral" | "muted" | "destructive" | "destructive-solid"
+       | "neutral" | "muted" | "destructive" | "destructive-solid" | "highlight"
 size:    "sm" | "default"     // idénticos a StatusBadge
 ```
 

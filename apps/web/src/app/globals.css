@@ -3,189 +3,190 @@
 @tailwind utilities;
 
 /**
- * Sistema visual "Rausch" — ver docs/13-uix.md y src/components/DESIGN-SYSTEM.md.
+ * Sistema visual "Arcade" — ver docs/13-uix.md y src/components/DESIGN-SYSTEM.md.
  *
- * Un solo acento cromático (--primary, #ff3859). Radios suaves (8px botones,
- * 14px tarjetas), dos sombras (--shadow-airbnb para superficies en reposo,
- * --shadow-airbnb-lg para capas flotantes: popovers, sheets, dropdowns).
- * Sin dark mode: es un panel operativo de alto contraste sobre blanco.
+ * Lienzo indigo profundo (--canvas, #0a091a) en vez de blanco: un panel
+ * operativo que se lee como producto de software moderno, no como hoja de
+ * cálculo. Acento de marca de DOS tonos (--primary indigo-violeta,
+ * --cta verde eléctrico para la acción de mayor intención) más un tercer
+ * acento (--highlight magenta) reservado para insignias y resaltados — nunca
+ * decoración libre. Radios más generosos (12px controles, 20px tarjetas).
+ * Sin light mode: es la contraparte exacta de la decisión anterior ("sin dark
+ * mode, alto contraste sobre blanco"), invertida a propósito y con el mismo
+ * nivel de rigor de contraste.
  *
- * ACENTO DE DOS NIVELES (WCAG 2.1 AA)
+ * POR QUÉ DOS TONOS DE FILL, NO UNO (el problema que no existía en claro)
  * ------------------------------------------------------------------
- * #ff3859 tiene 3.52:1 contra blanco: alcanza para objeto gráfico
- * (1.4.11, ≥3:1) pero NO para texto (1.4.3, ≥4.5:1). Por eso el acento
- * vive en dos niveles y cada uno tiene una regla dura:
+ * En el sistema anterior (canvas blanco), "texto del acento sobre el canvas"
+ * y "texto claro sobre el acento como fondo" tiraban en la MISMA dirección:
+ * un rojo más oscuro mejora ambos contrastes a la vez, así que un solo valor
+ * (`--primary-strong`) bastaba para los dos usos.
  *
+ * Sobre un canvas OSCURO eso deja de ser cierto: un violeta más CLARO mejora
+ * su contraste como texto-sobre-canvas-negro, pero EMPEORA el contraste de un
+ * texto blanco encima suyo como relleno de botón (el relleno se vuelve más
+ * claro, más parecido al blanco). Los dos usos tiran en direcciones opuestas.
+ *
+ * La solución, y el patrón que se repite en `--primary`, `--cta`,
+ * `--highlight` y `--destructive`: el relleno lleva SIEMPRE tinta oscura
+ * (`--*-foreground` = casi negro, familia de tono del canvas), nunca blanca.
+ * Así "más claro" mejora los dos contrastes a la vez otra vez — el mismo
+ * truco que ya usan las interfaces oscuras nativas (Discord, GitHub Dark,
+ * Linear) para sus rellenos sólidos más saturados.
+ *
+ * ACENTO DE MARCA — DOS NIVELES, MISMO TONO (245°)
+ * ------------------------------------------------------------------
  *   --primary          ORNAMENTO. Íconos, bordes de selección, rieles,
- *                      accent-color de check/radio, tintes. Nunca lleva
- *                      texto encima ni se usa como tinta.
- *   --primary-strong   TEXTO. Cualquier superficie que renderice texto
- *                      sobre el acento (Button default, Badge default) y
- *                      cualquier uso del acento COMO tinta (Button link,
- *                      `text-primary-strong`). 5.20:1 sobre blanco.
+ *                      accent-color de check/radio. Nunca lleva texto
+ *                      encima ni se usa como tinta de párrafo.
+ *   --primary-strong   TEXTO Y RELLENO. Cualquier superficie que renderice
+ *                      texto sobre el acento (Button default, Badge default)
+ *                      y cualquier uso del acento COMO tinta sobre el canvas
+ *                      (Button link, `text-primary-strong`).
  *
- * La rampa de estados del nivel fuerte (mismo tono 350°, misma
- * saturación 100%: es el mismo rojo de marca, no un granate):
- *   reposo  --primary-strong         #db0025  5.20:1
- *   hover   --primary-strong-hover   #c20020  6.34:1
- *   activo  --primary-strong-active  #a8001c  7.83:1
- * Se usan tonos sólidos y no `bg-primary/90`, porque el alfa sobre blanco
- * ACLARA el fondo y baja el contraste del texto blanco (el hover viejo
- * `bg-primary/90` medía 3.23:1).
+ * Verificado (fórmula WCAG de luminancia relativa, no a ojo):
+ *   ornamento   --primary               hsl(245 70% 60%) #5d52e0  3.51:1 sobre canvas (≥3:1, 1.4.11)
+ *   base        --primary-strong        hsl(245 80% 68%) #776cef  4.85:1 sobre canvas Y sobre --primary-foreground (≥4.5:1, 1.4.3)
+ *   hover       --primary-strong-hover  hsl(245 80% 74%) #9088f2  6.55:1
+ *   activo      --primary-strong-active hsl(245 80% 78%) #a29af4  7.93:1
+ * (el hover/activo ACLARA, al revés que en claro: sobre fondo negro, más
+ * claro = más énfasis. Mismo tono y saturación en los tres, solo luminosidad.)
  *
- * NOTA SOBRE LOS HEX DE ESTE ARCHIVO: los hex anotados al margen no
- * coincidían con el HSL que realmente renderiza el
- * navegador (p. ej. --primary-active decía #e00b41 y pintaba #eb0027,
- * --legal-link decía #428bff y pintaba #4d97ff). Todos los hex de abajo
- * se recalcularon desde el HSL. Si cambias un HSL, recalcula el hex.
+ * --cta (verde eléctrico) es el acento de MAYOR intención — "emitir
+ * cotización", "generar enlace de pago", "entrar" — nunca decoración
+ * genérica; para todo lo demás sigue mandando --primary. Mismo patrón de
+ * relleno + tinta oscura:
+ *   --cta          hsl(152 75% 58%) #44e499  12.00:1 sobre canvas (ornamento/texto)
+ *   --cta-hover    hsl(152 75% 52%) #2fdb8c
+ *   --cta-active   hsl(152 75% 46%) #27c67c
+ *   --cta-foreground: tinta oscura (misma familia que --primary-foreground) — 12.0:1+ sobre cualquiera de los tres.
  *
- * Además del acento hay una escala semántica de estado de 5 tonos
- * (success / warning / info / neutral / destructive). NO son acentos de marca:
- * solo comunican el estado de un dato (pedido pagado, pago fallido, etc.).
- * Cada tono tiene tres slots:
- *   --<tono>            color sólido (íconos, bordes, fondos sólidos; texto
- *                       blanco encima pasa AA)
- *   --<tono>-subtle     fondo tenue, baja saturación
- *   --<tono>-foreground tinta sobre ese fondo tenue
- * Contrastes verificados (WCAG 2.1, tinta sobre tinte):
- *   success 7.46:1 · warning 7.63:1 · info 8.42:1 · neutral 8.98:1 ·
- *   destructive 7.31:1 (todos AA y AAA para texto normal).
- * Excepción de nomenclatura: --destructive-foreground ya existía y significa
- * "texto sobre el sólido" (blanco), porque lo consumen Button/Badge. La tinta
- * sobre el tinte destructivo es --destructive-subtle-foreground.
+ * --highlight (magenta) viste insignias y superficies de resalte — nunca
+ * botones de acción. Dos niveles por el mismo motivo que --primary:
+ *   ornamento/texto  --highlight          hsl(322 80% 66%) #ee63bb  6.69:1 sobre canvas
+ *   relleno sólido   --highlight-strong   hsl(322 80% 48%) #dc1895  4.56:1 con --highlight-foreground (blanco: este relleno SÍ es
+ *                                          lo bastante oscuro para tinta blanca, a diferencia de primary/cta/destructive)
+ *
+ * NOTA SOBRE LOS HEX: igual que en el sistema anterior, son el resultado de
+ * convertir el HSL con la fórmula real (no a ojo). Si cambias un HSL,
+ * recalcula el hex y el contraste — no copies el hex viejo.
+ *
+ * La escala semántica de estado (success/warning/info/neutral/destructive)
+ * sigue el mismo principio de siempre: NO son acentos de marca, solo
+ * comunican el estado de un dato. Se recalcularon para el canvas oscuro
+ * (los valores del sistema claro, pensados para 4.5:1 sobre BLANCO, no
+ * garantizan nada sobre negro). Cada tono conserva sus tres slots:
+ *   --<tono>            sólido (íconos, puntos, bordes) — verificado ≥3:1 objeto gráfico
+ *   --<tono>-subtle     fondo tenue (tinte oscuro, no claro como antes)
+ *   --<tono>-foreground tinta sobre ese fondo tenue — verificado ≥4.5:1
+ * Excepción `--destructive`: además es RELLENO SÓLIDO de `Button`/`Badge`
+ * (`variant="destructive"`), así que sigue el patrón relleno-claro +
+ * `--destructive-foreground` = tinta oscura (ya no blanca — ver arriba).
  */
 @layer base {
   :root {
-    --canvas: 0 0% 100%;
-    --background: 0 0% 100%;
-    --foreground: 0 0% 13%; /* ink #222 */
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 13%;
-    /* Capas flotantes (dropdown, popover). Existían como clases en los
-       componentes pero sin token detrás: `bg-popover` no compilaba. */
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 13%;
+    --canvas: 243 47% 7%; /* #0a091a */
+    --background: 243 47% 7%;
+    --foreground: 220 25% 97%; /* #f5f7f9 — 18.33:1 sobre canvas */
+    --card: 240 32% 13%; /* #17172c — un paso arriba del canvas */
+    --card-foreground: 220 25% 97%;
+    /* Capas flotantes (dropdown, popover): un paso más arriba que --card, para
+       que la elevación se note aunque `--shadow-*` en oscuro sea sutil. */
+    --popover: 240 30% 16%; /* #1d1d35 */
+    --popover-foreground: 220 25% 97%;
 
-    /* Nivel ORNAMENTO. 3.52:1 sobre blanco: pasa 1.4.11 (objeto gráfico),
-       NO pasa 1.4.3 (texto). Nunca poner texto encima ni usarlo como tinta. */
-    --primary: 350 100% 61%; /* Rausch #ff3859 */
+    /* Nivel ORNAMENTO. 3.51:1 sobre canvas: pasa 1.4.11 (objeto gráfico), NO
+       pensado para texto de párrafo. */
+    --primary: 245 70% 60%; /* #5d52e0 */
 
-    /* Nivel TEXTO. Mismo tono (350°) y saturación (100%) que --primary. */
-    /* 43% y no 46%: a 46% (#eb0027) el nivel fuerte da 4.60:1 sobre blanco,
-       pero solo 4.11:1 usado COMO tinta sobre --secondary (#f2f2f2), que es
-       donde la app pone glifos de acento sobre azulejo. 43% pasa 4.5:1 contra
-       las tres superficies claras a la vez. */
-    --primary-strong: 350 100% 43%; /* #db0025 — 5.20:1 sobre blanco */
-    --primary-strong-hover: 350 100% 38%; /* #c20020 — 6.34:1 */
-    --primary-strong-active: 350 100% 33%; /* #a8001c — 7.83:1 */
-
-    /* Alias histórico: era el :active del botón primario y hoy ese papel lo
-       cumple --primary-strong-active. Se conserva para que `bg-primary-active`
-       y `text-primary-active` sigan compilando en call sites viejos. */
+    /* Nivel TEXTO Y RELLENO. Mismo tono (245°), más claro y más saturado. */
+    --primary-strong: 245 80% 68%; /* #776cef — 4.85:1 sobre canvas y sobre --primary-foreground */
+    --primary-strong-hover: 245 80% 74%; /* #9088f2 — 6.55:1 */
+    --primary-strong-active: 245 80% 78%; /* #a29af4 — 7.93:1 */
+    /* Alias histórico: mismo papel que en el sistema anterior. */
     --primary-active: var(--primary-strong-active);
 
-    /* Controles deshabilitados: WCAG 2.1 exime a los componentes inactivos
-       de 1.4.3 y de 1.4.11, así que 1.32:1 es admisible aquí. El estado
-       "deshabilitado" no se comunica solo con este color: los primitivos
-       agregan `disabled:opacity-50` y el atributo `disabled`. */
-    --primary-disabled: 350 100% 92%; /* #ffd6dd — 1.32:1, exento */
-    --primary-foreground: 0 0% 100%;
+    /* Controles deshabilitados: WCAG 2.1 exime 1.4.3/1.4.11 aquí (además del
+       `disabled:opacity-50` que ya ponen los primitivos). */
+    --primary-disabled: 245 30% 22%; /* #2a2749 */
+    /* Tinta oscura para texto SOBRE el relleno --primary-strong (ver nota de
+       arriba: en oscuro la tinta clara empeora el contraste al aclarar el
+       relleno). Misma familia de tono que el canvas, casi negro. */
+    --primary-foreground: 243 45% 8%; /* #0b0a1d */
 
-    --secondary: 0 0% 95%; /* surface-strong #f2f2f2 */
-    --secondary-foreground: 0 0% 13%;
+    /* --- acento de mayor intención: verde eléctrico ------------------- */
+    --cta: 152 75% 58%; /* #44e499 — 12.00:1 sobre canvas */
+    --cta-hover: 152 75% 52%; /* #2fdb8c */
+    --cta-active: 152 75% 46%; /* #27c67c */
+    --cta-foreground: 243 45% 8%; /* tinta oscura, igual que --primary-foreground */
 
-    --muted: 0 0% 97%; /* surface-soft #f7f7f7 */
-    --muted-foreground: 0 0% 42%; /* muted text #6a6a6a */
-    --muted-soft: 0 0% 57%; /* disabled text #929292 */
+    /* --- acento de resalte: magenta (insignias, superficies de feature,
+       NUNCA botones de acción) ------------------------------------------ */
+    --highlight: 322 80% 66%; /* #ee63bb — 6.69:1 sobre canvas, ornamento/texto */
+    --highlight-strong: 322 80% 48%; /* #dc1895 — 4.56:1 con tinta BLANCA (este sí es oscuro de sobra) */
+    --highlight-foreground: 0 0% 100%;
 
-    --accent: 0 0% 95%;
-    --accent-foreground: 0 0% 13%;
+    --secondary: 240 26% 19%; /* superficie elevada, un paso sobre --card */
+    --secondary-foreground: 220 25% 97%;
 
-    --destructive: 12 78% 42%; /* error #bf3918 — 5.51:1 con texto blanco */
-    --destructive-foreground: 0 0% 100%; /* texto sobre el sólido */
-    /* :active del botón destructivo. Antes era `bg-destructive/80`, y el alfa
-       sobre blanco aclaraba el fondo hasta 3.91:1 con el texto blanco. */
-    --destructive-active: 12 78% 34%; /* #9a2e13 — 7.57:1 */
-    --destructive-subtle: 12 84% 96%; /* #fdf0ec */
-    --destructive-subtle-foreground: 12 80% 32%; /* #932a10 — 7.31:1 sobre subtle */
+    --muted: 240 24% 15%; /* superficie suave, entre canvas y card */
+    --muted-foreground: 220 13% 68%; /* #a3aab8 — 8.44:1 canvas · 7.53:1 card */
+    --muted-soft: 220 8% 40%; /* #5e636e — texto deshabilitado, exento */
 
-    /* --- escala semántica de estado (ver bloque de arriba) --- */
-    --success: 152 58% 28%; /* #1e714a */
-    --success-subtle: 150 44% 95%; /* #edf8f2 */
-    --success-foreground: 152 62% 22%; /* #155b3a — 7.46:1 sobre subtle */
+    --accent: 240 26% 19%;
+    --accent-foreground: 220 25% 97%;
 
-    --warning: 32 90% 36%; /* #ae6109 */
-    --warning-subtle: 42 86% 94%; /* #fdf5e3 */
-    --warning-foreground: 28 86% 26%; /* #7b3e09 — 7.63:1 sobre subtle */
+    /* Relleno sólido de Button/Badge destructivo: mismo patrón que primary/
+       cta (relleno claro + tinta oscura), NO blanco — ver nota de arriba. */
+    --destructive: 5 78% 68%; /* #ed786e — 7.04:1 sobre canvas, ≥4.5:1 con tinta oscura */
+    --destructive-foreground: 243 45% 8%; /* tinta oscura sobre el sólido */
+    --destructive-active: 5 78% 76%; /* #f3a198 — más claro al presionar, como el resto en oscuro */
+    --destructive-subtle: 5 45% 16%; /* #3b1a16 */
+    --destructive-subtle-foreground: 5 85% 78%; /* #f79f97 — 7.70:1 sobre subtle */
 
-    --info: 214 80% 40%; /* #145bb8 */
-    --info-subtle: 210 90% 96%; /* #ecf5fe */
-    --info-foreground: 215 80% 31%; /* #10458e — 8.42:1 sobre subtle */
+    /* --- escala semántica de estado, recalculada para canvas oscuro --- */
+    --success: 152 55% 62%; /* #69d3a2 — 10.72:1 sobre canvas */
+    --success-subtle: 152 40% 14%; /* #153225 */
+    --success-foreground: 152 60% 75%; /* #99e6c2 — 9.54:1 sobre subtle */
 
-    --neutral: 0 0% 42%; /* #6b6b6b */
-    --neutral-subtle: 0 0% 95%; /* #f2f2f2 */
-    --neutral-foreground: 0 0% 26%; /* #424242 — 8.98:1 sobre subtle */
+    --warning: 38 85% 62%; /* #f0b44c — 10.63:1 sobre canvas */
+    --warning-subtle: 38 45% 15%; /* #372b15 */
+    --warning-foreground: 38 85% 75%; /* #f5ce89 — 9.27:1 sobre subtle */
 
-    /* --- LÍNEAS: tres papeles distintos, un solo criterio ---------------
-       WCAG 1.4.11 exige 3:1 solo a los límites que son la ÚNICA forma de
-       identificar un control o su estado. No a toda hairline: un separador
-       entre regiones que ya se distinguen por otra cosa (posición, fondo,
-       sombra, contenido) es decorativo y puede quedarse claro. Por eso aquí
-       hay un token que pasa 3:1 y dos que deliberadamente no.
+    --info: 205 85% 65%; /* #5ab2f2 — 8.52:1 sobre canvas */
+    --info-subtle: 205 45% 15%; /* #152937 */
+    --info-foreground: 205 85% 78%; /* #97cff7 — 8.96:1 sobre subtle */
 
-       1) LÍMITE DE CONTROL → --input. Debe pasar 3:1.
-          Lo consumen Input, Select, Textarea, Checkbox y RadioCard: campos
-          con `bg-background` sobre página blanca, donde el borde es lo único
-          que dice dónde empieza y termina el control. Antes estaba en
-          #dedede (1.35:1): para un usuario con baja visión el campo
-          sencillamente no existía.
-          #8a8a8a pasa 3:1 contra las tres superficies sobre las que estos
-          controles aparecen: blanco 3.45:1, --muted 3.22:1, --secondary
-          3.08:1. Es el gris más claro que aguanta el peor caso; ir a #767676
-          (el gris de 4.5:1) volvería la UI un wireframe sin ganar nada,
-          porque 1.4.11 pide 3:1, no 4.5:1.
+    --neutral: 220 10% 68%; /* #a5abb6 — 8.53:1 sobre canvas */
+    --neutral-subtle: 220 20% 16%; /* #212631 */
+    --neutral-foreground: 220 12% 78%; /* #c0c5ce — 8.74:1 sobre subtle */
 
-       2) SEPARADOR ESTRUCTURAL → --border. Se queda claro a propósito.
-          Es el default de `* { border-border }` y lo usan el canto de Card,
-          las reglas de fila de Table, Separator, el canto de Dropdown/Sheet/
-          AlertDialog y `Badge variant="outline"`. Ninguno es un control: la
-          tarjeta ya se separa del fondo por sombra y padding, las filas por
-          posición y contenido, la capa flotante por `--shadow-airbnb-lg`, y
-          el badge por su propio texto a 16.10:1. Subirlo a 3:1 dibujaría una
-          retícula gris sobre toda la app sin resolver ninguna barrera real.
+    /* --- LÍNEAS: mismos tres papeles que en el sistema anterior --------
+       1) LÍMITE DE CONTROL → --input. Debe pasar 3:1: es la única forma de
+          delimitar un campo bg-background sobre página del mismo tono.
+       2) SEPARADOR ESTRUCTURAL → --border. Se queda tenue a propósito (canto
+          de Card, reglas de Table, Separator, capas flotantes).
+       3) HAIRLINE DECORATIVA → --border-soft. Ritmo tipográfico, no límite. */
+    --border: 240 20% 22%; /* #2d2d43 — 1.47:1, separador estructural */
+    --border-soft: 240 18% 18%; /* #232337 — decorativa */
+    --border-strong: 240 20% 30%; /* relleno translúcido de presión, no borde */
+    --input: 235 18% 44%; /* #5c5f84 — 3.21:1 sobre canvas, límite de control */
+    --ring: 220 25% 97%; /* #f5f7f9 — 18.33:1 contra el canvas oscuro */
 
-       3) HAIRLINE DECORATIVA → --border-soft. Se queda clara a propósito.
-          Solo la usa `divide-hairline-soft` entre pares etiqueta/valor
-          (FieldRow, cotización pública). Es ritmo tipográfico, no un límite:
-          si desapareciera, la lista se sigue leyendo.
+    --body-text: 220 20% 90%; /* texto corrido, un paso más suave que --foreground */
+    --legal-link: 199 90% 62%; /* #47bef5 — 9.33:1 sobre canvas */
 
-       --border-strong NO es un token de borde pese al nombre: hoy su único
-       consumidor es `active:bg-hairline-strong/40` (el relleno de presión del
-       botón secundario), donde el par que importa es --foreground sobre ese
-       relleno = 12.08:1. Su 1.78:1 "como borde sobre blanco" mide un uso que
-       la app no produce. Si alguna vez hace falta como límite de un control,
-       usa --input, no este. */
-    --border: 0 0% 87%; /* #dedede — 1.35:1, separador estructural (ver 2) */
-    --border-soft: 0 0% 92%; /* #ebebeb — 1.19:1, decorativa (ver 3) */
-    --border-strong: 0 0% 76%; /* #c2c2c2 — relleno translúcido, no borde */
-    --input: 0 0% 54%; /* #8a8a8a — 3.45:1 sobre blanco, límite de control */
-    --ring: 0 0% 13%; /* #212121 — 16.10:1 sobre toda superficie clara */
-
-    --body-text: 0 0% 25%; /* running text #404040 — 10.37:1 */
-    /* Era 215 100% 65% (#4d97ff, 2.92:1). Mismo tono y misma saturación,
-       solo más oscuro: sigue siendo el mismo azul, ahora legible. */
-    --legal-link: 215 100% 45%; /* #0060e6 — 5.50:1 sobre blanco */
-
-    --radius: 0.5rem; /* 8px — botones */
-    --radius-card: 0.875rem; /* 14px — tarjetas */
+    --radius: 0.75rem; /* 12px — botones e inputs (antes 8px) */
+    --radius-card: 1.25rem; /* 20px — tarjetas (antes 14px) */
     --radius-pill: 9999px;
 
-    --shadow-airbnb: 0 0 0 1px rgb(0 0 0 / 0.02), 0 2px 6px rgb(0 0 0 / 0.04),
-      0 4px 8px rgb(0 0 0 / 0.1);
-    /* Capas flotantes: dropdown, popover, sheet, dialog. Mismo lenguaje,
-       más elevación. No inventar una tercera sombra. */
-    --shadow-airbnb-lg: 0 0 0 1px rgb(0 0 0 / 0.04), 0 8px 16px rgb(0 0 0 / 0.06),
-      0 16px 32px rgb(0 0 0 / 0.12);
+    /* En oscuro una sombra negra no se ve: el lenguaje de elevación pasa a
+       un resplandor violeta muy sutil (tono de --primary) + un borde de 1px
+       casi invisible que separa la tarjeta del canvas. Dos niveles, igual
+       que antes: reposo y capas flotantes; no hay una tercera. */
+    --shadow-airbnb: 0 0 0 1px rgb(255 255 255 / 0.04), 0 8px 24px rgb(93 82 224 / 0.14);
+    --shadow-airbnb-lg: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 40px rgb(93 82 224 / 0.24),
+      0 24px 64px rgb(0 0 0 / 0.45);
   }
 }
 

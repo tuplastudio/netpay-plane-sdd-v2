@@ -5,9 +5,10 @@ import { cn } from "@/lib/utils";
 /**
  * Lienzo de dos mitades para login y recuperación:
  *
- *  - Izquierda (~40 % en desktop): fondo neutro del sitio, formulario.
- *  - Derecha  (~60 % en desktop, oculta en móvil): panel visual de la marca,
- *    con un gradiente del color primario y un sello geométrico sutil.
+ *  - Izquierda (~40 % en desktop): canvas del sitio, formulario.
+ *  - Derecha  (~60 % en desktop, oculta en móvil): panel visual de la marca —
+ *    la malla degradada indigo → violeta → magenta que viste todo el sistema
+ *    (ver DESIGN-SYSTEM.md), con un sello geométrico sutil encima.
  *
  * Las páginas públicas lo usan porque comparten look-and-feel: misma marca,
  * mismo ritmo vertical, mismos puntos de apoyo. Se llama `<AuthSplitLayout>`
@@ -44,24 +45,24 @@ export function AuthSplitLayout({
         ) : null}
       </div>
 
-      {/* Mitad derecha: panel visual de marca. */}
-      <div className="relative hidden overflow-hidden bg-foreground lg:block">
+      {/* Mitad derecha: panel visual de marca (la malla degradada del sistema). */}
+      <div className="relative hidden overflow-hidden bg-canvas lg:block">
         <BrandBackdrop />
-        <div className="relative z-10 flex h-full flex-col justify-between p-12 text-background">
+        <div className="relative z-10 flex h-full flex-col justify-between p-12 text-foreground">
           <div className="flex items-center gap-2 text-sm font-medium opacity-80">
-            <span className="h-2 w-2 rounded-full bg-primary" />
+            <span className="h-2 w-2 rounded-full bg-cta" />
             Portal operativo
           </div>
           <div className="max-w-md space-y-4">
-            <p className="text-3xl font-semibold leading-tight">
+            <p className="font-display text-3xl font-semibold leading-tight">
               Cotiza, conversa y cobra — todo desde un mismo chat.
             </p>
-            <p className="text-sm text-background/70">
+            <p className="text-sm text-foreground/70">
               Easy Sell es el portal operativo de tu tienda: el cliente escribe
               por WhatsApp, el agente responde y tú cierras la venta.
             </p>
           </div>
-          <p className="text-xs text-background/40">
+          <p className="text-xs text-foreground/40">
             Modo de pruebas · sin dinero real · v2
           </p>
         </div>
@@ -84,7 +85,7 @@ function Brand() {
     >
       <SellLogo className="h-8 w-8" />
       <span className="flex flex-col leading-tight">
-        <span className="text-sm font-semibold text-foreground">Easy Sell</span>
+        <span className="font-display text-sm font-semibold text-foreground">Easy Sell</span>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Portal operativo
         </span>
@@ -102,7 +103,7 @@ function SellLogo({ className }: { className?: string }) {
       className={className}
       aria-hidden
     >
-      <rect width="36" height="36" rx="8" fill="currentColor" className="text-primary" />
+      <rect width="36" height="36" rx="10" fill="currentColor" className="text-primary" />
       <path
         d="M9 12h2.5l2.3 9.5h11l2-6H13l-.5-2H10l-.5-2H9z"
         stroke="currentColor"
@@ -119,41 +120,50 @@ function SellLogo({ className }: { className?: string }) {
 }
 
 /**
- * Patrón geométrico sutil que viste el panel de marca sin distraer del
- * formulario. Se compone en SVG inline para que no haga falta una imagen
- * externa y para que el color venga del CSS (los círculos usan `currentColor`
- * del contenedor `bg-foreground`).
+ * La malla degradada indigo → violeta → magenta que resuelve de vuelta al
+ * canvas en los bordes — la firma atmosférica del sistema (ver "Brand
+ * Gradient" en DESIGN-SYSTEM.md), aplicada aquí como el hero visual de las
+ * páginas públicas. Todo el color sale de tokens (`primary`, `highlight`,
+ * `cta`, `canvas`): nada de hex crudo, así que sigue la regla 0.1 del
+ * sistema aunque esta pantalla nunca use `Section`/`Card`.
  */
 function BrandBackdrop() {
   return (
     <>
-      {/* Degradado: del color de la marca a un tono muy oscuro. */}
+      {/* Base: indigo → violeta, resolviendo al canvas en los bordes. */}
       <div
         aria-hidden
-        className="absolute inset-0 bg-gradient-to-br from-foreground via-foreground to-primary-strong"
+        className="absolute inset-0 bg-gradient-to-br from-primary-strong/35 via-canvas to-canvas"
       />
-      {/* Diagonal de luz para darle profundidad. */}
+      {/* Foco magenta, arriba-izquierda: el tercer tono de la marca. */}
       <div
         aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,56,89,0.35),transparent_60%)]"
+        className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,hsl(var(--highlight)/0.30),transparent_55%)]"
       />
-      {/* Sello geométrico: tres círculos concéntricos con corte radial. */}
+      {/* Foco indigo, centro-derecha: da profundidad sin tapar el texto. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-[radial-gradient(circle_at_80%_60%,hsl(var(--primary)/0.35),transparent_50%)]"
+      />
+      {/* Sello geométrico: tres círculos concéntricos con corte radial. Las
+          líneas usan --border (ya pensado para vivir tenue sobre el canvas);
+          los dos círculos rellenos son el acorde indigo + verde. */}
       <svg
         aria-hidden
         viewBox="0 0 600 600"
-        className="absolute -right-32 -bottom-32 h-[640px] w-[640px] opacity-20"
+        className="absolute -right-32 -bottom-32 h-[640px] w-[640px] opacity-30"
         fill="none"
       >
-        <circle cx="300" cy="300" r="280" stroke="currentColor" strokeWidth="1" className="text-background" />
-        <circle cx="300" cy="300" r="220" stroke="currentColor" strokeWidth="1" className="text-background" />
-        <circle cx="300" cy="300" r="160" stroke="currentColor" strokeWidth="1" className="text-background" />
-        <circle cx="300" cy="300" r="100" stroke="currentColor" strokeWidth="1" className="text-background" />
-        <line x1="0" y1="300" x2="600" y2="300" stroke="currentColor" strokeWidth="1" className="text-background" />
-        <line x1="300" y1="0" x2="300" y2="600" stroke="currentColor" strokeWidth="1" className="text-background" />
-        <line x1="0" y1="0" x2="600" y2="600" stroke="currentColor" strokeWidth="1" className="text-background" />
-        <line x1="600" y1="0" x2="0" y2="600" stroke="currentColor" strokeWidth="1" className="text-background" />
+        <circle cx="300" cy="300" r="280" stroke="currentColor" strokeWidth="1" className="text-border" />
+        <circle cx="300" cy="300" r="220" stroke="currentColor" strokeWidth="1" className="text-border" />
+        <circle cx="300" cy="300" r="160" stroke="currentColor" strokeWidth="1" className="text-border" />
+        <circle cx="300" cy="300" r="100" stroke="currentColor" strokeWidth="1" className="text-border" />
+        <line x1="0" y1="300" x2="600" y2="300" stroke="currentColor" strokeWidth="1" className="text-border" />
+        <line x1="300" y1="0" x2="300" y2="600" stroke="currentColor" strokeWidth="1" className="text-border" />
+        <line x1="0" y1="0" x2="600" y2="600" stroke="currentColor" strokeWidth="1" className="text-border" />
+        <line x1="600" y1="0" x2="0" y2="600" stroke="currentColor" strokeWidth="1" className="text-border" />
         <circle cx="300" cy="300" r="48" fill="currentColor" className="text-primary" />
-        <circle cx="300" cy="300" r="32" fill="currentColor" className="text-background/40" />
+        <circle cx="300" cy="300" r="32" fill="currentColor" className="text-cta" />
       </svg>
     </>
   );

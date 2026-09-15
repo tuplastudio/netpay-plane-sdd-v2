@@ -21,8 +21,9 @@ const badgeVariants = cva(
         default: "px-2.5 py-0.5 text-xs",
       },
       variant: {
-        // Nivel fuerte del acento: lleva texto encima, así que `bg-primary`
-        // (3.52:1) no alcanza. `bg-primary-strong` da 5.20:1.
+        // Nivel fuerte del acento: lleva texto encima, así que el ornamento
+        // (`bg-primary`, pensado para objeto gráfico) no alcanza — hace falta
+        // `bg-primary-strong` (texto/relleno, ver globals.css).
         default: "border-transparent bg-primary-strong text-primary-foreground",
         secondary: "border-transparent bg-secondary text-secondary-foreground",
         outline: "border-border text-foreground",
@@ -34,8 +35,15 @@ const badgeVariants = cva(
         muted: "border-transparent bg-neutral-subtle text-neutral-foreground",
         destructive:
           "border-transparent bg-destructive-subtle text-destructive-subtle-foreground",
-        /** Rojo sólido, solo para avisos de destrucción inminente. */
+        /** Relleno sólido, solo para avisos de destrucción inminente. */
         "destructive-solid": "border-transparent bg-destructive text-destructive-foreground",
+        /**
+         * Acento de resalte (magenta): "nuevo", "recomendado", categoría
+         * destacada. Nunca para comunicar estado — para eso los tonos de
+         * arriba (success/warning/…). Relleno sólido, ya viene con tinta
+         * blanca legible (`--highlight-strong` es lo bastante oscuro).
+         */
+        highlight: "border-transparent bg-highlight-strong text-highlight-foreground",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

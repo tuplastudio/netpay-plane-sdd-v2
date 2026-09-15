@@ -104,7 +104,7 @@ export const Section = React.forwardRef<HTMLElement, SectionProps>(
                       </span>
                     ) : null}
                     {title ? (
-                      <Heading className="text-base font-semibold leading-none tracking-tight">
+                      <Heading className="font-display text-base font-semibold leading-none tracking-tight">
                         {title}
                       </Heading>
                     ) : null}
