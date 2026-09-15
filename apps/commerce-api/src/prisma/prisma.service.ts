@@ -51,6 +51,56 @@ export async function auditImpersonationMiddleware(
   return next(params);
 }
 
+/**
+ * Inyecta el contexto RLS (`SET LOCAL app.tenant_id = ...`) al inicio de cada
+ * query. Lee el tenantId del AsyncLocalStorage que mantiene `RequestContext`
+ * (lo llena `PrincipalGuard` con el tenant del principal o del impersonated).
+ *
+ * Prisma envuelve cada query en su propia tx corta; con `SET LOCAL` (tercer
+ * arg `true`) el contexto aplica a esa tx y se revierte solo.
+ *
+ * Si no hay tenantId (rutas públicas pre-tenant, login, etc.) el middleware
+ * setea `app.tenant_id = ''` (string vacío). La policy RLS devuelve NULL al
+ * comparar con NULL, así que `tenantId = NULL` → 0 filas → la query falla
+ * silenciosamente en tablas multi-tenant. Por eso DROPEAMOS las policies de
+ * tablas no-multi-tenant (User, Membership, etc.) — sin policy, el filtro no
+ * aplica y la query pasa.
+ */
+async function rlsContextMiddleware(
+  params: Prisma.MiddlewareParams,
+  next: (p: Prisma.MiddlewareParams) => Promise<unknown>,
+): Promise<unknown> {
+  const tenantId = RequestContext.tenantId ?? "";
+  const safe = tenantId && UUID_RE.test(tenantId) ? tenantId : "";
+  // Accedemos al client de Prisma via una closure en el módulo. Lo creamos
+  // con `globalThis` para evitar import circulares (PrismaService se crea
+  // después que esta función).
+  const client = await getPrismaClient();
+  if (!client) {
+    // Antes del primer connect (en startup tests o jobs) saltamos.
+    return next(params);
+  }
+  try {
+    await client.$executeRawUnsafe(
+      `SELECT set_config('app.tenant_id', $1, ${params.runInTransaction ? "true" : "false"})`,
+      [safe],
+    );
+  } catch (e) {
+    // Si la conexión no permite set_config (ej: rol sin permisos sobre
+    // pg_catalog), no es fatal — la app sigue filtrando a nivel código.
+    if (!(e instanceof Error) || !/permission denied/.test(e.message)) {
+      throw e;
+    }
+  }
+  return next(params);
+}
+
+/** Singleton lazy del PrismaClient. Se inyecta desde PrismaService.constructor. */
+let _client: PrismaClient | undefined;
+async function getPrismaClient(): Promise<PrismaClient | undefined> {
+  return _client;
+}
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
@@ -59,6 +109,10 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     super({
       log: ["error", "warn"],
     });
+    _client = this;
+    // rlsContextMiddleware debe ir PRIMERO: cualquier otro middleware que
+    // emita queries vería el contexto activo.
+    this.$use(rlsContextMiddleware);
     this.$use(auditImpersonationMiddleware);
   }
 
