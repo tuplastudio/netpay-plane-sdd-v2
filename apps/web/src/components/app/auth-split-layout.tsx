@@ -6,9 +6,8 @@ import { cn } from "@/lib/utils";
  * Lienzo de dos mitades para login y recuperación:
  *
  *  - Izquierda (~40 % en desktop): canvas del sitio, formulario.
- *  - Derecha  (~60 % en desktop, oculta en móvil): panel visual de la marca —
- *    la malla degradada indigo → violeta → magenta que viste todo el sistema
- *    (ver DESIGN-SYSTEM.md), con un sello geométrico sutil encima.
+ *  - Derecha  (~60 % en desktop, oculta en móvil): panel visual de la marca,
+ *    superficie oscura lisa con un sello geométrico sutil.
  *
  * Las páginas públicas lo usan porque comparten look-and-feel: misma marca,
  * mismo ritmo vertical, mismos puntos de apoyo. Se llama `<AuthSplitLayout>`
@@ -45,8 +44,8 @@ export function AuthSplitLayout({
         ) : null}
       </div>
 
-      {/* Mitad derecha: panel visual de marca (la malla degradada del sistema). */}
-      <div className="relative hidden overflow-hidden bg-canvas lg:block">
+      {/* Mitad derecha: panel visual de marca. */}
+      <div className="relative hidden overflow-hidden bg-card lg:block">
         <BrandBackdrop />
         <div className="relative z-10 flex h-full flex-col justify-between p-12 text-foreground">
           <div className="flex items-center gap-2 text-sm font-medium opacity-80">
@@ -120,34 +119,16 @@ function SellLogo({ className }: { className?: string }) {
 }
 
 /**
- * La malla degradada indigo → violeta → magenta que resuelve de vuelta al
- * canvas en los bordes — la firma atmosférica del sistema (ver "Brand
- * Gradient" en DESIGN-SYSTEM.md), aplicada aquí como el hero visual de las
- * páginas públicas. Todo el color sale de tokens (`primary`, `highlight`,
- * `cta`, `canvas`): nada de hex crudo, así que sigue la regla 0.1 del
- * sistema aunque esta pantalla nunca use `Section`/`Card`.
+ * Sello geométrico sutil que viste el panel de marca sin distraer del
+ * formulario. Todo el color sale de tokens (`primary`, `cta`, `border`):
+ * nada de hex crudo, regla 0.1 del sistema.
  */
 function BrandBackdrop() {
   return (
     <>
-      {/* Base: indigo → violeta, resolviendo al canvas en los bordes. */}
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-gradient-to-br from-primary-strong/35 via-canvas to-canvas"
-      />
-      {/* Foco magenta, arriba-izquierda: el tercer tono de la marca. */}
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,hsl(var(--highlight)/0.30),transparent_55%)]"
-      />
-      {/* Foco indigo, centro-derecha: da profundidad sin tapar el texto. */}
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(circle_at_80%_60%,hsl(var(--primary)/0.35),transparent_50%)]"
-      />
       {/* Sello geométrico: tres círculos concéntricos con corte radial. Las
-          líneas usan --border (ya pensado para vivir tenue sobre el canvas);
-          los dos círculos rellenos son el acorde indigo + verde. */}
+          líneas usan --border (ya pensado para vivir tenue sobre superficies
+          oscuras); los dos círculos rellenos son el acorde indigo + verde. */}
       <svg
         aria-hidden
         viewBox="0 0 600 600"
