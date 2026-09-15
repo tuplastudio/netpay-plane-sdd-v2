@@ -65,28 +65,38 @@ jobs:
               git checkout "origin/$REF"
             fi
 
-            # .env.prod vive en /opt/netpay (intacto entre deploys). Hacemos
-            # symlink desde el build dir para que compose lo encuentre.
-            if [ ! -e "$BUILD_DIR/.env.prod" ]; then
-              ln -s /opt/netpay/infra/.env.prod "$BUILD_DIR/.env.prod"
-            fi
-
             cd "$BUILD_DIR"
             echo "--- HEAD en build dir ---"
             git rev-parse --short HEAD
-            echo "--- Limpiando servicios swarm existentes ---"
-            # Los servicios previos (deployados manualmente) usan los mismos
-            # nombres que compose.prod.yaml pone en `container_name`. Para
-            # que `docker compose up -d` no choque con duplicados, los bajamos
-            # primero.
-            for svc in netpay_commerce_api netpay_commerce_worker netpay_dummy_gateway netpay_agent_v2 netpay_web; do
-              docker service rm "$svc" 2>/dev/null || true
-            done
-            sleep 5
+
+            # El stack real corre como contenedores `docker compose` planos
+            # (container_name fijo), NO como servicios de swarm — el droplet
+            # también corre CapRover (captain-*), que sí usa swarm, así que
+            # `docker service rm` sobre nuestros nombres es un no-op inofensivo.
+            # `docker compose up -d` reconoce y recrea en el sitio los
+            # contenedores existentes con el mismo nombre; no hace falta
+            # bajarlos a mano primero.
+            #
+            # Se invoca desde infra/ (no con `-f infra/compose.prod.yaml`
+            # desde la raíz) porque así quedó establecido el deploy real de
+            # este droplet: el project label de los contenedores vivos es
+            # `working_dir=.../infra`, y mantener el mismo working dir evita
+            # que compose los trate como "de otro proyecto" al recrearlos.
+            cd infra
+
+            # `.env.prod` (secretos reales) vive SOLO en el droplet, en
+            # /opt/netpay/infra/.env.prod — el checkout fresco de cada deploy
+            # no lo trae. El symlink se crea una vez y sobrevive entre deploys
+            # porque $BUILD_DIR no se borra (solo se actualiza con fetch).
+            if [ ! -e ".env.prod" ]; then
+              ln -s /opt/netpay/infra/.env.prod .env.prod
+            fi
+            test -s .env.prod || { echo "Falta /opt/netpay/infra/.env.prod en el droplet"; exit 1; }
+
             echo "--- Construyendo imágenes ---"
-            docker compose -f infra/compose.prod.yaml build
+            docker compose -f compose.prod.yaml --env-file .env.prod build
             echo "--- Subiendo servicios ---"
-            docker compose -f infra/compose.prod.yaml up -d
+            docker compose -f compose.prod.yaml --env-file .env.prod up -d --remove-orphans
 
       - name: Prisma migrate deploy
         uses: appleboy/ssh-action@v1
@@ -95,11 +105,11 @@ jobs:
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 10m
-        script: |
-          set -euo pipefail
-          cd /opt/netpay-build
-          docker compose -f infra/compose.prod.yaml exec -T commerce-api \
-            pnpm exec prisma migrate deploy || true
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
+              pnpm exec prisma migrate deploy || true
 
       - name: Healthcheck
         uses: appleboy/ssh-action@v1
@@ -108,17 +118,17 @@ jobs:
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           command_timeout: 5m
-        script: |
-          set -euo pipefail
-          cd /opt/netpay-build
-          docker compose -f infra/compose.prod.yaml ps
-          echo ""
-          # Esperar hasta 60s a que el API responda en :14000 (puerto externo)
-          for i in $(seq 1 12); do
-            if curl -s -m 3 http://localhost:14000/api/v1/healthz | grep -q '"status":"ok"'; then
-              echo "OK commerce-api responde en :14000"
-              break
-            fi
-            echo "  intento $i/12: esperando..."
-            sleep 5
-          done
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod ps
+            echo ""
+            # Esperar hasta 60s a que el API responda en :14000 (puerto externo)
+            for i in $(seq 1 12); do
+              if curl -s -m 3 http://localhost:14000/api/v1/healthz | grep -q '"status":"ok"'; then
+                echo "OK commerce-api responde en :14000"
+                break
+              fi
+              echo "  intento $i/12: esperando..."
+              sleep 5
+            done
