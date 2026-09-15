@@ -65,6 +65,34 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async onModuleInit(): Promise<void> {
     await this.$connect();
     this.logger.log("Prisma connected");
+
+    // Avisa si la defensa de RLS está bypassed. La app filtra por tenantId en
+    // código, pero sin RLS un query olvidado filtra cero y devuelve datos de
+    // otros tenants. Si este check falla, ver docs/TENANT-ISOLATION.md.
+    try {
+      const r = await this.$queryRaw<{ rolbypassrls: boolean }[]>`
+        SELECT rolbypassrls FROM pg_roles
+         WHERE rolname = current_user
+        LIMIT 1
+      `;
+      const bypass = r[0]?.rolbypassrls === true;
+      if (bypass) {
+        this.logger.warn(
+          `TENANT ISOLATION: el rol "${process.env.PGUSER ?? "current_user"}" ` +
+            `tiene BYPASSRLS. La app filtra por tenantId en código, pero ` +
+            `RLS no aplica como defensa de profundidad. ` +
+            `Ver docs/TENANT-ISOLATION.md para activar el rol ` +
+            `neondb_app sin bypass.`,
+        );
+      } else {
+        this.logger.log(
+          `TENANT ISOLATION: RLS activa para rol "${process.env.PGUSER ?? "current_user"}"`,
+        );
+      }
+    } catch {
+      // Si no tenemos permiso de leer pg_roles (Neon limita), no es fatal;
+      // ya filtramos por tenantId en código.
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
