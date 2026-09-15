@@ -70,24 +70,22 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     // código, pero sin RLS un query olvidado filtra cero y devuelve datos de
     // otros tenants. Si este check falla, ver docs/TENANT-ISOLATION.md.
     try {
-      const r = await this.$queryRaw<{ rolbypassrls: boolean }[]>`
-        SELECT rolbypassrls FROM pg_roles
+      const rows = await this.$queryRaw<{ rolname: string; rolbypassrls: boolean }[]>`
+        SELECT rolname, rolbypassrls
+          FROM pg_roles
          WHERE rolname = current_user
-        LIMIT 1
+         LIMIT 1
       `;
-      const bypass = r[0]?.rolbypassrls === true;
-      if (bypass) {
+      const me = rows[0];
+      if (me && me.rolbypassrls) {
         this.logger.warn(
-          `TENANT ISOLATION: el rol "${process.env.PGUSER ?? "current_user"}" ` +
-            `tiene BYPASSRLS. La app filtra por tenantId en código, pero ` +
-            `RLS no aplica como defensa de profundidad. ` +
-            `Ver docs/TENANT-ISOLATION.md para activar el rol ` +
-            `neondb_app sin bypass.`,
+          `TENANT ISOLATION: el rol "${me.rolname}" tiene BYPASSRLS. ` +
+            `La app filtra por tenantId en código, pero RLS no aplica ` +
+            `como defensa de profundidad. Ver docs/TENANT-ISOLATION.md ` +
+            `para activar el rol neondb_app sin bypass.`,
         );
-      } else {
-        this.logger.log(
-          `TENANT ISOLATION: RLS activa para rol "${process.env.PGUSER ?? "current_user"}"`,
-        );
+      } else if (me) {
+        this.logger.log(`TENANT ISOLATION: RLS activa para rol "${me.rolname}"`);
       }
     } catch {
       // Si no tenemos permiso de leer pg_roles (Neon limita), no es fatal;
