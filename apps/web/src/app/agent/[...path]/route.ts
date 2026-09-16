@@ -79,6 +79,13 @@ async function proxy(req: NextRequest, pathParts: string[]): Promise<NextRespons
 
   const headers = new Headers();
   if (contentType) headers.set("content-type", contentType);
+  // Reenviar la cookie de sesión del navegador: commerce-api exige pasar
+  // su PrincipalGuard global antes de llegar al AgentProxyController. Sin
+  // cookie el guard responde 401 "Autenticación requerida" y el agente
+  // nunca se consulta. AgentProxyController reenvía esta misma cookie a
+  // agent-v2, así que el navegador solo autentica una vez.
+  const cookie = req.headers.get("cookie");
+  if (cookie) headers.set("cookie", cookie);
   if (AGENT_INTERNAL_KEY) headers.set("x-internal-key", AGENT_INTERNAL_KEY);
 
   let upstream: Response;
