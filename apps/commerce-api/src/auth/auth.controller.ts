@@ -207,14 +207,18 @@ export class AuthController {
   /**
    * Refresca la sesión: extiende el TTL de la cookie sin pedir credenciales.
    *
-   * El frontend lo llama automáticamente cuando recibe un 401 de cualquier API
-   * (axios interceptor). Si el refresh succeede, el interceptor reintenta la
-   * petición original; si falla, redirige a /login.
+   * Es `@Public()` a propósito. Si pasara por el `PrincipalGuard`, una sesión
+   * expirada recibiría 401 del guard antes de llegar aquí y el refresh nunca
+   * podría hacer nada. La validación completa (token, revocación, expiración,
+   * inactividad de 30 min y membresía ACTIVE) la hace `refreshSession` con
+   * las mismas reglas que el guard.
    *
-   * También valida el TTL de inactividad (30 min por defecto): si el navegador
-   * lleva > 30 min abierto sin hacer requests, la sesión expira y se devuelve
-   * 401 para forzar re-login.
+   * El frontend lo llama automáticamente cuando recibe un 401 de cualquier
+   * API (interceptor de `lib/api.ts`): si el refresh succeede, reintenta la
+   * petición original; si falla, redirige a /login. Un 401 aquí significa
+   * "vuelve a iniciar sesión".
    */
+  @Public()
   @Post("refresh")
   @HttpCode(200)
   async refresh(
@@ -222,21 +226,18 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
-    const inactivityTtlMs = 30 * 60 * 1000; // 30 min
-    const result = await this.auth.sessions.refreshSession(token!, inactivityTtlMs);
+    const result = token ? await this.auth.sessions.refreshSession(token) : null;
 
-    if (!result) {
+    if (!result || !token) {
+      res.clearCookie(SESSION_COOKIE, COOKIE_ATTRS);
       throw new UnauthorizedException({
         code: "SESSION_EXPIRED",
         message: "Sesión expirada o inactividad prolongada. Inicia sesión de nuevo.",
       });
     }
 
-    res.cookie(SESSION_COOKIE, token!, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
+    res.cookie(SESSION_COOKIE, token, {
+      ...COOKIE_ATTRS,
       expires: result.expiresAt,
     });
 

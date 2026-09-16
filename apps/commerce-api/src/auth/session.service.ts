@@ -120,33 +120,23 @@ export class SessionService {
   }
 
   /**
-   * Extiende la vida de la sesión. Llamado por `POST /auth/refresh`.
+   * Extiende la vida de la sesión. Llamado por `POST /auth/refresh`, que es
+   * `@Public()`: el `PrincipalGuard` no corre antes, así que **esta** es la
+   * única validación. Reusa `resolveSession` para aplicar exactamente las
+   * mismas reglas que cualquier otra petición (token válido, no revocada, no
+   * expirada, inactividad < 30 min, membresía ACTIVE): una sesión que no
+   * podría entrar a `/auth/me` tampoco puede extenderse.
    *
-   * - Si `inactivityTtlMs` está configurado y la sesión lleva más inactiva, se
-   *   rechaza (el navegador debería haber refresh antes de ese límite).
-   * - Si la sesión no existe, está revocada o ya expiró, devuelve null.
-   *
-   * Devuelve la nueva fecha de expiración para que el frontend confirme al
-   * usuario cuánto le queda.
+   * Devuelve la nueva fecha de expiración absoluta (12h desde ahora) o `null`
+   * si la sesión ya no vale.
    */
-  async refreshSession(
-    token: string,
-    inactivityTtlMs?: number,
-  ): Promise<{ expiresAt: Date } | null> {
-    const hash = hashToken(token);
-    const session = await this.prisma.session.findUnique({ where: { tokenHash: hash } });
+  async refreshSession(token: string | undefined): Promise<{ expiresAt: Date } | null> {
+    const session = await this.resolveSession(token);
     if (!session) return null;
-    if (session.revokedAt) return null;
-    if (session.expiresAt.getTime() <= Date.now()) return null;
-
-    if (inactivityTtlMs && session.lastActivityAt) {
-      const idleMs = Date.now() - new Date(session.lastActivityAt).getTime();
-      if (idleMs > inactivityTtlMs) return null;
-    }
 
     const newExpiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
     await this.prisma.session.update({
-      where: { id: session.id },
+      where: { id: session.sessionId },
       data: { expiresAt: newExpiresAt, lastActivityAt: new Date() },
     });
 

@@ -15,6 +15,11 @@ import {
  * Refresh token: cuando el backend devuelve 401, el interceptor intenta un
  * `POST /auth/refresh` una vez. Si succeede, reintenta el request original.
  * Si falla, borra la sesión y deja que la pantalla decida (normalmente /login).
+ *
+ * El 401 de `/auth/refresh`, `/auth/login` y `/auth/mfa/verify` nunca dispara
+ * este flujo (ver `NO_REFRESH_PATHS` abajo): evita un deadlock cuando el
+ * propio refresh falla y evita reintentar credenciales inválidas como si
+ * fueran una sesión vencida.
  */
 export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
   const client = axios.create({
@@ -60,16 +65,40 @@ export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
     }
   }
 
+  // Endpoints de auth que NUNCA deben disparar un refresh en su propio 401:
+  // - `/auth/refresh`: es la llamada que hace `attemptRefresh` mismo. Sin esta
+  //   exclusión, un 401 de refresh (sesión ya no válida, el caso normal de
+  //   que falle) vuelve a entrar por este interceptor, que llama de nuevo a
+  //   `attemptRefresh` — pero `isRefreshing` ya está en `true`, así que esa
+  //   segunda llamada se encola en `refreshQueue` y espera a que la PRIMERA
+  //   llamada resuelva. La primera llamada está esperando la respuesta de su
+  //   propio `client.post("/auth/refresh")`, que es justo la promesa
+  //   encolada: ninguna de las dos se resuelve nunca (deadlock). Esto era el
+  //   bug real detrás de "el refresh no funciona": no fallaba con un error,
+  //   se quedaba colgado para siempre y la UI nunca redirigía a /login.
+  // - `/auth/login` y `/auth/mfa/verify`: su 401 es "credenciales inválidas"
+  //   o "código MFA inválido", no una sesión vencida. No hay sesión que
+  //   refrescar todavía.
+  const NO_REFRESH_PATHS = ["/auth/refresh", "/auth/login", "/auth/mfa/verify"];
+
   client.interceptors.response.use(
     (response) => response,
     async (error: unknown) => {
       const axiosError = error as {
         response?: { status?: number };
-        config?: { _retry?: boolean };
+        config?: { _retry?: boolean; url?: string };
       };
 
+      const isNoRefreshPath = NO_REFRESH_PATHS.some((path) =>
+        axiosError.config?.url?.includes(path),
+      );
+
       // 401 → intentar refresh una vez por request
-      if (axiosError.response?.status === 401 && !axiosError.config?._retry) {
+      if (
+        axiosError.response?.status === 401 &&
+        !axiosError.config?._retry &&
+        !isNoRefreshPath
+      ) {
         const config = axiosError.config;
         if (config) config._retry = true;
 
