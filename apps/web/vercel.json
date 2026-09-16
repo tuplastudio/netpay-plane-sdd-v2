@@ -9,5 +9,11 @@
       "main": true,
       "fix/password-recovery-hardening": true
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/v1/:path*",
+      "destination": "${API_INTERNAL_URL}/api/v1/:path*"
+    }
+  ]
 }
