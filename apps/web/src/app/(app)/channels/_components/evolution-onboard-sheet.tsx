@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Sheet,
@@ -40,6 +41,45 @@ type Step =
   | { kind: "connected"; instanceName: string };
 
 /**
+ * Códigos de país (lada internacional) más comunes en la región donde opera
+ * el negocio (LatAm + España + EE.UU./Canadá), con México primero porque es
+ * el mercado por defecto de la demo. La validación de longitud del número
+ * nacional es deliberadamente laxa (7-12 dígitos): este campo es solo una
+ * pista para el operador, el número real lo confirma el escaneo del QR.
+ */
+const COUNTRY_CODES = [
+  { iso: "MX", dial: "52", name: "México" },
+  { iso: "US", dial: "1", name: "Estados Unidos" },
+  { iso: "CA", dial: "1", name: "Canadá" },
+  { iso: "GT", dial: "502", name: "Guatemala" },
+  { iso: "BZ", dial: "501", name: "Belice" },
+  { iso: "SV", dial: "503", name: "El Salvador" },
+  { iso: "HN", dial: "504", name: "Honduras" },
+  { iso: "NI", dial: "505", name: "Nicaragua" },
+  { iso: "CR", dial: "506", name: "Costa Rica" },
+  { iso: "PA", dial: "507", name: "Panamá" },
+  { iso: "CO", dial: "57", name: "Colombia" },
+  { iso: "VE", dial: "58", name: "Venezuela" },
+  { iso: "EC", dial: "593", name: "Ecuador" },
+  { iso: "PE", dial: "51", name: "Perú" },
+  { iso: "BO", dial: "591", name: "Bolivia" },
+  { iso: "PY", dial: "595", name: "Paraguay" },
+  { iso: "CL", dial: "56", name: "Chile" },
+  { iso: "AR", dial: "54", name: "Argentina" },
+  { iso: "UY", dial: "598", name: "Uruguay" },
+  { iso: "BR", dial: "55", name: "Brasil" },
+  { iso: "DO", dial: "1", name: "República Dominicana" },
+  { iso: "PR", dial: "1", name: "Puerto Rico" },
+  { iso: "ES", dial: "34", name: "España" },
+] as const;
+
+const DEFAULT_COUNTRY = "MX";
+/** Rango laxo de dígitos nacionales: cubre desde números cortos centroamericanos
+ * hasta los 10-11 dígitos típicos de México/Brasil. */
+const MIN_NATIONAL_DIGITS = 7;
+const MAX_NATIONAL_DIGITS = 12;
+
+/**
  * Alta de número de WhatsApp con Evolution API desde el portal.
  *
  * El flujo evita entrar al panel de Evolution: el operador escribe solo el
@@ -54,7 +94,20 @@ type Step =
 export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
   const queryClient = useQueryClient();
   const [step, setStep] = useState<Step>({ kind: "form" });
-  const [phoneHint, setPhoneHint] = useState("");
+  // Selector por ISO, no por lada: EE.UU./Canadá y Rep. Dominicana/Puerto
+  // Rico comparten lada +1, así que usar el dial como `value` del <select>
+  // colisionaría (el navegador no puede distinguir opciones con el mismo
+  // value y "saltaría" a la primera que coincida al re-renderizar).
+  const [countryIso, setCountryIso] = useState<string>(DEFAULT_COUNTRY);
+  const [nationalNumber, setNationalNumber] = useState("");
+  const countryDial = COUNTRY_CODES.find((c) => c.iso === countryIso)!.dial;
+
+  // Pista en E.164 (+52...) armada de lada + número nacional. Vacía si el
+  // operador no escribió nada: el campo es opcional en todo el flujo.
+  const phoneHint = nationalNumber ? `+${countryDial}${nationalNumber}` : "";
+  const nationalDigitsValid =
+    nationalNumber.length === 0 ||
+    (nationalNumber.length >= MIN_NATIONAL_DIGITS && nationalNumber.length <= MAX_NATIONAL_DIGITS);
 
   const provision = useProvisionEvolution((data) => {
     setStep({ kind: "qr", instanceName: data.instanceName, qrBase64: data.qrCodeBase64 });
@@ -112,12 +165,13 @@ export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
     }
     if (!next) {
       setStep({ kind: "form" });
-      setPhoneHint("");
+      setNationalNumber("");
     }
     onOpenChange(next);
   }
 
   function startProvision() {
+    if (!nationalDigitsValid) return;
     provision.mutate({ phoneNumber: phoneHint || undefined });
   }
 
@@ -163,16 +217,38 @@ export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
 
             <div className="space-y-1.5">
               <Label htmlFor="evo-phone">Número que va a usar el cliente</Label>
-              <Input
-                id="evo-phone"
-                inputMode="tel"
-                autoComplete="off"
-                placeholder="+52 1 55 0000 0000"
-                value={phoneHint}
-                onChange={(e) => setPhoneHint(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Opcional. Lo autocompletamos al escanear con el número real.
+              <div className="flex gap-2">
+                <Select
+                  id="evo-country"
+                  aria-label="Código de país"
+                  className="w-[9.5rem] shrink-0"
+                  value={countryIso}
+                  onChange={(e) => setCountryIso(e.target.value)}
+                >
+                  {COUNTRY_CODES.map((c) => (
+                    <option key={c.iso} value={c.iso}>
+                      {c.iso} +{c.dial}
+                    </option>
+                  ))}
+                </Select>
+                <Input
+                  id="evo-phone"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="55 0000 0000"
+                  aria-invalid={!nationalDigitsValid}
+                  aria-describedby="evo-phone-hint"
+                  value={nationalNumber}
+                  onChange={(e) => setNationalNumber(e.target.value.replace(/\D/g, "").slice(0, MAX_NATIONAL_DIGITS))}
+                />
+              </div>
+              <p
+                id="evo-phone-hint"
+                className={nationalDigitsValid ? "text-xs text-muted-foreground" : "text-xs text-destructive"}
+              >
+                {nationalDigitsValid
+                  ? "Opcional. Lo autocompletamos al escanear con el número real."
+                  : `Escribe entre ${MIN_NATIONAL_DIGITS} y ${MAX_NATIONAL_DIGITS} dígitos, sin lada.`}
               </p>
             </div>
 
@@ -180,7 +256,11 @@ export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
               <Button type="button" variant="ghost" onClick={() => handleOpenChange(false)}>
                 Cancelar
               </Button>
-              <Button onClick={startProvision} loading={provision.isPending}>
+              <Button
+                onClick={startProvision}
+                loading={provision.isPending}
+                disabled={!nationalDigitsValid}
+              >
                 <QrCode aria-hidden className="h-4 w-4" />
                 Generar QR
               </Button>
