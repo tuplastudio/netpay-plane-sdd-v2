@@ -8,15 +8,19 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 
-// Por defecto apunta a agent-v2 (puerto 8010), el agente activo. Para
-// depurar contra agent-service v1 (puerto 8000), exportar
-// AGENT_INTERNAL_URL=http://localhost:8000 antes de levantar `pnpm dev`.
-const AGENT_INTERNAL_URL = (process.env.AGENT_INTERNAL_URL ?? "http://localhost:8010").replace(
+// Por defecto apunta a agent-v2 (puerto 8010) en dev. En producción (Vercel),
+// si AGENT_INTERNAL_URL no está seteada, infiere desde API_INTERNAL_URL
+// (commerce-api ya tiene el proxy a /api/v1/agent/*). Para depurar contra
+// agent-service v1 (puerto 8000), exportar AGENT_INTERNAL_URL=http://localhost:8000.
+const API_INTERNAL_URL_RESOLVED = (process.env.API_INTERNAL_URL ?? "http://localhost:4000").replace(
   /\/$/,
   "",
 );
+const AGENT_INTERNAL_URL = (
+  process.env.AGENT_INTERNAL_URL ??
+  `${API_INTERNAL_URL_RESOLVED}/api/v1/agent`
+).replace(/\/$/, "");
 const AGENT_INTERNAL_KEY = process.env.AGENT_INTERNAL_KEY ?? "";
-const API_INTERNAL_URL = (process.env.API_INTERNAL_URL ?? "http://localhost:4000").replace(/\/$/, "");
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 
@@ -26,7 +30,7 @@ interface AuthMe {
 }
 
 async function authenticatedTenant(req: NextRequest, requested: string | null): Promise<string | null> {
-  const response = await fetch(`${API_INTERNAL_URL}/api/v1/auth/me`, {
+  const response = await fetch(`${API_INTERNAL_URL_RESOLVED}/api/v1/auth/me`, {
     headers: { cookie: req.headers.get("cookie") ?? "" },
     cache: "no-store",
   });
