@@ -32,30 +32,61 @@ function hasSessionCookie(req: NextRequest): boolean {
   );
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
-  // Reverse-proxy /api/v1/* al backend de commerce-api. Vercel no aplica
-  // rewrites externos de next.config.mjs ni vercel.json de forma confiable
-  // para App Router, y un route handler en /api/v1/[...path] tampoco se
-  // invocaba (404 desde Next.js sin llegar al backend). El rewrite desde
-  // middleware SÍ funciona porque corre en el Edge runtime antes que
-  // cualquier ruta y `NextResponse.rewrite()` sí envía la request al destino
-  // externo sin que el cliente lo note.
   if (pathname.startsWith("/api/v1/") || pathname === "/api/v1") {
-    const apiBase = (process.env.API_INTERNAL_URL ?? "http://localhost:4000")
-      .replace(/\/$/, "");
-    const target = new URL(`${apiBase}${pathname}${search}`);
-    return NextResponse.rewrite(target);
+    const apiBase = (process.env.API_INTERNAL_URL ?? "").replace(/\/$/, "");
+    if (!apiBase) {
+      return NextResponse.json(
+        { error: "MISSING_API_INTERNAL_URL" },
+        { status: 500 },
+      );
+    }
+    const target = `${apiBase}${pathname}${search}`;
+    const headers = new Headers();
+    const reqContentType = req.headers.get("content-type");
+    if (reqContentType) headers.set("content-type", reqContentType);
+    const cookie = req.headers.get("cookie");
+    if (cookie) headers.set("cookie", cookie);
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(target, {
+        method: req.method,
+        headers,
+        body:
+          req.method === "GET" || req.method === "HEAD"
+            ? undefined
+            : await req.arrayBuffer(),
+        cache: "no-store",
+      });
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: "BACKEND_UNREACHABLE",
+          message: (err as Error).message,
+          target,
+        },
+        { status: 502 },
+      );
+    }
+
+    const resHeaders = new Headers(upstream.headers);
+    resHeaders.delete("content-encoding");
+    resHeaders.delete("transfer-encoding");
+    resHeaders.delete("content-length");
+    return new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: resHeaders,
+    });
   }
 
-  // Raíz: si hay sesión → /dashboard (la home del portal), si no → /login.
   if (pathname === "/") {
     const dest = hasSessionCookie(req) ? "/dashboard" : "/login";
     return NextResponse.redirect(new URL(dest, req.url));
   }
 
-  // Paths protegidos sin cookie → /login preservando el destino.
   if (isProtectedPath(pathname) && !hasSessionCookie(req)) {
     const loginUrl = new URL("/login", req.url);
     const next = `${pathname}${search}`;
