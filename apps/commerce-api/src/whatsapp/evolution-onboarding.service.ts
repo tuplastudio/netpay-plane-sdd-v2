@@ -234,7 +234,7 @@ export class EvolutionOnboardingService {
    * `.env` del API; en local caemos al `localhost:3000/api/v1` que es donde
    * el dev reescribe al commerce-api:4000.
    */
-  private buildInboundWebhookUrl(tenantSlug: string): string {
+  buildInboundWebhookUrl(tenantSlug: string): string {
     // Las pruebas en localhost no pueden recibir el webhook de un Evolution
     // público: exigimos PUBLIC_BASE_URL cuando esté corriendo contra Evolution.
     const publicBase = safeReadEnv("PUBLIC_BASE_URL");

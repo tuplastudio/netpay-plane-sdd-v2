@@ -323,6 +323,7 @@ export class WhatsAppService {
     const secret = randomBytes(18).toString("base64url");
     const webhookSecretHash = await argon2.hash(secret);
 
+    const webhookUrl = await this.evolutionInboundUrl(tenantId);
     const updated = await this.prisma.whatsAppConnection.upsert({
       where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
       create: {
@@ -335,7 +336,7 @@ export class WhatsAppService {
           apiKey: platform.apiKey,
           instance: instanceName,
         } as never,
-        webhookUrl: this.evolutionInboundUrl(tenantId),
+        webhookUrl,
         webhookSecretHash,
         connectedAt: new Date(),
       },
@@ -347,7 +348,7 @@ export class WhatsAppService {
           apiKey: platform.apiKey,
           instance: instanceName,
         } as never,
-        webhookUrl: this.evolutionInboundUrl(tenantId),
+        webhookUrl,
         webhookSecretHash,
         connectedAt: new Date(),
       },
@@ -357,12 +358,18 @@ export class WhatsAppService {
     return { ...safe, webhookSecret: secret };
   }
 
-  private evolutionInboundUrl(tenantId: string): string {
-    // Reusamos la misma URL pública del webhook que arma el controller. La
-    // forma no cambia entre Provision y Finalize; si cambia, basta con
-    // actualizar `PUBLIC_BASE_URL` y rotar webhook.
-    const base = (process.env.PUBLIC_BASE_URL ?? "").replace(/\/+$/, "") || "http://localhost:3000";
-    return `${base}/api/v1/whatsapp/webhook/inbound/_by_tenant_id_${tenantId}`;
+  private async evolutionInboundUrl(tenantId: string): Promise<string> {
+    // Misma forma de URL que usa el controller (`whatsapp.controller.ts` ->
+    // `webhook/inbound/:tenantSlug`) y que arma EvolutionOnboardingService
+    // en `provision()`. Antes este método construía
+    // `inbound/_by_tenant_id_<uuid>`, que NO matcheaba con la ruta del
+    // controller — Evolution quedaba apuntando a un 404 silencioso.
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { slug: true },
+    });
+    const slug = tenant?.slug ?? tenantId;
+    return this.evolutionOnboarding.buildInboundWebhookUrl(slug);
   }
 
   /**
