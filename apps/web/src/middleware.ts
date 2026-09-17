@@ -82,6 +82,73 @@ export async function middleware(req: NextRequest) {
     });
   }
 
+  // Proxy del checkout hosted del dummy-gateway bajo /pay/*. La pasarela no
+  // está expuesta al público (escucha 0.0.0.0:4100 dentro del droplet) y
+  // devuelve URLs tipo http://localhost:4100/checkout/sessions/<id> que el
+  // navegador del cliente final no puede abrir. Se reescriben aquí a
+  // https://easysell.web.tupla.dev/pay/<resto> y se mandan al dummy
+  // gateway en el backend de commerce-api vía la red interna.
+  if (pathname.startsWith("/pay/")) {
+    const apiBase = (process.env.API_INTERNAL_URL ?? "").replace(/\/$/, "");
+    if (!apiBase) {
+      return NextResponse.json(
+        { error: "MISSING_API_INTERNAL_URL" },
+        { status: 500 },
+      );
+    }
+    // /pay/checkout/sessions/<id> → http://<api>/checkout/sessions/<id>
+    // commerce-api está en la misma red interna que dummy-gateway, así que
+    // resolvemos via commerce-api que tiene el endpoint público que llama
+    // al dummy. Pero más simple: el dummy-gateway expone /checkout/sessions
+    // directamente, y como commerce-api y dummy-gateway están en la misma
+    // red, podemos apuntar al dummy directo.
+    const dummyBase = (process.env.DUMMY_INTERNAL_URL ?? "").replace(/\/$/, "");
+    if (!dummyBase) {
+      return NextResponse.json(
+        { error: "MISSING_DUMMY_INTERNAL_URL" },
+        { status: 500 },
+      );
+    }
+    // /pay/<resto> → http://<dummy>/<resto>
+    const target = `${dummyBase}/${pathname.slice("/pay/".length)}${search}`;
+    const headers = new Headers();
+    const reqContentType = req.headers.get("content-type");
+    if (reqContentType) headers.set("content-type", reqContentType);
+    const reqAuth = req.headers.get("authorization");
+    if (reqAuth) headers.set("authorization", reqAuth);
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(target, {
+        method: req.method,
+        headers,
+        body:
+          req.method === "GET" || req.method === "HEAD"
+            ? undefined
+            : await req.arrayBuffer(),
+        cache: "no-store",
+      });
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: "DUMMY_UNREACHABLE",
+          message: (err as Error).message,
+          target,
+        },
+        { status: 502 },
+      );
+    }
+
+    const resHeaders = new Headers(upstream.headers);
+    resHeaders.delete("content-encoding");
+    resHeaders.delete("transfer-encoding");
+    resHeaders.delete("content-length");
+    return new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: resHeaders,
+    });
+  }
+
   if (pathname === "/") {
     const dest = hasSessionCookie(req) ? "/dashboard" : "/login";
     return NextResponse.redirect(new URL(dest, req.url));
