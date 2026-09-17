@@ -17,6 +17,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks: [netpay_internal]
 
   postgres_dummy:
     image: postgres:16-alpine
@@ -54,6 +55,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks: [netpay_internal]
 
   minio:
     image: minio/minio:latest
@@ -73,6 +75,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks: [netpay_internal]
 
   # ---- Apps (perfil "full": docker compose --profile full up) ----
   # Uso normal de desarrollo sigue siendo `pnpm dev` sobre esta infra;
@@ -94,6 +97,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks: [netpay_internal]
 
   commerce-api:
     build:
@@ -143,6 +147,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks: [netpay_internal]
 
   commerce-worker:
     build:
@@ -163,6 +168,7 @@ services:
       BROKER_URL: amqp://netpay:netpay@rabbitmq:5672
     ports:
       - "4101:4101"
+    networks: [netpay_internal]
 
   agent-service:
     build:
@@ -196,6 +202,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks: [netpay_internal]
 
   # Agente v2: LangGraph + deepagents. Mismo contrato HTTP que agent-service,
   # así que para cambiar de agente basta con apuntar AGENT_URL a este.
@@ -233,6 +240,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks: [netpay_internal]
 
   web:
     build:
@@ -259,6 +267,7 @@ services:
       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:-}
     ports:
       - "3001:3000"
+    networks: [netpay_internal]
 
 volumes:
   postgres_data:
