@@ -18,9 +18,6 @@ const PROTECTED_PREFIXES = [
   "/super-admin",
 ];
 
-// `/agent` exacto es la consola (protegida); `/agent/[...path]` es proxy
-// server-side al backend (deja pasar — la auth la hace el backend con la
-// cookie httpOnly que el `route.ts` re-envía).
 function isProtectedPath(pathname: string): boolean {
   if (pathname === "/agent") return true;
   return PROTECTED_PREFIXES.some(
@@ -38,9 +35,21 @@ function hasSessionCookie(req: NextRequest): boolean {
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
+  // Reverse-proxy /api/v1/* al backend de commerce-api. Vercel no aplica
+  // rewrites externos de next.config.mjs ni vercel.json de forma confiable
+  // para App Router, y un route handler en /api/v1/[...path] tampoco se
+  // invocaba (404 desde Next.js sin llegar al backend). El rewrite desde
+  // middleware SÍ funciona porque corre en el Edge runtime antes que
+  // cualquier ruta y `NextResponse.rewrite()` sí envía la request al destino
+  // externo sin que el cliente lo note.
+  if (pathname.startsWith("/api/v1/") || pathname === "/api/v1") {
+    const apiBase = (process.env.API_INTERNAL_URL ?? "http://localhost:4000")
+      .replace(/\/$/, "");
+    const target = new URL(`${apiBase}${pathname}${search}`);
+    return NextResponse.rewrite(target);
+  }
+
   // Raíz: si hay sesión → /dashboard (la home del portal), si no → /login.
-  // El propio /dashboard decide si redirigir al super-admin o mostrar el
-  // panel del tenant, según la cookie de sesión que el navegador traiga.
   if (pathname === "/") {
     const dest = hasSessionCookie(req) ? "/dashboard" : "/login";
     return NextResponse.redirect(new URL(dest, req.url));
@@ -57,10 +66,8 @@ export function middleware(req: NextRequest) {
   return NextResponse.next();
 }
 
-// Evita correr el matcher en assets y rutas que sabemos que no necesitan
-// auth (login, recover, checkout público, etc.).
 export const config = {
   matcher: [
-    "/((?!_next/|api/|favicon\\.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico|css|js)$).*)",
+    "/((?!_next/|favicon\\.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico|css|js)$).*)",
   ],
 };
