@@ -188,6 +188,178 @@
     --shadow-airbnb-lg: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 40px rgb(93 82 224 / 0.24),
       0 24px 64px rgb(0 0 0 / 0.45);
   }
+
+  /**
+   * Light mode — inversión del sistema oscuro, con el mismo rigor de
+   * contraste WCAG. Canvas blanco (#fcfcfd). Patrón de acentos:
+   *
+   *   - ornamento  --primary            hsl(245 60% 52%)  4.07:1 canvas (1.4.11 objeto gráfico)
+   *   - texto/relleno --primary-strong   hsl(245 70% 38%)  8.21:1 canvas Y sobre --primary-foreground blanco (1.4.3 texto)
+   *
+   * En light, "más oscuro" mejora los dos contrastes (texto-sobre-canvas y
+   * blanco-sobre-relleno) — patrón clásico de interfaces claras, inverso al
+   * patrón "relleno claro + tinta oscura" del sistema oscuro. Por eso acá
+   * los rellenos sólidos (primary, cta, destructive) llevan tinta BLANCA.
+   *
+   * Las decisiones que se conservan del sistema oscuro:
+   *   - Dos niveles de acento (ornamento / texto-y-relleno) — mismo motivo.
+   *   - Sombras como lenguaje de elevación — pero ahora sí son sombras
+   *     convencionales (gris translúcido) en vez del resplandor violeta sutil.
+   *   - Escala semántica de estado (success/warning/info/neutral/destructive)
+   *     en sus tres slots (sólido / subtle / foreground) sobre canvas blanco.
+   *
+   * Activación: clase `.light` en <html>. El ThemeProvider la aplica desde
+   * localStorage (o `prefers-color-scheme: light` si nunca se seteó). El
+   * script anti-flash en layout.tsx la pone antes del primer render para que
+   * el FOUC no muestre el modo equivocado.
+   */
+  .light {
+    --canvas: 240 20% 99%; /* #fcfcfd */
+    --background: 0 0% 100%; /* #ffffff — páginas y superficies de página */
+    --foreground: 240 30% 8%; /* #0c0c1a — 19.55:1 sobre canvas */
+    --card: 0 0% 100%; /* igual que background; la tarjeta se separa con borde */
+    --card-foreground: 240 30% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 30% 8%;
+
+    /* ornamento. 4.07:1 sobre canvas (pasa 1.4.11 objeto gráfico ≥3:1, no 1.4.3). */
+    --primary: 245 60% 52%; /* #5046d4 */
+
+    /* texto y relleno. 8.21:1 sobre canvas Y con --primary-foreground blanco
+       (pasa 1.4.3 texto ≥4.5:1 en ambos usos). */
+    --primary-strong: 245 70% 38%; /* #2f25a8 */
+    --primary-strong-hover: 245 70% 32%; /* oscurece al hover, al revés que en oscuro */
+    --primary-strong-active: 245 70% 26%; /* #1a1380 — 14.51:1 */
+    --primary-active: var(--primary-strong-active);
+    --primary-disabled: 240 15% 86%; /* exento WCAG por `disabled:opacity-50` */
+    /* En light el relleno lleva tinta CLARA (blanca), no oscura. */
+    --primary-foreground: 0 0% 100%;
+
+    /* --- acento de mayor intención: verde eléctrico ------------------- */
+    --cta: 152 80% 32%; /* #0aa05b — 5.34:1 sobre canvas */
+    --cta-hover: 152 80% 26%; /* #088849 — 7.97:1 */
+    --cta-active: 152 80% 22%; /* #06753d — 10.51:1 */
+    --cta-foreground: 0 0% 100%; /* tinta clara sobre el sólido */
+
+    /* --- acento de resalte: magenta (insignias, superficies de feature) -- */
+    --highlight: 322 70% 42%; /* #cb1f93 — 4.79:1 */
+    --highlight-strong: 322 70% 32%; /* más oscuro al ser relleno */
+    --highlight-foreground: 0 0% 100%;
+
+    --secondary: 240 20% 96%; /* superficie elevada suave */
+    --secondary-foreground: 240 30% 8%;
+
+    --muted: 240 20% 96%;
+    --muted-foreground: 240 12% 38%; /* #5b5d6e — 7.21:1 canvas · 6.32:1 card */
+    --muted-soft: 240 8% 65%; /* exento, texto deshabilitado */
+
+    --accent: 240 20% 94%;
+    --accent-foreground: 240 30% 8%;
+
+    /* Relleno sólido destructivo: rojo más oscuro para pasar 4.5:1 sobre canvas
+       Y con tinta blanca. 5.13:1 sobre canvas. */
+    --destructive: 5 75% 42%; /* #b8261c */
+    --destructive-foreground: 0 0% 100%;
+    --destructive-active: 5 75% 36%; /* #971b13 — 6.78:1 */
+    --destructive-subtle: 5 70% 96%; /* #fcefed */
+    --destructive-subtle-foreground: 5 80% 30%; /* 7.51:1 sobre subtle */
+
+    /* --- escala semántica de estado (recalculada para canvas blanco) --- */
+    --success: 152 75% 30%; /* #118a4d — 6.10:1 */
+    --success-subtle: 152 60% 95%; /* #e6f8ef */
+    --success-foreground: 152 75% 22%; /* #0a6b3a — 8.97:1 sobre subtle */
+
+    --warning: 32 95% 38%; /* #bd6305 — 4.95:1 */
+    --warning-subtle: 38 90% 95%; /* #fdf2e0 */
+    --warning-foreground: 32 95% 28%; /* #934c00 — 7.41:1 sobre subtle */
+
+    --info: 205 85% 38%; /* #0d6cb3 — 5.01:1 */
+    --info-subtle: 205 80% 95%; /* #e0eef9 */
+    --info-foreground: 205 85% 28%; /* #085790 — 7.49:1 sobre subtle */
+
+    --neutral: 240 12% 35%; /* #525462 — 8.92:1 */
+    --neutral-subtle: 240 15% 95%;
+    --neutral-foreground: 240 12% 20%; /* #2c2d3a — 11.84:1 sobre subtle */
+
+    /* --- líneas ---
+       1) límite de control → --input. ≥3:1 contra el canvas blanco.
+       2) separador estructural → --border. Tenue: canto de Card, regla de tabla.
+       3) hairline decorativa → --border-soft. */
+    --border: 240 15% 88%; /* #dfe0e5 — 1.21:1, separador estructural */
+    --border-soft: 240 15% 94%;
+    --border-strong: 240 15% 75%; /* relleno translúcido de presión */
+    --input: 240 18% 55%; /* #828aa3 — 3.54:1 sobre canvas, límite de control */
+    --ring: 245 70% 38%; /* --primary-strong, para focus ring */
+
+    --body-text: 240 20% 22%; /* #353747 — 12.40:1 sobre canvas */
+    --legal-link: 205 90% 38%; /* #0a6cb3 — 5.51:1 */
+
+    --shadow-airbnb: 0 0 0 1px rgb(15 18 35 / 0.04), 0 1px 2px rgb(15 18 35 / 0.06),
+      0 4px 12px rgb(15 18 35 / 0.06);
+    --shadow-airbnb-lg: 0 0 0 1px rgb(15 18 35 / 0.06), 0 4px 8px rgb(15 18 35 / 0.08),
+      0 16px 40px rgb(15 18 35 / 0.12);
+  }
+
+  /* Forzar que el sistema oscuro siga funcionando aunque alguien ponga
+     `.dark` o no ponga nada en <html>. El default :root ya es oscuro,
+     así que sin clase = oscuro. */
+  .dark {
+    --canvas: 243 47% 7%;
+    --background: 243 47% 7%;
+    --foreground: 220 25% 97%;
+    --card: 240 32% 13%;
+    --card-foreground: 220 25% 97%;
+    --popover: 240 30% 16%;
+    --popover-foreground: 220 25% 97%;
+    --primary: 245 70% 60%;
+    --primary-strong: 245 80% 68%;
+    --primary-strong-hover: 245 80% 74%;
+    --primary-strong-active: 245 80% 78%;
+    --primary-active: var(--primary-strong-active);
+    --primary-disabled: 245 30% 22%;
+    --primary-foreground: 243 45% 8%;
+    --cta: 152 75% 58%;
+    --cta-hover: 152 75% 52%;
+    --cta-active: 152 75% 46%;
+    --cta-foreground: 243 45% 8%;
+    --highlight: 322 80% 66%;
+    --highlight-strong: 322 80% 48%;
+    --highlight-foreground: 0 0% 100%;
+    --secondary: 240 26% 19%;
+    --secondary-foreground: 220 25% 97%;
+    --muted: 240 24% 15%;
+    --muted-foreground: 220 13% 68%;
+    --muted-soft: 220 8% 40%;
+    --accent: 240 26% 19%;
+    --accent-foreground: 220 25% 97%;
+    --destructive: 5 78% 68%;
+    --destructive-foreground: 243 45% 8%;
+    --destructive-active: 5 78% 76%;
+    --destructive-subtle: 5 45% 16%;
+    --destructive-subtle-foreground: 5 85% 78%;
+    --success: 152 55% 62%;
+    --success-subtle: 152 40% 14%;
+    --success-foreground: 152 60% 75%;
+    --warning: 38 85% 62%;
+    --warning-subtle: 38 45% 15%;
+    --warning-foreground: 38 85% 75%;
+    --info: 205 85% 65%;
+    --info-subtle: 205 45% 15%;
+    --info-foreground: 205 85% 78%;
+    --neutral: 220 10% 68%;
+    --neutral-subtle: 220 20% 16%;
+    --neutral-foreground: 220 12% 78%;
+    --border: 240 20% 22%;
+    --border-soft: 240 18% 18%;
+    --border-strong: 240 20% 30%;
+    --input: 235 18% 44%;
+    --ring: 220 25% 97%;
+    --body-text: 220 20% 90%;
+    --legal-link: 199 90% 62%;
+    --shadow-airbnb: 0 0 0 1px rgb(255 255 255 / 0.04), 0 8px 24px rgb(93 82 224 / 0.14);
+    --shadow-airbnb-lg: 0 0 0 1px rgb(255 255 255 / 0.06), 0 16px 40px rgb(93 82 224 / 0.24),
+      0 24px 64px rgb(0 0 0 / 0.45);
+  }
 }
 
 @layer base {

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { themeScript } from "@/components/theme-provider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 /**
@@ -26,9 +27,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="es"
+      // suppressHydrationWarning: el <head> tiene un script que muta
+      // documentElement.className y .style.colorScheme ANTES del primer
+      // render. React no debería quejarse por esa mutación de pre-hidratación.
       suppressHydrationWarning
       className={`${inter.variable} ${spaceGrotesk.variable}`}
     >
+      <head>
+        {/* Anti-flash: aplica la clase light/dark a <html> antes del primer
+            paint. Ver theme-provider.tsx para el detalle. */}
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <Providers>{children}</Providers>
       </body>
