@@ -110,7 +110,10 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: "4000"
-      DATABASE_URL: postgresql://netpay_app:netpay_app@postgres:5432/netpay?schema=public
+      # Producción (Droplet): Neon gestionado. Sobre-escribe el default del
+      # .env del host (que apunta a localhost) para que el contenedor salga
+      # directamente al pooler de Neon sin pasar por un Postgres local.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://netpay_app:netpay_app@postgres:5432/netpay?schema=public}
       # Servidor-a-servidor (red interna de Docker): commerce-api -> dummy-gateway.
       DUMMY_BASE_URL: http://dummy-gateway:4100
       # Navegador -> dummy-gateway (link de pago que se abre en el cliente).
@@ -125,8 +128,14 @@ services:
       AGENT_URL: ${AGENT_URL:-http://agent-v2:8010}
       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:-}
       PAYMENT_PROVIDER: DUMMY
-      SESSION_SECRET_REF: ${SESSION_SECRET_REF:-session_secret_change_me_64_chars_minimum_pad_pad_pad_pad}
+      SESSION_SECRET_REF: ${SESSION_SECRET_REF:-session_secret_change_me_64_chars_minimum_pad_pad_pad}
       TOKEN_ENCRYPTION_KEY_REF: ${TOKEN_ENCRYPTION_KEY_REF:-token_encryption_key_change_me_32_bytes}
+      # Evolution API (Baileys). Sin esto, el flujo /channels → conectar Evolution
+      # falla con "Evolution no está configurado" y el agente no recibe mensajes
+      # de WhatsApp Baileys. Default vacío permite arrancar sin él; el .env
+      # del droplet los define para activar el canal.
+      EVOLUTION_BASE_URL: ${EVOLUTION_BASE_URL:-}
+      EVOLUTION_API_KEY_REF: ${EVOLUTION_API_KEY_REF:-}
     ports:
       - "4000:4000"
     healthcheck:
@@ -257,3 +266,12 @@ volumes:
   rabbitmq_data:
   minio_data:
   agent_data:
+
+networks:
+  # El nombre de red debe ser estable y matchear lo que conectamos manualmente
+  # (captain-nginx, etc.). Si docker compose lo autogenera como
+  # "<dir>_default", los contenedores terminan en otra red y los nombres
+  # de servicio dejan de resolver para los clientes externos.
+  netpay_internal:
+    name: infra_netpay_internal
+    driver: bridge
