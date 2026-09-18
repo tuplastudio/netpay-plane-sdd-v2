@@ -162,13 +162,21 @@ services:
       COMMERCE_API_URL: http://commerce-api:4000/api/v1
       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:?Set AGENT_INTERNAL_KEY}
       # Cada tenant guarda su propia key de OpenRouter cifrada (panel /agent →
-      # Configuración; ver agent_settings.py), así que esto NO es obligatorio
-      # a nivel plataforma: era un `:?` que exigía una key compartida para
-      # arrancar, cuando el diseño real es "por tenant, cae al motor
-      # determinista si nadie configuró una" (ver .env.example). Un tenant sin
-      # key propia y sin este fallback simplemente responde con el motor
-      # determinista, nunca se cae el contenedor.
-      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:-}
+      # Configuración; ver agent_settings.py) y esa es la que de verdad se usa
+      # por conversación — el override dinámico de agent.py la prioriza
+      # siempre sobre esta. Por eso NO debe ser una key real ni compartir
+      # presupuesto de la plataforma: era un `:?` que además obligaba a tener
+      # una key real de plataforma solo para poder arrancar.
+      #
+      # Sí debe ser una cadena NO VACÍA: el cliente de langchain-openai falla
+      # al construirse ("Missing credentials") si esto queda en blanco, aun
+      # cuando ningún tenant la vaya a usar. Un placeholder inerte (nunca una
+      # key real con saldo) basta — solo lo ve el arranque del proceso, jamás
+      # una llamada real mientras el tenant tenga la suya. Un tenant sin key
+      # propia y con esto vacío no arranca; con un placeholder, cae al motor
+      # determinista en cuanto OpenRouter rechace el placeholder (ver
+      # .env.example).
+      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:?Set OPENROUTER_KEY_REF a un placeholder no vacío, nunca una key real de plataforma}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
       # Settings, checkpoints y learning viven en un volumen persistente:
       # un `docker compose down` seguido de `up` los recupera. Sin esto,

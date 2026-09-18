@@ -122,11 +122,13 @@ AGENT_INTERNAL_KEY=<32+ chars>
 AGENT_SECRET_KEY=<32 bytes base64>
 AGENT_API_KEY_REF=<npk_...>          # del bootstrap inicial (ver más abajo)
 
-# OpenRouter (opcional a nivel plataforma): cada tenant guarda su propia key
-# cifrada desde el panel /agent → Configuración. Sin esta variable Y sin key
-# propia, el tenant simplemente conversa con el motor determinista (sin LLM).
-# Déjala vacía salvo que quieras un fallback compartido para tenants nuevos.
-OPENROUTER_KEY_REF=
+# OpenRouter: cada tenant guarda su propia key cifrada desde el panel
+# /agent → Configuración, y esa es la que se usa en cada conversación — NO
+# esta variable. No pongas aquí una key real ni compartas presupuesto de
+# plataforma: debe ser un placeholder NO VACÍO (agent-v2 no arranca con esto
+# en blanco). Un tenant sin key propia cae al motor determinista (sin LLM)
+# en cuanto OpenRouter rechace el placeholder.
+OPENROUTER_KEY_REF=sk-or-v1-unset-platform-key-tenants-use-their-own
 
 # WhatsApp (cuando conectes un número real):
 META_APP_ID=...
