@@ -213,10 +213,17 @@ export function EditProductSheet({
               <SheetBody className="space-y-6">
                 <form id={formId} onSubmit={onEditSubmit} noValidate className="space-y-4">
                   <Field label="Título" error={editErrors.title?.message}>
-                    {(p) => <Input {...p} {...editForm.register("title")} />}
+                    {(p) => <Input placeholder="ej. Pintura vinílica mate" {...p} {...editForm.register("title")} />}
                   </Field>
                   <Field label="Descripción" error={editErrors.description?.message}>
-                    {(p) => <Textarea rows={3} {...p} {...editForm.register("description")} />}
+                    {(p) => (
+                      <Textarea
+                        rows={3}
+                        placeholder="Detalle visible para el agente y en la ficha del producto."
+                        {...p}
+                        {...editForm.register("description")}
+                      />
+                    )}
                   </Field>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <Field

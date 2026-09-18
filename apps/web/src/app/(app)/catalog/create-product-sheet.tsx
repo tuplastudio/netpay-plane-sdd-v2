@@ -129,14 +129,29 @@ export function CreateProductSheet({
                 <div className="mt-3 space-y-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <Field label="SKU" error={errors.sku?.message}>
-                      {(p) => <Input autoFocus className="font-mono" {...p} {...form.register("sku")} />}
+                      {(p) => (
+                        <Input
+                          autoFocus
+                          className="font-mono"
+                          placeholder="ej. PINT-MATE-1L"
+                          {...p}
+                          {...form.register("sku")}
+                        />
+                      )}
                     </Field>
                     <Field label="Título" error={errors.title?.message}>
-                      {(p) => <Input {...p} {...form.register("title")} />}
+                      {(p) => <Input placeholder="ej. Pintura vinílica mate" {...p} {...form.register("title")} />}
                     </Field>
                   </div>
                   <Field label="Descripción" error={errors.description?.message}>
-                    {(p) => <Textarea rows={3} {...p} {...form.register("description")} />}
+                    {(p) => (
+                      <Textarea
+                        rows={3}
+                        placeholder="Detalle visible para el agente y en la ficha del producto."
+                        {...p}
+                        {...form.register("description")}
+                      />
+                    )}
                   </Field>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <Field
@@ -178,10 +193,17 @@ export function CreateProductSheet({
                 </p>
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field label="SKU de la variante" error={errors.variantSku?.message}>
-                    {(p) => <Input className="font-mono" {...p} {...form.register("variantSku")} />}
+                    {(p) => (
+                      <Input
+                        className="font-mono"
+                        placeholder="ej. PINT-MATE-1L-BLA"
+                        {...p}
+                        {...form.register("variantSku")}
+                      />
+                    )}
                   </Field>
                   <Field label="Título de la variante" error={errors.variantTitle?.message}>
-                    {(p) => <Input {...p} {...form.register("variantTitle")} />}
+                    {(p) => <Input placeholder="ej. Blanco, 1 L" {...p} {...form.register("variantTitle")} />}
                   </Field>
                   <Field label="Precio" hint="Formato 99.00" error={errors.price?.message}>
                     {(p) => (

@@ -69,10 +69,10 @@ export function VariantsSection({
             <p className="text-sm font-semibold">Nueva variante</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="SKU" error={addErrors.sku?.message}>
-                {(p) => <Input autoFocus {...p} {...addForm.register("sku")} />}
+                {(p) => <Input autoFocus placeholder="ej. PINT-MATE-1L-BLA" {...p} {...addForm.register("sku")} />}
               </Field>
               <Field label="Título" error={addErrors.title?.message}>
-                {(p) => <Input {...p} {...addForm.register("title")} />}
+                {(p) => <Input placeholder="ej. Blanco, 1 L" {...p} {...addForm.register("title")} />}
               </Field>
               <Field label="Precio" hint="Formato 99.00" error={addErrors.price?.message}>
                 {(p) => (
@@ -265,7 +265,7 @@ function VariantRow({
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Título" className="sm:col-span-2" error={errors.title?.message}>
-          {(p) => <Input autoFocus {...p} {...form.register("title")} />}
+          {(p) => <Input autoFocus placeholder="ej. Blanco, 1 L" {...p} {...form.register("title")} />}
         </Field>
         <Field label="Precio" hint="Formato 99.00" error={errors.price?.message}>
           {(p) => <Input inputMode="decimal" {...p} {...form.register("price")} />}
