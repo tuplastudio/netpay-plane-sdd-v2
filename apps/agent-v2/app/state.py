@@ -163,6 +163,11 @@ class SalesState(DeepAgentState):
     pending_attachment: Annotated[dict[str, Any] | None, _replace]
     handoff: Annotated[bool, _last]
     handoff_reason: Annotated[str | None, _last]
+    # Fallos técnicos seguidos en este hilo (timeout, proveedor caído). Lo
+    # lleva `pipeline/failures.py`: un fallo aislado contesta suave y sigue;
+    # varios seguidos sí pasan a handoff. Un turno que sale bien lo regresa
+    # a 0.
+    failure_streak: Annotated[int, _last]
     # Estado grueso de la conversación (no de un carrito en particular):
     # HUMANO/CERRADO, o el del carrito más avanzado mientras no haya handoff.
     stage: Annotated[
@@ -209,6 +214,24 @@ def open_carts(carts: dict[str, CartRecord] | None) -> dict[str, CartRecord]:
         for cart_id, record in (carts or {}).items()
         if record.get("lines") or record.get("quoteId")
     }
+
+
+def primary_cart(values: dict[str, Any]) -> tuple[str, CartRecord]:
+    """El carrito que llenan los campos singulares de compatibilidad de la
+    API (`cart`, `totals`, `quote`, `checkout`): el activo si tiene algo que
+    mostrar, si no el más avanzado, si no vacío."""
+    carts: dict[str, CartRecord] = values.get("carts") or {}
+    active = values.get("active_cart_id")
+    visible = open_carts(carts)
+    if active and active in visible:
+        return active, visible[active]
+    if visible:
+        cart_id = max(
+            visible,
+            key=lambda cid: len((visible[cid].get("lines") or [])) + bool(visible[cid].get("quoteId")),
+        )
+        return cart_id, visible[cart_id]
+    return "", {}
 
 
 def overall_stage(carts: dict[str, CartRecord] | None) -> str:

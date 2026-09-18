@@ -31,10 +31,28 @@ seguridad y de memoria. Para correrlo, ver `README.md`.
 
 ```
 app/
-  main.py              API HTTP (FastAPI): /chat, /conversations/*, /prompts/*,
-                       /memory/*, /settings, /knowledge/*, /learning/*, /audio/*
+  main.py              Cableado: .env, lifespan (Runtime), CORS, routers de api/
+  runtime.py           Estado de proceso: checkpointer, grafo, locks por hilo,
+                       idempotencia, coalescer de ráfagas, métricas, pipeline
+  contracts.py         ChatRequest / ChatResponse (contrato de POST /chat, = v1)
+  api/                 Capa HTTP (FastAPI), un router por área, sin lógica
+    deps.py            X-Internal-Key, runtime listo (503), thread_id
+    chat.py            POST /chat → pipeline.turn (TurnRejected → HTTP)
+    conversations.py   GET estado, GET transcript, compact, clear, close,
+                       delete, release
+    health.py          /healthz, /readyz, /diagnostics, /metrics, /tools, /evals
+    prompts.py · settings.py · knowledge.py · learning.py · memory.py · audio.py
+  pipeline/            Un turno de conversación, por etapas
+    turn.py            Orquestador: orden fijo de capas (ver abajo)
+    coalesce.py        Ráfagas de mensajes seguidos = un solo turno
+    failures.py        Clasificación del fallo, reintento, suave vs. handoff
+    replies.py         Texto final del modelo (str o bloques), respaldo, chips
+    responses.py       Estado del hilo → ChatResponse
+    post_turn.py       Señales de aprendizaje y episodios (best-effort)
+    trace.py           Traza por turno (`turn.done`) y métricas del proceso
   agent.py             Grafo compilado (deepagents), modelo por tenant, resumen
-  state.py             SalesState (carritos concurrentes, cliente) + TurnContext
+  state.py             SalesState (carritos concurrentes, cliente, racha de
+                       fallos) + TurnContext
   tools.py             Herramientas comerciales (scopes, Command con deltas)
   commerce.py          Cliente HTTP firmado hacia commerce-api
   tenant_context.py    TenantBundle: perfil + overrides + catálogo + conocimiento
@@ -64,29 +82,112 @@ knowledge/             Conocimiento del negocio (Markdown por tenant)
 tests/                 Pruebas unitarias y de API (sin red)
 ```
 
-## Flujo de un turno (`POST /chat`)
+Regla de dependencias: `api/` → `pipeline/` → dominio (`agent`, `state`,
+`tools`, `guards`, `memory`, …). El pipeline no conoce FastAPI (rechaza con
+`TurnRejected(status, detail)`); los routers no contienen lógica de negocio;
+`runtime.py` es el único estado global y las pruebas lo sustituyen pieza por
+pieza (`runtime.agent = FakeAgent()`).
+
+## Flujo de un turno (`POST /chat`, `pipeline/turn.py`)
 
 ```
 request ──► neutralize (Unicode invisible, tokens de control)
-        ──► idempotencia por messageId ─► respuesta cacheada
-        ──► handoff activo ─► solo se anota el mensaje, no se invoca al modelo
+        ──► idempotencia por messageId (pre) ─► respuesta cacheada
+        ──► [pipeline/coalesce] ráfaga de mensajes ─► cede (COALESCED) o junta
+        ──► lock por hilo ─► idempotencia ─► handoff activo (solo anota el mensaje)
         ──► [guards/injection] detect_injection ─► redirect (INYECCION)
         ──► [guards/injection] off_scope_category ─► redirect (FUERA_DE_TEMA)
         ──► [guards/scope]     is_off_topic (LLM barato) ─► redirect
         ──► [memory/context]   compact_thread si el historial pesa demasiado
-        ──► grafo (deepagents)
+        ──► grafo (deepagents) con tope de tiempo por debajo del puente
               └─ sales_prompt: TenantBundle + PromptVersion → SystemMessage
               └─ tools con scopes del contexto (nunca del modelo)
               └─ SummarizationMiddleware por número de mensajes
+              └─ fallo transitorio ─► reanuda el checkpoint una vez
+              └─ fallo definitivo ─► [pipeline/failures] suave o handoff
+        ──► [pipeline/replies] texto de ESTE turno (str o bloques) o respaldo
         ──► [guards/output]    OutputGuard.check ─► sustituye reply y AIMessage
         ──► format_for_whatsapp
-        ──► señal de aprendizaje (PII redactada) / episodio si hubo handoff
-        ──► ChatResponse (+ idempotencia)
+        ──► [pipeline/post_turn] señal de aprendizaje (PII redactada) / episodio
+        ──► limpia adjunto del turno y racha de fallos ─► ChatResponse (+ turnId)
 ```
 
-Cada capa es independiente y apagable por env (`AGENT_INPUT_HEURISTICS`,
-`AGENT_SCOPE_GUARD`, `AGENT_OUTPUT_GUARD`, `AGENT_COMPACT_AFTER_CHARS`,
+Cada capa es independiente y apagable o ajustable por env
+(`AGENT_INPUT_HEURISTICS`, `AGENT_SCOPE_GUARD`, `AGENT_OUTPUT_GUARD`,
+`AGENT_COMPACT_AFTER_CHARS`, `AGENT_COALESCE_WINDOW_MS`,
+`AGENT_RETRY_TRANSIENT`, `AGENT_HANDOFF_AFTER_FAILURES`,
 `AGENT_EPISODIC_MEMORY`). `GET /diagnostics` muestra el estado de todas.
+
+### Presupuesto de tiempo
+
+commerce-api (`agent-bridge.service.ts`) aborta la llamada al agente a los
+30 s (45 s con imagen) y descarta cualquier respuesta que no sea 2xx. Por
+eso el tope del turno (`AGENT_TURN_TIMEOUT_SECONDS`, 28 s;
+`AGENT_TURN_TIMEOUT_IMAGE_SECONDS`, 42 s) queda **por debajo**: cuando el
+agente degrada (reintento, respuesta suave o handoff) todavía hay alguien
+del otro lado para recibirlo. Un tope de 90 s, como había antes, producía
+respuestas que nadie leía y hilos marcados en handoff sin que el cliente
+recibiera ni el aviso.
+
+### Ráfagas de mensajes (`pipeline/coalesce.py`)
+
+En WhatsApp la gente escribe "hola" / "quiero 2 playeras" / "rojas" en tres
+mensajes seguidos. Cada request espera `AGENT_COALESCE_WINDOW_MS` (1500)
+desde el ÚLTIMO mensaje del mismo hilo; si llega otro, la request cede
+(`reply=""`, `intent="COALESCED"`, `engine="coalesced"`: el puente no manda
+nada) y el último de la ráfaga invoca al modelo con los textos juntos,
+separados por salto de línea. Esto funciona con cualquier versión del
+prompt: el modelo ve varias líneas en un solo mensaje de cliente y ya
+suele leerlas como una idea. El prompt `1.3.0` (en `draft`, no es `latest`
+todavía) lo hace explícito y además cubre ritmo de cierre; para activarlo
+en un tenant, fijar `prompt_version: "1.3.0"` en `PUT /settings` o correr
+los evals reales y promoverlo a `stable` en `prompts/v1.3.0/manifest.yaml`.
+Solo aplica a los canales de `AGENT_COALESCE_CHANNELS` (`whatsapp`) y nunca
+a mensajes con imagen. La idempotencia se resuelve ANTES de la ráfaga para
+que un reintento de webhook no se pegue como texto duplicado.
+
+### Política de fallos (`pipeline/failures.py`)
+
+Antes, cualquier excepción del grafo marcaba el hilo en handoff: un 502 del
+proveedor dejaba al cliente con "ya le avisé a una persona" y al bot mudo
+hasta que alguien lo liberara en el panel. Ahora:
+
+| Fallo | Clase | Reintento | Cliente recibe |
+|---|---|---|---|
+| Red / 5xx / 429 / timeout del proveedor dentro del turno | `PROVEEDOR_TRANSITORIO` | Sí: `ainvoke(None, config)` reanuda el checkpoint (no repite la entrada ni las tools ya ejecutadas) | Respuesta normal si el reintento sale; si no, ver racha |
+| Tope del turno (`asyncio.wait_for`) | `TIMEOUT` | No | Según racha |
+| Bug, configuración, error no clasificado | `ERROR_TECNICO` | No | Según racha |
+| Tope de recursión (el modelo entró en bucle) | `RECURSION_LIMIT` | No | Handoff siempre |
+
+La **racha** (`SalesState.failure_streak`) cuenta fallos seguidos en ese
+hilo: por debajo de `AGENT_HANDOFF_AFTER_FAILURES` (2) el cliente recibe una
+respuesta suave ("se me trabó el sistema, ¿me repites?") con
+`engine="error-soft"` y el bot sigue atendiendo; al alcanzarla, handoff
+(`engine="error-fallback"`, `stage=HUMANO`) hasta `POST
+/conversations/{id}/release`. Un turno que sale bien, o el `release`, la
+regresan a 0. Con `AGENT_HANDOFF_AFTER_FAILURES=1` se recupera el
+comportamiento anterior.
+
+### Respuesta nunca vacía (`pipeline/replies.py`)
+
+Solo cuenta el texto del asistente posterior al último mensaje del cliente
+(antes se tomaba "el último AIMessage del hilo", que podía ser el del turno
+anterior). El contenido puede venir como `str` o como lista de bloques
+(modelos de Anthropic vía OpenRouter). Si aun así no hay texto, se contesta
+un respaldo determinista según el estado (enlace de pago, cotización,
+carrito) con `engine="reply-fallback"`: un `""` lo descarta el puente y el
+cliente se queda esperando.
+
+### Observabilidad (`pipeline/trace.py`)
+
+Cada turno lleva un `turnId` (en `ChatResponse.turnId`) y termina en una
+línea de log `turn.done {...}` con la duración por etapa, motor, intent y
+si hubo reintento — nunca el texto del cliente ni de la respuesta.
+`GET /metrics` expone contadores del proceso (`turn.ok`, `turn.retried`,
+`turn.failure.*`, `turn.coalesced`, `turn.output_guard`, `turn.reply_fallback`,
+`turn.handoff`, …) y latencias p50/p95. `GET /conversations/{id}/messages`
+devuelve el transcript que ve el modelo (redactado por defecto) para
+responder "¿por qué contestó eso?" sin abrir el sqlite.
 
 ## Prompts versionados
 
@@ -117,8 +218,8 @@ Ver `prompts/README.md` para cómo publicar una versión nueva.
 | Fuga del prompt / notas internas / secretos | Guard de salida compara líneas protegidas; sustituye reply y AIMessage | `guards/output.py`, `PromptVersion.protected_lines` |
 | URLs inventadas | Solo URLs de tools, del conocimiento o de `PUBLIC_BASE_URL` | `guards/output.py` |
 | PII en memoria episódica | Esquema cerrado + redacción antes y después del LLM + términos prohibidos | `memory/episodic.py` |
-| PII en señales del panel | Redacción antes de guardar | `main._record_learning` |
-| PII en logs | `RedactingFilter` en todos los handlers | `guards/pii.py`, `main._lifespan` |
+| PII en señales del panel | Redacción antes de guardar | `pipeline/post_turn.py` (`record_learning`) |
+| PII en logs | `RedactingFilter` en todos los handlers | `guards/pii.py`, `main._lifespan` (instala el filtro) |
 | Datos sensibles (tarjeta, CLABE, CURP) repetidos por el modelo | Enmascarado en la salida; prompt prohíbe pedirlos | `guards/output.py` |
 | Tenant/scopes decididos por el modelo | Siempre vienen de `runtime.context` (request autenticada) | `tools.py`, `security.py` |
 | Cruce de conocimiento entre negocios | Subárbol por tenant, caché por tenant | `knowledge.py` |
@@ -239,5 +340,9 @@ Contrato `POST /chat` que consume cada lado:
 `./.venv/bin/python -m pytest -q` (sin red). Cubren: registro y ensamblado
 de prompts, PII, heurísticas de inyección/alcance, guard de salida,
 compactación, memoria episódica, settings, clasificador de tema con fallo
-abierto/cerrado, y la API completa con un doble del grafo. Los evals de
-`app/evals/` son aparte y cuestan dinero real.
+abierto/cerrado, la política de fallos (`test_failures.py`), las ráfagas
+(`test_coalesce.py`), la extracción/respaldo de respuesta
+(`test_replies.py`) y la API completa con un doble del grafo
+(`test_api.py`: reintento por reanudación, suave → handoff, respuesta
+vacía, bloques de contenido, ráfaga por WhatsApp, transcript, métricas).
+Los evals de `app/evals/` son aparte y cuestan dinero real.

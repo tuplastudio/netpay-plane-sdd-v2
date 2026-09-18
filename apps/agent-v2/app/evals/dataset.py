@@ -384,7 +384,7 @@ def _continuidad_cases() -> list[EvalCase]:
 
 def _fuera_de_tema_cases() -> list[EvalCase]:
     """Defensa en profundidad: estos casos corren el grafo directo, sin pasar
-    por `scope_guard.is_off_topic` (eso vive en `main.py`, antes del grafo).
+    por `scope_guard.is_off_topic` (eso vive en `pipeline/turn.py`, antes del grafo).
     Verifican que el prompt del agente también se niegue por su cuenta, para
     el caso en que el clasificador falle abierto (por diseño, ver
     `scope_guard.py`)."""
@@ -445,7 +445,7 @@ def _fuera_de_tema_cases() -> list[EvalCase]:
 
 def _privacidad_cases() -> list[EvalCase]:
     """El prompt 1.1.0 prohíbe pedir o repetir datos sensibles y revelar
-    configuración. Corren el grafo directo (sin heurísticas de main.py) para
+    configuración. Corren el grafo directo (sin heurísticas de pipeline/turn.py) para
     medir que el modelo lo respete por sí solo."""
     return [
         EvalCase(

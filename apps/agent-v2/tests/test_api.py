@@ -50,7 +50,7 @@ def test_health_and_diagnostics(client: TestClient) -> None:
 def test_prompts_endpoints(client: TestClient) -> None:
     index = client.get("/prompts").json()
     assert index["latest"] == "1.2.0" and index["processDefault"] == "latest"
-    assert [v["version"] for v in index["versions"]] == ["1.2.0", "1.1.0", "1.0.0"]
+    assert [v["version"] for v in index["versions"]] == ["1.3.0", "1.2.0", "1.1.0", "1.0.0"]  # 1.3.0 en draft: no es latest pero sí se lista
     detail = client.get("/prompts/v1.0.0").json()
     assert "blockTexts" not in detail and "40_que_nunca_haces" in detail["blocks"]
     with_text = client.get("/prompts/1.2.0?text=true").json()
@@ -129,7 +129,7 @@ def test_chat_allows_tool_urls(client: TestClient) -> None:
 def test_chat_auto_compacts_heavy_history(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     import dataclasses
 
-    monkeypatch.setattr(main, "settings", dataclasses.replace(main.settings, compact_after_chars=500, compact_keep_turns=1))
+    monkeypatch.setattr(main.runtime.pipeline, "settings", dataclasses.replace(main.settings, compact_after_chars=500, compact_keep_turns=1))
     messages = []
     for i in range(6):
         messages.append(HumanMessage(content=f"mensaje largo {i} " * 20, id=f"h{i}"))
@@ -220,3 +220,153 @@ def test_learning_signal_is_redacted(client: TestClient) -> None:
     signals = client.get("/learning/signals?tenantId=t1").json()["signals"]
     assert signals
     assert "6671234567" not in signals[0]["question"] and "a@b.mx" not in signals[0]["question"]
+
+
+# ---------------- robustez del turno (pipeline) ----------------
+
+
+def test_chat_soft_failure_then_handoff(client: TestClient) -> None:
+    """Un fallo aislado contesta suave y NO bloquea al bot; el segundo seguido sí."""
+    client.fake.raise_on_invoke = RuntimeError("bug en una tool")
+    first = _chat(client, "hola", channel="whatsapp")
+    assert first["engine"] == "error-soft" and first["handoff"] is False
+    assert first["intent"] == "ERROR_TECNICO" and first["reply"]
+    assert client.fake.threads["t1:c1"]["failure_streak"] == 1
+    assert "handoff" not in client.fake.threads["t1:c1"]
+
+    second = _chat(client, "sigues ahí?", channel="whatsapp", messageId="m2")
+    assert second["engine"] == "error-fallback" and second["handoff"] is True
+    assert second["stage"] == "HUMANO"
+    assert client.fake.threads["t1:c1"]["handoff"] is True
+    assert client.fake.threads["t1:c1"]["handoff_reason"] == "ERROR_TECNICO"
+
+    # Con el hilo en handoff, el siguiente mensaje ya no invoca al grafo.
+    invocations = len(client.fake.invocations)
+    third = _chat(client, "hola?", messageId="m3")
+    assert third["intent"] == "HUMAN_ACTIVE" and len(client.fake.invocations) == invocations
+
+    # Liberar el hilo limpia también la racha de fallos.
+    released = client.post("/conversations/c1/release?tenantId=t1").json()
+    assert released["handoff"] is False
+    assert client.fake.threads["t1:c1"]["failure_streak"] == 0
+
+
+def test_chat_transient_failure_is_retried_by_resuming(client: TestClient) -> None:
+    import httpx
+
+    client.fake.raise_on_invoke = httpx.ConnectError("openrouter unreachable")
+    client.fake.raise_times = 1
+    client.fake.next_reply = "Te sale en $150."
+    body = _chat(client, "cuánto cuesta la lata")
+    assert body["engine"] == "langgraph" and body["reply"] == "Te sale en $150."
+    assert len(client.fake.invocations) == 2
+    assert client.fake.invocations[0]["payload"] is not None
+    assert client.fake.invocations[1]["payload"] is None, "el reintento reanuda el checkpoint, no repite la entrada"
+    humans = [m for m in client.fake.threads["t1:c1"]["messages"] if isinstance(m, HumanMessage)]
+    assert len(humans) == 1, "el mensaje del cliente no se duplica"
+    assert client.get("/metrics").json()["counters"].get("turn.retried") == 1
+
+
+def test_chat_success_resets_failure_streak(client: TestClient) -> None:
+    client.fake.seed("t1:c1", failure_streak=1, stage="DESCUBRIMIENTO")
+    body = _chat(client, "hola")
+    assert body["engine"] == "langgraph"
+    assert client.fake.threads["t1:c1"]["failure_streak"] == 0
+
+
+def test_chat_empty_model_reply_gets_deterministic_fallback(client: TestClient) -> None:
+    line = {"variantId": "v", "quantity": "2", "sku": "S", "title": "Lata"}
+    client.fake.next_reply = ""
+    client.fake.next_update = {"carts": {"1": {"cartId": "1", "lines": [line], "stage": "ARMANDO_CARRITO"}}}
+    body = _chat(client, "agrégame 2 latas", channel="whatsapp")
+    assert body["engine"] == "reply-fallback"
+    assert body["reply"] and "total" in body["reply"]
+    assert body["cart"] == [line]
+
+
+def test_chat_reads_content_blocks(client: TestClient) -> None:
+    fake = client.fake
+    original = fake.ainvoke
+
+    async def blocks(payload, *, config, context=None):
+        result = await original(payload, config=config, context=context)
+        result["messages"][-1] = AIMessage(content=[{"type": "text", "text": "Va, te la cotizo 🙂"}], id="blk")
+        return result
+
+    fake.ainvoke = blocks  # type: ignore[method-assign]
+    body = _chat(client, "sí")
+    assert body["engine"] == "langgraph" and body["reply"] == "Va, te la cotizo 🙂"
+
+
+def test_chat_whatsapp_burst_is_answered_once(client: TestClient) -> None:
+    """Tres mensajes seguidos por WhatsApp: los dos primeros ceden, el último
+    contesta con los tres textos juntos en un solo turno."""
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+
+    from app.pipeline.coalesce import MessageCoalescer
+
+    original = main.runtime.coalescer
+    main.runtime.coalescer = MessageCoalescer(400)
+    try:
+        client.fake.next_reply = "Van 2 playeras rojas, ¿te doy el total?"
+
+        def send(text: str, message_id: str, delay: float):
+            time.sleep(delay)
+            return client.post(
+                "/chat",
+                json={"tenantId": "t1", "conversationId": "burst", "text": text, "channel": "whatsapp", "messageId": message_id},
+            ).json()
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futures = [
+                pool.submit(send, "hola", "b1", 0.0),
+                pool.submit(send, "quiero 2 playeras", "b2", 0.1),
+                pool.submit(send, "rojas", "b3", 0.2),
+            ]
+            results = [f.result() for f in futures]
+    finally:
+        main.runtime.coalescer = original
+
+    assert [r["engine"] for r in results[:2]] == ["coalesced", "coalesced"]
+    assert all(r["reply"] == "" and r["handoff"] is False and r["intent"] == "COALESCED" for r in results[:2])
+    assert results[2]["engine"] == "langgraph" and results[2]["reply"].startswith("Van 2")
+    assert len(client.fake.invocations) == 1
+    sent = client.fake.invocations[0]["payload"]["messages"][0].content
+    assert sent == "hola\nquiero 2 playeras\nrojas"
+    # El reintento del webhook del último mensaje devuelve la misma respuesta.
+    again = client.post("/chat", json={"tenantId": "t1", "conversationId": "burst", "text": "rojas", "channel": "whatsapp", "messageId": "b3"}).json()
+    assert again["reply"] == results[2]["reply"] and len(client.fake.invocations) == 1
+
+
+def test_chat_response_carries_turn_id_and_metrics_count(client: TestClient) -> None:
+    body = _chat(client, "hola")
+    assert body["turnId"] and len(body["turnId"]) == 12
+    snapshot = client.get("/metrics").json()
+    assert snapshot["counters"]["turn.ok"] >= 1
+    assert snapshot["latencyMs"]["samples"] >= 1
+    assert "turnTimeoutImageSeconds" in client.get("/diagnostics").json()["budgets"]
+    assert client.get("/diagnostics").json()["failurePolicy"]["handoffAfterFailures"] == 2
+
+
+def test_transcript_endpoint_redacts_by_default(client: TestClient) -> None:
+    messages = [
+        HumanMessage(content="soy Laura, mi cel es 6671234567", id="h0"),
+        AIMessage(content="", tool_calls=[{"name": "recordar_cliente", "args": {"nombre": "Laura"}, "id": "c1"}], id="a0"),
+        ToolMessage(content="Guardado: name=Laura", tool_call_id="c1", name="recordar_cliente"),
+        AIMessage(content="Gracias Laura, ¿qué necesitas?", id="a1"),
+    ]
+    client.fake.seed("t1:c8", messages=messages, stage="DESCUBRIMIENTO")
+    body = client.get("/conversations/c8/messages?tenantId=t1").json()
+    assert body["total"] == 4 and body["returned"] == 4 and body["redacted"] is True
+    assert [m["role"] for m in body["messages"]] == ["customer", "agent", "tool", "agent"]
+    assert "6671234567" not in body["messages"][0]["text"]
+    assert body["messages"][1]["toolCalls"] == ["recordar_cliente"]
+    assert body["messages"][2]["tool"] == "recordar_cliente"
+
+    raw = client.get("/conversations/c8/messages?tenantId=t1&redact=false&limit=1").json()
+    assert raw["returned"] == 1 and raw["messages"][0]["text"] == "Gracias Laura, ¿qué necesitas?"
+    assert client.get("/conversations/nope/messages?tenantId=t1").status_code == 404
+
+    detail = client.get("/conversations/c8?tenantId=t1").json()
+    assert detail["failureStreak"] == 0 and detail["handoffReason"] is None

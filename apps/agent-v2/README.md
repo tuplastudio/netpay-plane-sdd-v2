@@ -39,13 +39,28 @@ lo que hay además del grafo:
 | Guard de salida | `app/guards/output.py` | Bloquea fugas del prompt/notas internas/secretos y código; enmascara tarjeta/CLABE/CURP; sustituye URLs que no vengan de una herramienta. También reescribe el `AIMessage` del hilo. |
 | PII | `app/guards/pii.py` | Redacción en logs, señales de aprendizaje y memoria episódica. |
 | Higiene de contexto | `app/memory/context.py` | Compactación automática por `AGENT_COMPACT_AFTER_CHARS` (resumen + últimos `AGENT_COMPACT_KEEP_TURNS` turnos) y manual: `POST /conversations/{id}/compact`, `DELETE /conversations/{id}/messages`. |
+| Ráfagas de mensajes | `app/pipeline/coalesce.py` | Varios mensajes seguidos del mismo cliente por WhatsApp se contestan como UN turno (los primeros ceden con `intent=COALESCED`, el último invoca al modelo con los textos juntos). `AGENT_COALESCE_WINDOW_MS` (1500), `AGENT_COALESCE_CHANNELS` (`whatsapp`). |
+| Política de fallos | `app/pipeline/failures.py` | Fallo transitorio del proveedor → reintento reanudando el checkpoint; fallo aislado → respuesta suave sin bloquear al bot (`engine=error-soft`); `AGENT_HANDOFF_AFTER_FAILURES` (2) fallos seguidos → handoff. Tope del turno 28 s, por debajo del puente (30 s). |
+| Respuesta nunca vacía | `app/pipeline/replies.py` | Toma solo el texto de ESTE turno (str o bloques de contenido); si el modelo no dejó texto, respaldo determinista según el estado (`engine=reply-fallback`). |
+| Observabilidad | `app/pipeline/trace.py` | `turnId` en cada respuesta, línea `turn.done` con duración por etapa, `GET /metrics` (contadores + p50/p95), `GET /conversations/{id}/messages` (transcript redactado). |
 | Memoria episódica | `app/memory/episodic.py` | Al cerrar una conversación (`POST /conversations/{id}/close`, handoff, borrado) se guarda un episodio de *comportamiento* (ánimo, fricción, mejoras) sin datos de personas ni del negocio; se agrega como `<lecciones>` en el prompt. `GET /memory/episodes`, `/memory/episodes/stats`, `/memory/lessons`. |
 
 Variables nuevas (todas opcionales): `PROMPTS_DIR`, `PROMPT_VERSION`,
 `AGENT_INPUT_HEURISTICS`, `AGENT_SCOPE_GUARD_FAIL_CLOSED`, `AGENT_OUTPUT_GUARD`,
 `AGENT_COMPACT_AFTER_CHARS`, `AGENT_COMPACT_KEEP_TURNS`, `AGENT_EPISODIC_MEMORY`,
-`EPISODIC_MODEL_ID`, `AGENT_EPISODIC_LESSONS`. `GET /diagnostics` reporta el
-estado de cada capa.
+`EPISODIC_MODEL_ID`, `AGENT_EPISODIC_LESSONS`, `AGENT_TURN_TIMEOUT_SECONDS` (28),
+`AGENT_TURN_TIMEOUT_IMAGE_SECONDS` (42), `AGENT_COALESCE_WINDOW_MS` (1500; 0
+apaga), `AGENT_COALESCE_CHANNELS` (`whatsapp`), `AGENT_RETRY_TRANSIENT` (1),
+`AGENT_HANDOFF_AFTER_FAILURES` (2; 1 = todo fallo es handoff, como antes),
+`AGENT_TRANSCRIPT_LIMIT` (60). `GET /diagnostics` reporta el estado de cada
+capa y `GET /metrics` los contadores del proceso.
+
+Cómo está partido el código (detalle en `docs/ARCHITECTURE.md`): `main.py`
+solo cablea; `runtime.py` guarda el estado de proceso (grafo, checkpointer,
+locks, idempotencia, métricas); `api/` son routers sin lógica; `pipeline/`
+es el turno de `POST /chat` por etapas (`turn.py` orquesta; `coalesce`,
+`failures`, `replies`, `responses`, `post_turn`, `trace`); `contracts.py` es
+el contrato HTTP compartido.
 
 ## Pruebas
 
@@ -57,7 +72,9 @@ cd apps/agent-v2
 
 Sin red: la key es falsa y el grafo se sustituye por un doble en las pruebas
 de API. Cubren prompts, PII, inyección/alcance, guard de salida,
-compactación, memoria episódica, settings y la API.
+compactación, memoria episódica, settings, política de fallos (reintento por
+reanudación, suave → handoff), ráfagas de WhatsApp, respuesta vacía / bloques
+de contenido, transcript, métricas y la API completa.
 
 ## Cómo correrlo
 
@@ -114,30 +131,6 @@ más abajo). El diseño la mantiene chica y visible a propósito — ver
 `app/evals/__init__.py` y `app/evals/dataset.py` para el detalle de qué mide
 y cómo puntúa.
 
-### Exponer `GET /evals`
-
-`app/evals/runner.py` expone `run_suite(...)` (async) listo para colgar de
-un endpoint; no toqué `main.py` porque otro trabajo está en curso ahí. Falta
-cablear algo como:
-
-```python
-from .evals.runner import run_suite
-
-@app.get("/evals")
-async def evals(
-    judge: bool = False,
-    category: list[str] | None = Query(default=None),
-    limit: int | None = None,
-    dry_run: bool = False,
-) -> dict[str, Any]:
-    return await run_suite(categories=category, judge=judge, limit=limit, dry_run=dry_run)
-```
-
-Recomendación: que `dry_run` sea `True` por defecto en el endpoint HTTP (a
-diferencia del CLI) para que un `GET /evals` accidental no gaste dinero; que
-la corrida real solo se dispare con `?dry_run=false` explícito, o mejor,
-protegido detrás de `X-Internal-Key` como el resto de rutas mutantes.
-
 ## Plan de migración v1 → v2
 
 El corte es un solo env var, no un despliegue coordinado:
@@ -164,50 +157,35 @@ y `agent-v2` ya corre en paralelo, en el mismo compose, en `:8010`
 4. Dejar `agent-service` corriendo un tiempo como *fallback* manual (mismo
    volumen de checkpoints, mismo `commerce-api`) por si hay que revertir con
    solo cambiar `AGENT_URL` de vuelta.
-5. Antes del corte definitivo, cerrar los huecos de paridad de abajo que
-   afecten al panel/operación (especialmente `/settings` y `/knowledge`, que
-   el panel de administración probablemente ya usa contra v1).
+5. Antes del corte definitivo, revisar `GET /metrics` un par de días con
+   tráfico de sombra: `turn.failure.*`, `turn.retried` y `turn.reply_fallback`
+   deben ser marginales frente a `turn.ok`; si no, subir
+   `AGENT_TURN_TIMEOUT_SECONDS` o revisar el proveedor antes de cortar.
 
 No es necesario apagar v1 para probar v2: corren en puertos distintos con
 API keys de servicio propias, y `commerce-api` no distingue entre ellos.
 
-## Paridad de endpoints con v1
+## Endpoints
 
-Estado real revisado al terminar este trabajo (otros dos agentes seguían
-tocando `main.py`, `agent_settings.py` y `security.py` en paralelo, así que
-esto es una foto, no una promesa — confírmalo con `grep -nE
-'@app\.(get|post|put|delete)' apps/agent-v2/app/main.py` antes de fiarte a
-ciegas):
+Todo detrás de `X-Internal-Key` salvo `GET /healthz`. Confírmalo con
+`grep -rnE '@router\.(get|post|put|delete)' apps/agent-v2/app/api/`.
 
-| Endpoint (v1) | v2 |
+| Área | Endpoints |
 |---|---|
-| `GET /healthz` | ✅ |
-| `GET /readyz` | ✅ |
-| `GET /diagnostics` | ✅ |
-| `POST /chat` | ✅ (mismo contrato) |
-| `GET /conversations/{id}` | ✅ |
-| `DELETE /conversations/{id}` | ✅ (ya la agregaron en paralelo) |
-| `POST /conversations/{id}/release` | ✅ (ya la agregaron en paralelo) |
-| `POST /audio/stt` | ❌ falta |
-| `POST /audio/tts` | ❌ falta |
-| `GET /settings` | ✅ (ya la agregaron en paralelo) |
-| `PUT /settings` | ✅ |
-| `DELETE /settings` | ✅ |
-| `GET /knowledge` (listar documentos) | ❌ falta (solo existe `POST /knowledge/reload`) |
-| `GET /knowledge/search` | ❌ falta |
-| `POST /knowledge/upload` | ❌ falta |
-| `DELETE /knowledge/{doc_id}` | ❌ falta |
-| `GET /learning/signals` | ❌ falta |
-| `POST /learning/signals/{id}/approve` | ❌ falta |
-| `POST /learning/signals/{id}/dismiss` | ❌ falta |
-| `GET /tools` | ✅ (ya la agregaron en paralelo) |
-| `GET /evals` | ❌ falta cablear (ver arriba; la lógica ya existe en `app/evals/runner.py`) |
+| Salud | `GET /healthz`, `GET /readyz`, `GET /diagnostics`, `GET /metrics`, `GET /tools`, `GET /evals` (dry-run por defecto) |
+| Conversación | `POST /chat` (mismo contrato que v1 + `carts[]`, `turnId`) |
+| Hilo | `GET /conversations/{id}`, `GET /conversations/{id}/messages` (transcript, `redact=true` por defecto, `limit`), `POST .../compact`, `DELETE .../messages`, `POST .../close`, `DELETE /conversations/{id}`, `POST .../release` |
+| Prompts | `GET /prompts`, `GET /prompts/{version}`, `POST /prompts/reload` |
+| Ajustes | `GET/PUT/DELETE /settings`, `POST /moderation/reply` |
+| Conocimiento | `GET /knowledge`, `GET /knowledge/search`, `POST /knowledge/upload`, `DELETE /knowledge/{docId}`, `POST /knowledge/reload`, `POST /knowledge/web/preview`, `POST /knowledge/web/save` |
+| Aprendizaje | `GET /learning/signals`, `POST /learning/signals/{id}/approve`, `POST /learning/signals/{id}/dismiss` |
+| Memoria | `GET /memory/episodes`, `GET /memory/episodes/stats`, `GET /memory/lessons`, `DELETE /memory/episodes` |
+| Audio | `POST /audio/stt`, `POST /audio/tts` (503 si el proveedor no lo soporta) |
 
-Huecos que quedan y probablemente importan para operar v2 en producción:
-**`/knowledge` completo** (hoy solo se puede recargar desde disco, no subir
-ni buscar documentos desde el panel) y **`/learning/signals`** (v1 aprende de
-señales de conversación; v2 todavía no tiene ese circuito). `/audio/*`
-(voz por WhatsApp) tampoco existe todavía en v2.
+Paridad con v1: completa (`/knowledge/*`, `/learning/*`, `/audio/*` y
+`/evals` ya existen). Lo que v2 agrega sobre v1: `carts[]`, `turnId`,
+`GET /metrics`, `GET /conversations/{id}/messages`, `POST .../compact`,
+`DELETE .../messages`, `/memory/*`, `/prompts/*`.
 
 ## La suite de evals (`app/evals/`)
 

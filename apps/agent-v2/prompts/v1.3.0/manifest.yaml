@@ -1,0 +1,17 @@
+version: 1.3.0
+status: draft
+created: 2026-09-17
+description: >-
+  Conversación más natural: mensajes encadenados del cliente se contestan
+  como uno solo, cierres cortos sin relanzar la venta, correcciones sin
+  justificarse y reformulación cuando el cliente no entendió. Nuevo bloque
+  85_ritmo_y_cierre.md; ajuste en 10_como_hablas.md.
+changelog:
+  - >-
+    10_como_hablas.md: si el mensaje del cliente trae varias líneas es una
+    ráfaga de mensajes seguidos (el agente las junta en un turno): se
+    contestan como una sola idea, sin saludar ni responder línea por línea.
+  - >-
+    Nuevo bloque 85_ritmo_y_cierre.md: cómo cerrar cuando el cliente se
+    despide o agradece, cómo aceptar una corrección, qué hacer cuando dice
+    que no entendió, y cómo retomar cuando vuelve después de un rato.

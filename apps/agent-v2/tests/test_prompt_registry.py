@@ -132,6 +132,9 @@ class ShippedPromptsTests(TestCase):
         self.assertIn("1.0.0", registry.versions())
         self.assertIn("1.1.0", registry.versions())
         self.assertIn("1.2.0", registry.versions())
+        self.assertIn("1.3.0", registry.versions())
+        # v1.3.0 está en draft (sin evals reales corridos todavía): 1.2.0
+        # sigue siendo latest hasta que se promueva a mano en manifest.yaml.
         self.assertEqual(registry.latest(), "1.2.0")
         hardened = registry.get("1.1.0")
         self.assertIsNotNone(hardened.block("05_seguridad_y_privacidad"))
@@ -195,17 +198,35 @@ class AssemblerTests(TestCase):
 
 
 class MultiCartPromptTests(TestCase):
-    """v1.2.0 (la más nueva) debe ser latest y traer la guía de varios carritos."""
+    """v1.2.0 introdujo la guía de varios carritos; v1.3.0 (latest) la conserva."""
 
-    def test_1_2_0_is_latest_and_documents_carritoId(self) -> None:
+    def test_1_2_0_documents_carritoId(self) -> None:
         registry = get_prompt_registry()
-        self.assertEqual(registry.latest(), "1.2.0")
-        version = registry.get("1.2.0")
-        self.assertIsNotNone(version.block("65_carritos_multiples"))
+        for version_id in ("1.2.0", "1.3.0"):
+            version = registry.get(version_id)
+            self.assertIsNotNone(version.block("65_carritos_multiples"), version_id)
+            text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
+            self.assertIn("VARIOS PEDIDOS A LA VEZ", text)
+            self.assertIn("carritoId", text)
+            self.assertIn("[corchetes]", text)
+
+
+class ConversationalPromptTests(TestCase):
+    """v1.3.0 trae ritmo/cierre y ráfagas; queda en draft hasta correr evals
+    reales contra ella (ver prompts/README.md), así que NO es latest todavía
+    pero sí debe poder fijarse por tenant o por PROMPT_VERSION."""
+
+    def test_1_3_0_is_draft_and_covers_bursts_and_closing(self) -> None:
+        registry = get_prompt_registry()
+        self.assertEqual(registry.latest(), "1.2.0", "1.3.0 en draft no debe volverse latest sola")
+        version = registry.get("1.3.0")
+        self.assertIsNotNone(version.block("85_ritmo_y_cierre"))
         text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
-        self.assertIn("VARIOS PEDIDOS A LA VEZ", text)
-        self.assertIn("carritoId", text)
-        self.assertIn("[corchetes]", text)
+        self.assertIn("RITMO, CORRECCIONES Y CIERRE", text)
+        self.assertIn("varios mensajes", text, "debe explicar que varias líneas = ráfaga de mensajes")
+        for tag in DATA_TAGS:
+            self.assertIn(f"<{tag}>", text, f"el prompt 1.3.0 debe nombrar el delimitador {tag}")
+        self.assertIn("NUNCA pides ni aceptas: número de tarjeta", text)
 
     def test_1_1_0_still_resolvable_for_pinned_tenants(self) -> None:
         # Un tenant que fijó 1.1.0 explícitamente sigue viéndolo tal cual,

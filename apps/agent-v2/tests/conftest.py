@@ -21,6 +21,9 @@ os.environ.setdefault("AGENT_V2_DATA_DIR", str(_TMP / "data"))
 os.environ.setdefault("KNOWLEDGE_DIR", str(_TMP / "knowledge"))
 os.environ.setdefault("AGENT_SETTINGS_DIR", str(_TMP / "settings"))
 os.environ.setdefault("AGENT_SCOPE_GUARD", "0")
+# La ventana de ráfagas dormiría 1.5 s por cada POST /chat de WhatsApp en
+# las pruebas de API; se apaga aquí y se prueba aparte con una ventana corta.
+os.environ.setdefault("AGENT_COALESCE_WINDOW_MS", "0")
 os.environ.setdefault("PUBLIC_BASE_URL", "https://app.example.test")
 
 import pytest  # noqa: E402
@@ -40,6 +43,10 @@ class FakeAgent:
         self.next_reply: str = "Claro, ¿qué necesitas?"
         self.next_update: dict[str, Any] = {}
         self.raise_on_invoke: Exception | None = None
+        # Cuántas invocaciones seguidas deben fallar con `raise_on_invoke`
+        # antes de volver a contestar bien (None = fallar siempre). Sirve para
+        # probar el reintento por reanudación del pipeline.
+        self.raise_times: int | None = None
         self.invocations: list[dict[str, Any]] = []
 
     @staticmethod
@@ -60,11 +67,18 @@ class FakeAgent:
             else:
                 values[key] = value
 
-    async def ainvoke(self, payload: dict[str, Any], *, config: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    async def ainvoke(self, payload: dict[str, Any] | None, *, config: dict[str, Any], context: Any = None) -> dict[str, Any]:
+        """`payload=None` es "reanuda el checkpoint" (así reintenta el pipeline):
+        no agrega el mensaje del cliente otra vez, solo termina el turno."""
         self.invocations.append({"payload": payload, "config": config, "context": context})
-        if self.raise_on_invoke is not None:
+        # Como LangGraph: la entrada queda en el checkpoint ANTES de correr
+        # el primer nodo, así que una reanudación no la vuelve a agregar.
+        if payload is not None:
+            await self.aupdate_state(config, {"messages": payload["messages"]})
+        if self.raise_on_invoke is not None and (self.raise_times is None or self.raise_times > 0):
+            if self.raise_times is not None:
+                self.raise_times -= 1
             raise self.raise_on_invoke
-        await self.aupdate_state(config, {"messages": payload["messages"]})
         reply = AIMessage(content=self.next_reply)
         await self.aupdate_state(config, {"messages": [reply], **self.next_update})
         return dict(self.threads[self._thread(config)])

@@ -8,7 +8,7 @@ que el modelo obedezca el prompt.
 - ``output``: revisión de la respuesta del modelo (fugas, código, URLs,
   datos sensibles) antes de salir al canal.
 
-Orden en un turno (``main.py``)::
+Orden en un turno (``pipeline/turn.py``)::
 
     neutralize → detect_injection → off_scope_category → is_off_topic (LLM)
       → [compactación de contexto] → grafo → OutputGuard.check → canal

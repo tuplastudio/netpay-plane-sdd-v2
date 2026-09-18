@@ -14,7 +14,7 @@ caso):
     generar_enlace_pago, etc.). Ver `_invented_prices`.
   - `formato_whatsapp`: la respuesta cruda del modelo (antes del saneador de
     `app.text`) no debe traer **negritas**, encabezados `#` ni viñetas con
-    guion. Se prueba la salida CRUDA a propósito: el saneador de `main.py`
+    guion. Se prueba la salida CRUDA a propósito: el saneador de `text.py` (que aplica `pipeline/turn.py`)
     puede tapar un mal hábito del prompt; aquí se mide si el modelo lo
     respeta por sí solo.
 """

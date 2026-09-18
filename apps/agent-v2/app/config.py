@@ -81,12 +81,50 @@ class Settings:
 
     # ---- Presupuestos por turno ----
     recursion_limit: int = field(default_factory=lambda: _env_int("AGENT_RECURSION_LIMIT", 40))
+    # commerce-api (agent-bridge.service.ts) aborta la llamada al agente a los
+    # 30 s (45 s si trae imagen). Un turno que tarde más ya no le llega a
+    # nadie: el tope del agente queda POR DEBAJO para que la degradación
+    # (reintento, respuesta suave o handoff) sí alcance al cliente.
     turn_timeout_seconds: float = field(
-        default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_SECONDS", 90.0)
+        default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_SECONDS", 28.0)
+    )
+    turn_timeout_image_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_IMAGE_SECONDS", 42.0)
+    )
+
+    # ---- Ráfagas de mensajes (ver pipeline/coalesce.py) ----
+    # En WhatsApp la gente escribe en varios mensajes seguidos ("hola" /
+    # "quiero 2 playeras" / "rojas"). Se espera esta ventana desde el último
+    # mensaje y se contesta a la ráfaga completa como un solo turno. 0 apaga.
+    coalesce_window_ms: int = field(default_factory=lambda: _env_int("AGENT_COALESCE_WINDOW_MS", 1500))
+    coalesce_channels: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            c.strip() for c in _env("AGENT_COALESCE_CHANNELS", "whatsapp").split(",") if c.strip()
+        )
+    )
+
+    # ---- Política de fallos del turno (ver pipeline/failures.py) ----
+    # Un error transitorio del proveedor (5xx, rate limit, red) se reintenta
+    # una vez reanudando el checkpoint. Solo tras N fallos seguidos en el
+    # mismo hilo se marca handoff; antes, respuesta suave sin bloquear al bot.
+    retry_transient_failures: bool = field(
+        default_factory=lambda: _env_bool("AGENT_RETRY_TRANSIENT", True)
+    )
+    handoff_after_failures: int = field(
+        default_factory=lambda: max(1, _env_int("AGENT_HANDOFF_AFTER_FAILURES", 2))
+    )
+
+    # ---- Observabilidad (ver pipeline/trace.py, GET /metrics) ----
+    metrics_latency_samples: int = field(
+        default_factory=lambda: _env_int("AGENT_METRICS_LATENCY_SAMPLES", 500)
+    )
+    # Cuántos mensajes devuelve GET /conversations/{id}/messages por defecto.
+    transcript_default_limit: int = field(
+        default_factory=lambda: _env_int("AGENT_TRANSCRIPT_LIMIT", 60)
     )
     max_input_chars: int = field(default_factory=lambda: _env_int("AGENT_MAX_INPUT_CHARS", 8000))
     # v1 topaba el audio con AGENT_MAX_AUDIO_BYTES; v2 no tenía tope para
-    # imageBase64 (ver security.image_size_error, falta cablearlo en main.py).
+    # imageBase64 (ver security.image_size_error, cableado en pipeline/turn.py).
     max_image_bytes: int = field(
         default_factory=lambda: _env_int("AGENT_MAX_IMAGE_BYTES", 5 * 1024 * 1024)
     )
