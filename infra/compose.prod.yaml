@@ -49,6 +49,11 @@ services:
       # registra ahí el webhook de WhatsApp. Vacío = cae a PUBLIC_BASE_URL
       # (el web reescribe /api/v1/* al API), que también funciona.
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      # Evolution API de la plataforma (alta de WhatsApp desde /channels).
+      # Sin esto solo funcionan los tenants que ya traen credenciales
+      # propias en su conexión.
+      EVOLUTION_BASE_URL: ${EVOLUTION_BASE_URL:-}
+      EVOLUTION_API_KEY_REF: ${EVOLUTION_API_KEY_REF:-}
       # Checkout hosted que abre el cliente: /pay del frontend.
       DUMMY_PUBLIC_URL: ${DUMMY_PUBLIC_URL:-${PUBLIC_BASE_URL}/pay}
       PAYMENT_METHODS: ${PAYMENT_METHODS:-}
