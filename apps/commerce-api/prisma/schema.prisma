@@ -262,6 +262,13 @@ model ProductVariant {
   stock           Decimal? @db.Decimal(18, 3) // null = EXTERNAL
   satProductCode  String   // c_ClaveProdServ
   satUnitCode     String   // c_ClaveUnidad
+  // Integración con ecommerce/ERP externo (Shopify, WooCommerce, SAP, Odoo,
+  // ...). Ambos libres: `originSystem` es el nombre elegido en el portal
+  // (uno del catálogo conocido, o el texto libre de "Otro"); `originExternalId`
+  // es el identificador que ese sistema usa para este producto/variante.
+  // NULL en ambos = variante nativa de este catálogo, sin origen externo.
+  originSystem      String?
+  originExternalId  String?
   status          CatalogStatus @default(DRAFT)
   createdAt       DateTime @default(now()) @db.Timestamptz
   updatedAt       DateTime @updatedAt @db.Timestamptz

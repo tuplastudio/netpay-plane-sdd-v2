@@ -21,6 +21,7 @@ import {
   addVariantSchema,
   apiErrorMessage,
   editProductSchema,
+  resolveOriginSystem,
   type AddVariantValues,
   type EditProductValues,
   type Product,
@@ -107,9 +108,15 @@ export function EditProductSheet({
         expectedVersion: input.variant.version,
         title: input.values.title,
         price: input.values.price,
+        // El formulario siempre trae un valor resuelto (nunca "sin tocar"):
+        // vacío = quita el control de inventario o el vínculo con el
+        // sistema externo, así que se manda `null` explícito, no se omite.
+        stock: input.values.stock.trim() || null,
         satProductCode: input.values.satProductCode || undefined,
         satUnitCode: input.values.satUnitCode || undefined,
         status: input.values.status,
+        originSystem: resolveOriginSystem(input.values) || null,
+        originExternalId: input.values.originExternalId?.trim() || null,
       });
       return res.data.data;
     },
@@ -129,7 +136,17 @@ export function EditProductSheet({
 
   const addVariantForm = useForm<AddVariantValues>({
     resolver: zodResolver(addVariantSchema),
-    defaultValues: { sku: "", title: "", price: "", satProductCode: "", satUnitCode: "" },
+    defaultValues: {
+      sku: "",
+      title: "",
+      price: "",
+      stock: "",
+      satProductCode: "",
+      satUnitCode: "",
+      originSystem: "",
+      originSystemOther: "",
+      originExternalId: "",
+    },
   });
 
   const addVariant = useMutation({
@@ -139,8 +156,11 @@ export function EditProductSheet({
         sku: v.sku,
         title: v.title,
         price: v.price,
+        stock: v.stock.trim() || undefined,
         satProductCode: v.satProductCode || undefined,
         satUnitCode: v.satUnitCode || undefined,
+        originSystem: resolveOriginSystem(v) || undefined,
+        originExternalId: v.originExternalId?.trim() || undefined,
       });
       return res.data.data;
     },

@@ -22,6 +22,58 @@ export interface Variant {
   satUnitCode: string;
   status: CatalogStatus;
   version: number;
+  /** Ecommerce/ERP de origen (Shopify, SAP, ...) o null si es nativa de este catálogo. */
+  originSystem: string | null;
+  /** ID de este producto/variante en ese sistema de origen. */
+  originExternalId: string | null;
+}
+
+/**
+ * Plataformas conocidas para el selector de "sistema de origen". Cubre los
+ * ecommerce y ERPs más comunes en la región; `ORIGIN_SYSTEM_OTHER_VALUE` es
+ * el valor centinela del <select> para "no está en la lista" — revela un
+ * campo de texto libre, nunca se manda tal cual al backend.
+ */
+export const ORIGIN_SYSTEM_OPTIONS = [
+  "Shopify",
+  "WooCommerce",
+  "Mercado Libre",
+  "Amazon",
+  "Magento",
+  "VTEX",
+  "Tiendanube",
+  "PrestaShop",
+  "BigCommerce",
+  "SAP",
+  "Oracle NetSuite",
+  "Microsoft Dynamics 365",
+  "Odoo",
+  "Zoho Inventory",
+  "QuickBooks",
+] as const;
+export const ORIGIN_SYSTEM_OTHER_VALUE = "__OTHER__";
+
+/** Del valor guardado en BD (texto libre) a los dos campos que usa el formulario. */
+export function originSystemToFormValue(stored: string | null): {
+  originSystem: string;
+  originSystemOther: string;
+} {
+  if (!stored) return { originSystem: "", originSystemOther: "" };
+  if ((ORIGIN_SYSTEM_OPTIONS as readonly string[]).includes(stored)) {
+    return { originSystem: stored, originSystemOther: "" };
+  }
+  return { originSystem: ORIGIN_SYSTEM_OTHER_VALUE, originSystemOther: stored };
+}
+
+/** De los dos campos del formulario al string que se manda al backend. */
+export function resolveOriginSystem(values: {
+  originSystem?: string;
+  originSystemOther?: string;
+}): string {
+  if (values.originSystem === ORIGIN_SYSTEM_OTHER_VALUE) {
+    return (values.originSystemOther ?? "").trim();
+  }
+  return (values.originSystem ?? "").trim();
 }
 
 export interface Product {
@@ -70,6 +122,22 @@ const statusField = z.enum(["DRAFT", "ACTIVE", "ARCHIVED"], {
   required_error: "Elige un estado",
 });
 const keywordListField = z.array(z.string().min(1).max(64)).max(50).default([]);
+const STOCK_RE = /^\d{1,15}(\.\d{1,3})?$/;
+/** Vacío = sin control de inventario cuando el toggle de "controlar existencias" está apagado. */
+const stockField = z
+  .string()
+  .refine((v) => v === "" || STOCK_RE.test(v), "Cantidad inválida (ej. 25 o 25.500)");
+const originSystemField = z.string().max(80, "Máximo 80 caracteres").optional().or(z.literal(""));
+const originSystemOtherField = z
+  .string()
+  .max(80, "Máximo 80 caracteres")
+  .optional()
+  .or(z.literal(""));
+const originExternalIdField = z
+  .string()
+  .max(120, "Máximo 120 caracteres")
+  .optional()
+  .or(z.literal(""));
 
 export const createSchema = z.object({
   sku: skuField,
@@ -97,9 +165,13 @@ export type EditProductValues = z.infer<typeof editProductSchema>;
 export const variantSchema = z.object({
   title: titleField,
   price: priceField,
+  stock: stockField,
   satProductCode: satProductField,
   satUnitCode: satUnitField,
   status: statusField,
+  originSystem: originSystemField,
+  originSystemOther: originSystemOtherField,
+  originExternalId: originExternalIdField,
 });
 export type VariantValues = z.infer<typeof variantSchema>;
 
@@ -107,8 +179,12 @@ export const addVariantSchema = z.object({
   sku: skuField,
   title: titleField,
   price: priceField,
+  stock: stockField,
   satProductCode: satProductField,
   satUnitCode: satUnitField,
+  originSystem: originSystemField,
+  originSystemOther: originSystemOtherField,
+  originExternalId: originExternalIdField,
 });
 export type AddVariantValues = z.infer<typeof addVariantSchema>;
 

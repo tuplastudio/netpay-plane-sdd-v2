@@ -81,6 +81,9 @@ export class CatalogService {
         price: string;
         satProductCode?: string;
         satUnitCode?: string;
+        stock?: string;
+        originSystem?: string;
+        originExternalId?: string;
       }>;
     },
   ) {
@@ -107,6 +110,9 @@ export class CatalogService {
             sku: v.sku,
             title: v.title,
             price: v.price,
+            stock: v.stock,
+            originSystem: v.originSystem,
+            originExternalId: v.originExternalId,
             satProductCode: v.satProductCode ?? input.satProductCode ?? "01010101",
             satUnitCode: v.satUnitCode ?? input.satUnitCode ?? "H87",
             status: "DRAFT",
@@ -164,6 +170,9 @@ export class CatalogService {
       price: string;
       satProductCode?: string;
       satUnitCode?: string;
+      stock?: string;
+      originSystem?: string;
+      originExternalId?: string;
     },
   ) {
     const product = await this.prisma.product.findFirst({
@@ -179,6 +188,9 @@ export class CatalogService {
         sku: input.sku,
         title: input.title,
         price: input.price,
+        stock: input.stock,
+        originSystem: input.originSystem,
+        originExternalId: input.originExternalId,
         satProductCode: input.satProductCode ?? "01010101",
         satUnitCode: input.satUnitCode ?? "H87",
         status: "DRAFT",
@@ -193,9 +205,14 @@ export class CatalogService {
       expectedVersion: number;
       title?: string;
       price?: string;
+      /** `null` quita el control de inventario; ausente = no tocar. */
+      stock?: string | null;
       satProductCode?: string;
       satUnitCode?: string;
       status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
+      /** `null` = ya no viene de un sistema externo; ausente = no tocar. */
+      originSystem?: string | null;
+      originExternalId?: string | null;
     },
   ) {
     const variant = await this.prisma.productVariant.findFirst({
@@ -215,9 +232,12 @@ export class CatalogService {
       data: {
         title: input.title,
         price: input.price,
+        stock: input.stock,
         satProductCode: input.satProductCode,
         satUnitCode: input.satUnitCode,
         status: input.status,
+        originSystem: input.originSystem,
+        originExternalId: input.originExternalId,
         version: { increment: 1 },
       },
     });

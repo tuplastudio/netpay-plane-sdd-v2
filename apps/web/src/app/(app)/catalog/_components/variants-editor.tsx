@@ -15,18 +15,15 @@ import { Money } from "@/components/app/money";
 import {
   CATALOG_STATUS_OPTIONS,
   Field,
+  ORIGIN_SYSTEM_OPTIONS,
+  ORIGIN_SYSTEM_OTHER_VALUE,
+  originSystemToFormValue,
   variantSchema,
   type AddVariantValues,
   type Variant,
   type VariantValues,
 } from "../catalog-shared";
 import { isOutOfStock } from "./product-helpers";
-
-// ---------------------------------------------------------------------------
-// Sección "Variantes" del panel de edición: lista legible en móvil (apilada
-// bajo `sm`), edición en línea por variante y formulario de alta plegable.
-// Las mutaciones viven en el panel; aquí solo se disparan.
-// ---------------------------------------------------------------------------
 
 export function VariantsSection({
   variants,
@@ -95,6 +92,44 @@ export function VariantsSection({
               <Field label="Clave SAT de unidad" error={addErrors.satUnitCode?.message}>
                 {(p) => <Input placeholder="H87" {...p} {...addForm.register("satUnitCode")} />}
               </Field>
+              <Field
+                label="Existencias"
+                hint="Vacío = sin control de inventario. Formato 25 o 25.500."
+                error={addErrors.stock?.message}
+              >
+                {(p) => <Input inputMode="decimal" placeholder="Sin control" {...p} {...addForm.register("stock")} />}
+              </Field>
+              <Field
+                label="Sistema de origen"
+                hint="Si este producto viene de una tienda o ERP externo."
+                error={addErrors.originSystem?.message}
+              >
+                {(p) => (
+                  <Select {...p} {...addForm.register("originSystem")}>
+                    <option value="">Sin sistema de origen</option>
+                    {ORIGIN_SYSTEM_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                    <option value={ORIGIN_SYSTEM_OTHER_VALUE}>Otro…</option>
+                  </Select>
+                )}
+              </Field>
+              {addForm.watch("originSystem") === ORIGIN_SYSTEM_OTHER_VALUE ? (
+                <Field label="Nombre del sistema" error={addErrors.originSystemOther?.message}>
+                  {(p) => (
+                    <Input placeholder="Nombre de tu tienda o ERP" {...p} {...addForm.register("originSystemOther")} />
+                  )}
+                </Field>
+              ) : null}
+              <Field
+                label="ID en el sistema de origen"
+                hint="El identificador que usa ese sistema para este producto."
+                error={addErrors.originExternalId?.message}
+              >
+                {(p) => <Input placeholder="12345" {...p} {...addForm.register("originExternalId")} />}
+              </Field>
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" size="sm" variant="ghost" onClick={closeAdd}>
@@ -155,9 +190,12 @@ function VariantRow({
     values: {
       title: variant.title,
       price: variant.price,
+      stock: variant.stock ?? "",
       satProductCode: variant.satProductCode,
       satUnitCode: variant.satUnitCode,
       status: variant.status,
+      ...originSystemToFormValue(variant.originSystem),
+      originExternalId: variant.originExternalId ?? "",
     },
   });
   const errors = form.formState.errors;
@@ -180,6 +218,13 @@ function VariantRow({
                 Existencias: <span className="tabular-nums">{variant.stock}</span>
               </>
             )}
+            {variant.originSystem ? (
+              <>
+                {" · "}
+                {variant.originSystem}
+                {variant.originExternalId ? ` #${variant.originExternalId}` : ""}
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex items-center justify-between gap-3 sm:justify-end">
@@ -241,6 +286,43 @@ function VariantRow({
         </Field>
         <Field label="Clave SAT de unidad" error={errors.satUnitCode?.message}>
           {(p) => <Input {...p} {...form.register("satUnitCode")} />}
+        </Field>
+        <Field
+          label="Existencias"
+          hint="Vacío = sin control de inventario. Formato 25 o 25.500."
+          error={errors.stock?.message}
+        >
+          {(p) => <Input inputMode="decimal" placeholder="Sin control" {...p} {...form.register("stock")} />}
+        </Field>
+        <Field
+          label="Sistema de origen"
+          hint="Si esta variante viene de una tienda o ERP externo."
+          error={errors.originSystem?.message}
+        >
+          {(p) => (
+            <Select {...p} {...form.register("originSystem")}>
+              <option value="">Sin sistema de origen</option>
+              {ORIGIN_SYSTEM_OPTIONS.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+              <option value={ORIGIN_SYSTEM_OTHER_VALUE}>Otro…</option>
+            </Select>
+          )}
+        </Field>
+        {form.watch("originSystem") === ORIGIN_SYSTEM_OTHER_VALUE ? (
+          <Field label="Nombre del sistema" error={errors.originSystemOther?.message}>
+            {(p) => <Input placeholder="Nombre de tu tienda o ERP" {...p} {...form.register("originSystemOther")} />}
+          </Field>
+        ) : null}
+        <Field
+          label="ID en el sistema de origen"
+          className="sm:col-span-2"
+          hint="El identificador que usa ese sistema para este producto."
+          error={errors.originExternalId?.message}
+        >
+          {(p) => <Input placeholder="12345" {...p} {...form.register("originExternalId")} />}
         </Field>
       </div>
       <div className="flex flex-wrap justify-end gap-2">

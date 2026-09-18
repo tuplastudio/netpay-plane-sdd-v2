@@ -12,6 +12,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from "class-validator";
 
@@ -25,6 +26,7 @@ const PRICE_RE = /^\d{1,10}\.\d{2}$/;
 const SAT_PRODUCT_RE = /^\d{8}$/;
 const SAT_UNIT_RE = /^[A-Z0-9]{2,3}$/;
 const STATUS_VALUES = ["DRAFT", "ACTIVE", "ARCHIVED"] as const;
+const STOCK_RE = /^\d{1,15}(\.\d{1,3})?$/;
 
 export class VariantInputDto {
   @IsString()
@@ -51,6 +53,24 @@ export class VariantInputDto {
   @IsString()
   @Matches(SAT_UNIT_RE, { message: "satUnitCode inválido" })
   satUnitCode?: string;
+
+  /** Existencias iniciales. Ausente = sin control de inventario (EXTERNAL). */
+  @IsOptional()
+  @IsString()
+  @Matches(STOCK_RE, { message: "stock debe ser un número (hasta 3 decimales)" })
+  stock?: string;
+
+  /** Nombre del ecommerce/ERP de origen (uno del catálogo del portal, o texto libre). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  originSystem?: string;
+
+  /** ID de este producto/variante en el sistema de origen. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  originExternalId?: string;
 }
 
 export class CreateProductDto {
@@ -154,6 +174,16 @@ export class UpdateVariantDto {
   @Matches(PRICE_RE, { message: "price debe tener formato NN.NN" })
   price?: string;
 
+  /**
+   * `null` explícito = quita el control de inventario (vuelve a EXTERNAL);
+   * ausente = no tocar; un string = fija la existencia exacta.
+   */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @Matches(STOCK_RE, { message: "stock debe ser un número (hasta 3 decimales)" })
+  stock?: string | null;
+
   @IsOptional()
   @IsString()
   @Matches(SAT_PRODUCT_RE, { message: "satProductCode debe ser 8 dígitos" })
@@ -167,6 +197,20 @@ export class UpdateVariantDto {
   @IsOptional()
   @IsIn(STATUS_VALUES)
   status?: (typeof STATUS_VALUES)[number];
+
+  /** `null` explícito = ya no viene de un sistema externo; ausente = no tocar. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @MaxLength(80)
+  originSystem?: string | null;
+
+  /** `null` explícito = borra el ID externo; ausente = no tocar. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @MaxLength(120)
+  originExternalId?: string | null;
 }
 
 /**
