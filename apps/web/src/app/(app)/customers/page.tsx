@@ -176,6 +176,7 @@ export default function CustomersPage() {
                 <Label htmlFor="fullName">Nombre completo</Label>
                 <Input
                   id="fullName"
+                  placeholder="Nombre y apellidos"
                   aria-invalid={!!errors.fullName}
                   aria-describedby={errors.fullName ? "fullName-error" : undefined}
                   {...register("fullName")}
@@ -191,6 +192,7 @@ export default function CustomersPage() {
                 <Input
                   id="email"
                   type="email"
+                  placeholder="cliente@ejemplo.com"
                   aria-invalid={!!errors.email}
                   aria-describedby={errors.email ? "email-error" : undefined}
                   {...register("email")}

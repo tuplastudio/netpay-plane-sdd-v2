@@ -148,8 +148,12 @@ export const createSchema = z.object({
   variantSku: skuField,
   variantTitle: titleField,
   price: priceField,
+  stock: stockField,
   satProductCode: satProductField,
   satUnitCode: satUnitField,
+  originSystem: originSystemField,
+  originSystemOther: originSystemOtherField,
+  originExternalId: originExternalIdField,
 });
 export type CreateValues = z.infer<typeof createSchema>;
 

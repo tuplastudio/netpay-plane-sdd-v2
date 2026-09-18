@@ -91,6 +91,7 @@ export function RenameTenantSheet({
             <Input
               id="rename-tenant-name"
               autoComplete="organization"
+              placeholder="Nombre de la empresa"
               aria-invalid={errors.name ? true : undefined}
               aria-describedby={errors.name ? "rename-tenant-name-error" : undefined}
               {...form.register("name")}

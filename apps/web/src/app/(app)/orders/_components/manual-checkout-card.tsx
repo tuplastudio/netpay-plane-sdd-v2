@@ -66,7 +66,7 @@ export function ManualCheckoutCard({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="checkout-qty">Cantidad</Label>
-            <Input id="checkout-qty" value={qty} onChange={(e) => setQty(e.target.value)} />
+            <Input id="checkout-qty" placeholder="1.000" value={qty} onChange={(e) => setQty(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="checkout-delivery">Entrega</Label>

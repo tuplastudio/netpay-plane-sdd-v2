@@ -204,6 +204,7 @@ export function ConnectSheet({
                     id="connect-meta-token"
                     type="password"
                     autoComplete="off"
+                    placeholder="EAAG..."
                     value={form.token}
                     onChange={(e) => set("token", e.target.value)}
                   />
@@ -213,6 +214,7 @@ export function ConnectSheet({
                   <Input
                     id="connect-meta-phone-id"
                     autoComplete="off"
+                    placeholder="123456789012345"
                     value={form.phoneId}
                     onChange={(e) => set("phoneId", e.target.value)}
                   />
@@ -237,6 +239,7 @@ export function ConnectSheet({
                     id="connect-evo-key"
                     type="password"
                     autoComplete="off"
+                    placeholder="Tu API key de Evolution"
                     value={form.apiKey}
                     onChange={(e) => set("apiKey", e.target.value)}
                   />
@@ -246,6 +249,7 @@ export function ConnectSheet({
                   <Input
                     id="connect-evo-instance"
                     autoComplete="off"
+                    placeholder="mi-tienda"
                     value={form.instance}
                     onChange={(e) => set("instance", e.target.value)}
                   />

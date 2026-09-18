@@ -268,7 +268,7 @@ function VariantRow({
           {(p) => <Input autoFocus placeholder="ej. Blanco, 1 L" {...p} {...form.register("title")} />}
         </Field>
         <Field label="Precio" hint="Formato 99.00" error={errors.price?.message}>
-          {(p) => <Input inputMode="decimal" {...p} {...form.register("price")} />}
+          {(p) => <Input inputMode="decimal" placeholder="99.00" {...p} {...form.register("price")} />}
         </Field>
         <Field label="Estado" error={errors.status?.message}>
           {(p) => (
@@ -282,10 +282,10 @@ function VariantRow({
           )}
         </Field>
         <Field label="Clave SAT de producto" error={errors.satProductCode?.message}>
-          {(p) => <Input inputMode="numeric" {...p} {...form.register("satProductCode")} />}
+          {(p) => <Input inputMode="numeric" placeholder="01010101" {...p} {...form.register("satProductCode")} />}
         </Field>
         <Field label="Clave SAT de unidad" error={errors.satUnitCode?.message}>
-          {(p) => <Input {...p} {...form.register("satUnitCode")} />}
+          {(p) => <Input placeholder="H87" {...p} {...form.register("satUnitCode")} />}
         </Field>
         <Field
           label="Existencias"

@@ -87,6 +87,7 @@ function AcceptInviteForm() {
                 type="password"
                 autoComplete="new-password"
                 autoFocus
+                placeholder="Mínimo 12 caracteres"
                 aria-invalid={!!errors.password}
                 aria-describedby={errors.password ? "password-error" : undefined}
                 {...register("password")}
@@ -103,6 +104,7 @@ function AcceptInviteForm() {
                 id="confirmPassword"
                 type="password"
                 autoComplete="new-password"
+                placeholder="Repite la contraseña"
                 aria-invalid={!!errors.confirmPassword}
                 aria-describedby={errors.confirmPassword ? "confirmPassword-error" : undefined}
                 {...register("confirmPassword")}

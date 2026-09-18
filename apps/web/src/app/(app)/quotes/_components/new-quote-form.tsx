@@ -572,6 +572,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                           </Button>
                           <Input
                             id={`qty-${l.key}`}
+                            placeholder="1"
                             value={l.quantity}
                             onChange={(e) => setLineQty(l.variantId, e.target.value)}
                             className="h-8 text-center tabular-nums"
@@ -599,6 +600,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                           step="0.01"
                           min={0}
                           max={100}
+                          placeholder="0"
                           value={l.discountPct}
                           onChange={(e) => setLineDiscount(l.variantId, e.target.value)}
                           className="h-8 tabular-nums"

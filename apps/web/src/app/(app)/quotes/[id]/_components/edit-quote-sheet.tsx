@@ -365,6 +365,7 @@ export function EditQuoteSheet({
                         <Input
                           id={`qty-${l.variantId}`}
                           inputMode="decimal"
+                          placeholder="1"
                           value={l.quantity}
                           onChange={(e) => patchLine(l.variantId, { quantity: e.target.value })}
                           onBlur={(e) =>
@@ -380,6 +381,7 @@ export function EditQuoteSheet({
                         <Input
                           id={`disc-${l.variantId}`}
                           inputMode="numeric"
+                          placeholder="0"
                           value={String(l.discountPct)}
                           onChange={(e) => {
                             const n = Number(e.target.value);

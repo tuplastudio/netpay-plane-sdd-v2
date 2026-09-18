@@ -9,14 +9,18 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   Field,
+  ORIGIN_SYSTEM_OPTIONS,
+  ORIGIN_SYSTEM_OTHER_VALUE,
   TagsInput,
   apiErrorMessage,
   createSchema,
+  resolveOriginSystem,
   type CreateValues,
   type Product,
 } from "./catalog-shared";
@@ -45,8 +49,12 @@ export function CreateProductSheet({
       variantSku: "",
       variantTitle: "",
       price: "",
+      stock: "",
       satProductCode: "",
       satUnitCode: "",
+      originSystem: "",
+      originSystemOther: "",
+      originExternalId: "",
     },
   });
 
@@ -63,8 +71,11 @@ export function CreateProductSheet({
             sku: v.variantSku,
             title: v.variantTitle,
             price: v.price,
+            stock: v.stock.trim() || undefined,
             satProductCode: v.satProductCode || undefined,
             satUnitCode: v.satUnitCode || undefined,
+            originSystem: resolveOriginSystem(v) || undefined,
+            originExternalId: v.originExternalId?.trim() || undefined,
           },
         ],
       });
@@ -222,6 +233,50 @@ export function CreateProductSheet({
                   </Field>
                   <Field label="Clave SAT de unidad" error={errors.satUnitCode?.message}>
                     {(p) => <Input placeholder="H87" {...p} {...form.register("satUnitCode")} />}
+                  </Field>
+                  <Field
+                    label="Existencias"
+                    hint="Vacío = sin control de inventario. Formato 25 o 25.500."
+                    error={errors.stock?.message}
+                  >
+                    {(p) => (
+                      <Input inputMode="decimal" placeholder="Sin control" {...p} {...form.register("stock")} />
+                    )}
+                  </Field>
+                  <Field
+                    label="Sistema de origen"
+                    hint="Si este producto viene de una tienda o ERP externo."
+                    error={errors.originSystem?.message}
+                  >
+                    {(p) => (
+                      <Select {...p} {...form.register("originSystem")}>
+                        <option value="">Sin sistema de origen</option>
+                        {ORIGIN_SYSTEM_OPTIONS.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                        <option value={ORIGIN_SYSTEM_OTHER_VALUE}>Otro…</option>
+                      </Select>
+                    )}
+                  </Field>
+                  {form.watch("originSystem") === ORIGIN_SYSTEM_OTHER_VALUE ? (
+                    <Field label="Nombre del sistema" error={errors.originSystemOther?.message}>
+                      {(p) => (
+                        <Input
+                          placeholder="Nombre de tu tienda o ERP"
+                          {...p}
+                          {...form.register("originSystemOther")}
+                        />
+                      )}
+                    </Field>
+                  ) : null}
+                  <Field
+                    label="ID en el sistema de origen"
+                    hint="El identificador que usa ese sistema para este producto."
+                    error={errors.originExternalId?.message}
+                  >
+                    {(p) => <Input placeholder="12345" {...p} {...form.register("originExternalId")} />}
                   </Field>
                 </div>
               </fieldset>

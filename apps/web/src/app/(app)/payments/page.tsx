@@ -448,6 +448,7 @@ export default function PaymentsPage() {
               <Label htmlFor="refund-amount">Monto a reembolsar</Label>
               <Input
                 id="refund-amount"
+                placeholder="0.00"
                 value={refundAmount}
                 onChange={(e) => setRefundAmount(e.target.value)}
               />

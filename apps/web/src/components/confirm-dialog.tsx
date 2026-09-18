@@ -87,6 +87,7 @@ export function ConfirmDialog({
               spellCheck={false}
               autoFocus
               disabled={pending}
+              placeholder={requireTextPlaceholder ?? requireText}
               aria-describedby="confirm-require-text-hint"
             />
             <p

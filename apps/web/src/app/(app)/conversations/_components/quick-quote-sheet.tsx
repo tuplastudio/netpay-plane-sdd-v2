@@ -247,6 +247,7 @@ export function QuickQuoteSheet({
                           type="number"
                           min={1}
                           step={1}
+                          placeholder="1"
                           value={l.quantity}
                           aria-label={`Cantidad de ${l.title}`}
                           className="h-6 w-12 px-1 text-center text-[11px]"

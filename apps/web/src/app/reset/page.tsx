@@ -87,6 +87,7 @@ function ResetForm() {
                 type="password"
                 autoComplete="new-password"
                 autoFocus
+                placeholder="Mínimo 12 caracteres"
                 aria-invalid={!!errors.newPassword}
                 aria-describedby={errors.newPassword ? "newPassword-error" : undefined}
                 {...register("newPassword")}
@@ -103,6 +104,7 @@ function ResetForm() {
                 id="confirmPassword"
                 type="password"
                 autoComplete="new-password"
+                placeholder="Repite la contraseña"
                 aria-invalid={!!errors.confirmPassword}
                 aria-describedby={errors.confirmPassword ? "confirmPassword-error" : undefined}
                 {...register("confirmPassword")}

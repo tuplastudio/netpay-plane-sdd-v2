@@ -173,6 +173,7 @@ export function InviteUserSheet({
               <Input
                 id="sa-invite-name"
                 autoComplete="name"
+                placeholder="Nombre y apellidos"
                 aria-invalid={errors.fullName ? true : undefined}
                 aria-describedby={errors.fullName ? "sa-invite-name-error" : undefined}
                 {...form.register("fullName")}
@@ -190,6 +191,7 @@ export function InviteUserSheet({
                 id="sa-invite-email"
                 type="email"
                 autoComplete="email"
+                placeholder="persona@ejemplo.com"
                 aria-invalid={errors.email ? true : undefined}
                 aria-describedby={errors.email ? "sa-invite-email-error" : undefined}
                 {...form.register("email")}
