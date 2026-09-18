@@ -76,6 +76,12 @@ export async function middleware(req: NextRequest) {
     resHeaders.delete("content-encoding");
     resHeaders.delete("transfer-encoding");
     resHeaders.delete("content-length");
+    // Un 2xx con `Location` (p. ej. el 201 de POST /orders/public/:token/
+    // checkout) llega al navegador sin cuerpo en Vercel: el edge lo trata
+    // como redirección y descarta el JSON. Solo tiene sentido en 3xx.
+    if (upstream.status < 300 || upstream.status >= 400) {
+      resHeaders.delete("location");
+    }
     return new NextResponse(upstream.body, {
       status: upstream.status,
       headers: resHeaders,

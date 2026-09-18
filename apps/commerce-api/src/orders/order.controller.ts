@@ -311,7 +311,8 @@ export class OrderController {
       amount: order.total.toString(),
       metadata: { source: "public_checkout" },
     });
-    res.setHeader("Location", session.checkoutUrl);
+    // Sin `Location`: el navegador sigue el JSON (`checkoutUrl`), y un 201
+    // con Location pierde el cuerpo al pasar por el proxy de Vercel.
     res.status(201).json({
       data: { sessionId: session.sessionId, checkoutUrl: session.checkoutUrl, expiresAt: session.expiresAt },
       requestId: RequestContext.requestId,
