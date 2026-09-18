@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { fetchAuthMe } from "@/lib/api";
+import { api, fetchAuthMe } from "@/lib/api";
 import { Brand, EnvFooter, SidebarCollapseToggle, SidebarNav } from "./sidebar-nav";
 import { Topbar } from "./topbar";
 import { ImpersonationBanner } from "./impersonation-banner";
@@ -110,6 +110,69 @@ function useRedirectIfSignedOut() {
   }, [data?.branding]);
 }
 
+// El backend cierra la sesión tras 30 min sin actividad (ver
+// `SessionService.resolveSession`) y lo hace a propósito: si alguien deja el
+// navegador desbloqueado y sin tocar, la sesión debe caducar sola. Por
+// diseño, `POST /auth/refresh` (el interceptor de `lib/api.ts` lo llama solo
+// cuando una petición real acaba de recibir un 401) reaplica esa MISMA regla
+// de inactividad — así que nunca revive una sesión que ya pasó los 30 min.
+// Eso es correcto para seguridad, pero sin nada más, cualquiera que deje de
+// interactuar por 30 min (leyendo un hilo largo, pensando qué escribir, con
+// la pestaña abierta) pierde la sesión aunque siga muy dentro de las 12h
+// absolutas — quejarse de que "no se mantiene abierta" es justo este caso.
+//
+// La pieza que faltaba: mientras la persona sigue genuinamente interactuando
+// (clics, teclas, scroll) con la pestaña VISIBLE, se manda un refresh cada
+// pocos minutos para que `lastActivityAt` nunca llegue a esos 30 min. Si deja
+// de interactuar (se aleja, cambia de pestaña, se bloquea la pantalla), el
+// heartbeat se detiene solo y la sesión expira exactamente igual que antes —
+// no se toca la regla de seguridad del backend, solo se evita perderla en
+// pleno uso activo.
+const HEARTBEAT_CHECK_MS = 5 * 60 * 1000;
+// Margen bajo el límite real del backend (30 min): si la última interacción
+// real quedó más vieja que esto, no vale la pena mandar el refresh — ya
+// pasaría el chequeo de inactividad del lado del servidor de todos modos.
+const HEARTBEAT_FRESHNESS_MS = 25 * 60 * 1000;
+const INTERACTION_EVENTS = ["mousedown", "mousemove", "keydown", "touchstart", "wheel", "scroll"] as const;
+
+/**
+ * Mantiene la sesión viva durante el uso real: ver comentario arriba. No
+ * mete ningún estado en React (todo por refs) para no causar renders extra
+ * en cada movimiento de mouse; el único efecto observable es la llamada de
+ * red cada `HEARTBEAT_CHECK_MS`, y esa se descarta en silencio si falla —
+ * el flujo normal de 401 → refresh → /login del interceptor sigue siendo la
+ * red de seguridad si esto no alcanzó a correr (pestaña recién reabierta,
+ * red caída, etc.).
+ */
+function useSessionHeartbeat(): void {
+  const lastInteractionRef = React.useRef(Date.now());
+
+  React.useEffect(() => {
+    const markActive = () => {
+      lastInteractionRef.current = Date.now();
+    };
+    for (const evt of INTERACTION_EVENTS) {
+      window.addEventListener(evt, markActive, { passive: true });
+    }
+
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastInteractionRef.current > HEARTBEAT_FRESHNESS_MS) return;
+      void api.post("/auth/refresh").catch(() => {
+        // Sin red o sesión ya vencida de verdad: no hay nada que hacer aquí,
+        // la próxima petición real sigue su propio camino de 401 → /login.
+      });
+    }, HEARTBEAT_CHECK_MS);
+
+    return () => {
+      for (const evt of INTERACTION_EVENTS) {
+        window.removeEventListener(evt, markActive);
+      }
+      window.clearInterval(id);
+    };
+  }, []);
+}
+
 const SIDEBAR_COLLAPSED_KEY = "netpay:sidebar-collapsed";
 
 /**
@@ -152,6 +215,7 @@ function useSidebarCollapsed(): [boolean, () => void] {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   useRedirectIfSignedOut();
+  useSessionHeartbeat();
   const [fullHeight, setFullHeight] = React.useState(false);
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   // Identidad estable: si cambiara en cada render, el efecto de
