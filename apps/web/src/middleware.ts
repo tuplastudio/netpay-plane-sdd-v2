@@ -89,7 +89,7 @@ export async function middleware(req: NextRequest) {
   // https://easysell.web.tupla.dev/pay/<resto> y se mandan a commerce-api
   // que tiene un endpoint proxy hacia el dummy-gateway en la red interna
   // del droplet.
-  if (pathname.startsWith("/pay/")) {
+  if (pathname === "/pay" || pathname.startsWith("/pay/")) {
     const apiBase = (process.env.API_INTERNAL_URL ?? "").replace(/\/$/, "");
     if (!apiBase) {
       return NextResponse.json(
@@ -98,8 +98,14 @@ export async function middleware(req: NextRequest) {
       );
     }
     // /pay/checkout/sessions/<id> → <apiBase>/payments/dummy-proxy/checkout/sessions/<id>
-    const target = `${apiBase}/payments/dummy-proxy/${pathname.slice("/pay/".length)}${search}`;
+    // /pay (sin slash) → <apiBase>/payments/dummy-proxy
+    const rest = pathname === "/pay" ? "" : pathname.slice("/pay/".length);
+    const target = `${apiBase}/payments/dummy-proxy/${rest}${search}`;
     const headers = new Headers();
+    // Pasar el body como binario crudo (no decodificar) para evitar que undici
+    // agregue Accept-Encoding: gzip por su cuenta — el dummy-gateway no soporta
+    // gzip en respuestas grandes y se cae la conexión.
+    headers.set("accept-encoding", "identity");
     const reqContentType = req.headers.get("content-type");
     if (reqContentType) headers.set("content-type", reqContentType);
 
