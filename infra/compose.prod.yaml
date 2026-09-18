@@ -38,12 +38,17 @@ services:
       # Servidor-a-servidor dentro del Droplet: el dummy-gateway vive en
       # la misma red interna, así que su hostname es el del servicio.
       DUMMY_BASE_URL: http://dummy-gateway:4100
-      # URL pública del API para servir los uploads (logos, fotos): el
-      # navegador llega a través del reverse proxy, así que va con HTTPS.
-      API_SELF_URL: ${API_SELF_URL:?Set API_SELF_URL=https://api.tu-dominio.com}
+      # Dirección con la que el dummy-gateway (misma red interna) llama al
+      # webhook de pagos de ESTE API. Es servidor-a-servidor: nunca la URL
+      # pública (el valor http://<ip>:13000 que traía .env.prod era el web
+      # en loopback, inalcanzable desde el contenedor: los pedidos nunca
+      # pasaban a PAID). Solo la usa payment.service.ts.
+      API_SELF_URL: http://commerce-api:4000
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL=https://tu-dominio.com}
-      # Evolution registra el webhook de WhatsApp contra este origen.
-      API_PUBLIC_URL: ${API_PUBLIC_URL:-${API_SELF_URL}}
+      # Origen público del API (https://api.tu-dominio.com): Evolution
+      # registra ahí el webhook de WhatsApp. Vacío = cae a PUBLIC_BASE_URL
+      # (el web reescribe /api/v1/* al API), que también funciona.
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
       # Checkout hosted que abre el cliente: /pay del frontend.
       DUMMY_PUBLIC_URL: ${DUMMY_PUBLIC_URL:-${PUBLIC_BASE_URL}/pay}
       PAYMENT_METHODS: ${PAYMENT_METHODS:-}
