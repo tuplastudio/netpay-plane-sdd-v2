@@ -108,6 +108,7 @@ export class CustomerService {
       email?: string;
       phone?: string;
       taxId?: string;
+      notes?: string;
     },
   ) {
     const c = await this.prisma.customer.findFirst({ where: { id, tenantId } });
@@ -125,6 +126,7 @@ export class CustomerService {
         email: input.email?.toLowerCase(),
         phone: input.phone,
         taxId: input.taxId?.toUpperCase(),
+        notes: input.notes,
         version: { increment: 1 },
       },
     });
@@ -284,7 +286,37 @@ export class CustomerService {
       });
     }
 
+    // Consentimiento implícito (docs/06-crm.md, migración 0010): si nos
+    // escribió por WhatsApp, aceptó que le respondamos por ese canal.
+    if (channel) {
+      await this.autoGrantWhatsAppConsent(customer.id);
+    }
+
     return customer;
+  }
+
+  /**
+   * Otorga WHATSAPP una sola vez, solo si el cliente no tiene ninguna
+   * decisión registrada todavía para ese scope. Si alguien ya la otorgó o
+   * la REVOCÓ a mano, esto nunca la toca — un cliente que pidió que no le
+   * escribamos y vuelve a mandar un mensaje no queda re-suscrito solo por
+   * escribir.
+   */
+  private async autoGrantWhatsAppConsent(customerId: string): Promise<void> {
+    const existing = await this.prisma.customerConsent.findUnique({
+      where: { customerId_scope: { customerId, scope: "WHATSAPP" } },
+    });
+    if (existing) return;
+    await this.prisma.customerConsent.create({
+      data: {
+        customerId,
+        scope: "WHATSAPP",
+        granted: true,
+        grantedAt: new Date(),
+        note: "Auto-otorgado: el cliente envió un mensaje por WhatsApp.",
+        source: "auto",
+      },
+    });
   }
 
   async linkIdentity(

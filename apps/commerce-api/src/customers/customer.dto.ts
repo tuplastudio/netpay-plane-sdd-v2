@@ -124,6 +124,11 @@ export class UpdateCustomerDto {
   @IsString()
   @MaxLength(20)
   taxId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string;
 }
 
 export class ResolveChannelContactDto {

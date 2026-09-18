@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Sheet,
   SheetContent,
@@ -27,6 +28,7 @@ interface EditableCustomer {
   email: string | null;
   phone: string | null;
   taxId: string | null;
+  notes: string | null;
   /** Versión actual del cliente (optimistic concurrency del backend). */
   version: number;
 }
@@ -37,9 +39,9 @@ interface EditableCustomer {
  * contesta `409 CONFLICT` si la versión local no coincide; recargamos la
  * ficha para que el operador vea qué cambió y pueda reintentar.
  *
- * Solo los 4 campos que el `UpdateCustomerDto` acepta: nombre, correo,
- * teléfono y RFC. Las direcciones, identidades y consentimientos tienen
- * endpoints dedicados (los botones de "+" en la ficha crean cada uno).
+ * Los campos que el `UpdateCustomerDto` acepta: nombre, correo, teléfono,
+ * RFC y notas internas. Las direcciones, identidades y consentimientos
+ * tienen endpoints dedicados (los botones de "+" en la ficha crean cada uno).
  */
 export function CustomerEditSheet({
   customer,
@@ -55,6 +57,7 @@ export function CustomerEditSheet({
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [taxId, setTaxId] = useState("");
+  const [notes, setNotes] = useState("");
 
   // Sincroniza el formulario con el cliente cuando el sheet se abre o
   // cuando cambia el cliente activo. Sin esto, editar uno y luego abrir
@@ -66,6 +69,7 @@ export function CustomerEditSheet({
     setEmail(customer.email ?? "");
     setPhone(customer.phone ?? "");
     setTaxId(customer.taxId ?? "");
+    setNotes(customer.notes ?? "");
     // customer es la fuente de verdad; dejamos el ESLint comment a propósito
     // (los setters son estables y queremos reaccional a TODO cambio de campos).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -75,6 +79,7 @@ export function CustomerEditSheet({
     customer?.email,
     customer?.phone,
     customer?.taxId,
+    customer?.notes,
     open,
   ]);
 
@@ -94,16 +99,19 @@ export function CustomerEditSheet({
         email?: string;
         phone?: string;
         taxId?: string;
+        notes?: string;
       } = { expectedVersion: customer.version };
       const fn = fullName.trim();
       if (!fn) throw new Error("El nombre es obligatorio");
       const em = blankToNull(email);
       const ph = blankToNull(phone);
       const tx = blankToNull(taxId);
+      const nt = blankToNull(notes);
       payload.fullName = fn;
       if (em !== undefined) payload.email = em;
       if (ph !== undefined) payload.phone = ph;
       if (tx !== undefined) payload.taxId = tx;
+      if (nt !== undefined) payload.notes = nt;
       const res = await api.patch<{ data: EditableCustomer }>(
         `/customers/${customer.id}`,
         payload,
@@ -163,6 +171,7 @@ export function CustomerEditSheet({
                 id="edit-customer-fullName"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
+                placeholder="Nombre y apellidos"
                 autoFocus
               />
             </div>
@@ -199,6 +208,18 @@ export function CustomerEditSheet({
                 onChange={(e) => setTaxId(e.target.value)}
                 placeholder="XAXX010101000"
                 className="font-mono text-xs uppercase"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-customer-notes" className="text-xs">
+                Notas internas
+              </Label>
+              <Textarea
+                id="edit-customer-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Preferencias, acuerdos especiales, contexto para otros vendedores…"
+                rows={3}
               />
             </div>
           </div>

@@ -38,10 +38,12 @@ function makeFakePrisma(opts: {
   const identities = opts.identities ?? [];
   let nextId = customers.length + 1;
   const conversationUpdates: Array<Record<string, unknown>> = [];
+  const consents: Array<{ customerId: string; scope: string; granted: boolean; note: string | null; source: string | null }> = [];
 
   const prisma = {
     customers,
     identities,
+    consents,
     conversationUpdates,
     customer: {
       findFirst: async ({ where }: { where: any }) => {
@@ -92,6 +94,16 @@ function makeFakePrisma(opts: {
         if (existing) return existing;
         identities.push(create);
         return create;
+      },
+    },
+    customerConsent: {
+      findUnique: async ({ where }: { where: { customerId_scope: { customerId: string; scope: string } } }) =>
+        consents.find(
+          (c) => c.customerId === where.customerId_scope.customerId && c.scope === where.customerId_scope.scope,
+        ) ?? null,
+      create: async ({ data }: { data: { customerId: string; scope: string; granted: boolean; note: string | null; source: string | null } }) => {
+        consents.push(data);
+        return data;
       },
     },
     whatsAppConversation: {
@@ -255,5 +267,48 @@ describe("resolveChannelContact", () => {
     });
     expect(customer.fullName).toBe("Cliente web");
     expect(prisma.identities).toHaveLength(0);
+    // Sin canal resuelto (no vino de una conversación de WhatsApp) no hay
+    // "escribió por WhatsApp" que consentir.
+    expect(prisma.consents).toHaveLength(0);
+  });
+
+  it("otorga WHATSAPP automáticamente la primera vez que resuelve por ese canal", async () => {
+    const conversation = {
+      id: "conv-1",
+      tenantId: TENANT,
+      customerId: null,
+      externalPhone: "+5216671234567",
+      provider: "EVOLUTION" as const,
+    };
+    const prisma = makeFakePrisma({ conversation });
+    const service = makeService(prisma);
+    const customer = await service.resolveChannelContact(TENANT, {
+      fullName: "Ana López",
+      conversationId: "conv-1",
+    });
+    expect(prisma.consents).toEqual([
+      expect.objectContaining({ customerId: customer.id, scope: "WHATSAPP", granted: true, source: "auto" }),
+    ]);
+  });
+
+  it("nunca reactiva un consentimiento que un humano ya revocó a mano", async () => {
+    const conversation = {
+      id: "conv-1",
+      tenantId: TENANT,
+      customerId: "cust-1",
+      externalPhone: "+5216671234567",
+      provider: "EVOLUTION" as const,
+    };
+    const prisma = makeFakePrisma({
+      customers: [{ id: "cust-1", tenantId: TENANT, fullName: "Ana López", phone: "+5216671234567", email: null, version: 1 }],
+      conversation,
+    });
+    prisma.consents.push({ customerId: "cust-1", scope: "WHATSAPP", granted: false, note: "El cliente pidió no recibir más mensajes", source: "manual" });
+
+    const service = makeService(prisma);
+    await service.resolveChannelContact(TENANT, { fullName: "Ana López", conversationId: "conv-1" });
+
+    expect(prisma.consents).toHaveLength(1);
+    expect(prisma.consents[0]!.granted).toBe(false);
   });
 });
