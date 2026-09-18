@@ -161,7 +161,14 @@ services:
       # Red interna: el API y el agente hablan por nombre de servicio.
       COMMERCE_API_URL: http://commerce-api:4000/api/v1
       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:?Set AGENT_INTERNAL_KEY}
-      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:?Set OPENROUTER_KEY_REF}
+      # Cada tenant guarda su propia key de OpenRouter cifrada (panel /agent →
+      # Configuración; ver agent_settings.py), así que esto NO es obligatorio
+      # a nivel plataforma: era un `:?` que exigía una key compartida para
+      # arrancar, cuando el diseño real es "por tenant, cae al motor
+      # determinista si nadie configuró una" (ver .env.example). Un tenant sin
+      # key propia y sin este fallback simplemente responde con el motor
+      # determinista, nunca se cae el contenedor.
+      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL}
       # Settings, checkpoints y learning viven en un volumen persistente:
       # un `docker compose down` seguido de `up` los recupera. Sin esto,
