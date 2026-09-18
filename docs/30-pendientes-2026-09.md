@@ -127,29 +127,39 @@ borró después.
 
 ---
 
-## Qué falta en producción (no se puede hacer desde este repo)
+## Producción (18 Sep 2026, 02:05 UTC) ✅ desplegado y verificado
 
-1. **Droplet** (`/opt/netpay` o `/opt/netpay-build`, `.env` del compose):
-   ```
-   DUMMY_PUBLIC_URL=https://easysell.web.tupla.dev/pay
-   API_PUBLIC_URL=https://api-easysell.tupla.dev
-   PUBLIC_BASE_URL=https://easysell.web.tupla.dev
-   PAYMENT_METHODS=CARD,SPEI,OXXO
-   DUMMY_SERVICE_KEY_REF=<misma en commerce-api y dummy-gateway>
-   OPENROUTER_KEY_REF=<key válida, ver B>
-   ```
-   Luego `docker compose … build && up -d` de commerce-api, dummy-gateway y
-   agent-v2, y aplicar la migración `0011` en Neon:
-   `psql "$DATABASE_URL" -f apps/commerce-api/prisma/migrations/0011_checkout_session_payment_method.sql`.
-2. **Vercel**: deploy del web (push a `main` o `vercel deploy --prod` desde
-   `apps/web`). Comprobar `HEAD https://easysell.web.tupla.dev/pay/x` → 404
-   **del API** (`{"code":"NOT_FOUND"}`), no la página `_not-found` de Next.
-3. **Evolution**: la conexión actual del tenant `demo-store` sigue con la
-   instancia vieja y sin secreto. Repetir el alta desde `/channels` (o
-   `POST /whatsapp/connect` con las credenciales) para que quede el webhook
-   nuevo con secreto.
-4. `webhookSecretHash` NULL en la conexión de prod: se corrige solo al
-   repetir el alta (punto 3).
+- **Backend**: GitHub Actions `deploy-backend.yml` (compose.prod + `.env.prod`
+  en `/opt/netpay-build`) corrió con `44f767f`, `11dfe86`, `568b755` y
+  `feea731`. Stack completo arriba: commerce-api, dummy-gateway,
+  commerce-worker, agent-v2, agent-service, web. Env verificado en el
+  contenedor: `PUBLIC_BASE_URL=https://easysell.web.tupla.dev`,
+  `API_SELF_URL=http://commerce-api:4000` (antes `http://<ip>:13000`, el
+  webhook de pagos no llegaba), `DUMMY_PUBLIC_URL=…/pay`.
+- **Neon**: aplicadas a mano `0010` (faltaba: `/customers` daba 500 por
+  `CustomerConsent.note`) y `0011`. El paso `prisma migrate deploy` del
+  workflow es un no-op con migraciones SQL planas.
+- **Web**: los pushes a `main` generan deployments **preview** en Vercel
+  (target=preview); el dominio siguió sirviendo un deploy viejo hasta correr
+  `vercel deploy --prod --yes` **desde la raíz del repo** (rootDirectory es
+  `apps/web`; desde `apps/web` falla). Para que el push a `main` sea
+  producción: Vercel → Settings → Git → Production Branch = `main`.
+- **Bug extra corregido**: el 201 de `POST /orders/public/:token/checkout`
+  llegaba sin cuerpo a través de Vercel porque traía `Location`; "Pagar
+  ahora" fallaba en prod. Quitado en API y filtrado en el middleware.
+- **Evolution**: `POST /whatsapp/connect` re-registró el webhook de
+  `easysell_demo-store_663r2w` con `?secret=`; `webhookSecretHash` ya no es
+  NULL; un `connection.update` firmado activa y uno sin secreto se rechaza.
+- **Flujo verificado en prod**: quick-charge → `/checkout/<token>` →
+  `POST …/checkout` (JSON con `checkoutUrl` bajo `/pay`) → hosted 200 con
+  selector de métodos → captura SPEI vía `/pay` → pedido `PAID`, sesión
+  `CAPTURED` con `paymentMethod=SPEI`, ledger "Transferencia SPEI ref …".
+- Pendiente de configuración (no bloquea): `.env.prod` no define
+  `EVOLUTION_BASE_URL`/`EVOLUTION_API_KEY_REF` (compose.prod ya los pasa);
+  sin ellos el alta de un tenant nuevo desde `/channels` responde
+  "Evolution no está configurado". `OPENROUTER_KEY_REF` de `.env.prod`
+  empieza por `sk-or-v1-p…`: verificar en https://openrouter.ai/keys que sea
+  la activa (la del `.env` local `18c1…` sí lo está).
 
 ## Pendiente menor
 
