@@ -90,6 +90,19 @@ async function copyToClipboard(text: string, label: string) {
   }
 }
 
+/**
+ * Mensaje legible de un error de axios. El backend manda
+ * `{ error: { code, message } }` (ver HttpExceptionFilter); sin esto los
+ * mutations mostraban un toast genérico y el motivo real (p. ej. "Stock
+ * insuficiente") solo se veía en la pestaña de red.
+ */
+function errorMessage(error: unknown, fallback: string): string {
+  const detail = (
+    error as { response?: { data?: { message?: string; error?: { message?: string } } } } | null
+  )?.response?.data;
+  return detail?.error?.message ?? detail?.message ?? fallback;
+}
+
 export default function OrderDetailPage() {
   const params = useParams<{ id: string }>();
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
@@ -149,7 +162,7 @@ export default function OrderDetailPage() {
       }
       await orderQ.refetch();
     },
-    onError: () => toast.error("No se pudo iniciar checkout"),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo iniciar checkout")),
   });
 
   const startCheckoutManual = useMutation({
@@ -173,7 +186,7 @@ export default function OrderDetailPage() {
       }
       await orderQ.refetch();
     },
-    onError: () => toast.error("No se pudo iniciar checkout"),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo iniciar checkout")),
   });
 
   const resumeCheckout = useMutation({
@@ -186,7 +199,7 @@ export default function OrderDetailPage() {
       setPaymentLink(url);
       void copyToClipboard(url, "Link de pago");
     },
-    onError: () => toast.error("No se pudo generar el link de pago"),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo generar el link de pago")),
   });
 
   const cancelOrder = useMutation({
@@ -198,7 +211,7 @@ export default function OrderDetailPage() {
       setCancelConfirmOpen(false);
       await orderQ.refetch();
     },
-    onError: () => toast.error("No se pudo cancelar"),
+    onError: (error) => toast.error(errorMessage(error, "No se pudo cancelar")),
   });
 
   if (orderQ.isLoading) {
