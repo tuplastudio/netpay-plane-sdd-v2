@@ -82,64 +82,9 @@ export async function middleware(req: NextRequest) {
     });
   }
 
-  // Proxy del checkout hosted del dummy-gateway bajo /pay/*. La pasarela no
-  // está expuesta al público (escucha 0.0.0.0:4100 dentro del droplet) y
-  // devuelve URLs tipo http://localhost:4100/checkout/sessions/<id> que el
-  // navegador del cliente final no puede abrir. Se reescriben aquí a
-  // https://easysell.web.tupla.dev/pay/<resto> y se mandan a commerce-api
-  // que tiene un endpoint proxy hacia el dummy-gateway en la red interna
-  // del droplet.
-  if (pathname === "/pay" || pathname.startsWith("/pay/")) {
-    const apiBase = (process.env.API_INTERNAL_URL ?? "").replace(/\/$/, "");
-    if (!apiBase) {
-      return NextResponse.json(
-        { error: "MISSING_API_INTERNAL_URL" },
-        { status: 500 },
-      );
-    }
-    // /pay/checkout/sessions/<id> → <apiBase>/payments/dummy-proxy/checkout/sessions/<id>
-    // /pay (sin slash) → <apiBase>/payments/dummy-proxy
-    const rest = pathname === "/pay" ? "" : pathname.slice("/pay/".length);
-    const target = `${apiBase}/payments/dummy-proxy/${rest}${search}`;
-    const headers = new Headers();
-    // Pasar el body como binario crudo (no decodificar) para evitar que undici
-    // agregue Accept-Encoding: gzip por su cuenta — el dummy-gateway no soporta
-    // gzip en respuestas grandes y se cae la conexión.
-    headers.set("accept-encoding", "identity");
-    const reqContentType = req.headers.get("content-type");
-    if (reqContentType) headers.set("content-type", reqContentType);
-
-    let upstream: Response;
-    try {
-      upstream = await fetch(target, {
-        method: req.method,
-        headers,
-        body:
-          req.method === "GET" || req.method === "HEAD"
-            ? undefined
-            : await req.arrayBuffer(),
-        cache: "no-store",
-      });
-    } catch (err) {
-      return NextResponse.json(
-        {
-          error: "DUMMY_UNREACHABLE",
-          message: (err as Error).message,
-          target,
-        },
-        { status: 502 },
-      );
-    }
-
-    const resHeaders = new Headers(upstream.headers);
-    resHeaders.delete("content-encoding");
-    resHeaders.delete("transfer-encoding");
-    resHeaders.delete("content-length");
-    return new NextResponse(upstream.body, {
-      status: upstream.status,
-      headers: resHeaders,
-    });
-  }
+  // El checkout hosted (`/pay/*`) NO pasa por aquí: vive en
+  // `app/pay/[[...path]]/route.ts`. Vercel no invocaba el middleware para ese
+  // prefijo aunque estuviera en el matcher (ver docs/30-pendientes-2026-09.md).
 
   if (pathname === "/") {
     const dest = hasSessionCookie(req) ? "/dashboard" : "/login";
@@ -158,6 +103,8 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    // Todo menos estáticos: el middleware también redirige `/` y protege las
+    // rutas con sesión, así que tiene que ver las páginas, no solo el API.
     "/((?!_next/|favicon\\.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico|css|js)$).*)",
   ],
 };

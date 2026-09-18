@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { createHmac } from "node:crypto";
 import type { CheckoutSession } from "@netpay/contracts";
-import type { BillingDetails, CardSummary, SessionCustomer } from "./checkout.store.js";
+import type { BillingDetails, CardSummary, PaymentMethod, SessionCustomer } from "./checkout.store.js";
 
 /**
  * Campos adicionales que la sesión puede traer tras el cobro. Son opcionales
@@ -17,6 +17,8 @@ export interface WebhookSessionExtras {
   failureReason?: string;
   requiresInvoice?: boolean;
   billingRequired?: boolean;
+  paymentMethod?: PaymentMethod;
+  paymentReference?: string;
 }
 
 /**
@@ -55,6 +57,8 @@ export class WebhookDispatcher {
       ...(session.failureReason ? { failureReason: session.failureReason } : {}),
       ...(session.requiresInvoice !== undefined ? { requiresInvoice: session.requiresInvoice } : {}),
       ...(session.billingRequired !== undefined ? { billingRequired: session.billingRequired } : {}),
+      ...(session.paymentMethod ? { paymentMethod: session.paymentMethod } : {}),
+      ...(session.paymentReference ? { paymentReference: session.paymentReference } : {}),
     });
     const signature = createHmac("sha256", secret).update(payload).digest("hex");
 

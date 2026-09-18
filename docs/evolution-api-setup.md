@@ -1,136 +1,95 @@
 # Configuración de Evolution API
 
-Guía práctica para conectar una instancia propia de Evolution API a `commerce-api`.
-Complementa la especificación funcional en [`10-wha.md`](10-wha.md); este documento
-es operativo, no normativo.
+Guía operativa para conectar WhatsApp vía Evolution API (Baileys) a
+`commerce-api`. Complementa la especificación funcional en [`10-wha.md`](10-wha.md).
 
-## Estado actual de la integración
+## Cómo funciona hoy (alta automática desde el portal)
 
-Antes de configurar nada, ten en cuenta el estado real del código (T-WHA-03,
-pendiente en el backlog):
+Desde **/channels → Conectar → Evolution** el operador solo escribe (opcional)
+el número y pulsa "Generar QR". El backend hace todo lo demás:
 
-- `POST /whatsapp/connect` únicamente guarda tus credenciales en la base de
-  datos (tabla `WhatsAppConnection`). No crea la instancia en Evolution, no
-  genera el QR ni registra el webhook por ti.
-- El envío de mensajes (`sendText`) sí está implementado y funciona contra la
-  API real de Evolution.
-- El webhook de entrada (`/whatsapp/webhook/inbound/:tenantSlug`) espera un
-  payload propio simplificado, **distinto** del payload nativo que Evolution
-  envía (`messages.upsert`). Sin un adaptador, los mensajes entrantes no se
-  procesan correctamente.
-- El webhook de entrada no verifica firma ni secreto todavía. No lo expongas
-  a Internet sin agregar esa protección primero.
-- Las variables `EVOLUTION_BASE_URL` y `EVOLUTION_API_KEY_REF` en `.env`
-  **no se usan** en el código: la configuración real vive por conexión, en
-  la base de datos, vía el endpoint `/whatsapp/connect`.
+1. `POST /whatsapp/evolution/provision` crea la instancia
+   `easysell_<tenant>_<sufijo>` en Evolution (`WHATSAPP-BAILEYS`, con QR).
+2. Genera un **secreto de webhook**, lo guarda hasheado (argon2) en
+   `WhatsAppConnection.webhookSecretHash` y registra en Evolution
+   (`POST /webhook/set/{instance}`) la URL:
 
-## 1. Datos que necesitas de tu instancia de Evolution
+   ```
+   {API_PUBLIC_URL}/api/v1/whatsapp/webhook/inbound/{tenantSlug}?secret=<secreto>
+   ```
 
-- **Base URL** de tu instancia (ej. `https://evolution.tu-dominio.com`).
-- **API key** (apikey) configurada en esa instancia.
-- **Nombre de la instancia** (`instance`) que vas a usar dentro de Evolution.
+   con los eventos `MESSAGES_UPSERT` y `CONNECTION_UPDATE`.
+3. La fila `WhatsAppConnection` queda `PENDING` con las credenciales
+   (`baseUrl`, `apiKey`, `instance`) y el portal muestra el QR.
+4. Cuando el cliente escanea, Evolution manda `connection.update` con
+   `state: open`. El webhook (ya autenticado por el secreto) pone la conexión
+   en `ACTIVE` y toma el número real del `wuid`. El portal, que también hace
+   polling del estado, llama `POST /whatsapp/evolution/finalize/:instance`;
+   ambos caminos son idempotentes.
+5. A partir de ahí los `messages.upsert` (texto, audio, imagen) entran por el
+   mismo webhook y el agente responde por `POST {baseUrl}/message/sendText/{instance}`.
 
-## 2. Registrar la conexión en commerce-api
+Si el teléfono desvincula el dispositivo (`connection.update` con `close` y
+`statusReason: 401`) la conexión pasa a `ERROR` con el motivo visible en la
+tabla de canales; basta con repetir el alta.
 
-Con sesión iniciada como owner/admin del tenant, llama:
+**No hace falta ngrok ni tocar el panel de Evolution.** La URL registrada es
+el dominio estable del API.
+
+## Variables de entorno del API
+
+| Variable | Qué es | Ejemplo prod |
+| --- | --- | --- |
+| `EVOLUTION_BASE_URL` | Instancia de Evolution de la plataforma (se usa si el tenant no trae la suya) | `https://esca-evolution.lab.esca.dev` |
+| `EVOLUTION_API_KEY_REF` | API key global de esa instancia | `…` |
+| `API_PUBLIC_URL` | Origen público del API. Evolution registra el webhook contra él. Si va vacío se usa `PUBLIC_BASE_URL` (el web reescribe `/api/v1/*` al API) | `https://api-easysell.tupla.dev` |
+| `PUBLIC_BASE_URL` | Origen público del frontend (enlaces de cotización/pago) | `https://easysell.web.tupla.dev` |
+
+Sin `EVOLUTION_BASE_URL`/`EVOLUTION_API_KEY_REF` el alta responde
+`EVOLUTION_API_ERROR` (412) "Evolution no está configurado".
+
+## Alta manual (instancia ya existente)
+
+Si la instancia ya existe en Evolution, `POST /whatsapp/connect` con
+`provider: "EVOLUTION"` y `credentials: { baseUrl, apiKey, instance }` guarda
+las credenciales **y registra el webhook** en esa instancia con un secreto
+nuevo (se devuelve en claro solo en esa respuesta como `webhookSecret`). Si
+Evolution rechaza el registro, la conexión se guarda igual y `lastError`
+explica por qué.
 
 ```bash
-curl -X POST http://localhost:4000/api/v1/whatsapp/connect \
-  -H "Content-Type: application/json" \
-  -b cookies.txt \
-  -d '{
-    "provider": "EVOLUTION",
-    "phoneNumber": "+52155XXXXXXXX",
-    "credentials": {
-      "baseUrl": "https://evolution.tu-dominio.com",
-      "apiKey": "TU_API_KEY",
-      "instance": "tu-instancia"
-    }
-  }'
+curl -X POST https://api-easysell.tupla.dev/api/v1/whatsapp/connect \
+  -H "Content-Type: application/json" -b cookies.txt \
+  -d '{"provider":"EVOLUTION","phoneNumber":"+52155XXXXXXXX",
+       "credentials":{"baseUrl":"https://evolution.tu-dominio.com","apiKey":"TU_API_KEY","instance":"tu-instancia"}}'
 ```
 
-Esto deja la conexión en estado `ACTIVE` en la base de datos y habilita el
-envío de mensajes salientes (`POST {baseUrl}/message/sendText/{instance}`,
-con header `apikey: {apiKey}`).
+## Cambiar la URL del webhook
 
-## 3. Configurar el webhook en Evolution API
+`PATCH /whatsapp/:id/webhook-url` con `{ "webhookUrl": "https://…?secret=…" }`
+guarda la URL y la reapunta en Evolution (conserva el secreto actual). Para
+rotar el secreto: `POST /whatsapp/:id/rotate-webhook-secret` y después el
+PATCH con la URL nueva.
 
-commerce-api **no registra el webhook por ti**. Debes configurarlo tú mismo
-en tu instancia de Evolution, apuntando a:
+## Seguridad del webhook
 
-```
-https://<tu-commerce-api-publico>/api/v1/whatsapp/webhook/inbound/{tenantSlug}
-```
+- El webhook exige el secreto en `?secret=` o en el header `x-webhook-secret`
+  para cualquier payload nativo de Evolution. Sin secreto válido responde
+  `{ ok: false, reason: "secreto de webhook inválido o ausente" }` y no procesa nada.
+- El formato legacy (`{ connectionId, externalPhone, body }`) sigue existiendo
+  para pruebas con curl; requiere conocer el `connectionId`.
+- Los ecos de mensajes propios (`key.fromMe`) y los eventos sin texto se
+  confirman con `ignored: true` sin tocar el agente.
 
-Donde `{tenantSlug}` es el slug de tu tenant (ej. `demo`).
-
-Cómo se configura depende de tu versión de Evolution API; normalmente es
-uno de:
-
-- Un endpoint propio de Evolution, por ejemplo:
-  ```bash
-  curl -X POST https://evolution.tu-dominio.com/webhook/set/tu-instancia \
-    -H "apikey: TU_API_KEY" \
-    -H "Content-Type: application/json" \
-    -d '{
-      "url": "https://<tu-commerce-api-publico>/api/v1/whatsapp/webhook/inbound/demo",
-      "events": ["MESSAGES_UPSERT"]
-    }'
-  ```
-- O el panel/dashboard de tu instancia, si lo tiene habilitado.
-
-Consulta la documentación de la versión específica de Evolution que tengas
-instalada; el nombre exacto del endpoint y el formato del body varían entre
-versiones.
-
-## 4. Adaptar el payload de entrada (pendiente)
-
-Evolution envía algo como:
-
-```json
-{
-  "event": "messages.upsert",
-  "instance": "tu-instancia",
-  "data": {
-    "key": { "remoteJid": "521...@s.whatsapp.net", "id": "ABC123" },
-    "message": { "conversation": "hola" },
-    "pushName": "Cliente"
-  }
-}
-```
-
-Pero `whatsapp.controller.ts` (`inboundWebhook`) espera:
-
-```json
-{
-  "connectionId": "...",
-  "provider": "EVOLUTION",
-  "externalPhone": "521...",
-  "body": "hola",
-  "externalId": "ABC123"
-}
-```
-
-Hasta que se implemente este mapeo (extraer `data.key.remoteJid` →
-`externalPhone`, `data.message.conversation` → `body`,
-`data.key.id` → `externalId`), los mensajes entrantes reales de Evolution
-no llegarán en el formato correcto y no se procesarán.
-
-## 5. Seguridad del webhook (pendiente)
-
-El endpoint de entrada no valida firma ni secreto compartido. Antes de
-exponerlo en producción:
-
-- Agrega verificación de un secreto (header o query param) que solo tú y tu
-  instancia de Evolution conozcan.
-- Considera restringir por IP de origen si tu instancia de Evolution tiene
-  IP fija.
-
-## Resumen de endpoints relevantes
+## Resumen de endpoints
 
 | Acción | Endpoint |
 | --- | --- |
-| Registrar conexión / credenciales | `POST /api/v1/whatsapp/connect` |
+| Alta automática (instancia + QR + webhook) | `POST /api/v1/whatsapp/evolution/provision` |
+| QR fresco / estado | `GET /api/v1/whatsapp/evolution/qr/:instance`, `GET …/state/:instance` |
+| Confirmar alta (idempotente con la automática) | `POST /api/v1/whatsapp/evolution/finalize/:instance` |
+| Borrar instancia (cancelar alta) | `DELETE /api/v1/whatsapp/evolution/instance/:instance` |
+| Alta manual con credenciales | `POST /api/v1/whatsapp/connect` |
+| Webhook que llama Evolution | `POST /api/v1/whatsapp/webhook/inbound/:tenantSlug?secret=…` |
 | Enviar mensaje saliente | `POST /api/v1/whatsapp/send` |
-| Webhook de entrada (configúralo en Evolution) | `POST /api/v1/whatsapp/webhook/inbound/:tenantSlug` |
 | Desconectar | `POST /api/v1/whatsapp/:id/disconnect` |

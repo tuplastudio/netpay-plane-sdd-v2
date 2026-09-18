@@ -14,9 +14,12 @@ import {
 import type { Response } from "express";
 import {
   CheckoutStore,
+  PAYMENT_METHODS,
+  isPaymentMethod,
   type BillingDetails,
   type CardSummary,
   type InternalSession,
+  type PaymentMethod,
   type PaymentOutcome,
   type SessionCustomer,
   type SessionLineItem,
@@ -39,6 +42,8 @@ interface OutcomeBody {
   reason?: string;
   email?: string;
   country?: string;
+  /** CARD (default) | SPEI | OXXO. Debe estar entre los `paymentMethods` de la sesión. */
+  paymentMethod?: string;
   card?: { brand?: string; last4?: string; number?: string; holder?: string };
   billing?: Partial<BillingDetails>;
 }
@@ -79,10 +84,21 @@ export class CheckoutController {
       billingRequired?: boolean;
       lineItems?: SessionLineItem[];
       totals?: SessionTotals;
+      /** Métodos que acepta el comercio. Ausente = todos los que simula el gateway. */
+      paymentMethods?: string[];
     },
     @Headers("authorization") auth?: string,
   ) {
     const apiKey = this.extractApiKey(auth);
+    const paymentMethods = Array.isArray(body.paymentMethods)
+      ? body.paymentMethods.filter(isPaymentMethod)
+      : undefined;
+    if (Array.isArray(body.paymentMethods) && body.paymentMethods.length > 0 && !paymentMethods?.length) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `paymentMethods debe incluir alguno de: ${PAYMENT_METHODS.join(", ")}`,
+      });
+    }
     const session = this.store.create({
       amount: body.amount,
       currency: body.currency,
@@ -99,6 +115,7 @@ export class CheckoutController {
       billingRequired: Boolean(body.billingRequired),
       lineItems: Array.isArray(body.lineItems) ? body.lineItems.slice(0, 200) : undefined,
       totals: body.totals,
+      paymentMethods,
     });
 
     return {
@@ -107,6 +124,8 @@ export class CheckoutController {
         hostedUrl: `/checkout/${session.id}/hosted`,
         expiresAt: session.expiresAt,
         livemode: false,
+        paymentMethods: session.paymentMethods,
+        paymentReference: session.paymentReference,
       },
       requestId: session.id,
     };
@@ -127,6 +146,9 @@ export class CheckoutController {
         status: session.status,
         livemode: false,
         expiresAt: session.expiresAt,
+        paymentMethods: session.paymentMethods,
+        paymentReference: session.paymentReference,
+        ...(session.paymentMethod ? { paymentMethod: session.paymentMethod } : {}),
         ...(session.card ? { card: session.card } : {}),
         ...(session.billing ? { billing: session.billing } : {}),
         ...(session.email ? { email: session.email } : {}),
@@ -233,6 +255,25 @@ export class CheckoutController {
   private parseOutcome(body: OutcomeBody, session: InternalSession, enforceBilling: boolean): PaymentOutcome {
     const outcome: PaymentOutcome = {};
 
+    // Método: si no viene se asume tarjeta (contrato original). Un método que
+    // el comercio no habilitó para esta sesión se rechaza aunque el gateway
+    // lo sepa simular.
+    const method: PaymentMethod = body.paymentMethod === undefined ? "CARD" : (body.paymentMethod as PaymentMethod);
+    if (!isPaymentMethod(method)) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `paymentMethod debe ser uno de: ${PAYMENT_METHODS.join(", ")}`,
+      });
+    }
+    const allowed = session.paymentMethods ?? [...PAYMENT_METHODS];
+    if (!allowed.includes(method)) {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: `El comercio no acepta ${method} en este cobro (acepta: ${allowed.join(", ")})`,
+      });
+    }
+    outcome.paymentMethod = method;
+
     if (typeof body.email === "string" && body.email.trim()) {
       outcome.email = body.email.trim().slice(0, 254);
     }
@@ -319,6 +360,13 @@ export class CheckoutController {
     }
   }
 
+  /**
+   * Service key del caller. Si el gateway arranca con `DUMMY_SERVICE_KEY_REF`
+   * (o `DUMMY_SERVICE_KEY`) solo acepta esa; sin la variable acepta cualquier
+   * Bearer no vacío (modo local). Así el mismo binario sirve para dev y para
+   * un despliegue donde el gateway no está expuesto pero igual no debe crear
+   * sesiones para cualquiera que le hable.
+   */
   private extractApiKey(auth: string | undefined): string {
     if (!auth || !auth.startsWith("Bearer ")) {
       throw new ForbiddenException({ code: "UNAUTHORIZED", message: "Service key requerida" });
@@ -326,6 +374,10 @@ export class CheckoutController {
     const key = auth.slice("Bearer ".length).trim();
     if (!key) {
       throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Service key vacía" });
+    }
+    const expected = (process.env.DUMMY_SERVICE_KEY_REF ?? process.env.DUMMY_SERVICE_KEY ?? "").trim();
+    if (expected && key !== expected) {
+      throw new ForbiddenException({ code: "UNAUTHORIZED", message: "Service key inválida" });
     }
     return key;
   }

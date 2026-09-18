@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Param,
   Patch,
@@ -582,14 +583,23 @@ export class WhatsAppController {
 
   // ---- Webhook público para que Meta/Evolution entreguen mensajes ----
 
+  /**
+   * Webhook público. Evolution lo llama con la URL que registramos en el alta
+   * (`?secret=<plano>`); también se acepta el secreto en `x-webhook-secret`
+   * para despliegues donde la URL no puede llevar query. Un `connection.update`
+   * con estado `open` activa la conexión solo (ver
+   * `WhatsAppService.applyEvolutionConnectionUpdate`).
+   */
   @Public()
   @Post("webhook/inbound/:tenantSlug")
   @HttpCode(200)
   async inboundWebhook(
     @Param("tenantSlug") tenantSlug: string,
     @Body() body: unknown,
-    @Query("secret") secret?: string,
+    @Query("secret") querySecret?: string,
+    @Headers("x-webhook-secret") headerSecret?: string,
   ) {
+    const secret = querySecret || headerSecret;
     const tenant = await this.wa["prisma"].tenant.findUnique({
       where: { slug: tenantSlug },
     });
@@ -598,6 +608,11 @@ export class WhatsAppController {
     const parsed = await this.parseInboundPayload(tenant.id, body, secret);
     if (!parsed.ok) {
       return { data: { ok: false, reason: parsed.reason } };
+    }
+
+    if (parsed.connectionUpdate) {
+      const result = await this.wa.applyEvolutionConnectionUpdate(tenant.id, parsed.connectionUpdate);
+      return { data: { ok: true, connection: result?.status ?? null } };
     }
 
     let message = parsed.message;
@@ -708,6 +723,13 @@ export class WhatsAppController {
           key: { id: string; remoteJid: string; fromMe?: boolean };
           caption?: string;
         };
+        /** Evento `connection.update` de Evolution (QR escaneado, logout…). */
+        connectionUpdate?: {
+          instance?: string;
+          state?: string;
+          ownerJid?: string | null;
+          statusReason?: number | null;
+        };
       }
   > {
     const obj = (body ?? {}) as Record<string, unknown>;
@@ -741,6 +763,20 @@ export class WhatsAppController {
       if (connection.webhookSecretHash) {
         const valid = secret ? await argon2.verify(connection.webhookSecretHash, secret) : false;
         if (!valid) return { ok: false, reason: "secreto de webhook inválido o ausente" };
+      }
+
+      if (obj.event === "connection.update") {
+        const data = obj.data as { state?: string; statusReason?: number; wuid?: string; instance?: string };
+        return {
+          ok: true,
+          message: null,
+          connectionUpdate: {
+            instance: typeof obj.instance === "string" ? obj.instance : data.instance,
+            state: data.state,
+            ownerJid: data.wuid ?? null,
+            statusReason: typeof data.statusReason === "number" ? data.statusReason : null,
+          },
+        };
       }
 
       if (obj.event !== "messages.upsert") {

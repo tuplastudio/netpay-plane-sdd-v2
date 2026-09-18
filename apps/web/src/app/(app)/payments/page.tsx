@@ -30,9 +30,22 @@ interface Session {
   refundedTotal: string;
   currency: string;
   status: string;
+  /** CARD | SPEI | OXXO; null mientras la sesión sigue pendiente. */
+  paymentMethod: string | null;
   customerName: string | null;
   capturedAt: string | null;
   createdAt: string;
+}
+
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  CARD: "Tarjeta",
+  SPEI: "SPEI",
+  OXXO: "OXXO",
+};
+
+function paymentMethodLabel(method: string | null | undefined): string {
+  if (!method) return "—";
+  return PAYMENT_METHOD_LABELS[method] ?? method;
 }
 
 /**
@@ -175,6 +188,14 @@ export default function PaymentsPage() {
       numeric: true,
       width: "9rem",
       cell: (s) => <Money value={s.amount} currency={s.currency} />,
+    },
+    {
+      key: "paymentMethod",
+      header: "Método",
+      width: "7rem",
+      cell: (s) => (
+        <span className="text-xs text-muted-foreground">{paymentMethodLabel(s.paymentMethod)}</span>
+      ),
     },
     {
       key: "createdAt",

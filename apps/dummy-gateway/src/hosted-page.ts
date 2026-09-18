@@ -9,7 +9,12 @@
  * Nada de lo que se escribe aquí mueve dinero real: livemode es siempre false
  * y la cabecera "Modo de prueba" lo recuerda en todas las pantallas.
  */
-import type { InternalSession, SessionLineItem } from "./checkout.store.js";
+import {
+  PAYMENT_METHODS,
+  type InternalSession,
+  type PaymentMethod,
+  type SessionLineItem,
+} from "./checkout.store.js";
 
 // ---------------------------------------------------------------------------
 // utilidades
@@ -121,7 +126,7 @@ function testModeBanner(): string {
     <span class="extra">Ninguna tarjeta real se cobra.</span>
     <span>Aprobada: <code>4242 4242 4242 4242</code> <span class="extra">(cualquier número válido)</span></span>
     <span>Rechazada: <code>4000 0000 0000 0002</code></span>
-    <span class="extra">Fecha futura y CVC cualquiera.</span>
+    <span class="extra">SPEI y OXXO se confirman con un botón, sin banco de por medio.</span>
   </div>`;
 }
 
@@ -131,7 +136,7 @@ function poweredBy(): string {
   return `<div class="powered">
     <span class="lock">${LOCK_SVG} Pago seguro</span>
     <span class="sep"></span>
-    <span>Con tecnología de <b>NetPay</b></span>
+    <span>Con tecnología de <b>Easy Sell</b> by Tupla</span>
     <span class="sep"></span>
     <span>Sandbox · sin dinero real</span>
   </div>`;
@@ -212,6 +217,19 @@ const CHECKOUT_CSS = `
   .trow .cur{font-weight:500;color:var(--text-2);font-size:13px}
   .summary .powered{margin-top:2rem}
   .checkout h2{font-size:17px;font-weight:600;margin:0 0 1.15rem}
+  .methods{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:.5rem;margin-bottom:1.15rem}
+  .method{border:1px solid var(--border-strong);border-radius:var(--radius);background:#fff;padding:.65rem .4rem;font:inherit;font-size:13px;
+    font-weight:500;color:var(--text-2);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.35rem;transition:border-color .15s,box-shadow .15s}
+  .method:hover{background:var(--bg-muted)}
+  .method[aria-selected="true"]{border-color:var(--primary);color:var(--text);box-shadow:0 0 0 1px var(--primary)}
+  .method svg{width:22px;height:22px}
+  .panel[hidden]{display:none}
+  .ref-box{border:1px dashed var(--border-strong);border-radius:var(--radius);background:var(--bg-muted);padding:.9rem 1rem;margin-bottom:1rem}
+  .ref-box dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.45rem 1rem;font-size:14px;align-items:baseline}
+  .ref-box dt{color:var(--text-2);margin:0}
+  .ref-box dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+  .ref-box dd.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em}
+  .ref-note{color:var(--text-2);font-size:13px;margin:.75rem 0 0;line-height:1.45}
   .field{margin-bottom:1rem}
   .field label,.legend{display:block;font-size:13.5px;font-weight:500;color:var(--text-2);margin-bottom:.35rem}
   .control{width:100%;padding:.62rem .75rem;border:1px solid var(--border-strong);border-radius:var(--radius);font:inherit;font-size:15px;color:var(--text);
@@ -283,10 +301,37 @@ const CHECKOUT_JS = String.raw`
 (function () {
   var S = window.__SESSION__;
   var $ = function (id) { return document.getElementById(id); };
+  // La página puede servirse detrás de un proxy con prefijo (p. ej.
+  // https://tienda.example/pay/checkout/<id>/hosted). Todas las llamadas al
+  // gateway se arman relativas a ese prefijo para que funcionen igual con o
+  // sin él; nunca con rutas absolutas desde la raíz del dominio.
+  var BASE = window.location.pathname.replace(/\/checkout\/[^/]+\/hosted\/?$/, '');
   var form = $('payForm');
   var email = $('email'), number = $('cardNumber'), expiry = $('cardExpiry'), cvc = $('cardCvc');
   var holder = $('cardName'), country = $('country'), brandEl = $('brand');
   var payBtn = $('payBtn'), formError = $('formError');
+  var method = S.paymentMethods[0] || 'CARD';
+
+  // ---- método de pago -------------------------------------------------------
+  var methodButtons = Array.prototype.slice.call(document.querySelectorAll('.method[data-method]'));
+  function selectMethod(next) {
+    method = next;
+    methodButtons.forEach(function (btn) {
+      var on = btn.getAttribute('data-method') === next;
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      btn.setAttribute('tabindex', on ? '0' : '-1');
+    });
+    ['CARD', 'SPEI', 'OXXO'].forEach(function (m) {
+      var panel = $('panel' + m);
+      if (panel) panel.hidden = m !== next;
+    });
+    $('payLabel').textContent = S.payLabels[next] || S.payLabels.CARD;
+    hideFormError();
+  }
+  methodButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () { selectMethod(btn.getAttribute('data-method')); });
+  });
+  selectMethod(method);
   var sameToggle = $('sameAsHolder'), billingBody = $('billingBody');
   var b = {
     name: $('bName'), rfc: $('bRfc'), street: $('bStreet'), neighborhood: $('bNeighborhood'),
@@ -391,23 +436,25 @@ const CHECKOUT_JS = String.raw`
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.value.trim())) fail(email, 'Escribe un correo electrónico válido.');
 
-    var digits = cardDigits(), brand = detectBrand(digits);
-    if (digits.length === 0) fail(number, 'Escribe el número de tu tarjeta.');
-    else if (digits.length !== maxLen(brand) || !luhn(digits)) fail(number, 'El número de tarjeta no es válido.');
+    if (method === 'CARD') {
+      var digits = cardDigits(), brand = detectBrand(digits);
+      if (digits.length === 0) fail(number, 'Escribe el número de tu tarjeta.');
+      else if (digits.length !== maxLen(brand) || !luhn(digits)) fail(number, 'El número de tarjeta no es válido.');
 
-    var m = expiry.value.replace(/\D/g, '');
-    var mm = Number(m.slice(0, 2)), yy = Number(m.slice(2, 4));
-    if (m.length !== 4 || mm < 1 || mm > 12) fail(expiry, 'La fecha de vencimiento no es válida.');
-    else {
-      var now = new Date();
-      var expYear = 2000 + yy;
-      if (expYear < now.getFullYear() || (expYear === now.getFullYear() && mm < now.getMonth() + 1)) {
-        fail(expiry, 'La tarjeta ya venció.');
+      var m = expiry.value.replace(/\D/g, '');
+      var mm = Number(m.slice(0, 2)), yy = Number(m.slice(2, 4));
+      if (m.length !== 4 || mm < 1 || mm > 12) fail(expiry, 'La fecha de vencimiento no es válida.');
+      else {
+        var now = new Date();
+        var expYear = 2000 + yy;
+        if (expYear < now.getFullYear() || (expYear === now.getFullYear() && mm < now.getMonth() + 1)) {
+          fail(expiry, 'La tarjeta ya venció.');
+        }
       }
+      var cvcLen = brand === 'amex' ? 4 : 3;
+      if (cvc.value.length !== cvcLen) fail(cvc, 'El código de seguridad debe tener ' + cvcLen + ' dígitos.');
+      if (holder.value.trim().length < 2) fail(holder, 'Escribe el nombre tal como aparece en la tarjeta.');
     }
-    var cvcLen = brand === 'amex' ? 4 : 3;
-    if (cvc.value.length !== cvcLen) fail(cvc, 'El código de seguridad debe tener ' + cvcLen + ' dígitos.');
-    if (holder.value.trim().length < 2) fail(holder, 'Escribe el nombre tal como aparece en la tarjeta.');
 
     if (billingOpen()) {
       if (b.name.value.trim().length < 2) fail(b.name, 'Escribe el nombre o razón social.');
@@ -442,25 +489,29 @@ const CHECKOUT_JS = String.raw`
   function setLoading(on) {
     payBtn.disabled = on;
     payBtn.classList.toggle('loading', on);
-    $('payLabel').textContent = on ? 'Procesando…' : S.payLabel;
+    $('payLabel').textContent = on ? 'Procesando…' : (S.payLabels[method] || S.payLabels.CARD);
   }
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     hideFormError();
     if (!validate()) return;
-    var digits = cardDigits();
-    var brand = detectBrand(digits);
-    var declined = digits === '4000000000000002';
+    var declined = false;
     var body = {
       email: email.value.trim(),
-      card: { brand: brand, last4: digits.slice(-4), holder: holder.value.trim() },
+      paymentMethod: method,
       country: country.value,
-      billing: collectBilling(),
-      reason: declined ? 'CARD_DECLINED' : undefined
+      billing: collectBilling()
     };
+    if (method === 'CARD') {
+      var digits = cardDigits();
+      var brand = detectBrand(digits);
+      declined = digits === '4000000000000002';
+      body.card = { brand: brand, last4: digits.slice(-4), holder: holder.value.trim() };
+      if (declined) body.reason = 'CARD_DECLINED';
+    }
     setLoading(true);
-    fetch('/checkout/sessions/' + S.id + (declined ? '/fail' : '/capture'), {
+    fetch(BASE + '/checkout/sessions/' + S.id + (declined ? '/fail' : '/capture'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body)
@@ -475,7 +526,7 @@ const CHECKOUT_JS = String.raw`
         setLoading(false);
         return;
       }
-      window.location.replace('/checkout/' + S.id + '/hosted');
+      window.location.replace(BASE + '/checkout/' + S.id + '/hosted');
     }).catch(function () {
       showFormError('Error de red. Inténtalo de nuevo.');
       setLoading(false);
@@ -483,6 +534,50 @@ const CHECKOUT_JS = String.raw`
   });
 })();
 `;
+
+const METHOD_LABEL: Record<PaymentMethod, string> = {
+  CARD: "Tarjeta",
+  SPEI: "Transferencia SPEI",
+  OXXO: "Efectivo en OXXO",
+};
+
+const METHOD_HEADING: Record<PaymentMethod, string> = {
+  CARD: "Pagar con tarjeta",
+  SPEI: "Pagar por transferencia",
+  OXXO: "Pagar en efectivo",
+};
+
+const METHOD_ICON: Record<PaymentMethod, string> = {
+  CARD: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5" stroke="currentColor" stroke-width="1.6"/><path d="M2.5 10h19" stroke="currentColor" stroke-width="1.6"/><path d="M6 14.5h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  SPEI: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 10.5 12 5l9 5.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M5 10.5V18M9.5 10.5V18M14.5 10.5V18M19 10.5V18M3 18.5h18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  OXXO: `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 8.5 12 4l8 4.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 20v-6h6v6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+};
+
+/** Métodos habilitados para la sesión, en el orden canónico del gateway. */
+function methodsFor(session: InternalSession): PaymentMethod[] {
+  const allowed = session.paymentMethods?.length ? session.paymentMethods : [...PAYMENT_METHODS];
+  return PAYMENT_METHODS.filter((m) => allowed.includes(m));
+}
+
+function methodTabsHtml(methods: PaymentMethod[]): string {
+  if (methods.length <= 1) return "";
+  return `<div class="methods" role="tablist" aria-label="Método de pago">${methods
+    .map(
+      (m, i) =>
+        `<button type="button" class="method" role="tab" data-method="${m}" aria-selected="${i === 0 ? "true" : "false"}" tabindex="${i === 0 ? "0" : "-1"}">${METHOD_ICON[m]}<span>${escapeHtml(METHOD_LABEL[m])}</span></button>`,
+    )
+    .join("")}</div>`;
+}
+
+/** CLABE de 18 dígitos con el prefijo bancario de STP (646180) + referencia. */
+export function speiClabe(reference: string): string {
+  return `646180${reference.replace(/\D/g, "").padEnd(12, "0").slice(0, 12)}`;
+}
+
+/** Referencia OXXO de 14 dígitos agrupada de 4 en 4 para dictarla en caja. */
+export function oxxoReference(reference: string): string {
+  return reference.replace(/\D/g, "").padEnd(14, "0").slice(0, 14).replace(/(\d{4})(?=\d)/g, "$1-");
+}
 
 export function renderHostedCheckout(session: InternalSession): string {
   const merchant = session.merchantName?.trim() || "Comercio";
@@ -499,12 +594,22 @@ export function renderHostedCheckout(session: InternalSession): string {
       ? "Necesaria para completar la entrega."
       : "Opcional. Por defecto usamos los datos del titular.";
 
+  const methods = methodsFor(session);
+  const payLabels: Record<PaymentMethod, string> = {
+    CARD: payLabel,
+    SPEI: `Confirmar transferencia de ${formatMoney(total)}`,
+    OXXO: `Simular pago en tienda de ${formatMoney(total)}`,
+  };
   const clientSession = {
     id: session.id,
     billingRequired,
     requiresInvoice,
     payLabel,
+    payLabels,
+    paymentMethods: methods,
   };
+  const clabe = speiClabe(session.paymentReference);
+  const oxxoRef = oxxoReference(session.paymentReference);
 
   return `<!doctype html>
 <html lang="es">
@@ -538,9 +643,11 @@ ${testModeBanner()}
 
   <section class="checkout" aria-label="Datos de pago">
     <div class="col">
-      <h2>Pagar con tarjeta</h2>
+      <h2>${methods.length > 1 ? "Elige cómo pagar" : METHOD_HEADING[methods[0] ?? "CARD"]}</h2>
       <form id="payForm" novalidate autocomplete="on">
         <div class="form-error" id="formError" role="alert"></div>
+
+        ${methodTabsHtml(methods)}
 
         <div class="field">
           <label for="email">Correo electrónico</label>
@@ -548,6 +655,32 @@ ${testModeBanner()}
           <p class="error" data-error-for="email"></p>
         </div>
 
+        <div class="panel" id="panelSPEI" hidden>
+          <div class="ref-box">
+            <dl>
+              <dt>Banco</dt><dd>STP (simulado)</dd>
+              <dt>CLABE</dt><dd class="mono">${escapeHtml(clabe)}</dd>
+              <dt>Beneficiario</dt><dd>${escapeHtml(merchant)}</dd>
+              <dt>Concepto</dt><dd class="mono">${escapeHtml(session.paymentReference.slice(0, 7))}</dd>
+              <dt>Importe exacto</dt><dd>${escapeHtml(formatMoney(total))} ${escapeHtml(session.currency)}</dd>
+            </dl>
+            <p class="ref-note">Con una pasarela real el pago se confirma cuando el banco avisa la transferencia. En este sandbox no hay banco: al pulsar el botón se simula esa confirmación.</p>
+          </div>
+        </div>
+
+        <div class="panel" id="panelOXXO" hidden>
+          <div class="ref-box">
+            <dl>
+              <dt>Referencia</dt><dd class="mono">${escapeHtml(oxxoRef)}</dd>
+              <dt>Importe</dt><dd>${escapeHtml(formatMoney(total))} ${escapeHtml(session.currency)}</dd>
+              <dt>Comisión</dt><dd>$0.00 (simulada)</dd>
+              <dt>Vence</dt><dd>${escapeHtml(formatDate(session.expiresAt))}</dd>
+            </dl>
+            <p class="ref-note">En una tienda real dictas la referencia en caja y el pago tarda hasta 24 h en verse reflejado. Aquí el botón simula que la tienda ya reportó el pago.</p>
+          </div>
+        </div>
+
+        <div class="panel" id="panelCARD">
         <div class="field">
           <span class="legend">Información de la tarjeta</span>
           <div class="group">
@@ -572,6 +705,7 @@ ${testModeBanner()}
           <label for="cardName">Nombre en la tarjeta</label>
           <input class="control" id="cardName" autocomplete="cc-name" placeholder="Nombre completo" value="${escapeHtml(customerName)}">
           <p class="error" data-error-for="cardName"></p>
+        </div>
         </div>
 
         <div class="field">
@@ -701,6 +835,18 @@ const RESULT_CSS = `
 const CHECK_SVG = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const CROSS_SVG = `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>`;
 
+/** "Método de pago" del comprobante: tarjeta con marca, o el método diferido con su referencia. */
+function methodChip(session: InternalSession): string {
+  const method = session.paymentMethod ?? (session.card ? "CARD" : undefined);
+  if (method === "SPEI") {
+    return `${escapeHtml(METHOD_LABEL.SPEI)} · <code>${escapeHtml(session.paymentReference.slice(0, 7))}</code>`;
+  }
+  if (method === "OXXO") {
+    return `${escapeHtml(METHOD_LABEL.OXXO)} · <code>${escapeHtml(oxxoReference(session.paymentReference))}</code>`;
+  }
+  return cardChip(session);
+}
+
 function cardChip(session: InternalSession): string {
   const card = session.card;
   if (!card) return "—";
@@ -760,7 +906,7 @@ export function renderHostedSuccess(session: InternalSession): string {
     <p class="amount">${escapeHtml(formatMoney(total))}<span class="cur">${escapeHtml(session.currency)}</span></p>
     <p class="to">Pagado a ${escapeHtml(merchant)}</p>
     <dl class="details">
-      <dt>Método de pago</dt><dd>${cardChip(session)}</dd>
+      <dt>Método de pago</dt><dd>${methodChip(session)}</dd>
       <dt>Fecha</dt><dd>${escapeHtml(formatDate(session.capturedAt))}</dd>
       <dt>Referencia</dt><dd><code>${escapeHtml(session.id)}</code></dd>
       <dt>Pedido</dt><dd><code>${escapeHtml(session.orderId.slice(0, 8))}</code></dd>

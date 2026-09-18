@@ -5,6 +5,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Logger,
   Param,
   Post,
   Query,
@@ -22,6 +23,8 @@ import { RequestContext } from "../common/context/request-context.js";
 @Controller("payments")
 @UseGuards(RoleGuard)
 export class PaymentController {
+  private readonly logger = new Logger(PaymentController.name);
+
   constructor(private readonly payments: PaymentService) {}
 
   @Get("sessions")
@@ -93,51 +96,59 @@ export class PaymentController {
   }
 
   /**
-   * Proxy transparente al dummy-gateway para servir el checkout hosted
-   * desde el navegador del cliente. La pasarela no está expuesta al
-   * público, así que commerce-api (que vive en la misma red de Docker)
-   * hace de relay: /pay/checkout/sessions/<id> → /payments/dummy-proxy/
-   * checkout/sessions/<id> → http://dummy-gateway:4100/checkout/sessions/<id>.
+   * Proxy al dummy-gateway para servir el checkout hosted desde el navegador
+   * del cliente. La pasarela no está expuesta al público, así que commerce-api
+   * (misma red de Docker) hace de relay:
+   *   /pay/checkout/<id>/hosted → /api/v1/payments/dummy-proxy/checkout/<id>/hosted
+   *                             → http://dummy-gateway:4100/checkout/<id>/hosted
    *
-   * El proxy es `@Public()`: la página hosted es la que muestra el iframe
-   * de tarjeta y los recursos estáticos del gateway, no requiere sesión.
+   * Es `@Public()` porque la página hosted no requiere sesión, y por eso
+   * mismo NO es un proxy abierto: solo pasan las rutas que esa página usa
+   * (ver `DUMMY_PROXY_ALLOWLIST`) y nunca se inyecta la service key. Crear
+   * sesiones (`POST /checkout/sessions`) sigue siendo servidor-a-servidor.
    */
   @Public()
   @All("dummy-proxy/**")
   async dummyProxy(@Req() req: Request, @Res() res: Response): Promise<void> {
     const base = (process.env.DUMMY_BASE_URL ?? "http://localhost:4100").replace(/\/$/, "");
     const rest = req.path.replace(/^\/api\/v1\/payments\/dummy-proxy/, "");
-    const target = `${base}${rest}${req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : ""}`;
+    if (!isAllowedDummyProxyPath(req.method, rest)) {
+      res.status(404).json({ code: "NOT_FOUND", message: "Ruta no disponible" });
+      return;
+    }
+    const qs = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    const target = `${base}${rest}${qs}`;
+    this.logger.debug(`[dummy-proxy] ${req.method} ${req.path} → ${target}`);
 
     const headers = new Headers();
     const incomingType = req.headers["content-type"];
     if (incomingType) headers.set("content-type", incomingType);
-    const incomingAuth = req.headers["authorization"];
-    if (incomingAuth) headers.set("authorization", incomingAuth);
-    if (process.env.DUMMY_SERVICE_KEY && !incomingAuth) {
-      headers.set(
-        "authorization",
-        `Bearer ${process.env.DUMMY_SERVICE_KEY_REF ?? "npk_test_local"}`,
-      );
-    }
+    // El gateway comprime respuestas grandes y el relay las reenvía crudas:
+    // pedimos identidad para no tener que descomprimir.
+    headers.set("accept-encoding", "identity");
+
+    // `bodyParser.raw` (main.ts) deja el cuerpo como Buffer; el `json()`
+    // global lo deja como objeto. Se reserializa lo que haya.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = (req as any).body;
+    const body =
+      req.method === "GET" || req.method === "HEAD"
+        ? undefined
+        : Buffer.isBuffer(raw)
+          ? raw
+          : typeof raw === "string"
+            ? raw
+            : raw && typeof raw === "object" && Object.keys(raw).length > 0
+              ? JSON.stringify(raw)
+              : undefined;
 
     let upstream: globalThis.Response;
     try {
-      upstream = await fetch(target, {
-        method: req.method,
-        headers,
-        body:
-          req.method === "GET" || req.method === "HEAD"
-            ? undefined
-            : (req as unknown as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer
-            ? await (req as unknown as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer()
-            : undefined,
-      });
+      upstream = await fetch(target, { method: req.method, headers, body });
     } catch (err) {
       res.status(502).json({
         code: "DUMMY_UNREACHABLE",
         message: (err as Error).message,
-        target,
       });
       return;
     }
@@ -145,8 +156,25 @@ export class PaymentController {
     res.status(upstream.status);
     const responseType = upstream.headers.get("content-type");
     if (responseType) res.setHeader("content-type", responseType);
+    const csp = upstream.headers.get("content-security-policy");
+    if (csp) res.setHeader("content-security-policy", csp);
     res.setHeader("cache-control", "no-store");
     const bodyBuf = Buffer.from(await upstream.arrayBuffer());
     res.send(bodyBuf);
   }
+}
+
+/**
+ * Rutas del gateway que la página hosted necesita desde el navegador. Todo lo
+ * demás (crear sesiones, healthz, consultar sesiones ajenas) queda fuera.
+ */
+const DUMMY_PROXY_ALLOWLIST: Array<{ method: "GET" | "POST"; pattern: RegExp }> = [
+  { method: "GET", pattern: /^\/checkout\/[a-f0-9]{32}\/hosted\/?$/ },
+  { method: "POST", pattern: /^\/checkout\/sessions\/[a-f0-9]{32}\/(capture|fail)\/?$/ },
+];
+
+export function isAllowedDummyProxyPath(method: string, path: string): boolean {
+  const upper = method.toUpperCase();
+  const effective = upper === "HEAD" ? "GET" : upper;
+  return DUMMY_PROXY_ALLOWLIST.some((rule) => rule.method === effective && rule.pattern.test(path));
 }

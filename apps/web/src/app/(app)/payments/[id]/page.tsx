@@ -64,6 +64,8 @@ interface SessionDetail {
   updatedAt: string;
   capturedAt: string | null;
   failedAt: string | null;
+  /** CARD | SPEI | OXXO; null mientras la sesión sigue pendiente. */
+  paymentMethod: string | null;
   refundedTotal: string;
   netTotal: string;
   lines: SessionLine[];
@@ -320,6 +322,11 @@ export default function PaymentDetailPage() {
 
             <Section title="Línea de tiempo">
               <DescriptionList divided>
+                <FieldRow label="Método de pago">
+                  {s.paymentMethod
+                    ? { CARD: "Tarjeta", SPEI: "Transferencia SPEI", OXXO: "Efectivo OXXO" }[s.paymentMethod] ?? s.paymentMethod
+                    : "Pendiente"}
+                </FieldRow>
                 <FieldRow label="Sesión creada">
                   <DateTime value={s.createdAt} />
                 </FieldRow>

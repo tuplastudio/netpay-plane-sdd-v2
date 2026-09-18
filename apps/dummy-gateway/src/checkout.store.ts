@@ -39,6 +39,19 @@ export interface BillingDetails {
   country: string;
 }
 
+/**
+ * Métodos de pago que la página hosted sabe simular. Una pasarela real
+ * expone más (CoDi, meses sin intereses, wallets); estos tres cubren los
+ * flujos que el negocio necesita probar: cobro inmediato (tarjeta) y cobro
+ * diferido con referencia (SPEI, efectivo en tienda).
+ */
+export const PAYMENT_METHODS = ["CARD", "SPEI", "OXXO"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return typeof value === "string" && (PAYMENT_METHODS as readonly string[]).includes(value);
+}
+
 /** Lo que se recuerda de la tarjeta de prueba: nunca el PAN completo. */
 export interface CardSummary {
   brand: "visa" | "mastercard" | "amex" | "unknown";
@@ -55,6 +68,8 @@ export interface SessionPresentation {
   totals?: SessionTotals;
   successUrl?: string;
   cancelUrl?: string;
+  /** Métodos que el comercio acepta para esta sesión. Vacío/ausente = todos. */
+  paymentMethods?: PaymentMethod[];
 }
 
 /**
@@ -71,6 +86,10 @@ export interface InternalSession extends CheckoutSession, SessionPresentation {
   billing?: BillingDetails;
   card?: CardSummary;
   email?: string;
+  /** Método con el que se cobró (o intentó cobrar). */
+  paymentMethod?: PaymentMethod;
+  /** Referencia SPEI/OXXO que se le mostró al cliente. Fija por sesión. */
+  paymentReference: string;
   capturedAt?: string;
   failedAt?: string;
   failureReason?: string;
@@ -81,6 +100,20 @@ export interface PaymentOutcome {
   card?: CardSummary;
   email?: string;
   reason?: string;
+  paymentMethod?: PaymentMethod;
+}
+
+/**
+ * Referencia numérica estable por sesión (18 dígitos: cabe en una CLABE de
+ * prueba y en una referencia OXXO de 14). Derivada del id para que recargar
+ * la página muestre siempre la misma.
+ */
+export function paymentReferenceFor(sessionId: string): string {
+  let out = "";
+  for (let i = 0; i < sessionId.length && out.length < 18; i += 1) {
+    out += String(parseInt(sessionId[i]!, 16) % 10);
+  }
+  return out.padEnd(18, "0");
 }
 
 @Injectable()
@@ -99,6 +132,7 @@ export class CheckoutStore {
   } & SessionPresentation): InternalSession {
     const id = randomBytes(16).toString("hex");
     const now = new Date();
+    const methods = (input.paymentMethods ?? []).filter(isPaymentMethod);
     const expires = new Date(now.getTime() + (input.expiresInMs ?? 15 * 60 * 1000));
     const session: InternalSession = {
       id,
@@ -126,6 +160,8 @@ export class CheckoutStore {
       totals: input.totals,
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
+      paymentMethods: methods.length ? methods : [...PAYMENT_METHODS],
+      paymentReference: paymentReferenceFor(id),
     };
     this.sessions.set(id, session);
     return session;
@@ -149,6 +185,7 @@ export class CheckoutStore {
     if (outcome?.billing) s.billing = outcome.billing;
     if (outcome?.card) s.card = outcome.card;
     if (outcome?.email) s.email = outcome.email;
+    if (outcome?.paymentMethod) s.paymentMethod = outcome.paymentMethod;
     if (status === "CAPTURED") {
       s.capturedAt = now;
     } else if (status === "FAILED") {

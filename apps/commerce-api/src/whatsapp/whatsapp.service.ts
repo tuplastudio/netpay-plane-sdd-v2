@@ -196,9 +196,38 @@ export class WhatsAppService {
     });
     let plainWebhookSecret: string | undefined;
     let webhookSecretHash = existing?.webhookSecretHash ?? null;
-    if (!webhookSecretHash) {
+
+    // Evolution con credenciales completas: el alta deja el webhook
+    // registrado en la instancia, con un secreto NUEVO (el anterior está
+    // hasheado y no se puede volver a mandar a Evolution). Sin esto el
+    // operador tenía que copiar la URL a mano en el panel de Evolution.
+    const evoCreds = input.credentials as { baseUrl?: string; apiKey?: string; instance?: string };
+    const registersEvolutionWebhook =
+      input.provider === "EVOLUTION" && Boolean(evoCreds.baseUrl && evoCreds.apiKey && evoCreds.instance);
+
+    if (!webhookSecretHash || registersEvolutionWebhook) {
       plainWebhookSecret = randomBytes(18).toString("base64url");
       webhookSecretHash = await argon2.hash(plainWebhookSecret);
+    }
+
+    let webhookUrl = input.webhookUrl;
+    let lastError: string | null = null;
+    if (registersEvolutionWebhook) {
+      const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
+      webhookUrl = this.evolutionOnboarding.buildInboundWebhookUrl(tenant?.slug ?? tenantId, plainWebhookSecret);
+      try {
+        await this.evolutionOnboarding.registerWebhook(
+          { baseUrl: String(evoCreds.baseUrl).replace(/\/+$/, ""), apiKey: String(evoCreds.apiKey), source: "tenant-connection" },
+          String(evoCreds.instance),
+          webhookUrl,
+        );
+      } catch (err) {
+        // Las credenciales se guardan igual (el envío saliente puede
+        // funcionar), pero se deja constancia de que el entrante no quedó
+        // configurado para que el portal lo muestre.
+        lastError = `No se pudo registrar el webhook en Evolution: ${(err as Error).message}`;
+        this.logger.warn(`${lastError} (tenant ${tenantId}, instancia ${evoCreds.instance})`);
+      }
     }
 
     const connection = await this.prisma.whatsAppConnection.upsert({
@@ -209,16 +238,18 @@ export class WhatsAppService {
         phoneNumber: input.phoneNumber,
         status,
         credentials: input.credentials as never,
-        webhookUrl: input.webhookUrl,
+        webhookUrl,
         webhookSecretHash,
+        lastError,
         connectedAt: status === "ACTIVE" ? new Date() : null,
       },
       update: {
         phoneNumber: input.phoneNumber,
         status,
         credentials: input.credentials as never,
-        webhookUrl: input.webhookUrl,
+        webhookUrl,
         webhookSecretHash,
+        lastError,
         connectedAt: status === "ACTIVE" ? new Date() : null,
       },
     });
@@ -249,12 +280,30 @@ export class WhatsAppService {
   async updateWebhookUrl(tenantId: string, id: string, webhookUrl: string) {
     const conn = await this.prisma.whatsAppConnection.findFirst({
       where: { id, tenantId },
-      select: { id: true, status: true, provider: true, webhookUrl: true, version: true },
+      select: { id: true, status: true, provider: true, webhookUrl: true, version: true, credentials: true },
     });
     if (!conn) throw new NotFoundException({ code: "NOT_FOUND", message: "Conexión no accesible" });
+
+    // Evolution: además de guardarla, se reapunta la instancia para que el
+    // cambio surta efecto sin pasar por el panel de Evolution.
+    let lastError: string | null = null;
+    const creds = (conn.credentials ?? {}) as { baseUrl?: string; apiKey?: string; instance?: string };
+    if (conn.provider === "EVOLUTION" && creds.baseUrl && creds.apiKey && creds.instance) {
+      try {
+        await this.evolutionOnboarding.registerWebhook(
+          { baseUrl: creds.baseUrl.replace(/\/+$/, ""), apiKey: creds.apiKey, source: "tenant-connection" },
+          creds.instance,
+          webhookUrl,
+        );
+      } catch (err) {
+        lastError = `No se pudo reapuntar el webhook en Evolution: ${(err as Error).message}`;
+        this.logger.warn(`${lastError} (conexión ${id})`);
+      }
+    }
+
     const { webhookSecretHash: _omit, ...safe } = await this.prisma.whatsAppConnection.update({
       where: { id },
-      data: { webhookUrl, version: { increment: 1 } },
+      data: { webhookUrl, lastError, version: { increment: 1 } },
     });
     this.logger.log(
       `webhookUrl de ${conn.provider} ${id} actualizada a ${webhookUrl} (anterior: ${conn.webhookUrl})`,
@@ -273,30 +322,81 @@ export class WhatsAppService {
 
   /**
    * Da de alta una instancia de Evolution desde el portal. Crea la
-   * instancia vía Evolution API, registra el webhook entrante y devuelve
-   * el QR (PNG base64) listo para que el operador lo muestre al cliente.
-   * La fila de `WhatsAppConnection` se crea aparte, en `finalizeEvolutionConnection`,
-   * cuando el cliente ya escaneó y el estado pasó a `open` — así no dejamos
-   * basura de intentos cancelados en la tabla.
+   * instancia vía Evolution API, registra el webhook entrante (con el
+   * secreto de este tenant en la URL) y devuelve el QR listo para mostrar.
+   *
+   * La fila de `WhatsAppConnection` se deja en `PENDING` desde este momento:
+   * así el secreto ya está hasheado cuando Evolution empiece a llamar al
+   * webhook (`connection.update` llega en cuanto el cliente escanea) y el
+   * controller puede autenticar y activar la conexión sola, sin depender de
+   * que el portal siga abierto para pulsar "finalizar".
    */
-  async provisionEvolution(tenantId: string, phoneHint?: string): Promise<ProvisionResult> {
+  async provisionEvolution(tenantId: string, phoneHint?: string): Promise<ProvisionResult & { connectionId: string }> {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Tenant no accesible" });
     }
-    try {
-      return await this.evolutionOnboarding.provision(tenant, { phoneHint });
-    } catch (err) {
-      if (err instanceof EvolutionApiError) throw err;
-      throw err;
+    const platform = await this.evolutionOnboarding.platformEvolution(tenantId);
+    if (!platform) {
+      throw new EvolutionApiError(
+        "Evolution no está configurado: define EVOLUTION_BASE_URL y EVOLUTION_API_KEY_REF en el API, o conecta primero una instancia existente.",
+        412,
+      );
     }
+
+    // Si había una instancia anterior a medio dar de alta, se limpia en
+    // Evolution para no acumular instancias `connecting` huérfanas.
+    const previous = await this.prisma.whatsAppConnection.findUnique({
+      where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
+      select: { status: true, credentials: true },
+    });
+    const previousInstance = (previous?.credentials as { instance?: string } | null)?.instance;
+    if (previous && previous.status !== "ACTIVE" && previousInstance) {
+      await this.evolutionOnboarding.disconnectAndDelete(tenantId, previousInstance);
+    }
+
+    const webhookSecret = randomBytes(18).toString("base64url");
+    const webhookSecretHash = await argon2.hash(webhookSecret);
+    const result = await this.evolutionOnboarding.provision(tenant, { phoneHint, webhookSecret });
+
+    const credentials = {
+      baseUrl: platform.baseUrl,
+      apiKey: platform.apiKey,
+      instance: result.instanceName,
+    };
+    const connection = await this.prisma.whatsAppConnection.upsert({
+      where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
+      create: {
+        tenantId,
+        provider: "EVOLUTION",
+        phoneNumber: phoneHint?.trim() || null,
+        status: "PENDING",
+        credentials: credentials as never,
+        webhookUrl: result.webhookUrl,
+        webhookSecretHash,
+        lastError: null,
+        connectedAt: null,
+      },
+      update: {
+        phoneNumber: phoneHint?.trim() || null,
+        status: "PENDING",
+        credentials: credentials as never,
+        webhookUrl: result.webhookUrl,
+        webhookSecretHash,
+        lastError: null,
+        connectedAt: null,
+        version: { increment: 1 },
+      },
+    });
+    return { ...result, connectionId: connection.id };
   }
 
   /**
-   * Promueve una instancia recién escaneada a `WhatsAppConnection` con estado
-   * `ACTIVE`. El tenant ya queda recibiendo mensajes: el webhook que
-   * registramos en `provision` apunta aquí y el `parseInboundPayload` del
-   * controller ya sabe qué hacer con el `messages.upsert` nativo.
+   * Promueve una instancia recién escaneada a `ACTIVE`. Lo llama el portal
+   * cuando ve el estado `open`; es idempotente con la activación automática
+   * que dispara el webhook `connection.update`, así que da igual quién llegue
+   * primero. Si no había fila previa (alta hecha fuera del portal) se crea
+   * con un secreto nuevo y se reescribe el webhook en Evolution.
    */
   async finalizeEvolutionConnection(
     tenantId: string,
@@ -320,10 +420,23 @@ export class WhatsAppService {
     }
     const phoneNumber =
       phoneHint?.trim() || (state.number ? `+${state.number.replace(/^\+/, "")}` : "");
-    const secret = randomBytes(18).toString("base64url");
-    const webhookSecretHash = await argon2.hash(secret);
 
-    const webhookUrl = await this.evolutionInboundUrl(tenantId);
+    const existing = await this.prisma.whatsAppConnection.findUnique({
+      where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
+    });
+    const existingInstance = (existing?.credentials as { instance?: string } | null)?.instance;
+
+    let webhookUrl = existing?.webhookUrl ?? null;
+    let webhookSecretHash = existing?.webhookSecretHash ?? null;
+    let secret: string | undefined;
+    if (!existing || existingInstance !== instanceName || !webhookSecretHash || !webhookUrl) {
+      secret = randomBytes(18).toString("base64url");
+      webhookSecretHash = await argon2.hash(secret);
+      webhookUrl = await this.evolutionInboundUrl(tenantId, secret);
+      await this.evolutionOnboarding.registerWebhook(platform, instanceName, webhookUrl);
+    }
+
+    const credentials = { baseUrl: platform.baseUrl, apiKey: platform.apiKey, instance: instanceName };
     const updated = await this.prisma.whatsAppConnection.upsert({
       where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
       create: {
@@ -331,26 +444,21 @@ export class WhatsAppService {
         provider: "EVOLUTION",
         phoneNumber,
         status: "ACTIVE",
-        credentials: {
-          baseUrl: platform.baseUrl,
-          apiKey: platform.apiKey,
-          instance: instanceName,
-        } as never,
+        credentials: credentials as never,
         webhookUrl,
         webhookSecretHash,
+        lastError: null,
         connectedAt: new Date(),
       },
       update: {
-        phoneNumber,
+        ...(phoneNumber ? { phoneNumber } : {}),
         status: "ACTIVE",
-        credentials: {
-          baseUrl: platform.baseUrl,
-          apiKey: platform.apiKey,
-          instance: instanceName,
-        } as never,
+        credentials: credentials as never,
         webhookUrl,
         webhookSecretHash,
+        lastError: null,
         connectedAt: new Date(),
+        version: { increment: 1 },
       },
     });
 
@@ -358,18 +466,67 @@ export class WhatsAppService {
     return { ...safe, webhookSecret: secret };
   }
 
-  private async evolutionInboundUrl(tenantId: string): Promise<string> {
+  /**
+   * Activación automática desde el webhook `connection.update` de Evolution:
+   * en cuanto el cliente escanea el QR la instancia pasa a `open` y Evolution
+   * nos lo avisa (ya autenticado por el secreto de la URL). Se activa la fila
+   * `PENDING` de esa misma instancia; si la instancia no coincide (alta vieja)
+   * o ya estaba `ACTIVE`, no se toca nada. `close` con logout deja la fila en
+   * `ERROR` para que el portal lo muestre en vez de fallar en silencio al enviar.
+   */
+  async applyEvolutionConnectionUpdate(
+    tenantId: string,
+    update: { instance?: string; state?: string; ownerJid?: string | null; statusReason?: number | null },
+  ): Promise<{ status: string } | null> {
+    const connection = await this.prisma.whatsAppConnection.findUnique({
+      where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
+    });
+    if (!connection) return null;
+    const instance = (connection.credentials as { instance?: string } | null)?.instance;
+    if (update.instance && instance && update.instance !== instance) return null;
+
+    if (update.state === "open") {
+      if (connection.status === "ACTIVE") return { status: "ACTIVE" };
+      const phone = update.ownerJid ? `+${String(update.ownerJid).split("@")[0]?.replace(/^\+/, "")}` : null;
+      await this.prisma.whatsAppConnection.update({
+        where: { id: connection.id },
+        data: {
+          status: "ACTIVE",
+          ...(phone ? { phoneNumber: phone } : {}),
+          connectedAt: new Date(),
+          lastError: null,
+          version: { increment: 1 },
+        },
+      });
+      this.logger.log(`Evolution ${instance ?? "?"} abierta: conexión ${connection.id} ACTIVE (tenant ${tenantId})`);
+      return { status: "ACTIVE" };
+    }
+
+    // 401 = "Log out instance": el teléfono desvinculó el dispositivo.
+    if (update.state === "close" && update.statusReason === 401 && connection.status === "ACTIVE") {
+      await this.prisma.whatsAppConnection.update({
+        where: { id: connection.id },
+        data: {
+          status: "ERROR",
+          lastError: "WhatsApp cerró la sesión del dispositivo. Vuelve a escanear el QR.",
+          version: { increment: 1 },
+        },
+      });
+      return { status: "ERROR" };
+    }
+    return { status: connection.status };
+  }
+
+  private async evolutionInboundUrl(tenantId: string, webhookSecret?: string): Promise<string> {
     // Misma forma de URL que usa el controller (`whatsapp.controller.ts` ->
     // `webhook/inbound/:tenantSlug`) y que arma EvolutionOnboardingService
-    // en `provision()`. Antes este método construía
-    // `inbound/_by_tenant_id_<uuid>`, que NO matcheaba con la ruta del
-    // controller — Evolution quedaba apuntando a un 404 silencioso.
+    // en `provision()`.
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { slug: true },
     });
     const slug = tenant?.slug ?? tenantId;
-    return this.evolutionOnboarding.buildInboundWebhookUrl(slug);
+    return this.evolutionOnboarding.buildInboundWebhookUrl(slug, webhookSecret);
   }
 
   /**

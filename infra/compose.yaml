@@ -90,6 +90,9 @@ services:
     environment:
       NODE_ENV: production
       DUMMY_PORT: "4100"
+      # Misma key que manda commerce-api; si está vacía el gateway acepta
+      # cualquier Bearer (modo local).
+      DUMMY_SERVICE_KEY_REF: ${DUMMY_SERVICE_KEY_REF:-}
     ports:
       - "4100:4100"
     healthcheck:
@@ -121,11 +124,21 @@ services:
       # Servidor-a-servidor (red interna de Docker): commerce-api -> dummy-gateway.
       DUMMY_BASE_URL: http://dummy-gateway:4100
       # Navegador -> dummy-gateway (link de pago que se abre en el cliente).
-      DUMMY_PUBLIC_URL: http://localhost:4100
+      # En prod el frontend (Vercel) sirve /pay/* y proxia al dummy, así que
+      # el checkoutUrl devuelto al navegador es la URL pública. En dev cae a
+      # localhost:4100 (cliente y gateway en el mismo browser).
+      DUMMY_PUBLIC_URL: ${DUMMY_PUBLIC_URL:-http://localhost:4100}
+      DUMMY_SERVICE_KEY_REF: ${DUMMY_SERVICE_KEY_REF:-}
+      DUMMY_WEBHOOK_SECRET_REF: ${DUMMY_WEBHOOK_SECRET_REF:-}
+      # Métodos de pago del checkout hosted (CARD,SPEI,OXXO). Vacío = todos.
+      PAYMENT_METHODS: ${PAYMENT_METHODS:-}
       # dummy-gateway -> commerce-api (callback del webhook de pago).
       API_SELF_URL: http://commerce-api:4000
       # Navegador -> web (CORS y enlaces públicos de cotización).
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3001}
+      # Evolution -> commerce-api (webhook de WhatsApp). Dominio público del
+      # API; si va vacío se usa PUBLIC_BASE_URL (el web reescribe /api/v1/*).
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
       # commerce-api -> agente (WhatsAppBridge para responder inbound).
       # Apunta al v2 (LangGraph). Para volver al v1 basta con cambiar esta
       # línea a http://agent-service:8000: el contrato HTTP es el mismo.

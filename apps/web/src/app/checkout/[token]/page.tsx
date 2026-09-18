@@ -141,10 +141,11 @@ export default function CheckoutPublicPage() {
       return res.data.data;
     },
     retry: false,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status && PAYABLE.includes(status) ? 3000 : false;
-    },
+    // Antes del click en "Pagar" (CHECKOUT_OPEN) no hay nada que esperar:
+    // cero polling. Después (AWAITING_PAYMENT) el webhook del gateway puede
+    // marcar el pedido como PAID en cualquier momento; 10 s basta para que
+    // la pantalla lo refleje sin martillar el API cada 3 s.
+    refetchInterval: (query) => (query.state.data?.status === "AWAITING_PAYMENT" ? 10_000 : false),
   });
 
   const order = orderQ.data;
@@ -158,8 +159,15 @@ export default function CheckoutPublicPage() {
       const res = await api.post(`/orders/public/${token}/checkout`);
       const data = res.data.data;
       window.location.href = data.checkoutUrl;
-    } catch {
-      toast.error("No se pudo iniciar el pago");
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      const message = (err as { response?: { data?: { error?: { message?: string }; message?: string } } })
+        ?.response?.data;
+      const detail = message?.error?.message ?? message?.message;
+      if (status === 404) toast.error("Este link de pago ya no es válido. Pide uno nuevo al vendedor.");
+      else if (status === 400) toast.error(detail ?? "Este pedido ya no acepta pagos.");
+      else if (status === 429) toast.error("Demasiados intentos seguidos. Espera un momento y vuelve a intentar.");
+      else toast.error("No pudimos abrir la pasarela de pago. Inténtalo de nuevo en unos segundos.");
       setPaying(false);
     }
   }
@@ -277,7 +285,9 @@ export default function CheckoutPublicPage() {
                 role="status"
                 aria-live="polite"
               >
-                La página se actualiza sola en cuanto se confirme el pago.
+                {order.status === "AWAITING_PAYMENT"
+                  ? "Ya abriste la pasarela. Esta página se actualiza sola en cuanto se confirme el pago."
+                  : "Te llevaremos a una pasarela segura para pagar con tarjeta, transferencia SPEI o efectivo."}
               </p>
             </>
           )}

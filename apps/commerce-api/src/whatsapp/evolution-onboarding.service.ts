@@ -47,7 +47,12 @@ export interface ProvisionResult {
   /** PNG del QR en base64 (`data:image/png;base64,...`). `null` si ya está `open`. */
   qrCodeBase64: string | null;
   state: string;
+  /** URL (con `?secret=`) que quedó registrada en Evolution para esta instancia. */
+  webhookUrl: string;
 }
+
+/** Eventos que Evolution debe mandarnos: mensajes y cambios de conexión (QR escaneado, logout). */
+export const EVOLUTION_WEBHOOK_EVENTS = ["MESSAGES_UPSERT", "CONNECTION_UPDATE"] as const;
 
 export class EvolutionApiError extends Error {
   constructor(
@@ -72,6 +77,15 @@ function safeReadEnv(name: string): string {
   const raw = process.env[name];
   if (!raw) return "";
   return raw.trim();
+}
+
+/** Origen público desde el que Evolution alcanza a commerce-api (sin barra final). */
+export function publicApiBaseUrl(): string {
+  const base =
+    safeReadEnv("API_PUBLIC_URL") ||
+    safeReadEnv("PUBLIC_BASE_URL") ||
+    `http://localhost:${safeReadEnv("WEB_PORT") || "3000"}`;
+  return base.replace(/\/+$/, "");
 }
 
 @Injectable()
@@ -112,7 +126,10 @@ export class EvolutionOnboardingService {
    * ya existe (Evolution es idempotente y devuelve igual el QR mientras esté
    * `connecting`) refrescamos el QR rotativo y reescribimos el webhook.
    */
-  async provision(tenant: Tenant, _opts?: { phoneHint?: string }): Promise<ProvisionResult> {
+  async provision(
+    tenant: Tenant,
+    opts?: { phoneHint?: string; webhookSecret?: string },
+  ): Promise<ProvisionResult> {
     const platform = await this.platformEvolution(tenant.id);
     if (!platform) {
       throw new EvolutionApiError(
@@ -123,7 +140,7 @@ export class EvolutionOnboardingService {
 
     const tenantSlug = tenant.slug.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 16) || "tenant";
     const instanceName = `easysell_${tenantSlug}_${Date.now().toString(36).slice(-6)}`.toLowerCase();
-    const webhookUrl = this.buildInboundWebhookUrl(tenant.slug);
+    const webhookUrl = this.buildInboundWebhookUrl(tenant.slug, opts?.webhookSecret);
 
     // 1) crea la instancia (Evolution regenera QR cada vez que la instancia
     // está `connecting` aunque ya exista; el `instanceName` nuevo evita
@@ -139,20 +156,14 @@ export class EvolutionOnboardingService {
     );
 
     // 2) webhook: lo configuramos aunque la instancia ya viniera con uno
-    // distinto, porque evolution guarda el último y nunca limpia.
-    const webhookRes = await this.evolutionPost<unknown>(platform, `/webhook/set/${instanceName}`, {
-      webhook: {
-        url: webhookUrl,
-        events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE"],
-        enabled: true,
-        webhook_by_events: false,
-        webhook_base64: false,
-      },
-    });
-    if (!webhookRes || (webhookRes as { enabled?: boolean }).enabled !== true) {
-      this.logger.warn(
-        `webhook de Evolution respondió inesperado para ${instanceName}: ${JSON.stringify(webhookRes).slice(0, 200)}`,
-      );
+    // distinto, porque evolution guarda el último y nunca limpia. Si esto
+    // falla la instancia queda huérfana en Evolution: se borra para no dejar
+    // basura y se propaga el error (sin webhook el bot nunca recibiría nada).
+    try {
+      await this.registerWebhook(platform, instanceName, webhookUrl);
+    } catch (err) {
+      await this.disconnectAndDelete(tenant.id, instanceName);
+      throw err;
     }
 
     const qrCodeBase64 =
@@ -165,7 +176,41 @@ export class EvolutionOnboardingService {
       hash: (createRes as { hash?: string }).hash ?? "",
       qrCodeBase64,
       state: "connecting",
+      webhookUrl,
     };
+  }
+
+  /**
+   * Registra (o reescribe) el webhook entrante de una instancia. Idempotente:
+   * Evolution guarda la última configuración. El cuerpo lleva las dos
+   * ortografías que conviven entre versiones (`byEvents`/`base64` en v2,
+   * `webhook_by_events`/`webhook_base64` en v1) para no depender de cuál
+   * corre el tenant; las claves desconocidas se ignoran.
+   */
+  async registerWebhook(platform: PlatformEvolution, instanceName: string, webhookUrl: string): Promise<void> {
+    const res = await this.evolutionPost<unknown>(platform, `/webhook/set/${encodeURIComponent(instanceName)}`, {
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        events: [...EVOLUTION_WEBHOOK_EVENTS],
+        byEvents: false,
+        base64: false,
+        webhookByEvents: false,
+        webhookBase64: false,
+        webhook_by_events: false,
+        webhook_base64: false,
+      },
+    });
+    const enabled = (res as { enabled?: boolean; webhook?: { enabled?: boolean } } | null)?.enabled
+      ?? (res as { webhook?: { enabled?: boolean } } | null)?.webhook?.enabled;
+    if (enabled === false) {
+      throw new EvolutionApiError(`Evolution no habilitó el webhook de ${instanceName}`, 502, res);
+    }
+    if (enabled === undefined) {
+      this.logger.warn(
+        `webhook de Evolution respondió sin 'enabled' para ${instanceName}: ${JSON.stringify(res).slice(0, 200)}`,
+      );
+    }
   }
 
   /**
@@ -225,21 +270,26 @@ export class EvolutionOnboardingService {
   }
 
   /**
-   * El webhook que Evolution debe llamar cuando llega un mensaje. Inyecta el
-   * `?secret=` que el `connect` grabó en `webhookSecretHash` para que el
-   * controller pueda autenticar el webhook sin una API key fija.
+   * URL que Evolution debe llamar cuando llega un mensaje o cambia la
+   * conexión. Lleva `?secret=` para que el controller autentique el webhook
+   * contra `webhookSecretHash` sin una API key fija.
    *
-   * Por simplicidad y para no añadir un round-trip extra, usamos el origen
-   * del request. En prod real esto debería ser `PUBLIC_BASE_URL` del
-   * `.env` del API; en local caemos al `localhost:3000/api/v1` que es donde
-   * el dev reescribe al commerce-api:4000.
+   * Base, en orden: `API_PUBLIC_URL` (dominio público del API, p. ej.
+   * https://api-easysell.tupla.dev: Evolution le pega directo, sin pasar por
+   * el frontend), luego `PUBLIC_BASE_URL` (el web reescribe `/api/v1/*` al
+   * API) y por último localhost. Un túnel efímero (ngrok) ya no es parte del
+   * flujo: se registra en Evolution la URL estable del despliegue, y si esa
+   * URL cambia basta con `PATCH /whatsapp/:id/webhook-url`.
    */
-  buildInboundWebhookUrl(tenantSlug: string): string {
-    // Las pruebas en localhost no pueden recibir el webhook de un Evolution
-    // público: exigimos PUBLIC_BASE_URL cuando esté corriendo contra Evolution.
-    const publicBase = safeReadEnv("PUBLIC_BASE_URL");
-    const base = publicBase || `http://localhost:${safeReadEnv("WEB_PORT") || "3000"}`;
-    return `${base.replace(/\/+$/, "")}/api/v1/whatsapp/webhook/inbound/${tenantSlug}`;
+  buildInboundWebhookUrl(tenantSlug: string, webhookSecret?: string): string {
+    const base = publicApiBaseUrl();
+    if (/ngrok/i.test(base)) {
+      this.logger.warn(
+        `El webhook de WhatsApp apunta a un túnel efímero (${base}). Define API_PUBLIC_URL con el dominio estable del API.`,
+      );
+    }
+    const url = `${base}/api/v1/whatsapp/webhook/inbound/${encodeURIComponent(tenantSlug)}`;
+    return webhookSecret ? `${url}?secret=${encodeURIComponent(webhookSecret)}` : url;
   }
 
   private async evolutionPost<T>(

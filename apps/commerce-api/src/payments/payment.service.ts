@@ -45,6 +45,43 @@ function dummyWebhookSecret(): string {
   );
 }
 
+/**
+ * Service key con la que commerce-api se presenta ante el gateway. Misma
+ * convención `_REF` que el resto de secretos (`.env` define
+ * `DUMMY_SERVICE_KEY_REF`); antes el código leía solo `DUMMY_SERVICE_KEY`, que
+ * nadie define, y caía siempre al literal de pruebas.
+ */
+export function dummyServiceKey(): string {
+  return process.env.DUMMY_SERVICE_KEY_REF ?? process.env.DUMMY_SERVICE_KEY ?? "npk_test_local";
+}
+
+/**
+ * Métodos de pago que el comercio acepta en el checkout hosted. Se leen de
+ * `PAYMENT_METHODS` (lista separada por comas, p. ej. "CARD,SPEI"); sin la
+ * variable se habilitan todos los que simula el gateway. El gateway rechaza
+ * cualquier captura con un método fuera de esta lista.
+ */
+export const PAYMENT_METHODS = ["CARD", "SPEI", "OXXO"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export function isPaymentMethod(value: unknown): value is PaymentMethod {
+  return typeof value === "string" && (PAYMENT_METHODS as readonly string[]).includes(value);
+}
+
+export function enabledPaymentMethods(raw = process.env.PAYMENT_METHODS): PaymentMethod[] {
+  const parsed = (raw ?? "")
+    .split(",")
+    .map((m) => m.trim().toUpperCase())
+    .filter(isPaymentMethod);
+  return parsed.length ? [...new Set(parsed)] : [...PAYMENT_METHODS];
+}
+
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  CARD: "Tarjeta",
+  SPEI: "Transferencia SPEI",
+  OXXO: "Efectivo OXXO",
+};
+
 export interface CreateCheckoutInput {
   tenantId: string;
   orderId: string;
@@ -57,6 +94,8 @@ export interface CheckoutSessionResult {
   sessionId: string;
   checkoutUrl: string;
   expiresAt: Date;
+  /** Métodos habilitados en el hosted (los que el cliente verá como opción). */
+  paymentMethods: PaymentMethod[];
 }
 
 /**
@@ -97,6 +136,8 @@ interface WebhookExtras {
   billing?: WebhookBilling;
   card?: WebhookCard;
   email?: string;
+  paymentMethod?: PaymentMethod;
+  paymentReference?: string;
 }
 
 @Injectable()
@@ -159,10 +200,11 @@ export class PaymentService {
     // "http://dummy-gateway:4100"). `publicBaseUrl` es lo que el navegador
     // del cliente puede resolver (p. ej. "http://localhost:4100") — casi
     // siempre son el mismo host fuera de contenedores, pero no dentro.
-    const baseUrl = process.env.DUMMY_BASE_URL ?? "http://localhost:4100";
-    const publicBaseUrl = process.env.DUMMY_PUBLIC_URL ?? baseUrl;
-    const apiKey = process.env.DUMMY_SERVICE_KEY ?? "npk_test_local";
+    const baseUrl = (process.env.DUMMY_BASE_URL ?? "http://localhost:4100").replace(/\/$/, "");
+    const publicBaseUrl = (process.env.DUMMY_PUBLIC_URL ?? baseUrl).replace(/\/$/, "");
+    const apiKey = dummyServiceKey();
     const webhookSecret = dummyWebhookSecret();
+    const paymentMethods = enabledPaymentMethods();
     // Dirección propia alcanzable por el dummy-gateway para el callback del
     // webhook — NUNCA la URL pública del navegador (dentro de Docker
     // "http://commerce-api:4000" ≠ "http://localhost:3001").
@@ -187,8 +229,9 @@ export class PaymentService {
           requiresInvoice: String(presentation.requiresInvoice),
           billingRequired: String(presentation.billingRequired),
         },
-        webhookUrl: `${selfUrl}/api/v1/payments/webhook`,
+        webhookUrl: `${selfUrl.replace(/\/$/, "")}/api/v1/payments/webhook`,
         secret: webhookSecret,
+        paymentMethods,
         ...presentation,
       }),
     });
@@ -223,6 +266,7 @@ export class PaymentService {
       sessionId: session.id,
       checkoutUrl: `${publicBaseUrl}${body.data.hostedUrl}`,
       expiresAt,
+      paymentMethods,
     };
   }
 
@@ -341,14 +385,24 @@ export class PaymentService {
       billing?: Partial<WebhookBilling>;
       card?: Partial<WebhookCard>;
       email?: string;
+      paymentMethod?: string;
+      paymentReference?: string;
     };
     if (!event.sessionId || !event.orderId) {
       throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Payload incompleto" });
     }
+    const paymentMethod = isPaymentMethod(event.paymentMethod)
+      ? event.paymentMethod
+      : event.card
+        ? "CARD"
+        : undefined;
     await this.applyStatus(event.sessionId, event.orderId, event.status ?? "PENDING", event.amount, {
       billing: this.parseWebhookBilling(event.billing),
       card: this.parseWebhookCard(event.card),
       email: typeof event.email === "string" && event.email.trim() ? event.email.trim() : undefined,
+      paymentMethod,
+      paymentReference:
+        typeof event.paymentReference === "string" ? event.paymentReference.replace(/\D/g, "").slice(0, 32) : undefined,
     });
   }
 
@@ -388,6 +442,18 @@ export class PaymentService {
     const label =
       card.brand === "visa" ? "Visa" : card.brand === "mastercard" ? "Mastercard" : card.brand === "amex" ? "Amex" : "Tarjeta";
     return ` · ${label} •••• ${card.last4}`;
+  }
+
+  /**
+   * Sufijo legible del método para el ledger: tarjeta con marca y últimos 4,
+   * o el método diferido con la referencia que vio el cliente.
+   */
+  private describeMethod(extras: WebhookExtras): string {
+    if (extras.paymentMethod === "SPEI" || extras.paymentMethod === "OXXO") {
+      const ref = extras.paymentReference ? ` ref ${extras.paymentReference.slice(0, 14)}` : "";
+      return ` · ${PAYMENT_METHOD_LABEL[extras.paymentMethod]}${ref}`;
+    }
+    return this.describeCard(extras.card);
   }
 
   /**
@@ -511,7 +577,12 @@ export class PaymentService {
       await this.prisma.$transaction(async (tx) => {
         await tx.checkoutSession.update({
           where: { id: session.id },
-          data: { status: "CAPTURED", capturedAt: new Date(), version: { increment: 1 } },
+          data: {
+            status: "CAPTURED",
+            capturedAt: new Date(),
+            version: { increment: 1 },
+            ...(extras.paymentMethod ? { paymentMethod: extras.paymentMethod } : {}),
+          },
         });
         await tx.ledgerEntry.create({
           data: {
@@ -520,7 +591,7 @@ export class PaymentService {
             entryType: "CHARGE",
             amount: amount ?? session.amount.toString(),
             balanceAfter: amount ?? session.amount.toString(),
-            description: `Pago simulado: dummy session ${dummySessionId}${this.describeCard(extras.card)}`,
+            description: `Pago simulado: dummy session ${dummySessionId}${this.describeMethod(extras)}`,
           },
         });
         await tx.order.update({
@@ -543,7 +614,12 @@ export class PaymentService {
     } else if (upper === "FAILED") {
       await this.prisma.checkoutSession.update({
         where: { id: session.id },
-        data: { status: "FAILED", failedAt: new Date(), version: { increment: 1 } },
+        data: {
+          status: "FAILED",
+          failedAt: new Date(),
+          version: { increment: 1 },
+          ...(extras.paymentMethod ? { paymentMethod: extras.paymentMethod } : {}),
+        },
       });
       await this.notifyPaymentResult(
         orderId,

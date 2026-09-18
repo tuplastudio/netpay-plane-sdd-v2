@@ -42,6 +42,11 @@ services:
       # navegador llega a través del reverse proxy, así que va con HTTPS.
       API_SELF_URL: ${API_SELF_URL:?Set API_SELF_URL=https://api.tu-dominio.com}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL=https://tu-dominio.com}
+      # Evolution registra el webhook de WhatsApp contra este origen.
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-${API_SELF_URL}}
+      # Checkout hosted que abre el cliente: /pay del frontend.
+      DUMMY_PUBLIC_URL: ${DUMMY_PUBLIC_URL:-${PUBLIC_BASE_URL}/pay}
+      PAYMENT_METHODS: ${PAYMENT_METHODS:-}
       # Agente v2 visto por el API: misma red interna.
       AGENT_URL: http://agent-v2:8010
       AGENT_INTERNAL_KEY: ${AGENT_INTERNAL_KEY:?Set AGENT_INTERNAL_KEY (>=32 chars)}
@@ -123,6 +128,7 @@ services:
     environment:
       NODE_ENV: production
       DUMMY_PORT: "4100"
+      DUMMY_SERVICE_KEY_REF: ${DUMMY_SERVICE_KEY_REF:-}
     networks: [netpay_internal]
     expose: ["4100"]
     healthcheck:
