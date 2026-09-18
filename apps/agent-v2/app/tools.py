@@ -398,6 +398,7 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
             full_name=full_name,
             phone=customer.get("phone") or ctx.get("customer_phone"),
             email=customer.get("email") or ctx.get("customer_email"),
+            conversation_id=ctx.get("conversation_id"),
         )
     )
     if error:

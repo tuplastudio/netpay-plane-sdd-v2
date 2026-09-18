@@ -126,6 +126,35 @@ export class UpdateCustomerDto {
   taxId?: string;
 }
 
+export class ResolveChannelContactDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  fullName!: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(254)
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  phone?: string;
+
+  /**
+   * Hilo de WhatsApp del que salió el contacto. Con esto el backend resuelve
+   * el canal y el teléfono desde la propia conversación (más confiable que lo
+   * que mande el agente) y, si el hilo todavía no tiene cliente, lo deja
+   * vinculado — así el panel de conversaciones deja de mostrar "Cliente sin
+   * ficha" para cotizaciones que el agente ya facturó a un cliente real.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  conversationId?: string;
+}
+
 export class LinkCustomerIdentityDto {
   @IsIn(IDENTITY_CHANNELS, { message: "channel inválido" })
   channel!: CustomerIdentityChannel;

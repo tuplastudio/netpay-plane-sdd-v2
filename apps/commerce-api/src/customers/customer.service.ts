@@ -11,6 +11,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
+import type { Prisma, Customer } from "@prisma/client";
 
 @Injectable()
 export class CustomerService {
@@ -164,6 +165,126 @@ export class CustomerService {
         isDefault: input.isDefault ?? false,
       },
     });
+  }
+
+  /**
+   * Nombres genéricos que la conversación deja cuando todavía no se sabe
+   * quién escribe. Una ficha con uno de estos nombres se considera "sin
+   * nombre real" y se puede renombrar cuando el chat por fin lo consigue;
+   * un nombre real que un humano ya cargó nunca se pisa desde aquí.
+   */
+  private isPlaceholderName(fullName: string): boolean {
+    const normalized = fullName.trim().toLowerCase();
+    return (
+      normalized.length === 0 ||
+      normalized === "cliente de whatsapp" ||
+      normalized === "cliente sin nombre" ||
+      normalized === "cliente" ||
+      /^\+?\d{7,}$/.test(normalized)
+    );
+  }
+
+  /**
+   * Resuelve (o crea) el cliente detrás de un contacto de canal —hoy solo
+   * WhatsApp— y lo deja completo y ligado:
+   *
+   *  1. Si `conversationId` viene, se lee la conversación real (no lo que
+   *     mande el agente) para saber el canal (META/EVOLUTION) y el teléfono
+   *     exacto: son datos de la propia BD, no hay que confiar en el modelo.
+   *  2. Se busca el cliente por esa `CustomerIdentity` primero (vínculo
+   *     fuerte), y si no existe, por teléfono/correo exacto (nunca
+   *     `contains`: eso es para el buscador, no para decidir si dos
+   *     contactos son la misma persona).
+   *  3. Si existe, se completan los campos que falten (teléfono, correo, o
+   *     el nombre si el que tiene es un placeholder) sin pisar nada que un
+   *     humano ya haya cargado. Si no existe, se crea.
+   *  4. Se deja (o confirma) la `CustomerIdentity` de este canal, y si la
+   *     conversación todavía no tenía cliente asignado, se le asigna éste.
+   *     Nunca se sobreescribe un vínculo manual ya hecho desde el panel.
+   *
+   * Antes de esto, el agente creaba el cliente con `POST /customers` a
+   * secas: quedaba real y con nombre, pero la conversación seguía marcada
+   * "Cliente sin ficha" para siempre (nada la vinculaba), y una ficha vieja
+   * con el nombre placeholder nunca se corregía aunque el cliente ya
+   * hubiera dado su nombre real en un mensaje posterior.
+   */
+  async resolveChannelContact(
+    tenantId: string,
+    input: { fullName: string; phone?: string; email?: string; conversationId?: string },
+  ): Promise<Customer> {
+    const fullName = input.fullName.trim();
+    if (!fullName) {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "fullName requerido" });
+    }
+    const email = input.email?.trim().toLowerCase() || undefined;
+    let phone = input.phone?.trim() || undefined;
+
+    let channel: "WHATSAPP_META" | "WHATSAPP_EVOLUTION" | undefined;
+    if (input.conversationId) {
+      const conv = await this.prisma.whatsAppConversation.findFirst({
+        where: { id: input.conversationId, tenantId },
+        include: { connection: { select: { provider: true } } },
+      });
+      if (conv) {
+        channel = conv.connection.provider === "META" ? "WHATSAPP_META" : "WHATSAPP_EVOLUTION";
+        phone = phone ?? conv.externalPhone;
+      }
+    }
+
+    let customer =
+      channel && phone
+        ? await this.prisma.customer.findFirst({
+            where: { tenantId, identities: { some: { channel, externalId: phone } } },
+          })
+        : null;
+
+    if (!customer && (phone || email)) {
+      customer = await this.prisma.customer.findFirst({
+        where: {
+          tenantId,
+          OR: [
+            ...(phone ? [{ phone }] : []),
+            ...(email ? [{ email }] : []),
+          ] as Prisma.CustomerWhereInput[],
+        },
+      });
+    }
+
+    if (customer) {
+      const patch: Prisma.CustomerUpdateInput = {};
+      if (!customer.phone && phone) patch.phone = phone;
+      if (!customer.email && email) patch.email = email;
+      if (this.isPlaceholderName(customer.fullName) && !this.isPlaceholderName(fullName)) {
+        patch.fullName = fullName;
+      }
+      if (Object.keys(patch).length > 0) {
+        customer = await this.prisma.customer.update({
+          where: { id: customer.id },
+          data: { ...patch, version: { increment: 1 } },
+        });
+      }
+    } else {
+      customer = await this.prisma.customer.create({ data: { tenantId, fullName, phone, email } });
+    }
+
+    if (channel && phone) {
+      await this.prisma.customerIdentity.upsert({
+        where: { channel_externalId: { channel, externalId: phone } },
+        create: { customerId: customer.id, channel, externalId: phone, verifiedAt: new Date() },
+        update: { verifiedAt: new Date() },
+      });
+    }
+
+    if (input.conversationId) {
+      // `customerId: null` en el where: si el hilo ya tiene un cliente
+      // (vinculado a mano o por una llamada anterior) no se toca.
+      await this.prisma.whatsAppConversation.updateMany({
+        where: { id: input.conversationId, tenantId, customerId: null },
+        data: { customerId: customer.id },
+      });
+    }
+
+    return customer;
   }
 
   async linkIdentity(

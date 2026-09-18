@@ -191,16 +191,33 @@ class CommerceClient:
         return await self._request("GET", f"/customers/{customer_id}/history") or {}
 
     async def ensure_customer(
-        self, *, full_name: str, phone: str | None = None, email: str | None = None
+        self,
+        *,
+        full_name: str,
+        phone: str | None = None,
+        email: str | None = None,
+        conversation_id: str | None = None,
     ) -> dict[str, Any]:
-        """Busca por teléfono/correo/nombre y crea si no existe (idempotente)."""
-        needle = phone or email or full_name
-        if needle:
-            existing = await self.find_customer(needle)
-            items = existing.get("items", existing) if isinstance(existing, dict) else existing
-            if items:
-                return items[0]
-        return await self.create_customer(full_name=full_name, phone=phone, email=email)
+        """Resuelve (o crea) el cliente y lo deja completo y ligado.
+
+        Con `conversation_id`, el backend resuelve el canal y el teléfono
+        desde la conversación real (más confiable que lo que sepa el agente),
+        completa lo que le falte a la ficha (sin pisar un nombre real ya
+        cargado) y, si el hilo no tenía cliente asignado, lo vincula — así
+        deja de quedar "Cliente sin ficha" en el panel para cotizaciones que
+        ya tienen un cliente real detrás. Ver
+        `CustomerService.resolveChannelContact` en commerce-api.
+        """
+        return await self._request(
+            "POST",
+            "/customers/resolve-channel",
+            json_body={
+                "fullName": full_name,
+                "phone": phone,
+                "email": email,
+                "conversationId": conversation_id,
+            },
+        )
 
     # ---------- precios y cotizaciones ----------
 

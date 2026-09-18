@@ -16,6 +16,7 @@ import {
   CreateCustomerDto,
   CustomerAddressDto,
   LinkCustomerIdentityDto,
+  ResolveChannelContactDto,
   UpdateCustomerDto,
 } from "./customer.dto.js";
 import { RequestContext } from "../common/context/request-context.js";
@@ -81,6 +82,20 @@ export class CustomerController {
     const tenantId = this.requireTenant();
     return {
       data: await this.customers.create(tenantId, body),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /**
+   * Usada por el agente (WhatsApp) para dejar el cliente completo y ligado a
+   * la conversación en una sola llamada. Ver `CustomerService.resolveChannelContact`.
+   */
+  @Post("resolve-channel")
+  @RequireScopes("customers.write")
+  async resolveChannel(@Body() body: ResolveChannelContactDto) {
+    const tenantId = this.requireTenant();
+    return {
+      data: await this.customers.resolveChannelContact(tenantId, body),
       requestId: RequestContext.requestId,
     };
   }
