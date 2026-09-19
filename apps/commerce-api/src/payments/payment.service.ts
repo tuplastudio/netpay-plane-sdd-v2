@@ -161,9 +161,15 @@ export class PaymentService {
     });
     const target = order && pickChannel(order.customer);
     if (!order || !target) return;
+    // Best-effort: el link de seguimiento es un adicional al aviso de pago,
+    // nunca debe poder tumbar el aviso en sí (p. ej. si la migración de
+    // OrderTrackingToken todavía no corrió en este entorno).
     const link =
       templateKey === "PAYMENT_SIMULATED_SUCCESS"
-        ? await this.getOrCreateTrackingLink(orderId)
+        ? await this.getOrCreateTrackingLink(orderId).catch((err) => {
+            this.logger.warn(`link de seguimiento no disponible para ${orderId}: ${err}`);
+            return "";
+          })
         : "";
     await this.notifications.scheduleFromTemplate({
       tenantId,
