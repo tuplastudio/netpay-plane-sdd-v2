@@ -132,10 +132,11 @@ class ShippedPromptsTests(TestCase):
         self.assertIn("1.0.0", registry.versions())
         self.assertIn("1.1.0", registry.versions())
         self.assertIn("1.2.0", registry.versions())
+        self.assertIn("1.2.1", registry.versions())
         self.assertIn("1.3.0", registry.versions())
-        # v1.3.0 está en draft (sin evals reales corridos todavía): 1.2.0
+        # v1.3.0 está en draft (sin evals reales corridos todavía): 1.2.1
         # sigue siendo latest hasta que se promueva a mano en manifest.yaml.
-        self.assertEqual(registry.latest(), "1.2.0")
+        self.assertEqual(registry.latest(), "1.2.1")
         hardened = registry.get("1.1.0")
         self.assertIsNotNone(hardened.block("05_seguridad_y_privacidad"))
         self.assertIn("consultivo", hardened.styles)
@@ -198,11 +199,11 @@ class AssemblerTests(TestCase):
 
 
 class MultiCartPromptTests(TestCase):
-    """v1.2.0 introdujo la guía de varios carritos; v1.3.0 (latest) la conserva."""
+    """v1.2.0 introdujo la guía de varios carritos; versiones más nuevas la conservan."""
 
     def test_1_2_0_documents_carritoId(self) -> None:
         registry = get_prompt_registry()
-        for version_id in ("1.2.0", "1.3.0"):
+        for version_id in ("1.2.0", "1.2.1", "1.3.0"):
             version = registry.get(version_id)
             self.assertIsNotNone(version.block("65_carritos_multiples"), version_id)
             text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
@@ -218,7 +219,7 @@ class ConversationalPromptTests(TestCase):
 
     def test_1_3_0_is_draft_and_covers_bursts_and_closing(self) -> None:
         registry = get_prompt_registry()
-        self.assertEqual(registry.latest(), "1.2.0", "1.3.0 en draft no debe volverse latest sola")
+        self.assertEqual(registry.latest(), "1.2.1", "1.3.0 en draft no debe volverse latest sola")
         version = registry.get("1.3.0")
         self.assertIsNotNone(version.block("85_ritmo_y_cierre"))
         text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})

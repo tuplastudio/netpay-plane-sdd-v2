@@ -255,6 +255,41 @@ export class OrderController {
     };
   }
 
+  /**
+   * Marca un pedido pagado como entregado/completado y avisa al cliente con
+   * su link de seguimiento (se genera aquí si todavía no existe). Único
+   * avance manual de estado disponible hoy: el enum no tiene etapas
+   * intermedias de envío.
+   */
+  @Post(":id/fulfill")
+  @RequireScopes("orders.write")
+  async fulfill(@Param("id") id: string) {
+    const tenantId = this.requireTenant();
+    const actorId = RequestContext.userId ?? null;
+    const { order, trackingLink } = await this.orders.fulfill(tenantId, id, actorId);
+    return {
+      data: { ...order, trackingLink },
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /**
+   * Link de seguimiento del pedido (se genera si no existe). Lo usa el
+   * panel para copiarlo/reenviarlo a mano además del aviso automático que
+   * ya manda `fulfill`.
+   */
+  @Get(":id/tracking-link")
+  @RequireScopes("orders.read")
+  async trackingLink(@Param("id") id: string) {
+    const tenantId = this.requireTenant();
+    const token = await this.orders.getOrCreateTrackingToken(tenantId, id);
+    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+    return {
+      data: { token, link: `${base}/orders/public/track/${token}` },
+      requestId: RequestContext.requestId,
+    };
+  }
+
   // ---- Endpoints públicos ----
 
   @Public()
@@ -334,6 +369,21 @@ export class OrderController {
       data: { orderId, checkoutToken: token, expiresAt },
       requestId: RequestContext.requestId,
     };
+  }
+
+  /**
+   * Seguimiento público y duradero del pedido (no vence, a diferencia del
+   * link de pago): estado, líneas y timeline (creado/pagado/entregado o
+   * cancelado). Lo trae el aviso automático de pago y de entrega.
+   */
+  @Public()
+  @Get("public/track/:token")
+  async publicTracking(@Param("token") token: string) {
+    const resolved = await this.orders.resolveTrackingToken(token);
+    if (!resolved) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido" });
+    }
+    return { data: resolved, requestId: RequestContext.requestId };
   }
 
   @Public()

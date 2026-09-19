@@ -513,6 +513,7 @@ model Order {
   revisions  OrderRevision[]
   revisionsRel OrderRevision? @relation("CurrentRevision", fields: [currentRevisionId], references: [id])
   payments   CheckoutSession[]
+  trackingToken OrderTrackingToken?
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
@@ -589,6 +590,20 @@ model CheckoutAccessToken {
   revision OrderRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
 
   @@index([revisionId])
+}
+
+// Link público y duradero de seguimiento de pedido. A diferencia de
+// CheckoutAccessToken (de un solo uso, vence en minutos: autoriza pagar),
+// este no vence ni se marca usado: el cliente lo consulta cuantas veces
+// quiera para ver el estado. Se genera una sola vez por pedido (índice
+// único en orderId), la primera vez que hace falta.
+model OrderTrackingToken {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId   String   @unique @db.Uuid
+  token     String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 enum RevisionStatus {

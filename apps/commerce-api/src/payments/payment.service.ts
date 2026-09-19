@@ -20,7 +20,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
@@ -161,6 +161,10 @@ export class PaymentService {
     });
     const target = order && pickChannel(order.customer);
     if (!order || !target) return;
+    const link =
+      templateKey === "PAYMENT_SIMULATED_SUCCESS"
+        ? await this.getOrCreateTrackingLink(orderId)
+        : "";
     await this.notifications.scheduleFromTemplate({
       tenantId,
       recipientType: "CUSTOMER",
@@ -168,8 +172,22 @@ export class PaymentService {
       channel: target.channel,
       templateKey,
       to: target.to,
-      vars: { customerName: order.customer.fullName, total },
+      vars: { customerName: order.customer.fullName, total, link },
     });
+  }
+
+  /**
+   * Link público y duradero de seguimiento (ver modelo OrderTrackingToken),
+   * para que el comprobante de pago traiga dónde ver el pedido después.
+   * Mint-once: reusa el mismo link si el pedido ya tenía uno.
+   */
+  private async getOrCreateTrackingLink(orderId: string): Promise<string> {
+    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+    const existing = await this.prisma.orderTrackingToken.findUnique({ where: { orderId } });
+    if (existing) return `${base}/orders/public/track/${existing.token}`;
+    const token = randomBytes(24).toString("base64url");
+    await this.prisma.orderTrackingToken.create({ data: { orderId, token } });
+    return `${base}/orders/public/track/${token}`;
   }
 
   async createCheckout(input: CreateCheckoutInput): Promise<CheckoutSessionResult> {

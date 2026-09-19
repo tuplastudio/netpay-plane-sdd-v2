@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlertCircle, Copy, Link2, PackageOpen } from "lucide-react";
+import { AlertCircle, CheckCircle2, Copy, Link2, PackageOpen } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -54,6 +54,8 @@ interface Order {
   updatedAt: string;
   placedAt: string | null;
   paidAt: string | null;
+  fulfilledAt: string | null;
+  cancelledAt: string | null;
   requiresInvoice: boolean;
   invoiceStatus: "NONE" | "REQUESTED" | "DATA_COMPLETE";
   invoiceRfc: string | null;
@@ -214,6 +216,28 @@ export default function OrderDetailPage() {
     onError: (error) => toast.error(errorMessage(error, "No se pudo cancelar")),
   });
 
+  const trackingQ = useQuery({
+    queryKey: ["order-tracking-link", params.id],
+    queryFn: async () => {
+      const res = await api.get<{ data: { link: string } }>(`/orders/${params.id}/tracking-link`);
+      return res.data.data.link;
+    },
+    enabled: order?.status === "PAID" || order?.status === "FULFILLED",
+  });
+
+  const fulfillOrder = useMutation({
+    mutationFn: async () => {
+      const res = await api.post(`/orders/${params.id}/fulfill`);
+      return res.data.data as { trackingLink: string | null };
+    },
+    onSuccess: async () => {
+      toast.success("Pedido marcado como entregado. Se avisó al cliente.");
+      await orderQ.refetch();
+      await trackingQ.refetch();
+    },
+    onError: (error) => toast.error(errorMessage(error, "No se pudo marcar como entregado")),
+  });
+
   if (orderQ.isLoading) {
     return (
       <div>
@@ -277,11 +301,23 @@ export default function OrderDetailPage() {
           </>
         }
         actions={
-          canCancel ? (
-            <Button variant="outline" onClick={() => setCancelConfirmOpen(true)}>
-              Cancelar pedido
-            </Button>
-          ) : null
+          <>
+            {order.status === "PAID" && (
+              <Button
+                variant="outline"
+                loading={fulfillOrder.isPending}
+                onClick={() => fulfillOrder.mutate()}
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                Marcar como entregado
+              </Button>
+            )}
+            {canCancel ? (
+              <Button variant="outline" onClick={() => setCancelConfirmOpen(true)}>
+                Cancelar pedido
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -547,11 +583,53 @@ export default function OrderDetailPage() {
                     <DateTime value={order.paidAt} />
                   </FieldRow>
                 ) : null}
+                {order.fulfilledAt ? (
+                  <FieldRow label="Entregado">
+                    <DateTime value={order.fulfilledAt} />
+                  </FieldRow>
+                ) : null}
+                {order.cancelledAt ? (
+                  <FieldRow label="Cancelado">
+                    <DateTime value={order.cancelledAt} />
+                  </FieldRow>
+                ) : null}
                 <FieldRow label="Última actualización">
                   <DateTime value={order.updatedAt} />
                 </FieldRow>
               </DescriptionList>
             </Section>
+
+            {(order.status === "PAID" || order.status === "FULFILLED") && (
+              <Section
+                title="Seguimiento del cliente"
+                description="Link público y duradero: el cliente lo usa para ver el estado de su pedido. Se manda solo por WhatsApp/correo al pagar y al marcar como entregado."
+              >
+                {trackingQ.isLoading ? (
+                  <SkeletonText lines={1} label="Generando link de seguimiento…" />
+                ) : trackingQ.data ? (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <a
+                      href={trackingQ.data}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="break-all text-sm underline underline-offset-4"
+                    >
+                      {trackingQ.data}
+                    </a>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void copyToClipboard(trackingQ.data!, "Link de seguimiento")}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copiar
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No se pudo generar el link.</p>
+                )}
+              </Section>
+            )}
           </div>
         </div>
       </div>

@@ -15,3 +15,7 @@ changelog:
     Nuevo bloque 85_ritmo_y_cierre.md: cómo cerrar cuando el cliente se
     despide o agradece, cómo aceptar una corrección, qué hacer cuando dice
     que no entendió, y cómo retomar cuando vuelve después de un rato.
+  - >-
+    Trae también el fix de v1.2.1: necesidad descrita sin nombrar producto
+    se contesta con opciones y precio (no con "¿quieres que te recomiende?"),
+    y el nombre del cliente nunca se pide antes de mostrar esas opciones.

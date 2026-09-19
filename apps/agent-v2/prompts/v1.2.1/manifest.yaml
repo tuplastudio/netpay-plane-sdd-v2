@@ -1,0 +1,20 @@
+version: 1.2.1
+status: stable
+created: 2026-09-18
+description: >-
+  Corrige un patrón real reportado en producción: ante una necesidad técnica
+  descrita sin nombrar el producto ("mejor pintura para 100 m² de barda
+  exterior"), el agente preguntaba si quería que le recomendara algo y pedía
+  nombre/correo antes de mostrar ninguna opción, en vez de responder ya con
+  productos y precio. No cambia herramientas ni contrato, solo redacción de
+  reglas de conversación.
+changelog:
+  - >-
+    20_nada_generico.md: la regla de "no respondas con pregunta abierta ante
+    petición vaga" ahora cubre también necesidades/usos descritos sin nombrar
+    el producto, con instrucción explícita de responder con opciones y
+    precio antes de preguntar cuál prefiere.
+  - >-
+    60_memoria_cliente.md: aclara que pedir el nombre nunca va antes de, ni
+    en lugar de, mostrar opciones de producto cuando el cliente todavía no
+    tiene ninguna sobre la mesa.

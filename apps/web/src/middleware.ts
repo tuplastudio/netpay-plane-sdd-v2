@@ -18,7 +18,14 @@ const PROTECTED_PREFIXES = [
   "/super-admin",
 ];
 
+// Sub-rutas públicas dentro de un prefijo protegido: el cliente final las
+// abre sin sesión (link de cotización, seguimiento de pedido). Sin esto,
+// `/quotes` y `/orders` como prefijos protegidos bloqueaban también estas
+// rutas y redirigían a /login a un cliente que nunca tuvo cuenta.
+const PUBLIC_SUBPATHS = ["/quotes/public/", "/orders/public/"];
+
 function isProtectedPath(pathname: string): boolean {
+  if (PUBLIC_SUBPATHS.some((p) => pathname.startsWith(p))) return false;
   if (pathname === "/agent") return true;
   return PROTECTED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),

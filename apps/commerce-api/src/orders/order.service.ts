@@ -16,6 +16,7 @@ import { CustomerService } from "../customers/customer.service.js";
 import { QuoteService } from "../quotes/quote.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
+import { randomBytes } from "node:crypto";
 
 /**
  * Formato aceptado para `amountTotal` en el cable: decimal simple, sin signo,
@@ -792,5 +793,139 @@ export class OrderService {
     });
 
     return { order: t.revision.order, lines, revisionExpiresAt: t.revision.expiresAt };
+  }
+
+  /**
+   * Token público y duradero de seguimiento (ver modelo OrderTrackingToken).
+   * Mint-once: si el pedido ya tiene uno, se reusa el mismo link siempre —
+   * generar uno nuevo cada vez invalidaría el que el cliente ya guardó.
+   */
+  async getOrCreateTrackingToken(tenantId: string, orderId: string): Promise<string> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, tenantId },
+      select: { id: true },
+    });
+    if (!order) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Pedido no accesible" });
+    }
+    const existing = await this.prisma.orderTrackingToken.findUnique({ where: { orderId } });
+    if (existing) return existing.token;
+    const token = randomBytes(24).toString("base64url");
+    const created = await this.prisma.orderTrackingToken.create({ data: { orderId, token } });
+    return created.token;
+  }
+
+  /**
+   * Resuelve el link público de seguimiento: estado + timeline (creado,
+   * pagado, entregado/cancelado) + líneas. A diferencia de resolvePublicToken
+   * (CheckoutAccessToken), este no vence ni se marca usado.
+   */
+  async resolveTrackingToken(token: string) {
+    const t = await this.prisma.orderTrackingToken.findUnique({
+      where: { token },
+      include: {
+        order: {
+          include: {
+            customer: { select: { fullName: true } },
+            tenant: { select: { name: true, logoUrl: true } },
+            revisionsRel: { include: { lines: true } },
+          },
+        },
+      },
+    });
+    if (!t) return null;
+    const order = t.order;
+    const revisionLines = order.revisionsRel?.lines ?? [];
+    const variantIds = revisionLines.map((l) => l.variantId);
+    const variants = variantIds.length
+      ? await this.prisma.productVariant.findMany({
+          where: { id: { in: variantIds } },
+          select: { id: true, sku: true, title: true },
+        })
+      : [];
+    const byId = new Map(variants.map((v) => [v.id, v]));
+    const lines = revisionLines.map((l) => {
+      const v = byId.get(l.variantId);
+      return {
+        variantId: l.variantId,
+        sku: v?.sku ?? l.variantId.slice(0, 8),
+        title: v?.title ?? "Producto",
+        quantity: l.quantity.toString(),
+      };
+    });
+    return {
+      id: order.id,
+      status: order.status,
+      total: order.total.toString(),
+      merchant: order.tenant.name,
+      customer: { fullName: order.customer.fullName },
+      lines,
+      timeline: {
+        createdAt: order.createdAt,
+        paidAt: order.paidAt,
+        fulfilledAt: order.fulfilledAt,
+        cancelledAt: order.cancelledAt,
+      },
+    };
+  }
+
+  /**
+   * Marca un pedido pagado como entregado/completado. Único avance manual de
+   * estado que existe hoy (el resto lo maneja el pago o la cancelación): el
+   * enum no tiene etapas intermedias (preparando, enviado) — ver
+   * docs/ARCHITECTURE si se necesita ese detalle más fino.
+   */
+  async fulfill(tenantId: string, orderId: string, actorId: string | null) {
+    const o = await this.get(tenantId, orderId);
+    if (o.status !== "PAID") {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: `Pedido ${o.status} no se puede marcar como entregado (debe estar PAID)`,
+      });
+    }
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId,
+        action: "order.fulfilled",
+        targetType: "Order",
+        targetId: orderId,
+      },
+    });
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: "FULFILLED", fulfilledAt: new Date(), version: { increment: 1 } },
+    });
+    const trackingLink = await this.notifyFulfilled(tenantId, updated);
+    return { order: updated, trackingLink };
+  }
+
+  /**
+   * Avisa al cliente que su pedido quedó entregado/completado, con su link
+   * de seguimiento (se genera aquí si todavía no existe). Best-effort: si
+   * falla, el pedido ya quedó marcado igual — se puede reenviar el link a
+   * mano desde GET :id/tracking-link.
+   */
+  private async notifyFulfilled(
+    tenantId: string,
+    order: { id: string; customerId: string; total: { toString(): string } },
+  ): Promise<string | null> {
+    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+    const token = await this.getOrCreateTrackingToken(tenantId, order.id);
+    const link = `${base}/orders/public/track/${token}`;
+    const customer = await this.prisma.customer.findUnique({ where: { id: order.customerId } });
+    const target = customer && pickChannel(customer);
+    if (target) {
+      await this.notifications.scheduleFromTemplate({
+        tenantId,
+        recipientType: "CUSTOMER",
+        recipientId: order.customerId,
+        channel: target.channel,
+        templateKey: "ORDER_FULFILLED",
+        to: target.to,
+        vars: { customerName: customer!.fullName, orderId: order.id.slice(0, 8), link },
+      });
+    }
+    return link;
   }
 }
