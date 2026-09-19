@@ -1,0 +1,25 @@
+name: One-off - apply migration 0013
+
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    name: Aplicar 0013_order_tracking_token.sql en Neon
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run migration
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            MIGRATION_PATH="/opt/netpay-build/apps/commerce-api/prisma/migrations/0013_order_tracking_token.sql"
+            test -s "$MIGRATION_PATH" || { echo "No existe: $MIGRATION_PATH"; exit 1; }
+            cd /opt/netpay-build/infra
+            set -a; . ./.env.prod; set +a
+            docker run --rm -i postgres:16-alpine psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f - < "$MIGRATION_PATH"
+            echo "OK: 0013_order_tracking_token.sql aplicada"
