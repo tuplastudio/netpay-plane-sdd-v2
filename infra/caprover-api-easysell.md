@@ -99,3 +99,34 @@ if [ -f /out/config/live/api-easysell.tupla.dev/fullchain.pem ]; then
   docker kill -s HUP $(docker ps --format "{{.Names}}" | grep captain-nginx | head -1)
 fi
 ```
+
+## Incidente 2026-09-20 y esquema actual (leer antes de tocar nginx)
+
+El server block agregado a mano en `captain.conf` **desapareció**: CapRover
+regenera ese archivo (quedaron `captain.conf` y `captain-*.conf` con fecha
+nueva y un `.bak` del día anterior). Resultado: 443 servía el cert
+self-signed de CapRover y 80 daba 404 → Vercel respondía
+`502 BACKEND_UNREACHABLE` en todo `/api/v1/*` (login imposible) y Evolution
+no podía entregar los webhooks (el bot no respondía). Los contenedores del
+compose estaban sanos: el frente fue lo que cayó.
+
+Esquema que quedó:
+
+- El vhost vive en **su propio archivo**
+  `/captain/generated/nginx/conf.d/api-easysell.conf` (nginx incluye
+  `conf.d/*.conf`; CapRover regenera `captain.conf`, no borra archivos
+  ajenos). Mismo contenido que el bloque de arriba, upstream por nombre de
+  servicio con `resolver 127.0.0.11` y variable `$upstream` (un
+  `upstream {}` con hostname rompería TODO nginx si el nombre no resolviera
+  al recargar; el hairpin al IP público `:14000` desde el contenedor de
+  nginx se queda colgado, no sirve como upstream).
+- `docker network connect infra_netpay_internal captain-nginx` sigue siendo
+  necesario y se pierde si CapRover recrea el contenedor.
+- **`deploy-backend.yml` (paso "Asegurar vhost del API en captain-nginx")
+  restaura ambas cosas en cada deploy**: conecta la red si falta, escribe el
+  archivo si falta, `nginx -t` y `HUP`. Si el API vuelve a caer de frente
+  sin deploy de por medio, basta con relanzar ese workflow
+  (`workflow_dispatch`) o correr ese paso a mano.
+- Cert vigente hasta 2026-12-10 (Let's Encrypt). Verificar que el cron de
+  renovación de arriba exista en el droplet; el vhost sirve
+  `/.well-known/acme-challenge/` para que `certbot renew --webroot` funcione.

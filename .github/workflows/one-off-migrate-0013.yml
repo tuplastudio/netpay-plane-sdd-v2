@@ -1,25 +1,41 @@
-name: One-off - apply migration 0013
+name: One-off - migración 0013 + diagnóstico WhatsApp en Neon
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-migrate-0013.yml"
 
 jobs:
   migrate:
-    name: Aplicar 0013_order_tracking_token.sql en Neon
+    name: Aplicar 0013_order_tracking_token.sql y leer estado de WhatsApp
     runs-on: ubuntu-latest
     steps:
-      - name: Run migration
+      - name: Run migration + read-only diagnostics
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 5m
+          command_timeout: 8m
           script: |
             set -euo pipefail
             MIGRATION_PATH="/opt/netpay-build/apps/commerce-api/prisma/migrations/0013_order_tracking_token.sql"
             test -s "$MIGRATION_PATH" || { echo "No existe: $MIGRATION_PATH"; exit 1; }
             cd /opt/netpay-build/infra
             set -a; . ./.env.prod; set +a
+            echo "=== migración 0013 (idempotente) ==="
             docker run --rm -i postgres:16-alpine psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f - < "$MIGRATION_PATH"
             echo "OK: 0013_order_tracking_token.sql aplicada"
+            echo ""
+            echo "=== verificación: tabla OrderTrackingToken ==="
+            docker run --rm -i postgres:16-alpine psql "$DATABASE_URL" -c 'select count(*) as filas from "OrderTrackingToken";'
+            echo ""
+            echo "=== WhatsApp: conexiones (sin secretos ni teléfonos) ==="
+            docker run --rm -i postgres:16-alpine psql "$DATABASE_URL" -c 'select "status","provider",split_part("webhookUrl",$$?$$,1) as webhook_base,left(coalesce("lastError",$$$$),120) as last_error,"updatedAt" from "WhatsAppConnection" order by "updatedAt" desc limit 5;' || true
+            echo ""
+            echo "=== WhatsApp: mensajes por hora (últimos 3 días) ==="
+            docker run --rm -i postgres:16-alpine psql "$DATABASE_URL" -c 'select date_trunc($$hour$$,"createdAt") as hora, count(*) as mensajes from "WhatsAppMessage" where "createdAt" > now() - interval $$3 days$$ group by 1 order by 1 desc limit 30;' || true
+            echo ""
+            echo "=== WhatsApp: último mensaje registrado ==="
+            docker run --rm -i postgres:16-alpine psql "$DATABASE_URL" -c 'select max("createdAt") as ultimo, count(*) as total from "WhatsAppMessage";' || true
