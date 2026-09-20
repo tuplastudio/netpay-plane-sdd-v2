@@ -56,22 +56,33 @@ jobs:
               fi
             fi
 
-            # ---- vhost: archivo propio en conf.d (captain.conf lo regenera CapRover y borra ediciones manuales) ----
-            if sudo grep -q "$DOMAIN" "$CONF_DIR"/*.conf 2>/dev/null; then
-              echo ">> el vhost ya existe en conf.d; no se reescribe"
+            # ---- red: captain-nginx debe ver a commerce-api por nombre (se pierde si CapRover recrea nginx) ----
+            if docker network inspect infra_netpay_internal --format '{{range .Containers}}{{.Name}} {{end}}' | grep -q captain-nginx; then
+              echo ">> captain-nginx ya está en infra_netpay_internal"
             else
-              echo ">> escribiendo $VHOST_FILE"
-              sudo tee "$VHOST_FILE" >/dev/null <<'NGINX'
+              echo ">> conectando captain-nginx a infra_netpay_internal"
+              docker network connect infra_netpay_internal "$NGX"
+            fi
+
+            # ---- vhost: archivo propio en conf.d (captain.conf lo regenera CapRover y borra ediciones manuales) ----
+            # Se reescribe siempre: es nuestro archivo. Upstream por nombre de
+            # servicio con resolver de Docker en tiempo de ejecución (como el
+            # runbook original): el hairpin al IP público :14000 desde el
+            # contenedor de nginx se queda colgado, y un `upstream {}` con
+            # hostname rompería TODO nginx si el nombre no resolviera al recargar.
+            echo ">> escribiendo $VHOST_FILE"
+            sudo tee "$VHOST_FILE" >/dev/null <<'NGINX'
             # Vhost del API del proyecto (commerce-api). Archivo propio, NO dentro
             # de captain.conf: CapRover regenera captain.conf y borra lo manual.
-            # Upstream al puerto publicado del compose (0.0.0.0:14000) para no
-            # depender de `docker network connect` (se pierde al recrear nginx).
+            # Requiere que captain-nginx esté conectado a infra_netpay_internal
+            # (deploy-backend.yml lo asegura en cada deploy).
             server {
                 listen 80;
                 listen 443 ssl;
                 http2 on;
                 server_name api-easysell.tupla.dev;
                 client_max_body_size 500m;
+                resolver 127.0.0.11 valid=10s ipv6=off;
                 ssl_certificate     /letencrypt/etc/live/api-easysell.tupla.dev/fullchain.pem;
                 ssl_certificate_key /letencrypt/etc/live/api-easysell.tupla.dev/privkey.pem;
 
@@ -79,19 +90,20 @@ jobs:
                     alias /usr/share/nginx/domains/api-easysell.tupla.dev/.well-known/acme-challenge/;
                 }
 
+                set $upstream http://commerce-api:4000;
                 location / {
-                    proxy_pass http://165.227.200.148:14000;
+                    proxy_pass $upstream;
                     proxy_http_version 1.1;
                     proxy_set_header Host $host;
                     proxy_set_header X-Real-IP $remote_addr;
                     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                     proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_connect_timeout 5s;
                     proxy_read_timeout 120s;
                 }
             }
             NGINX
-              sudo mkdir -p "/captain/generated/static/domains/$DOMAIN/.well-known/acme-challenge"
-            fi
+            sudo mkdir -p "/captain/generated/static/domains/$DOMAIN/.well-known/acme-challenge"
 
             echo "=== nginx -t ==="
             if docker exec "$NGX" nginx -t; then
