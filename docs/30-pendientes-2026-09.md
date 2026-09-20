@@ -168,3 +168,43 @@ borró después.
 - `tests/super-admin.test.ts` falla en local desde antes de esta sesión
   (`this.prisma.tenant.count is not a function`, fake de Prisma sin `count`).
   No está relacionado con estos cambios.
+
+---
+
+## Incidente 2026-09-19/20: API público caído de frente (resuelto 2026-09-20)
+
+- **Síntoma**: "el bot no responde" y el panel no dejaba entrar. Contenedores
+  del compose sanos (37 h arriba, healthz OK en :14000).
+- **Causa**: `api-easysell.tupla.dev` servía el cert self-signed de CapRover
+  en 443 y 404 en 80. El server block manual en
+  `/captain/generated/nginx/conf.d/captain.conf` desapareció cuando CapRover
+  regeneró ese archivo (`captain.bak` del 19 Sep 16:42). Como Vercel proxya
+  `/api/v1/*` a ese dominio y Evolution entrega el webhook vía
+  `https://easysell.web.tupla.dev/api/v1/whatsapp/webhook/inbound/<slug>`
+  (que también pasa por ese proxy), todo `/api/v1/*` daba `502
+  BACKEND_UNREACHABLE`: login imposible y ningún WhatsApp llegaba al agente
+  (agent-v2 no registró un solo `POST /chat` en ese lapso; último mensaje
+  en `WhatsAppMessage`: 18 Sep 18:00).
+- **Fix**: vhost en archivo propio `conf.d/api-easysell.conf` (upstream
+  `http://commerce-api:4000` con `resolver 127.0.0.11`; el hairpin al IP
+  público `:14000` desde nginx se cuelga) y paso "Asegurar vhost del API en
+  captain-nginx" en `deploy-backend.yml` que lo restaura (y la conexión de
+  captain-nginx a `infra_netpay_internal`) en cada deploy. Detalle en
+  `infra/caprover-api-easysell.md`.
+- **Verificado en el droplet**: `POST /chat` real dentro de agent-v2 (canal
+  whatsapp, tenant demo-store): 2 turnos OK, p95 3.5 s, prompt 1.2.1
+  recomendando producto y precio de entrada; hilo de prueba borrado.
+- **Migración 0013** (`OrderTrackingToken`) aplicada a mano en Neon desde
+  dentro del contenedor de commerce-api (workflow de un solo uso, ya
+  retirado). El paso `prisma migrate deploy` del deploy sigue sin aplicar
+  nada (`pnpm exec prisma` no resuelve desde la raíz del workspace y
+  `|| true` lo esconde); no se cambia a ciegas porque 0004/0006/0007/0008 no
+  son idempotentes y ya están aplicadas fuera del historial de Prisma.
+- **Pendiente que solo puede hacer una persona con acceso**: secret
+  `VERCEL_TOKEN` en GitHub Actions (sin él `deploy-web.yml` falla en
+  `vercel pull --token=` y el web de Vercel no recibe los cambios: fix del
+  middleware para `/quotes/public/*` y `/orders/public/*`, página de
+  seguimiento y botón "Marcar como entregado"). `VERCEL_ORG_ID` y
+  `VERCEL_PROJECT_ID` ya están cargados. El branch default del repo en
+  GitHub es `fix/password-recovery-hardening`, no `main` (por eso
+  `workflow_dispatch` no ve workflows nuevos en `main`).
