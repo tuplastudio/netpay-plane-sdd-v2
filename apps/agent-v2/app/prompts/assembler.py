@@ -106,6 +106,11 @@ def overrides_block(overrides: "AgentSettings | None") -> str:
             f"- Modo de entrega por defecto: {mode}; úsalo en calcular_total y "
             "generar_enlace_pago salvo que el cliente pida otra cosa."
         )
+    if getattr(o, "auto_history_lookup", True) is False:
+        lines.append(
+            "- No consultes historial_del_cliente por iniciativa propia: solo "
+            "cuando el cliente pregunte por una compra, cotización o pedido anterior."
+        )
     keywords = getattr(o, "handoff_keywords", None) or []
     if keywords:
         lines.append(

@@ -7,6 +7,11 @@ agente. El proceso carga todas al arrancar (`GET /prompts` las lista).
 prompts/
   v1.0.0/                 línea base (prompt heredado, para rollback)
   v1.1.0/                 endurecido: seguridad, privacidad, delimitadores
+  v1.2.0/                 varios carritos a la vez (carritoId)
+  v1.2.1/                 necesidad sin nombre de producto → opciones y precio
+  v1.3.0/                 ráfagas de mensajes, ritmo, correcciones y cierre
+  v1.4.0/                 latest: detalle_de_cotizacion, errores de tool,
+                          notas de voz, complemento obvio, cancelación
     manifest.yaml         version, status, created, description, changelog
     00_identidad.md       plantilla con {{agent_name}}, {{business_name}}, ...
     05_seguridad_y_privacidad.md
@@ -15,6 +20,10 @@ prompts/
     styles/consultivo.md  bloque extra según `sales_style` del tenant
     styles/informativo.md
 ```
+
+Toda versión publicada nombra las herramientas del agente (`tests/
+test_prompt_registry.py` lo verifica para `latest`): si agregas una tool en
+`app/tools.py`, publica una versión de prompt que diga cuándo usarla.
 
 ## Resolución de versión
 
@@ -38,7 +47,7 @@ llaves sueltas y el JSON de ejemplo son literales.
 El ensamblador (`app/prompts/assembler.py`) añade después de los bloques
 estáticos: `<reglas_negocio>`, `<lecciones>`, `<memoria_conversacion>`,
 `<catalogo>`, `<informacion_negocio>`. El prompt debe referirse a ellos por
-esos nombres (v1.1.0 lo hace). Cualquier aparición de esas etiquetas dentro
+esos nombres (desde v1.1.0). Cualquier aparición de esas etiquetas dentro
 del contenido dinámico se neutraliza (`‹catalogo›`).
 
 ## Publicar una versión nueva

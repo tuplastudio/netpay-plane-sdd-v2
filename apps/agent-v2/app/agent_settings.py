@@ -9,6 +9,14 @@ así que sin configurar nada el agente sigue igual que hoy.
 `classifier_model` se conserva solo por compatibilidad de esquema con el
 panel: v2 no tiene paso de clasificación de intención separado (a diferencia
 de v1), así que ese campo no se lee en ningún lado todavía.
+
+`ask_name_before_quote` también es solo de esquema: en v2 el nombre del
+cliente es obligatorio para cotizar por política de datos (T-CRM-01, ver
+`tools.emitir_cotizacion`), así que apagarlo no cambia nada. En cambio
+`auto_history_lookup=False` sí entra al prompt (ver
+`prompts.assembler.overrides_block`): el agente deja de consultar el
+historial por iniciativa propia y solo lo hace cuando el cliente pregunta
+por compras anteriores.
 """
 
 from __future__ import annotations

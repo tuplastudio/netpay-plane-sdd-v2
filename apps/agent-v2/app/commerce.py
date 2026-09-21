@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import re
 import time
 import uuid
 from typing import Any
@@ -21,6 +22,8 @@ from typing import Any
 import httpx
 
 from .config import Settings, get_settings
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
 class CommerceUnavailable(RuntimeError):
@@ -208,6 +211,10 @@ class CommerceClient:
         ya tienen un cliente real detrás. Ver
         `CustomerService.resolveChannelContact` en commerce-api.
         """
+        if conversation_id and not _UUID_RE.fullmatch(conversation_id.strip()):
+            # Los hilos de WhatsApp tienen id UUID; cualquier otro id (chat
+            # web, pruebas) no es una conversación que el backend pueda ligar.
+            conversation_id = None
         return await self._request(
             "POST",
             "/customers/resolve-channel",
@@ -280,7 +287,10 @@ class CommerceClient:
         return base64.b64encode(response.content).decode("ascii")
 
     async def share_quote(self, quote_id: str) -> dict[str, Any]:
-        token = await self._request("POST", f"/quotes/{quote_id}/share")
+        # notify=false: el agente pone el enlace en su propia respuesta; sin
+        # esto el dispatcher de notificaciones le mandaba el mismo enlace al
+        # cliente por WhatsApp una segunda vez.
+        token = await self._request("POST", f"/quotes/{quote_id}/share", json_body={"notify": False})
         base = self.settings.public_base_url.rstrip("/")
         token_value = token.get("token") if isinstance(token, dict) else token
         return {"token": token_value, "url": f"{base}/quotes/public/{token_value}"}

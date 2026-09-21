@@ -186,6 +186,11 @@ services:
       AGENT_SETTINGS_DIR: /data/agent-v2/settings
       AGENT_LEARNING_DIR: /data/agent-v2/learning
       AGENT_CHECKPOINT_DIR: /data/agent-v2/checkpoints
+      # El conocimiento por tenant (subidas del panel en tenants/<id>/uploads,
+      # aprendizajes aprobados) se escribe aquí: si apuntara a /app/knowledge
+      # (dentro de la imagen) se perdería en cada redeploy. La imagen ya no
+      # trae conocimiento de ningún negocio: cada tenant sube el suyo.
+      KNOWLEDGE_DIR: /data/agent-v2/knowledge
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:?Set AGENT_SECRET_KEY}
     volumes:
       - agent_data_prod:/data

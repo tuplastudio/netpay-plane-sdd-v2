@@ -241,6 +241,9 @@ services:
       # contenedor): las settings por tenant —incluida la key de OpenRouter
       # cifrada— se perdían en cada recreate. Va al volumen persistente.
       AGENT_SETTINGS_DIR: /data/agent-v2/settings
+      # Conocimiento por tenant (subidas del panel, aprendizajes) también al
+      # volumen: la imagen no trae conocimiento de ningún negocio.
+      KNOWLEDGE_DIR: /data/agent-v2/knowledge
       AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:-}
     volumes:
       - agent_data:/data

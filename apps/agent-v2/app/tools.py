@@ -31,6 +31,7 @@ from .commerce import CommerceClient, CommerceError, CommerceUnavailable
 from .config import get_settings
 from .security import clamp_text, require_scope, sanitize_error_message
 from .state import CartLine, CartRecord, CustomerFacts, TurnContext, open_carts
+from .tenant_context import invalidate_tenant_caches, load_variants
 
 DEFAULT_CART_ID = "1"
 _CART_ID_INVALID_RE = re.compile(r"[^a-z0-9-]+")
@@ -153,7 +154,7 @@ async def buscar_productos(consulta: str, runtime: ToolRuntime) -> str:
             f"{v['productTitle']} {v['title']} {v['sku']} "
             f"{' '.join(tags)} {' '.join(synonyms)}"
         ).lower()
-        # Sinónimo curado a mano (ej. "cubeta grande" -> AGLOSTONE 19L): pesa
+        # Sinónimo curado a mano por el negocio (ej. "cubeta grande" -> su presentación de 19 L): pesa
         # más que un match de título porque alguien lo declaró a propósito
         # para que el bot lo encuentre.
         for synonym in synonyms:
@@ -185,6 +186,25 @@ async def buscar_productos(consulta: str, runtime: ToolRuntime) -> str:
     return "Resultados (variantId | SKU | producto | precio | existencia):\n" + "\n".join(lines)
 
 
+def _find_variant(variants: list[dict[str, Any]] | None, key: str) -> dict[str, Any] | None:
+    """Variante por ``variantId`` exacto o, si no, por SKU exacto.
+
+    gpt-4o-mini confunde con frecuencia el SKU con el variantId aunque la
+    lista de buscar_productos traiga ambos; aceptar el SKU evita un ERROR y
+    una segunda vuelta de herramientas por un dato que ya tenía.
+    """
+    wanted = (key or "").strip()
+    if not wanted:
+        return None
+    for v in variants or []:
+        if v.get("variantId") == wanted:
+            return v
+    for v in variants or []:
+        if str(v.get("sku") or "").strip().lower() == wanted.lower():
+            return v
+    return None
+
+
 @tool
 async def agregar_al_carrito(
     variantId: str,
@@ -194,8 +214,9 @@ async def agregar_al_carrito(
 ) -> Command:
     """Agrega o actualiza una línea de UN carrito de esta conversación.
 
-    Usa el variantId exacto que devolvió buscar_productos. Si la variante ya
-    estaba en ese carrito, se reemplaza su cantidad.
+    Usa el variantId exacto que devolvió buscar_productos (también acepta el
+    SKU exacto de esa misma lista). Si la variante ya estaba en ese carrito,
+    se reemplaza su cantidad.
 
     `carritoId`: déjalo vacío para seguir con el pedido en el que ya estás
     trabajando (el caso normal). Solo pásalo si el cliente está armando MÁS
@@ -213,10 +234,24 @@ async def agregar_al_carrito(
     except ValueError as exc:
         return _tool_reply(runtime, _fail(str(exc)))
 
-    variants, error = await _safe(_client(runtime).search_products(None, limit=100))
+    tenant_id = _ctx(runtime).get("tenant_id", "")
+    client = _client(runtime)
+    variants, error = await _safe(
+        load_variants(tenant_id, lambda: client.search_products(None, limit=100))
+    )
     if error:
         return _tool_reply(runtime, _fail(error))
-    variant = next((v for v in (variants or []) if v["variantId"] == variantId), None)
+    variant = _find_variant(variants, variantId)
+    if variant is None:
+        # Puede ser una variante recién publicada que la caché (120 s) aún no
+        # ve: una relectura en vivo antes de decirle al modelo que no existe.
+        invalidate_tenant_caches(tenant_id)
+        variants, error = await _safe(
+            load_variants(tenant_id, lambda: client.search_products(None, limit=100))
+        )
+        if error:
+            return _tool_reply(runtime, _fail(error))
+        variant = _find_variant(variants, variantId)
     if variant is None:
         return _tool_reply(
             runtime,
@@ -240,6 +275,7 @@ async def agregar_al_carrito(
             ),
         )
 
+    variantId = variant["variantId"]
     line: CartLine = {
         "variantId": variantId,
         "sku": clamp_text(variant["sku"], 200, collapse_newlines=True),
@@ -292,6 +328,63 @@ async def quitar_del_carrito(variantId: str, runtime: ToolRuntime, carritoId: st
 # ---------------------------------------------------------------- precios
 
 
+_DELIVERY_MODES = {"PICKUP", "LOCAL_DELIVERY"}
+
+
+def _pending_customer_facts(runtime: ToolRuntime) -> CustomerFacts:
+    """Datos que ``recordar_cliente`` está guardando EN ESTE MISMO lote de tools.
+
+    "Sí, emítela, soy Ana" hace que el modelo llame recordar_cliente y
+    emitir_cotizacion en el mismo mensaje. Ambas se ejecutan contra el mismo
+    snapshot del estado, así que la segunda todavía no ve el nombre que la
+    primera acaba de guardar y se negaba a cotizar. Se rescatan los
+    argumentos de esa llamada hermana del último AIMessage del hilo.
+    """
+    facts: CustomerFacts = {}
+    messages = list(runtime.state.get("messages") or [])
+    for message in reversed(messages):
+        if message.__class__.__name__ == "AIMessage":
+            for call in getattr(message, "tool_calls", None) or []:
+                if call.get("name") != "recordar_cliente":
+                    continue
+                args = call.get("args") or {}
+                name = clamp_text(str(args.get("nombre") or ""), 120, collapse_newlines=True)
+                email = clamp_text(str(args.get("correo") or ""), 120, collapse_newlines=True)
+                phone = clamp_text(str(args.get("telefono") or ""), 40, collapse_newlines=True)
+                if name:
+                    facts["name"] = name
+                if email and "@" in email:
+                    facts["email"] = email
+                if phone:
+                    facts["phone"] = phone
+            break
+    return facts
+
+
+def _delivery_mode(runtime: ToolRuntime, record: CartRecord, explicit: str = "") -> str:
+    """Modo de entrega efectivo de un carrito.
+
+    Prioridad: el que pasó el modelo en esta llamada → el que usó la última
+    vez en calcular_total para ESE carrito → el por defecto del tenant →
+    PICKUP. Así el enlace de pago que arma emitir_cotizacion cobra el mismo
+    envío que el total que ya se le dijo al cliente.
+    """
+    candidate = (explicit or "").strip().upper()
+    if candidate in _DELIVERY_MODES:
+        return candidate
+    remembered = str(record.get("deliveryMode") or "").strip().upper()
+    if remembered in _DELIVERY_MODES:
+        return remembered
+    tenant_id = _ctx(runtime).get("tenant_id", "")
+    if tenant_id:
+        from .agent_settings import get_agent_settings
+
+        default = str(get_agent_settings(tenant_id).default_delivery_mode or "").strip().upper()
+        if default in _DELIVERY_MODES:
+            return default
+    return "PICKUP"
+
+
 def _cart_signature(lines: list[CartLine]) -> str:
     """Huella de un carrito: sirve para no reemitir la misma cotización."""
     return "|".join(sorted(f"{c['variantId']}:{c['quantity']}" for c in lines))
@@ -302,13 +395,16 @@ def _lines_payload(lines: list[CartLine]) -> list[dict[str, Any]]:
 
 
 @tool
-async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "PICKUP", carritoId: str = "") -> Command:
+async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "", carritoId: str = "") -> Command:
     """Calcula el total exacto de UN carrito con impuestos y envío.
 
     Es la ÚNICA fuente de importes: nunca sumes tú. No crea la cotización.
-    `carritoId` vacío = el carrito activo (ver agregar_al_carrito). Si el
-    cliente lleva dos pedidos y pregunta "¿y el total de las playeras?",
-    pasa ese carritoId explícito para no calcular el equivocado.
+    `deliveryMode`: PICKUP (recoge en tienda) o LOCAL_DELIVERY (envío a
+    domicilio); vacío = el que ya usaste para ese carrito o el por defecto del
+    negocio. Si el cliente pide envío, pásalo explícito. `carritoId` vacío =
+    el carrito activo (ver agregar_al_carrito). Si el cliente lleva dos
+    pedidos y pregunta "¿y el total de las playeras?", pasa ese carritoId
+    explícito para no calcular el equivocado.
     """
     if denied := _require_scope(runtime, "calcular_total"):
         return _tool_reply(runtime, _fail(denied))
@@ -318,8 +414,9 @@ async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "PICKUP", car
     if not lines:
         return _tool_reply(runtime, _fail("Ese carrito está vacío: agrega productos primero."))
 
+    mode = _delivery_mode(runtime, record, deliveryMode)
     totals, error = await _safe(
-        _client(runtime).price_preview(_lines_payload(lines), delivery_mode=deliveryMode)
+        _client(runtime).price_preview(_lines_payload(lines), delivery_mode=mode)
     )
     if error:
         return _tool_reply(runtime, _fail(error))
@@ -334,7 +431,10 @@ async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "PICKUP", car
     return _tool_reply(
         runtime,
         text,
-        update={"carts": {cart_id: {"lastTotals": totals, "stage": "COTIZADO"}}, "active_cart_id": cart_id},
+        update={
+            "carts": {cart_id: {"lastTotals": totals, "deliveryMode": mode, "stage": "COTIZADO"}},
+            "active_cart_id": cart_id,
+        },
     )
 
 
@@ -370,11 +470,16 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
             runtime,
             f"Ya existe la cotización {record['quoteId']} para este carrito: "
             f"{record.get('quoteLink')}. Compártela en vez de emitir otra. "
-            f"Si el cliente quiere pagar, usa convertir_en_pedido.{ref}",
+            + (
+                f"Su enlace de pago: {record['checkoutLink']}."
+                if record.get("checkoutLink")
+                else "Si el cliente quiere pagar, usa generar_enlace_pago."
+            )
+            + ref,
         )
 
     ctx = _ctx(runtime)
-    customer: CustomerFacts = dict(runtime.state.get("customer") or {})
+    customer: CustomerFacts = {**(runtime.state.get("customer") or {}), **_pending_customer_facts(runtime)}
     client = _client(runtime)
 
     # T-CRM-01: toda cotización necesita el nombre real del cliente para que
@@ -426,7 +531,9 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
     checkout_link: str | None = None
     if not order_error and order:
         checkout, checkout_error = await _safe(
-            client.start_checkout(order["id"], lines=_lines_payload(lines), delivery_mode="PICKUP")
+            client.start_checkout(
+                order["id"], lines=_lines_payload(lines), delivery_mode=_delivery_mode(runtime, record)
+            )
         )
         if not checkout_error and checkout:
             checkout_link = checkout.get("checkoutUrl")
@@ -485,9 +592,9 @@ async def detalle_de_cotizacion(quoteId: str, runtime: ToolRuntime) -> str:
     if error:
         return _fail(error)
     lines = "; ".join(
-        f"{l.get('quantity')} x {clamp_text(l.get('title') or '', 200, collapse_newlines=True)} "
-        f"(${l.get('unitPrice')})"
-        for l in (quote or {}).get("lines", [])
+        f"{line.get('quantity')} x {clamp_text(line.get('title') or '', 200, collapse_newlines=True)} "
+        f"(${line.get('unitPrice')})"
+        for line in (quote or {}).get("lines", [])
     )
     return (
         f"Cotización {quote.get('id')}: estado {quote.get('status')}, total ${quote.get('total')}, "
@@ -550,10 +657,12 @@ async def convertir_en_pedido(runtime: ToolRuntime, carritoId: str = "") -> Comm
 
 
 @tool
-async def generar_enlace_pago(runtime: ToolRuntime, deliveryMode: str = "PICKUP", carritoId: str = "") -> Command:
+async def generar_enlace_pago(runtime: ToolRuntime, deliveryMode: str = "", carritoId: str = "") -> Command:
     """Genera el enlace de pago del pedido vigente de UN carrito.
 
-    El backend arma la URL. `carritoId` vacío = el carrito activo.
+    El backend arma la URL. `deliveryMode` vacío = el mismo que usaste en
+    calcular_total para ese carrito (o el por defecto del negocio).
+    `carritoId` vacío = el carrito activo.
     """
     if denied := _require_scope(runtime, "generar_enlace_pago"):
         return _tool_reply(runtime, _fail(denied))
@@ -568,8 +677,9 @@ async def generar_enlace_pago(runtime: ToolRuntime, deliveryMode: str = "PICKUP"
     if not lines:
         return _tool_reply(runtime, _fail(f"Ese carrito está vacío; no sé qué cobrar.{ref}"))
 
+    mode = _delivery_mode(runtime, record, deliveryMode)
     checkout, error = await _safe(
-        _client(runtime).start_checkout(order_id, lines=_lines_payload(lines), delivery_mode=deliveryMode)
+        _client(runtime).start_checkout(order_id, lines=_lines_payload(lines), delivery_mode=mode)
     )
     if error:
         return _tool_reply(runtime, _fail(error))
@@ -579,7 +689,10 @@ async def generar_enlace_pago(runtime: ToolRuntime, deliveryMode: str = "PICKUP"
     return _tool_reply(
         runtime,
         f"Enlace de pago listo: {link}{ref}",
-        update={"carts": {cart_id: {"checkoutLink": link, "stage": "PAGO_ENVIADO"}}, "active_cart_id": cart_id},
+        update={
+            "carts": {cart_id: {"checkoutLink": link, "deliveryMode": mode, "stage": "PAGO_ENVIADO"}},
+            "active_cart_id": cart_id,
+        },
     )
 
 
@@ -696,9 +809,12 @@ async def historial_del_cliente(runtime: ToolRuntime) -> str:
             f"uso CFDI {cfdi or 'sin dato'}. Antes de reusarlos, confírmalos con el cliente."
         )
     for q in quotes:
-        parts.append(f"  cotización {str(q['id'])[:8]} — ${q['total']} — {q['status']} — {q['createdAt']}")
+        vence = f", vence {q['expiresAt']}" if q.get("expiresAt") else ""
+        parts.append(
+            f"  cotización {str(q['id'])[:8]} — ${q['total']} — {q['status']} — creada {q['createdAt']}{vence}"
+        )
     for o in orders:
-        parts.append(f"  pedido {str(o['id'])[:8]} — ${o['total']} — {o['status']} — {o['createdAt']}")
+        parts.append(f"  pedido {str(o['id'])[:8]} — ${o['total']} — {o['status']} — creado {o['createdAt']}")
     return "\n".join(parts)
 
 

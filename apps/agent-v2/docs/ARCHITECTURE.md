@@ -138,11 +138,10 @@ desde el ÚLTIMO mensaje del mismo hilo; si llega otro, la request cede
 nada) y el último de la ráfaga invoca al modelo con los textos juntos,
 separados por salto de línea. Esto funciona con cualquier versión del
 prompt: el modelo ve varias líneas en un solo mensaje de cliente y ya
-suele leerlas como una idea. El prompt `1.3.0` (en `draft`, no es `latest`
-todavía) lo hace explícito y además cubre ritmo de cierre; para activarlo
-en un tenant, fijar `prompt_version: "1.3.0"` en `PUT /settings` o correr
-los evals reales y promoverlo a `stable` en `prompts/v1.3.0/manifest.yaml`.
-Solo aplica a los canales de `AGENT_COALESCE_CHANNELS` (`whatsapp`) y nunca
+suele leerlas como una idea. Desde el prompt `1.3.0` (aprobado como
+`stable` el 2026-09-21) es explícito y además cubre ritmo de cierre; `1.4.0`
+(latest) lo afina con manejo de errores de herramienta, notas de voz y
+`detalle_de_cotizacion`. Solo aplica a los canales de `AGENT_COALESCE_CHANNELS` (`whatsapp`) y nunca
 a mensajes con imagen. La idempotencia se resuelve ANTES de la ráfaga para
 que un reintento de webhook no se pegue como texto duplicado.
 
@@ -188,6 +187,15 @@ si hubo reintento — nunca el texto del cliente ni de la respuesta.
 `turn.handoff`, …) y latencias p50/p95. `GET /conversations/{id}/messages`
 devuelve el transcript que ve el modelo (redactado por defecto) para
 responder "¿por qué contestó eso?" sin abrir el sqlite.
+
+## Conocimiento por tenant
+
+`KNOWLEDGE_DIR` (en compose: `/data/agent-v2/knowledge`, volumen
+persistente) solo contiene `tenants/<tenant_id>/` con lo que cada negocio
+sube desde el panel y sus aprendizajes aprobados. La imagen no trae
+conocimiento de ningún negocio: identidad y catálogo salen de Commerce API
+por tenant. El ejemplo de referencia de Pinturas Aglos vive en
+`docs/examples/knowledge-pinturas-aglos/` y no se carga en ningún entorno.
 
 ## Prompts versionados
 
@@ -246,6 +254,18 @@ cotización, pedido y enlace de pago.
   pedido es claramente distinto del que ya tiene abierto, nunca por agregar
   otro producto al mismo pedido. El id es texto libre corto (`"playeras"`,
   `"2"`) saneado en `tools._sanitize_cart_id`.
+- **Modo de entrega.** `calcular_total` guarda en `CartRecord.deliveryMode`
+  el modo con el que cotizó (`PICKUP` / `LOCAL_DELIVERY`);
+  `emitir_cotizacion` y `generar_enlace_pago` lo reutilizan
+  (`tools._delivery_mode`: explícito → recordado → `default_delivery_mode`
+  del tenant → `PICKUP`) para que el enlace de pago cobre el mismo envío que
+  el total ya dicho al cliente.
+- **Nombre en el mismo lote.** "Sí, emítela, soy Ana" hace que el modelo
+  llame `recordar_cliente` y `emitir_cotizacion` en el mismo mensaje; ambas
+  corren contra el mismo snapshot, así que `emitir_cotizacion` rescata el
+  nombre de la llamada hermana (`tools._pending_customer_facts`) en vez de
+  negarse por "sin nombre". `agregar_al_carrito` acepta el SKU exacto
+  además del `variantId` (gpt-4o-mini los confunde con frecuencia).
 - **Aislamiento.** El reducer `_merge_carts` (`state.py`) funde el delta de
   CADA carrito por separado — igual que antes hacía `_merge_cart` con las
   líneas de un único carrito, pero ahora una tool nunca puede pisar el

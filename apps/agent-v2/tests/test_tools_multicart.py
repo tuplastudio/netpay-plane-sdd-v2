@@ -16,7 +16,6 @@ from unittest.mock import patch
 import pytest
 
 from app import tools
-from app.state import CartRecord
 
 VARIANTS = [
     {"variantId": "v-playera", "sku": "PLAYERA-1", "title": "Playera azul", "productTitle": "Playera",
@@ -41,7 +40,10 @@ class FakeCommerceClient:
         return VARIANTS
 
     async def price_preview(self, lines: list[dict[str, Any]], **_k: Any) -> dict[str, Any]:
-        total = sum(float(next(v["price"] for v in VARIANTS if v["variantId"] == l["variantId"])) * float(l["quantity"]) for l in lines)
+        total = sum(
+            float(next(v["price"] for v in VARIANTS if v["variantId"] == line["variantId"])) * float(line["quantity"])
+            for line in lines
+        )
         return {"totals": {"subtotal": f"{total:.2f}", "tax": "0.00", "shipping": "0.00", "total": f"{total:.2f}"}}
 
     async def ensure_customer(self, *, full_name: str, **_k: Any) -> dict[str, Any]:
@@ -207,3 +209,93 @@ async def test_sanitize_cart_id_normalizes_free_text() -> None:
     assert tools._sanitize_cart_id("  Playeras del Equipo!! ") == "playeras-del-equipo"
     assert tools._sanitize_cart_id("") == ""
     assert tools._sanitize_cart_id("a" * 100) == "a" * 40
+
+
+@pytest.mark.asyncio
+async def test_emitir_cotizacion_reuses_delivery_mode_from_calcular_total(fake_client) -> None:
+    """El enlace de pago que arma emitir_cotizacion debe cobrar el MISMO
+    envío que el total que ya se le dijo al cliente (antes iba PICKUP fijo)."""
+    seen: list[dict[str, Any]] = []
+
+    async def start_checkout(order_id: str, **kwargs: Any) -> dict[str, Any]:
+        seen.append(kwargs)
+        return {"checkoutUrl": f"https://app.test/checkout/{order_id}"}
+
+    async def price_preview(lines: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
+        seen.append(kwargs)
+        return {"totals": {"subtotal": "100.00", "tax": "0.00", "shipping": "50.00", "total": "150.00"}}
+
+    fake_client.start_checkout = start_checkout
+    fake_client.price_preview = price_preview
+
+    state: dict[str, Any] = {
+        "carts": {"mio": {"cartId": "mio", "lines": [{"variantId": "v-playera", "sku": "PLAYERA-1", "title": "Playera azul", "quantity": "1", "unitPrice": "100.00"}]}},
+        "active_cart_id": "mio",
+        "customer": {"name": "Ana"},
+    }
+    total = await tools.calcular_total.coroutine(runtime=_runtime(state), deliveryMode="LOCAL_DELIVERY")
+    assert seen[-1]["delivery_mode"] == "LOCAL_DELIVERY"
+    state["carts"]["mio"].update(_update_of(total)["carts"]["mio"])
+    assert state["carts"]["mio"]["deliveryMode"] == "LOCAL_DELIVERY"
+
+    await tools.emitir_cotizacion.coroutine(runtime=_runtime(state))
+    assert seen[-1]["delivery_mode"] == "LOCAL_DELIVERY"
+
+    # Sin modo recordado ni explícito: PICKUP.
+    seen.clear()
+    fresh: dict[str, Any] = {"carts": {"otro": {"cartId": "otro", "lines": state["carts"]["mio"]["lines"]}}, "active_cart_id": "otro", "customer": {"name": "Ana"}}
+    await tools.calcular_total.coroutine(runtime=_runtime(fresh))
+    assert seen[-1]["delivery_mode"] == "PICKUP"
+
+
+@pytest.mark.asyncio
+async def test_emitir_cotizacion_reissue_points_to_existing_checkout_link() -> None:
+    state: dict[str, Any] = {
+        "carts": {"mio": {
+            "cartId": "mio",
+            "lines": [{"variantId": "v-playera", "sku": "PLAYERA-1", "title": "Playera azul", "quantity": "1", "unitPrice": "100.00"}],
+            "quoteId": "Q1", "quoteLink": "https://app.test/quotes/public/Q1", "checkoutLink": "https://app.test/checkout/O1",
+        }},
+        "active_cart_id": "mio",
+        "customer": {"name": "Ana"},
+    }
+    state["carts"]["mio"]["quoteSignature"] = tools._cart_signature(state["carts"]["mio"]["lines"])
+    command = await tools.emitir_cotizacion.coroutine(runtime=_runtime(state))
+    text = command.update["messages"][0].content
+    assert "https://app.test/checkout/O1" in text
+    assert "convertir_en_pedido" not in text
+
+
+@pytest.mark.asyncio
+async def test_emitir_cotizacion_uses_name_from_sibling_recordar_cliente_call() -> None:
+    """"Sí, emítela, soy Ana": recordar_cliente y emitir_cotizacion salen en
+    el mismo lote y ven el mismo snapshot; la cotización no debe fallar por
+    "sin nombre" cuando el nombre viene en la llamada hermana."""
+    from langchain_core.messages import AIMessage
+
+    lines = [{"variantId": "v-playera", "sku": "PLAYERA-1", "title": "Playera azul", "quantity": "1", "unitPrice": "100.00"}]
+    batch = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "recordar_cliente", "args": {"nombre": "Ana López"}, "id": "c1"},
+            {"name": "emitir_cotizacion", "args": {}, "id": "c2"},
+        ],
+    )
+    state: dict[str, Any] = {"carts": {"mio": {"cartId": "mio", "lines": lines}}, "active_cart_id": "mio", "customer": {}, "messages": [batch]}
+    command = await tools.emitir_cotizacion.coroutine(runtime=_runtime(state, tool_call_id="c2"))
+    text = command.update["messages"][0].content
+    assert "Cotización Q" in text, text
+    assert command.update["customer"]["name"] == "Ana López"
+
+    # Sin llamada hermana ni nombre en estado: sigue negándose.
+    state["messages"] = [AIMessage(content="", tool_calls=[{"name": "emitir_cotizacion", "args": {}, "id": "c3"}])]
+    command = await tools.emitir_cotizacion.coroutine(runtime=_runtime(state, tool_call_id="c3"))
+    assert "ERROR" in command.update["messages"][0].content
+
+
+@pytest.mark.asyncio
+async def test_agregar_al_carrito_accepts_sku_as_variant_key() -> None:
+    state: dict[str, Any] = {"carts": {}, "active_cart_id": None}
+    command = await tools.agregar_al_carrito.coroutine(variantId="TAZA-1", cantidad="1", runtime=_runtime(state))
+    line = _update_of(command)["carts"][tools.DEFAULT_CART_ID]["lines"][0]
+    assert line["variantId"] == "v-taza" and line["sku"] == "TAZA-1"

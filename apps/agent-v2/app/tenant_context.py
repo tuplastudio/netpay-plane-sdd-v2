@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from .agent_settings import AgentSettings, get_agent_settings
 from .commerce import CommerceClient, CommerceError, CommerceUnavailable
@@ -70,12 +70,25 @@ class _TtlCache:
             self._entries.pop(key, None)
 
 
+_VARIANTS = _TtlCache(120.0)
+
+
+async def load_variants(tenant_id: str, loader: Callable[[], Awaitable[list[dict[str, Any]]]]) -> list[dict[str, Any]]:
+    """Variantes activas del tenant (cacheadas 120 s).
+
+    El ``loader`` lo pone quien llama (normalmente ``CommerceClient.search_products``)
+    para que las pruebas puedan inyectar un doble sin red. Comparte TTL e
+    invalidación con el bloque de catálogo del prompt.
+    """
+    return await _VARIANTS.get(tenant_id, loader)
+
+
 async def _render_catalog(tenant_id: str) -> str:
     client = CommerceClient(tenant_id=tenant_id)
     if not client.live:
         return ""
     try:
-        variants = await client.search_products(None, limit=100)
+        variants = await load_variants(tenant_id, lambda: client.search_products(None, limit=100))
     except (CommerceError, CommerceUnavailable):
         return ""
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -121,6 +134,7 @@ async def warm_catalog(tenant_id: str = "") -> None:
 
 def invalidate_tenant_caches(tenant_id: str | None = None) -> None:
     _CATALOG.invalidate(tenant_id)
+    _VARIANTS.invalidate(tenant_id)
     _COMPANY.invalidate(tenant_id)
 
 

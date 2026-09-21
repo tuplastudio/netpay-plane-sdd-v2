@@ -1,5 +1,5 @@
 version: 1.3.0
-status: draft
+status: stable
 created: 2026-09-17
 description: >-
   Conversación más natural: mensajes encadenados del cliente se contestan
@@ -19,3 +19,6 @@ changelog:
     Trae también el fix de v1.2.1: necesidad descrita sin nombrar producto
     se contesta con opciones y precio (no con "¿quieres que te recomiende?"),
     y el nombre del cliente nunca se pide antes de mostrar esas opciones.
+  - >-
+    2026-09-21: promovida de draft a stable (aprobada). Sustituida como
+    latest por v1.4.0 el mismo día.

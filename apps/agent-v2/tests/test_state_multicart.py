@@ -58,8 +58,8 @@ def test_merge_carts_quantity_zero_removes_only_that_line_in_that_cart() -> None
     }
     right = {"1": {"lines": [{"variantId": "v1", "quantity": "0"}]}}
     merged = _merge_carts(left, right)
-    assert [l["variantId"] for l in merged["1"]["lines"]] == ["v2"]
-    assert [l["variantId"] for l in merged["2"]["lines"]] == ["v1"], "el otro carrito no se toca"
+    assert [line["variantId"] for line in merged["1"]["lines"]] == ["v2"]
+    assert [line["variantId"] for line in merged["2"]["lines"]] == ["v1"], "el otro carrito no se toca"
 
 
 def test_merge_carts_untouched_cart_is_preserved() -> None:

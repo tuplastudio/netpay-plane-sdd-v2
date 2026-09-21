@@ -33,6 +33,25 @@ al cliente tal cual. Úsalas para "no prometas fechas", "escala este caso" o
   negocio.
 - Si el dato no está aquí, el agente lo dice y ofrece pasar con una persona.
 
-## Ubicación
+## Ubicación y partición por tenant
 
-Configurable con `KNOWLEDGE_DIR`. Por defecto `apps/agent-service/knowledge`.
+Configurable con `KNOWLEDGE_DIR` (por defecto `apps/agent-v2/knowledge`; en
+producción `/data/agent-v2/knowledge`, en el volumen persistente).
+
+```
+<KNOWLEDGE_DIR>/
+  README.md                          este archivo (no se indexa)
+  tenants/<tenant_id>/uploads/*.md   documentos subidos desde el panel
+  tenants/<tenant_id>/aprendizajes.md aprendizajes aprobados
+```
+
+Cada negocio ve **solo** su subárbol `tenants/<tenant_id>/`. Esta carpeta
+raíz no trae conocimiento de ningún negocio: nombre, catálogo y datos de
+contacto salen de Commerce API por tenant, y las políticas (envíos, pagos,
+garantías, FAQ) las sube cada negocio. Un ejemplo completo de cómo
+redactar esos documentos está en
+`docs/examples/knowledge-pinturas-aglos/` (no se carga en ningún entorno).
+
+Los `.md` sueltos en esta raíz solo los leería el tenant `default`
+(compatibilidad con el despliegue de un solo negocio); no pongas ahí datos
+reales.

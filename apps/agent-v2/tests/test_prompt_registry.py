@@ -134,9 +134,8 @@ class ShippedPromptsTests(TestCase):
         self.assertIn("1.2.0", registry.versions())
         self.assertIn("1.2.1", registry.versions())
         self.assertIn("1.3.0", registry.versions())
-        # v1.3.0 está en draft (sin evals reales corridos todavía): 1.2.1
-        # sigue siendo latest hasta que se promueva a mano en manifest.yaml.
-        self.assertEqual(registry.latest(), "1.2.1")
+        self.assertIn("1.4.0", registry.versions())
+        self.assertEqual(registry.latest(), "1.4.0")
         hardened = registry.get("1.1.0")
         self.assertIsNotNone(hardened.block("05_seguridad_y_privacidad"))
         self.assertIn("consultivo", hardened.styles)
@@ -203,7 +202,7 @@ class MultiCartPromptTests(TestCase):
 
     def test_1_2_0_documents_carritoId(self) -> None:
         registry = get_prompt_registry()
-        for version_id in ("1.2.0", "1.2.1", "1.3.0"):
+        for version_id in ("1.2.0", "1.2.1", "1.3.0", "1.4.0"):
             version = registry.get(version_id)
             self.assertIsNotNone(version.block("65_carritos_multiples"), version_id)
             text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
@@ -213,14 +212,13 @@ class MultiCartPromptTests(TestCase):
 
 
 class ConversationalPromptTests(TestCase):
-    """v1.3.0 trae ritmo/cierre y ráfagas; queda en draft hasta correr evals
-    reales contra ella (ver prompts/README.md), así que NO es latest todavía
-    pero sí debe poder fijarse por tenant o por PROMPT_VERSION."""
+    """v1.3.0 (ritmo/cierre y ráfagas) quedó aprobada como stable; v1.4.0 la
+    afina y es latest. Ambas deben conservar lo esencial de seguridad."""
 
-    def test_1_3_0_is_draft_and_covers_bursts_and_closing(self) -> None:
+    def test_1_3_0_is_stable_and_covers_bursts_and_closing(self) -> None:
         registry = get_prompt_registry()
-        self.assertEqual(registry.latest(), "1.2.1", "1.3.0 en draft no debe volverse latest sola")
         version = registry.get("1.3.0")
+        self.assertEqual(version.status, "stable")
         self.assertIsNotNone(version.block("85_ritmo_y_cierre"))
         text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
         self.assertIn("RITMO, CORRECCIONES Y CIERRE", text)
@@ -228,6 +226,30 @@ class ConversationalPromptTests(TestCase):
         for tag in DATA_TAGS:
             self.assertIn(f"<{tag}>", text, f"el prompt 1.3.0 debe nombrar el delimitador {tag}")
         self.assertIn("NUNCA pides ni aceptas: número de tarjeta", text)
+
+    def test_1_4_0_is_latest_and_names_every_tool(self) -> None:
+        registry = get_prompt_registry()
+        self.assertEqual(registry.latest(), "1.4.0")
+        version = registry.get("1.4.0")
+        self.assertEqual(version.status, "stable")
+        text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
+        from app.tools import SALES_TOOLS
+
+        for tool in SALES_TOOLS:
+            self.assertIn(tool.name, text, f"el prompt 1.4.0 debe explicar cuándo usar {tool.name}")
+        for tag in DATA_TAGS:
+            self.assertIn(f"<{tag}>", text)
+        self.assertNotIn("Jazyfrut", text, "el prompt compartido no debe citar productos de un tenant")
+        self.assertNotIn("MEMORIA DE LA CONVERSACIÓN", text, "se referencia el delimitador por su nombre")
+        self.assertIn("ERROR_TECNICO", text)
+        self.assertIn("NUNCA pides ni aceptas: número de tarjeta", text)
+
+    def test_auto_history_lookup_off_enters_overrides_block(self) -> None:
+        version = get_prompt_registry().get("1.4.0")
+        prompt = assemble_prompt(version, overrides=AgentSettings(auto_history_lookup=False))
+        self.assertIn("No consultes historial_del_cliente por iniciativa propia", prompt)
+        prompt = assemble_prompt(version, overrides=AgentSettings(auto_history_lookup=True))
+        self.assertNotIn("No consultes historial_del_cliente", prompt)
 
     def test_1_1_0_still_resolvable_for_pinned_tenants(self) -> None:
         # Un tenant que fijó 1.1.0 explícitamente sigue viéndolo tal cual,

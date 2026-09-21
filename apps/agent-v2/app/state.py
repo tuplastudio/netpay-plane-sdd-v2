@@ -59,6 +59,7 @@ class CartRecord(TypedDict, total=False):
     cartId: str
     lines: list[CartLine]
     lastTotals: dict[str, Any] | None
+    deliveryMode: str | None
     quoteId: str | None
     quoteLink: str | None
     quoteSignature: str | None

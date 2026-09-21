@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..guards import redact_pii
 from ..learning import get_learning_store, looks_like_unanswered
+from ..security import clamp_text
 from ..memory import (
     Episode,
     enrich_with_llm,
@@ -56,8 +57,8 @@ async def record_learning(
                 for call in getattr(message, "tool_calls", None) or []:
                     if call.get("name") == "escalar_a_humano":
                         args = call.get("args") or {}
-                        summary = str(args.get("resumen") or "")
-                        reason = str(args.get("motivo") or "") or reason
+                        summary = clamp_text(str(args.get("resumen") or ""), 500, collapse_newlines=True)
+                        reason = clamp_text(str(args.get("motivo") or ""), 80, collapse_newlines=True) or reason
                         break
                 if summary:
                     break

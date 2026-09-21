@@ -31,6 +31,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from ..agent import build_agent
 from ..commerce import CommerceClient, CommerceError, CommerceUnavailable
 from ..config import Settings, get_settings
+from ..prompts import get_prompt_registry
 from ..state import TurnContext, open_carts, overall_stage
 from .dataset import EvalCase, Turn, build_dataset
 
@@ -381,6 +382,23 @@ def plan(
     }
 
 
+async def _close_stores() -> None:
+    """Cierra las conexiones aiosqlite que el turno abre de forma perezosa.
+
+    Sus hilos de trabajo no son daemon: sin esto el proceso de evals nunca
+    termina aunque ya haya escrito el reporte (se quedaba en
+    ``threading._shutdown``).
+    """
+    from ..learning import get_learning_store
+    from ..memory.episodic import get_episode_store
+
+    for store in (get_learning_store(), get_episode_store()):
+        try:
+            await store.close()
+        except Exception:  # noqa: BLE001 - cerrar nunca debe romper el reporte
+            pass
+
+
 async def run_suite(
     *,
     categories: list[str] | None = None,
@@ -452,9 +470,12 @@ async def run_suite(
     total_passed = sum(1 for r in case_reports if r["pass"])
     critical_ok = all(g["pass"] for g in gates.values())
 
+    await _close_stores()
+
     return {
         "mode": "live",
         "model": settings.model,
+        "promptVersion": get_prompt_registry().resolve(settings.prompt_version).version,
         "warnings": warnings,
         "totals": {
             "numerator": total_passed,
