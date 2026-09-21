@@ -23,7 +23,7 @@ jobs:
             cd /opt/netpay-build/infra
             DC="docker compose -f compose.prod.yaml --env-file .env.prod"
 
-            WANT_VERSION="2.2.0"
+            WANT_VERSION="2.3.0"
             echo "=== esperar a que agent-v2 sirva la versión $WANT_VERSION (deploy-backend del mismo push) ==="
             for i in $(seq 1 90); do
               GOT=$($DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/healthz', timeout=5).json().get('version'))" 2>/dev/null || echo "?")

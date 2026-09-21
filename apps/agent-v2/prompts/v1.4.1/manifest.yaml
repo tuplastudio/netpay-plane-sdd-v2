@@ -1,0 +1,15 @@
+version: 1.4.1
+status: stable
+created: 2026-09-21
+description: >-
+  Parche sobre v1.4.0 tras verlo en producción: un error de herramienta ya
+  no lleva a escalar_a_humano ni a ofrecer "pasarlo con una persona"; el
+  agente avisa, sigue atendiendo y reintenta en el siguiente mensaje. La
+  escalación queda solo para lo que pide el cliente o lo que el bot no
+  negocia. No cambia herramientas ni contrato.
+changelog:
+  - >-
+    70_como_trabajas.md: error de herramienta = avisar en una línea, seguir
+    vendiendo y reintentar en el siguiente mensaje; prohibido escalar por
+    error técnico, pedido grande o cantidad rara. Nueva REGLA DURA con los
+    únicos motivos válidos de escalar_a_humano.

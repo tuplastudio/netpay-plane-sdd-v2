@@ -42,22 +42,22 @@ def _chat(client: TestClient, text: str, **extra):
 def test_health_and_diagnostics(client: TestClient) -> None:
     assert client.get("/healthz").json()["status"] == "ok"
     diag = client.get("/diagnostics").json()
-    assert diag["prompts"]["latest"] == "1.4.0"
+    assert diag["prompts"]["latest"] == "1.4.1"
     assert diag["guards"]["outputGuard"] is True
     assert "compactAfterChars" in diag["budgets"]
 
 
 def test_prompts_endpoints(client: TestClient) -> None:
     index = client.get("/prompts").json()
-    assert index["latest"] == "1.4.0" and index["processDefault"] == "latest"
-    assert [v["version"] for v in index["versions"]] == ["1.4.0", "1.3.0", "1.2.1", "1.2.0", "1.1.0", "1.0.0"]
+    assert index["latest"] == "1.4.1" and index["processDefault"] == "latest"
+    assert [v["version"] for v in index["versions"]] == ["1.4.1", "1.4.0", "1.3.0", "1.2.1", "1.2.0", "1.1.0", "1.0.0"]
     detail = client.get("/prompts/v1.0.0").json()
     assert "blockTexts" not in detail and "40_que_nunca_haces" in detail["blocks"]
     with_text = client.get("/prompts/1.2.0?text=true").json()
     assert "SEGURIDAD Y PRIVACIDAD" in with_text["blockTexts"]["05_seguridad_y_privacidad"]
     assert "VARIOS PEDIDOS A LA VEZ" in with_text["blockTexts"]["65_carritos_multiples"]
     assert client.get("/prompts/9.9.9").status_code == 404
-    assert client.post("/prompts/reload").json()["latest"] == "1.4.0"
+    assert client.post("/prompts/reload").json()["latest"] == "1.4.1"
 
 
 def test_settings_prompt_version_roundtrip(client: TestClient) -> None:
@@ -201,7 +201,7 @@ def test_close_conversation_stores_scrubbed_episode(client: TestClient) -> None:
     assert body["deleted"] is False
     episode = body["episode"]
     assert episode["outcome"] == "CARRITO_SIN_CIERRE" and episode["turns"] == 1
-    assert episode["promptVersion"] == "1.4.0"
+    assert episode["promptVersion"] == "1.4.1"
     dumped = str(episode)
     for leak in ("Laura", "6671234567", "LATA-1", "Lata blanca"):
         assert leak not in dumped
@@ -226,7 +226,8 @@ def test_learning_signal_is_redacted(client: TestClient) -> None:
 
 
 def test_chat_soft_failure_then_handoff(client: TestClient) -> None:
-    """Un fallo aislado contesta suave y NO bloquea al bot; el segundo seguido sí."""
+    """Un fallo aislado contesta suave y NO bloquea al bot; solo la tercera
+    racha seguida (AGENT_HANDOFF_AFTER_FAILURES=3 por defecto) pasa a persona."""
     client.fake.raise_on_invoke = RuntimeError("bug en una tool")
     first = _chat(client, "hola", channel="whatsapp")
     assert first["engine"] == "error-soft" and first["handoff"] is False
@@ -234,7 +235,11 @@ def test_chat_soft_failure_then_handoff(client: TestClient) -> None:
     assert client.fake.threads["t1:c1"]["failure_streak"] == 1
     assert "handoff" not in client.fake.threads["t1:c1"]
 
-    second = _chat(client, "sigues ahí?", channel="whatsapp", messageId="m2")
+    again = _chat(client, "sigues ahí?", channel="whatsapp", messageId="m1b")
+    assert again["engine"] == "error-soft" and again["handoff"] is False
+    assert client.fake.threads["t1:c1"]["failure_streak"] == 2
+
+    second = _chat(client, "sigues ahí??", channel="whatsapp", messageId="m2")
     assert second["engine"] == "error-fallback" and second["handoff"] is True
     assert second["stage"] == "HUMANO"
     assert client.fake.threads["t1:c1"]["handoff"] is True
@@ -346,7 +351,7 @@ def test_chat_response_carries_turn_id_and_metrics_count(client: TestClient) -> 
     assert snapshot["counters"]["turn.ok"] >= 1
     assert snapshot["latencyMs"]["samples"] >= 1
     assert "turnTimeoutImageSeconds" in client.get("/diagnostics").json()["budgets"]
-    assert client.get("/diagnostics").json()["failurePolicy"]["handoffAfterFailures"] == 2
+    assert client.get("/diagnostics").json()["failurePolicy"]["handoffAfterFailures"] == 3
 
 
 def test_transcript_endpoint_redacts_by_default(client: TestClient) -> None:

@@ -111,7 +111,7 @@ class Settings:
         default_factory=lambda: _env_bool("AGENT_RETRY_TRANSIENT", True)
     )
     handoff_after_failures: int = field(
-        default_factory=lambda: max(1, _env_int("AGENT_HANDOFF_AFTER_FAILURES", 2))
+        default_factory=lambda: max(1, _env_int("AGENT_HANDOFF_AFTER_FAILURES", 3))
     )
 
     # ---- Observabilidad (ver pipeline/trace.py, GET /metrics) ----

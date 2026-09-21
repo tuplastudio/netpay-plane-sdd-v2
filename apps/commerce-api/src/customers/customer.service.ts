@@ -257,10 +257,24 @@ export class CustomerService {
       });
     }
 
+    // `email` es único por tenant: si otra ficha ya lo tiene (el mismo
+    // cliente creado antes desde el panel o el chat web), completar o crear
+    // con ese correo lanzaba P2002 y el agente recibía un 500 en plena
+    // cotización. En ese caso el correo no se toca; la ficha del canal
+    // (teléfono) sigue siendo la que se liga.
+    const emailTakenByOther = async (customerId: string | null): Promise<boolean> => {
+      if (!email) return false;
+      const other = await this.prisma.customer.findFirst({
+        where: { tenantId, email, ...(customerId ? { id: { not: customerId } } : {}) },
+        select: { id: true },
+      });
+      return Boolean(other);
+    };
+
     if (customer) {
       const patch: Prisma.CustomerUpdateInput = {};
       if (!customer.phone && phone) patch.phone = phone;
-      if (!customer.email && email) patch.email = email;
+      if (!customer.email && email && !(await emailTakenByOther(customer.id))) patch.email = email;
       if (this.isPlaceholderName(customer.fullName) && !this.isPlaceholderName(fullName)) {
         patch.fullName = fullName;
       }
@@ -271,7 +285,10 @@ export class CustomerService {
         });
       }
     } else {
-      customer = await this.prisma.customer.create({ data: { tenantId, fullName, phone, email } });
+      const safeEmail = (await emailTakenByOther(null)) ? undefined : email;
+      customer = await this.prisma.customer.create({
+        data: { tenantId, fullName, phone, email: safeEmail },
+      });
     }
 
     if (channel && phone) {

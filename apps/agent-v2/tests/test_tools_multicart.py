@@ -333,3 +333,15 @@ async def test_escalar_a_humano_without_resumen() -> None:
     state: dict[str, Any] = {"carts": {}, "active_cart_id": None}
     command = await tools.escalar_a_humano.coroutine(runtime=_runtime(state), motivo="CLIENTE_LO_PIDE")
     assert command.update["handoff"] is True
+
+
+@pytest.mark.asyncio
+async def test_escalar_a_humano_refuses_technical_reasons() -> None:
+    """Un error de herramienta no deja al cliente esperando a una persona:
+    la tool rechaza el motivo y el hilo sigue con el bot."""
+    state: dict[str, Any] = {"carts": {}, "active_cart_id": None}
+    command = await tools.escalar_a_humano.coroutine(runtime=_runtime(state), motivo="ERROR_TECNICO", resumen="falló emitir")
+    assert "ERROR" in command.update["messages"][0].content
+    assert "handoff" not in command.update
+    command = await tools.escalar_a_humano.coroutine(runtime=_runtime(state), motivo="QUEJA", resumen="cliente molesto")
+    assert command.update["handoff"] is True

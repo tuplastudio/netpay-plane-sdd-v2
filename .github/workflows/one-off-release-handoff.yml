@@ -1,0 +1,47 @@
+name: One-off - devolver al bot una conversación escalada por error técnico
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-release-handoff.yml"
+
+jobs:
+  release:
+    name: Liberar handoff en commerce-api y en agent-v2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+            TENANT="8e3ecbd4-e06c-49a7-a3be-fa18f9af413f"
+            CONV="3422e0ea-9751-4da7-b8b5-a4d0d01c5081"
+
+            echo "=== commerce-api: hilo de vuelta al bot ==="
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const r = await p.whatsAppConversation.updateMany({
+                where: { id: '$CONV', tenantId: '$TENANT' },
+                data: { status: 'OPEN', handoffToHuman: false, handoffUserId: null },
+              });
+              console.log('actualizadas:', r.count);
+              await p.\$disconnect();
+            })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
+            "
+
+            echo "=== agent-v2: liberar el hilo (handoff=false, racha=0) ==="
+            $DC exec -T agent-v2 python -c "
+            import os, httpx
+            r = httpx.post('http://localhost:8010/conversations/$CONV/release', params={'tenantId': '$TENANT'}, headers={'x-internal-key': os.environ['AGENT_INTERNAL_KEY']}, timeout=30)
+            print(r.status_code, r.text[:300])
+            "

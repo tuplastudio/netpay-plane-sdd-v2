@@ -330,6 +330,9 @@ async def quitar_del_carrito(variantId: str, runtime: ToolRuntime, carritoId: st
 
 _DELIVERY_MODES = {"PICKUP", "LOCAL_DELIVERY"}
 
+# Motivos con los que escalar_a_humano NO marca handoff (ver la tool).
+_NO_HANDOFF_REASONS = {"ERROR_TECNICO", "ERROR", "TECNICO", "SISTEMA", "FALLO_TECNICO"}
+
 # Mismo criterio que `CustomerService.isPlaceholderName` en commerce-api:
 # un "nombre" así deja la ficha del cliente vacía aunque parezca llena.
 _PLACEHOLDER_NAMES = {
@@ -920,7 +923,20 @@ async def escalar_a_humano(motivo: str, runtime: ToolRuntime, resumen: str = "")
     """
     if denied := _require_scope(runtime, "escalar_a_humano"):
         return _tool_reply(runtime, _fail(denied))
-    motivo = clamp_text(motivo, 80, collapse_newlines=True)
+    motivo = clamp_text(motivo, 80, collapse_newlines=True).strip().upper() or "CLIENTE_LO_PIDE"
+    if motivo in _NO_HANDOFF_REASONS:
+        # Un error de herramienta no es motivo para dejar al cliente en manos
+        # de una persona: el bot debe reintentar y seguir vendiendo. Solo el
+        # cliente (queja, pedir humano) o una condición comercial que el bot
+        # no negocia (crédito, precio especial) justifican el handoff.
+        return _tool_reply(
+            runtime,
+            _fail(
+                "No escales por un error técnico. Dile al cliente en una línea que "
+                "en un momento se lo reintentas y sigue atendiendo; vuelve a "
+                "llamar la herramienta que falló en el siguiente mensaje."
+            ),
+        )
     return _tool_reply(
         runtime,
         "Conversación marcada para que la tome una persona del equipo.",
