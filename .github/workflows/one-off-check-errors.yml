@@ -1,4 +1,4 @@
-name: One-off - diagnóstico del 401 de OpenRouter en agent-v2
+name: One-off - limpiar OpenRouter key inválida del tenant y verificar
 
 on:
   push:
@@ -7,11 +7,11 @@ on:
       - ".github/workflows/one-off-check-errors.yml"
 
 jobs:
-  check:
-    name: Contexto + qué tenant tiene su propia key de OpenRouter
+  fix:
+    name: Borrar openrouter_api_key inválida de demo-store y confirmar que el chat responde real
     runs-on: ubuntu-latest
     steps:
-      - name: Diagnose
+      - name: Clear key + verify
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
@@ -21,37 +21,43 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 python - <<'PYEOF'
+            import json, os, time, urllib.request, urllib.error
 
-            echo "=== conteo de 401 'User not found' por hora (desde hace 24h) ==="
-            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 24h --timestamps agent-v2 2>&1 \
-              | grep "User not found" | cut -c1-16 | sort | uniq -c) || echo "(sin coincidencias)"
+            KEY = os.environ["AGENT_INTERNAL_KEY"]
+            TENANT = "8e3ecbd4-e06c-49a7-a3be-fa18f9af413f"
+
+            def req(method, path, body=None):
+                data = json.dumps(body).encode() if body is not None else None
+                r = urllib.request.Request(f"http://localhost:8010{path}", data=data,
+                    headers={"content-type": "application/json", "x-internal-key": KEY}, method=method)
+                with urllib.request.urlopen(r, timeout=20) as resp:
+                    return json.loads(resp.read().decode())
+
+            before = req("GET", f"/settings?tenantId={TENANT}")
+            print("ANTES key propia set:", before["settings"].get("openrouter_api_key_set"))
+
+            print("=== borrando openrouter_api_key del tenant (cae a la key de plataforma) ===")
+            after = req("PUT", f"/settings?tenantId={TENANT}", {"openrouter_api_key": ""})
+            print("DESPUÉS key propia set:", after["settings"].get("openrouter_api_key_set"))
+
+            print("=== turno real de verificación (canal whatsapp, sin datos personales) ===")
+            conv = f"verif-fix-{int(time.time())}"
+            body = {"tenantId": TENANT, "conversationId": conv, "text": "hola, cuanto cuesta la pintura de 19 litros",
+                    "channel": "whatsapp", "principalScopes": ["catalog.read","quotes.read","quotes.write","orders.read","orders.write","chat.read","chat.write"]}
+            r = urllib.request.Request("http://localhost:8010/chat", data=json.dumps(body).encode(),
+                headers={"content-type": "application/json", "x-internal-key": KEY}, method="POST")
+            with urllib.request.urlopen(r, timeout=60) as resp:
+                d = json.loads(resp.read().decode())
+            print("engine:", d.get("engine"), "| latencyMs:", d.get("latencyMs"))
+            print("reply:", (d.get("reply") or "")[:500])
+
+            print("=== limpieza del hilo de prueba ===")
+            durl = f"http://localhost:8010/conversations/{conv}?tenantId={TENANT}"
+            urllib.request.urlopen(urllib.request.Request(durl, headers={"x-internal-key": KEY}, method="DELETE"), timeout=20).read()
+            print("hilo de prueba borrado")
+            PYEOF
 
             echo ""
-            echo "=== settings por tenant en disco (AGENT_SETTINGS_DIR): ¿key propia de OpenRouter? ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 python -c "
-            import json, os
-            d = os.environ.get('AGENT_SETTINGS_DIR', '/data/agent-v2/settings')
-            if not os.path.isdir(d):
-                print('sin directorio', d); raise SystemExit
-            for name in sorted(os.listdir(d)):
-                if not name.endswith('.json'):
-                    continue
-                try:
-                    data = json.load(open(os.path.join(d, name)))
-                except Exception as e:
-                    print(name, 'ILEGIBLE', e); continue
-                has_key = bool(data.get('openrouter_api_key_encrypted'))
-                print(name, '-> key propia:', has_key, '| model_override:', data.get('model_id') or data.get('model'))
-            "
-
-            echo ""
-            echo "=== tenants conocidos (slug <-> id) ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod exec -T -w /repo/apps/commerce-api commerce-api node -e "
-            const { PrismaClient } = require('@prisma/client');
-            const p = new PrismaClient();
-            p.\$queryRawUnsafe('select id, slug from \"Tenant\" order by \"createdAt\" asc').then((r) => { console.log(JSON.stringify(r)); return p.\$disconnect(); });
-            "
-
-            echo ""
-            echo "=== OPENROUTER_KEY_REF de plataforma (solo prefijo/longitud) ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 sh -c 'echo "${OPENROUTER_KEY_REF:0:12}... (len=${#OPENROUTER_KEY_REF})"'
+            echo "=== 401 'User not found' en los últimos 5 minutos (debe ser 0 de aquí en adelante) ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 5m agent-v2 2>&1 | grep -c "User not found" || echo 0
