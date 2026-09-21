@@ -330,6 +330,24 @@ async def quitar_del_carrito(variantId: str, runtime: ToolRuntime, carritoId: st
 
 _DELIVERY_MODES = {"PICKUP", "LOCAL_DELIVERY"}
 
+# Mismo criterio que `CustomerService.isPlaceholderName` en commerce-api:
+# un "nombre" así deja la ficha del cliente vacía aunque parezca llena.
+_PLACEHOLDER_NAMES = {
+    "cliente", "cliente de whatsapp", "cliente sin nombre", "cliente nuevo",
+    "usuario", "user", "customer", "anonimo", "anónimo", "desconocido",
+    "sin nombre", "n/a", "na", "none", "null", "ninguno", "no", "-", "?",
+}
+
+
+def is_placeholder_name(value: str) -> bool:
+    """``True`` si el texto no es un nombre real de persona o negocio."""
+    normalized = " ".join((value or "").strip().lower().split())
+    if not normalized or normalized in _PLACEHOLDER_NAMES:
+        return True
+    if re.fullmatch(r"\+?\d[\d\s-]{5,}", normalized):
+        return True  # un teléfono no es un nombre
+    return len(normalized) < 2
+
 
 def _pending_customer_facts(runtime: ToolRuntime) -> CustomerFacts:
     """Datos que ``recordar_cliente`` está guardando EN ESTE MISMO lote de tools.
@@ -351,7 +369,7 @@ def _pending_customer_facts(runtime: ToolRuntime) -> CustomerFacts:
                 name = clamp_text(str(args.get("nombre") or ""), 120, collapse_newlines=True)
                 email = clamp_text(str(args.get("correo") or ""), 120, collapse_newlines=True)
                 phone = clamp_text(str(args.get("telefono") or ""), 40, collapse_newlines=True)
-                if name:
+                if name and not is_placeholder_name(name):
                     facts["name"] = name
                 if email and "@" in email:
                     facts["email"] = email
@@ -488,7 +506,7 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
     # consiga en el mensaje anterior de preguntar, en vez de emitir con el
     # placeholder "Cliente de WhatsApp" (eso es lo que dejaba la BD incompleta).
     full_name = (customer.get("name") or ctx.get("customer_name") or "").strip()
-    if not full_name:
+    if is_placeholder_name(full_name):
         return _tool_reply(
             runtime,
             _fail(
@@ -745,6 +763,14 @@ async def recordar_cliente(
     correo = clamp_text(correo, 120, collapse_newlines=True)
     telefono = clamp_text(telefono, 40, collapse_newlines=True)
     facts: CustomerFacts = {}
+    if nombre and is_placeholder_name(nombre):
+        return _tool_reply(
+            runtime,
+            _fail(
+                f"'{nombre}' no es un nombre real; no lo guardo. Pídele al cliente su "
+                "nombre y vuelve a llamar recordar_cliente cuando lo diga."
+            ),
+        )
     if nombre:
         facts["name"] = nombre
     if correo and "@" in correo:
@@ -885,11 +911,12 @@ async def solicitar_factura(
 
 
 @tool
-async def escalar_a_humano(motivo: str, resumen: str, runtime: ToolRuntime) -> Command:
+async def escalar_a_humano(motivo: str, runtime: ToolRuntime, resumen: str = "") -> Command:
     """Pasa la conversación a una persona del equipo.
 
     Motivos: CLIENTE_LO_PIDE, FUERA_DE_CONOCIMIENTO, QUEJA, PRECIO_ESPECIAL,
-    CREDITO, ERROR_TECNICO.
+    CREDITO, ERROR_TECNICO. `resumen`: una línea con lo que el cliente
+    necesita, para quien tome la conversación.
     """
     if denied := _require_scope(runtime, "escalar_a_humano"):
         return _tool_reply(runtime, _fail(denied))

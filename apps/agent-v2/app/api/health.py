@@ -15,7 +15,7 @@ from ..tools import SALES_TOOLS
 
 router = APIRouter(tags=["salud"])
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 
 @router.get("/healthz")

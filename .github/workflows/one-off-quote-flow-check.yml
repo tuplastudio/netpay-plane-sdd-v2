@@ -23,11 +23,12 @@ jobs:
             cd /opt/netpay-build/infra
             DC="docker compose -f compose.prod.yaml --env-file .env.prod"
 
-            echo "=== esperar a que agent-v2 sirva el prompt 1.4.0 (deploy-backend del mismo push) ==="
+            WANT_VERSION="2.2.0"
+            echo "=== esperar a que agent-v2 sirva la versión $WANT_VERSION (deploy-backend del mismo push) ==="
             for i in $(seq 1 90); do
-              LATEST=$($DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/prompts', headers={'x-internal-key': __import__('os').environ['AGENT_INTERNAL_KEY']}, timeout=5).json().get('latest'))" 2>/dev/null || echo "?")
-              echo "  intento $i: latest=$LATEST"
-              [ "$LATEST" = "1.4.0" ] && break
+              GOT=$($DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/healthz', timeout=5).json().get('version'))" 2>/dev/null || echo "?")
+              echo "  intento $i: version=$GOT"
+              [ "$GOT" = "$WANT_VERSION" ] && break
               sleep 10
             done
 
@@ -73,6 +74,9 @@ jobs:
                     print("  http:", r.status_code)
                     body = r.json()
                     show(body)
+                    if i == 0 and body.get("quote"):
+                        print("  !! cotizó sin tener el nombre del cliente")
+                        ok = False
                     if i == 1 and not (body.get("quote") and body.get("checkout") and body.get("attachment")):
                         ok = False
 
@@ -85,15 +89,15 @@ jobs:
                         print(x.get("role"), "|", x.get("tool") or "", "|", str(x.get("text") or "")[:400].replace("\n", " / "), "|", x.get("toolCalls") or "")
                 d = c.delete(f"/conversations/{conv}", params={"tenantId": tenant})
                 print("\ncleanup hilo:", d.status_code)
-            print("\nRESULTADO COTIZACION:", "OK" if ok else "FALLO (sin quote/checkout/pdf en el turno 2)")
+            print("\nRESULTADO COTIZACION:", "OK" if ok else "FALLO (ver arriba: cotizó sin nombre o falta quote/checkout/pdf en el turno 2)")
             PY
 
             echo ""
             echo "=== commerce-api: 4xx/5xx con detalle desde el inicio de la prueba ==="
-            ($DC logs --since "$START_TS" commerce-api 2>&1 | grep -E -A 6 -- "-> (4|5)[0-9]{2}" | grep -vE "^\s+at " | tail -60 | cut -c1-300) || echo "(nada)"
+            ($DC logs --since "$START_TS" commerce-api 2>&1 | grep -E -A 6 -e "-> (4|5)[0-9]{2}" | grep -vE "^\s+at " | tail -60 | cut -c1-300) || echo "(nada)"
             echo ""
             echo "=== commerce-api: 5xx últimas 48h con mensaje de Prisma ==="
-            ($DC logs --since 48h commerce-api 2>&1 | grep -E -A 4 -- "-> 5[0-9]{2}" | grep -E "-> 5|Inconsistent|Unique|does not exist|Foreign|Invalid|Error:" | grep -vE "^\s+at " | tail -40 | cut -c1-300) || echo "(nada)"
+            ($DC logs --since 48h commerce-api 2>&1 | grep -E -A 4 -e "-> 5[0-9]{2}" | grep -E -e "-> 5|Inconsistent|Unique|does not exist|Foreign|Invalid|Error:" | grep -vE "^\s+at " | tail -40 | cut -c1-300) || echo "(nada)"
             echo ""
             echo "=== agent-v2: warnings/errores desde el inicio de la prueba ==="
             ($DC logs --since "$START_TS" agent-v2 2>&1 | grep -iE "warning|error|traceback|401|User not found" | grep -vE "DeprecationWarning|Pydantic serializer|parallel_tool_calls" | tail -30 | cut -c1-300) || echo "(nada)"

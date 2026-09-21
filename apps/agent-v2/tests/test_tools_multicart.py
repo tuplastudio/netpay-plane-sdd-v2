@@ -299,3 +299,37 @@ async def test_agregar_al_carrito_accepts_sku_as_variant_key() -> None:
     command = await tools.agregar_al_carrito.coroutine(variantId="TAZA-1", cantidad="1", runtime=_runtime(state))
     line = _update_of(command)["carts"][tools.DEFAULT_CART_ID]["lines"][0]
     assert line["variantId"] == "v-taza" and line["sku"] == "TAZA-1"
+
+
+@pytest.mark.asyncio
+async def test_placeholder_name_is_never_a_customer() -> None:
+    """En prod el modelo inventó `nombre="Cliente"` y la cotización salió a
+    nombre de nadie: ni recordar_cliente lo guarda ni emitir_cotizacion lo
+    acepta, ni siquiera desde la llamada hermana del mismo lote."""
+    from langchain_core.messages import AIMessage
+
+    assert tools.is_placeholder_name("Cliente")
+    assert tools.is_placeholder_name(" cliente de WhatsApp ")
+    assert tools.is_placeholder_name("5216670000001")
+    assert not tools.is_placeholder_name("Ana López")
+
+    state: dict[str, Any] = {"carts": {}, "active_cart_id": None, "customer": {}}
+    command = await tools.recordar_cliente.coroutine(runtime=_runtime(state), nombre="Cliente")
+    assert "ERROR" in command.update["messages"][0].content
+    assert "customer" not in command.update
+
+    lines = [{"variantId": "v-playera", "sku": "PLAYERA-1", "title": "Playera azul", "quantity": "1", "unitPrice": "100.00"}]
+    batch = AIMessage(content="", tool_calls=[
+        {"name": "recordar_cliente", "args": {"nombre": "Cliente"}, "id": "c1"},
+        {"name": "emitir_cotizacion", "args": {}, "id": "c2"},
+    ])
+    state = {"carts": {"mio": {"cartId": "mio", "lines": lines}}, "active_cart_id": "mio", "customer": {"name": "Cliente de WhatsApp"}, "messages": [batch]}
+    command = await tools.emitir_cotizacion.coroutine(runtime=_runtime(state, tool_call_id="c2"))
+    assert "Aún no tienes el nombre" in command.update["messages"][0].content
+
+
+@pytest.mark.asyncio
+async def test_escalar_a_humano_without_resumen() -> None:
+    state: dict[str, Any] = {"carts": {}, "active_cart_id": None}
+    command = await tools.escalar_a_humano.coroutine(runtime=_runtime(state), motivo="CLIENTE_LO_PIDE")
+    assert command.update["handoff"] is True
