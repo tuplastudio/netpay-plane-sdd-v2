@@ -1,0 +1,45 @@
+name: One-off - buscar errores reales en logs de prod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-check-errors.yml"
+
+jobs:
+  check:
+    name: Errores/warnings en commerce-api y agent-v2 (últimas ~6h)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Grep logs
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            echo "=== docker compose ps ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod ps
+            echo ""
+            echo "=== commerce-api: ERROR/WARN/Exception/Traceback (desde hace 6h) ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-api 2>&1 \
+              | grep -iE "error|warn|exception|traceback|failed|timeout" \
+              | grep -viE "RouterExplorer|RoutesResolver|InstanceLoader|BYPASSRLS" \
+              | tail -150
+            echo ""
+            echo "=== agent-v2: ERROR/WARN/Exception/Traceback/fallo (desde hace 6h) ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
+              | grep -iE "error|warn|exception|traceback|fallo|failed|timeout" \
+              | tail -200
+            echo ""
+            echo "=== commerce-worker: ERROR/WARN (desde hace 6h) ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-worker 2>&1 \
+              | grep -iE "error|warn|exception|traceback|failed" \
+              | tail -80
+            echo ""
+            echo "=== agent-v2: últimos POST /chat con status != 200 ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
+              | grep "POST /chat" | grep -v "200 OK" | tail -40
