@@ -1,0 +1,83 @@
+name: One-off - rotar OPENROUTER_KEY_REF de plataforma en agent-v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-rotate-openrouter-key.yml"
+
+jobs:
+  rotate:
+    name: Escribir key nueva en .env.prod, recrear agent-v2 y verificar con un turno real
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rotate and verify
+        uses: appleboy/ssh-action@v1
+        env:
+          NEW_KEY: ${{ secrets.OPENROUTER_KEY_REF }}
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: NEW_KEY
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            ENV_FILE=/opt/netpay/infra/.env.prod
+            test -n "$NEW_KEY" || { echo "secreto OPENROUTER_KEY_REF vacío"; exit 1; }
+            echo "key nueva: ${NEW_KEY:0:12}... (len=${#NEW_KEY})"
+
+            echo "=== validar key contra OpenRouter antes de tocar nada ==="
+            curl -fsS -H "Authorization: Bearer $NEW_KEY" https://openrouter.ai/api/v1/auth/key \
+              | sed -E 's/"label":"[^"]*"/"label":"***"/' | cut -c1-200
+            echo
+
+            echo "=== respaldo y reemplazo en .env.prod ==="
+            cp -p "$ENV_FILE" "$ENV_FILE.bak.$(date +%Y%m%d%H%M%S)"
+            if grep -qE '^OPENROUTER_KEY_REF=' "$ENV_FILE"; then
+              sed -i -E "s|^OPENROUTER_KEY_REF=.*|OPENROUTER_KEY_REF=${NEW_KEY}|" "$ENV_FILE"
+            else
+              printf '\nOPENROUTER_KEY_REF=%s\n' "$NEW_KEY" >> "$ENV_FILE"
+            fi
+            grep -E '^OPENROUTER_KEY_REF=' "$ENV_FILE" | sed -E 's/=(.{12}).*/=\1... (ok)/'
+
+            echo "=== recrear agent-v2 para que lea el env_file nuevo ==="
+            cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod up -d --force-recreate --no-deps agent-v2
+            for i in $(seq 1 30); do
+              if docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 \
+                   python -c "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8010/healthz',timeout=3).status_code==200 else 1)" 2>/dev/null; then
+                echo "agent-v2 healthy tras ${i}s"; break
+              fi
+              sleep 2
+            done
+
+            echo "=== key que ve el contenedor ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 \
+              sh -c 'echo "${OPENROUTER_KEY_REF:0:12}... (len=${#OPENROUTER_KEY_REF})"'
+
+            echo "=== turno real contra el tenant demo-store ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 python - <<'PY'
+            import json, os, httpx
+            key = os.environ["AGENT_INTERNAL_KEY"]
+            tenant = "8e3ecbd4-e06c-49a7-a3be-fa18f9af413f"
+            conv = "one-off-rotate-check"
+            scopes = ["catalog.read","cart.write","quotes.write","orders.write","payments.write",
+                      "customers.write","chat.write","invoices.write","handoff.write",
+                      "orders.read","quotes.read","customers.read"]
+            with httpx.Client(base_url="http://localhost:8010", headers={"x-internal-key": key}, timeout=60) as c:
+                r = c.post("/chat", json={"tenantId": tenant, "conversationId": conv, "channel": "whatsapp",
+                                          "customerPhone": "5210000000000", "principalScopes": scopes,
+                                          "text": "hola, que productos manejan?"})
+                print("status", r.status_code)
+                body = r.json()
+                print("engine:", body.get("engine"), "| intent:", body.get("intent"), "| handoff:", body.get("handoff"))
+                print("reply:", (body.get("reply") or "")[:400])
+                d = c.delete(f"/conversations/{conv}", params={"tenantId": tenant})
+                print("cleanup:", d.status_code)
+                if body.get("engine") != "langgraph":
+                    raise SystemExit("el turno NO pasó por el modelo (engine=%r): revisar logs" % body.get("engine"))
+            PY
+
+            echo "=== 401 de OpenRouter en los últimos 5 min (debe ser 0) ==="
+            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 5m agent-v2 2>&1 | grep -c "User not found") || true
