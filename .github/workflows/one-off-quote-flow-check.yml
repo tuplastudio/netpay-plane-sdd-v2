@@ -1,0 +1,105 @@
+name: One-off - diagnóstico del flujo de cotización del agente en prod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-quote-flow-check.yml"
+
+jobs:
+  check:
+    name: Key, migraciones, conversación de cotización real y errores de commerce-api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Diagnose
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 15m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+
+            echo "=== key de plataforma que ve agent-v2 ==="
+            $DC exec -T agent-v2 python -c "import os; k=os.environ.get('OPENROUTER_KEY_REF',''); print(k[:12]+'... len='+str(len(k)))"
+
+            echo "=== columnas/tablas de migraciones 0010-0013 en la DB de prod ==="
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const q = (s) => p.\$queryRawUnsafe(s);
+              const cols = await q(\"select table_name, column_name from information_schema.columns where (table_name='CustomerConsent' and column_name in ('note','source')) or (table_name='CheckoutSession' and column_name='paymentMethod') or (table_name='ProductVariant' and column_name in ('originSystem','originExternalId')) order by 1,2\");
+              const tabs = await q(\"select table_name from information_schema.tables where table_name in ('OrderTrackingToken','AgentUsageEvent','ConversationNote','MessageNote') order by 1\");
+              console.log('columnas:', JSON.stringify(cols));
+              console.log('tablas:', JSON.stringify(tabs));
+              const t = await q(\"select id, slug from \\\"Tenant\\\" order by \\\"createdAt\\\" asc\");
+              console.log('tenants:', JSON.stringify(t));
+              await p.\$disconnect();
+            })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
+            "
+
+            echo "=== conversación de cotización real (demo-store) ==="
+            START_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            $DC exec -T agent-v2 python - <<'PY'
+            import asyncio, os, httpx
+            from app.commerce import CommerceClient
+            tenant = "8e3ecbd4-e06c-49a7-a3be-fa18f9af413f"
+            conv = "one-off-quote-check"
+            key = os.environ["AGENT_INTERNAL_KEY"]
+            scopes = ["catalog.read","cart.write","quotes.write","orders.write","payments.write",
+                      "customers.write","chat.write","invoices.write","handoff.write",
+                      "orders.read","quotes.read","customers.read"]
+
+            async def pick():
+                v = await CommerceClient(tenant_id=tenant).search_products(None, limit=100)
+                ok = [x for x in v if x.get("stock") is None or float(x.get("stock") or 0) > 0]
+                print("variantes activas:", len(v), "| con existencia:", len(ok))
+                return (ok or v)[0]
+            variant = asyncio.run(pick())
+            print("producto elegido:", variant["title"], "|", variant["sku"], "| $", variant["price"])
+
+            def show(body):
+                print("  stage:", body.get("stage"), "| engine:", body.get("engine"), "| handoff:", body.get("handoff"))
+                print("  cart:", [(c.get("title"), c.get("quantity")) for c in body.get("cart", [])])
+                print("  quote:", body.get("quote"), "| checkout:", body.get("checkout"))
+                print("  attachment:", bool(body.get("attachment")), "| reply:", (body.get("reply") or "")[:350].replace("\n", " / "))
+
+            with httpx.Client(base_url="http://localhost:8010", headers={"x-internal-key": key}, timeout=90) as c:
+                for text in [
+                    f"hola, quiero 2 de {variant['title']}, me lo mandas a domicilio",
+                    "sí, emítela. soy QA Agente Borrar",
+                    "qué llevaba la cotización que me mandaste?",
+                ]:
+                    print("\nUSER:", text)
+                    r = c.post("/chat", json={"tenantId": tenant, "conversationId": conv, "channel": "whatsapp",
+                                              "customerPhone": "5210000000001", "principalScopes": scopes, "text": text})
+                    print("  http:", r.status_code)
+                    try:
+                        show(r.json())
+                    except Exception as e:
+                        print("  body no JSON:", r.text[:300], e)
+
+                print("\n=== mensajes de herramientas del hilo ===")
+                m = c.get(f"/conversations/{conv}/messages", params={"tenantId": tenant, "limit": 80})
+                data = m.json()
+                msgs = data if isinstance(data, list) else data.get("messages") or data.get("items") or []
+                for x in msgs:
+                    if x.get("role") == "tool" or x.get("toolCalls"):
+                        print(x.get("role"), "|", x.get("tool") or "", "|", str(x.get("text") or "")[:400].replace("\n", " / "), "|", x.get("toolCalls") or "")
+                d = c.delete(f"/conversations/{conv}", params={"tenantId": tenant})
+                print("\ncleanup hilo:", d.status_code)
+            PY
+
+            echo ""
+            echo "=== commerce-api: respuestas 4xx/5xx desde el inicio de la prueba ==="
+            ($DC logs --since "$START_TS" commerce-api 2>&1 | grep -E -- "-> (4|5)[0-9]{2}|ERROR|does not exist|Prisma" | tail -40 | cut -c1-300) || echo "(nada)"
+            echo ""
+            echo "=== agent-v2: warnings/errores desde el inicio de la prueba ==="
+            ($DC logs --since "$START_TS" agent-v2 2>&1 | grep -iE "warning|error|traceback|401|User not found" | grep -v DeprecationWarning | tail -40 | cut -c1-300) || echo "(nada)"
+            echo ""
+            echo "=== commerce-api: 5xx últimas 24h (conteo por ruta) ==="
+            ($DC logs --since 24h commerce-api 2>&1 | grep -E -- "-> 5[0-9]{2}" | sed -E 's/.*(POST|GET|PUT|PATCH|DELETE) //' | sed -E 's#/[0-9a-f-]{36}#/:id#g' | sort | uniq -c | sort -rn | head -20) || echo "(nada)"
