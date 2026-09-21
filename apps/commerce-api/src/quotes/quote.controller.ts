@@ -15,7 +15,7 @@ import { QuoteService } from "./quote.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
-import { CreateQuoteDto, UpdateQuoteDto } from "./quote.dto.js";
+import { CreateQuoteDto, UpdateQuoteDto, ShareQuoteDto } from "./quote.dto.js";
 import { renderQuotePdf, type QuotePdfData } from "./quote-pdf.js";
 
 @Controller("quotes")
@@ -101,10 +101,10 @@ export class QuoteController {
 
   @Post(":id/share")
   @RequireScopes("quotes.write")
-  async share(@Param("id") id: string) {
+  async share(@Param("id") id: string, @Body() body: ShareQuoteDto) {
     const tenantId = this.requireTenant();
     return {
-      data: await this.quotes.createShareToken(tenantId, id),
+      data: await this.quotes.createShareToken(tenantId, id, { notify: body?.notify !== false }),
       requestId: RequestContext.requestId,
     };
   }

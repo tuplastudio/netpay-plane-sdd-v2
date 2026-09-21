@@ -378,7 +378,7 @@ export class QuoteService {
   }
 
   /** Genera token opaco de compartición pública. */
-  async createShareToken(tenantId: string, id: string) {
+  async createShareToken(tenantId: string, id: string, opts: { notify?: boolean } = {}) {
     const q = await this.get(tenantId, id);
     if (q.status === "CANCELLED" || q.status === "EXPIRED") {
       throw new BadRequestException({
@@ -395,7 +395,7 @@ export class QuoteService {
       },
     });
 
-    const target = pickChannel(q.customer);
+    const target = opts.notify === false ? null : pickChannel(q.customer);
     if (target) {
       const link = `${process.env.PUBLIC_BASE_URL ?? "http://localhost:3000"}/quotes/public/${shareToken.token}`;
       await this.notifications.scheduleFromTemplate({

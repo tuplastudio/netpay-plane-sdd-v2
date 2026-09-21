@@ -80,3 +80,14 @@ export class PricingPreviewDto {
   @IsIn(["PICKUP", "LOCAL_DELIVERY"])
   deliveryMode?: "PICKUP" | "LOCAL_DELIVERY";
 }
+
+export class ShareQuoteDto {
+  /**
+   * `false` cuando quien comparte ya le mandó el enlace al cliente por su
+   * cuenta (el agente de WhatsApp lo pone en su propia respuesta): evita que
+   * el dispatcher de notificaciones le mande el mismo enlace otra vez.
+   */
+  @IsOptional()
+  @IsBoolean()
+  notify?: boolean;
+}

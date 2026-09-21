@@ -389,7 +389,12 @@ export class OrderService {
     }
   }
 
-  async createFromQuote(tenantId: string, quoteId: string, actorId: string | null = null) {
+  async createFromQuote(
+    tenantId: string,
+    quoteId: string,
+    actorId: string | null = null,
+    opts: { notify?: boolean } = {},
+  ) {
     // Idempotente (AC-AIA-04): repetir la aceptación devuelve el mismo pedido.
     const existing = await this.prisma.order.findFirst({
       where: { tenantId, quoteId },
@@ -440,7 +445,9 @@ export class OrderService {
         },
       },
     });
-    await this.notifyOrderReceived(order);
+    if (opts.notify !== false) {
+      await this.notifyOrderReceived(order);
+    }
     return order;
   }
 

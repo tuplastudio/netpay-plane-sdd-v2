@@ -88,6 +88,9 @@ export class AgentBridgeService {
         "quotes.write",
         "orders.read",
         "orders.write",
+        // historial_del_cliente ("¿qué llevaba mi cotización?", repetir una
+        // compra) exige customers.read; sin él el agente lo tenía denegado.
+        "customers.read",
         "chat.read",
         "chat.write",
       ],
@@ -112,12 +115,15 @@ export class AgentBridgeService {
     }
 
     if (payload.reply?.trim()) {
-      await this.wa.send(input.tenantId, {
+      const sent = await this.wa.send(input.tenantId, {
         tenantId: input.tenantId,
         to: input.externalPhone,
         type: "text",
         body: payload.reply,
       });
+      if (sent.status === "FAILED") {
+        this.logger.warn(`No se pudo mandar la respuesta del agente a ${input.conversationId}: ${sent.error}`);
+      }
     }
 
     if (payload.attachment) {

@@ -13,6 +13,8 @@ import {
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { Prisma, Customer } from "@prisma/client";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class CustomerService {
   constructor(private readonly prisma: PrismaService) {}
@@ -222,7 +224,10 @@ export class CustomerService {
     let phone = input.phone?.trim() || undefined;
 
     let channel: "WHATSAPP_META" | "WHATSAPP_EVOLUTION" | undefined;
-    if (input.conversationId) {
+    // El chat web manda ids de conversación que no son UUID; Prisma lanza
+    // un 500 al castearlos, así que solo se consulta el hilo cuando de
+    // verdad puede ser una conversación de WhatsApp.
+    if (input.conversationId && UUID_RE.test(input.conversationId)) {
       const conv = await this.prisma.whatsAppConversation.findFirst({
         where: { id: input.conversationId, tenantId },
         include: { connection: { select: { provider: true } } },

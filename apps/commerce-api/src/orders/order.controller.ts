@@ -88,7 +88,11 @@ export class OrderController {
     const actorId = RequestContext.userId ?? null;
     const order = await this.orders.quickCharge(tenantId, { ...body, actorId });
     const expiresAt = order.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000);
-    const currentRev = order.revisions[order.revisions.length - 1];
+    // `include: { revisions: true }` no garantiza orden: se toma la revisión
+    // que startCheckout acaba de dejar como vigente, no la última del array.
+    const currentRev =
+      order.revisions.find((r) => r.id === order.currentRevisionId) ??
+      order.revisions[order.revisions.length - 1];
     const token = currentRev ? await this.reuseOrCreateAccessToken(currentRev.id, expiresAt) : null;
     return {
       data: { order, checkoutToken: token },
@@ -101,7 +105,13 @@ export class OrderController {
   async fromQuote(@Param("quoteId") quoteId: string) {
     const tenantId = this.requireTenant();
     const actorId = RequestContext.userId ?? null;
-    const order = await this.orders.createFromQuote(tenantId, quoteId, actorId);
+    // Sin actor = el agente de WhatsApp: ya le dijo al cliente todo en su
+    // propia respuesta (cotización, enlace de pago, PDF); el "recibimos tu
+    // pedido" del dispatcher horas después solo confunde a quien pidió una
+    // cotización. Desde el panel o la página pública sí se notifica.
+    const order = await this.orders.createFromQuote(tenantId, quoteId, actorId, {
+      notify: Boolean(actorId),
+    });
 
     // Solo cuando una persona del equipo acepta desde el panel (no cuando el
     // propio agente la acepta por WhatsApp: ahí el link ya va en su respuesta
@@ -144,7 +154,11 @@ export class OrderController {
         })),
         deliveryMode: "PICKUP",
       });
-      const currentRev = order.revisions[order.revisions.length - 1];
+      // `include: { revisions: true }` no garantiza orden: se toma la revisión
+    // que startCheckout acaba de dejar como vigente, no la última del array.
+    const currentRev =
+      order.revisions.find((r) => r.id === order.currentRevisionId) ??
+      order.revisions[order.revisions.length - 1];
       if (!currentRev) return null;
       const expiresAt = order.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000);
       const token = await this.createAccessToken(currentRev.id, expiresAt);
@@ -175,7 +189,11 @@ export class OrderController {
     const order = await this.orders.startCheckout(tenantId, id, body);
     // Crear token de acceso público al checkout (envío por email/WhatsApp).
     const expiresAt = order.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000);
-    const currentRev = order.revisions[order.revisions.length - 1];
+    // `include: { revisions: true }` no garantiza orden: se toma la revisión
+    // que startCheckout acaba de dejar como vigente, no la última del array.
+    const currentRev =
+      order.revisions.find((r) => r.id === order.currentRevisionId) ??
+      order.revisions[order.revisions.length - 1];
     const token = currentRev ? await this.createAccessToken(currentRev.id, expiresAt) : null;
     return {
       data: { order, checkoutToken: token },
