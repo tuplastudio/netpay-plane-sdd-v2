@@ -1,4 +1,4 @@
-name: One-off - buscar errores reales en logs de prod
+name: One-off - diagnóstico del 401 de OpenRouter en agent-v2
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
 
 jobs:
   check:
-    name: Errores/warnings en commerce-api y agent-v2 (últimas ~6h)
+    name: Contexto + qué tenant tiene su propia key de OpenRouter
     runs-on: ubuntu-latest
     steps:
-      - name: Grep logs
+      - name: Diagnose
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
@@ -21,25 +21,37 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/netpay-build/infra
-            echo "=== docker compose ps ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod ps
+
+            echo "=== conteo de 401 'User not found' por hora (desde hace 24h) ==="
+            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 24h --timestamps agent-v2 2>&1 \
+              | grep "User not found" | cut -c1-16 | sort | uniq -c) || echo "(sin coincidencias)"
+
             echo ""
-            echo "=== commerce-api: ERROR/WARN/Exception/Traceback (desde hace 6h) ==="
-            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-api 2>&1 \
-              | grep -iE "error|warn|exception|traceback|failed|timeout" \
-              | grep -viE "RouterExplorer|RoutesResolver|InstanceLoader|BYPASSRLS" \
-              | tail -150) || echo "(sin coincidencias)"
+            echo "=== settings por tenant en disco (AGENT_SETTINGS_DIR): ¿key propia de OpenRouter? ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 python -c "
+            import json, os
+            d = os.environ.get('AGENT_SETTINGS_DIR', '/data/agent-v2/settings')
+            if not os.path.isdir(d):
+                print('sin directorio', d); raise SystemExit
+            for name in sorted(os.listdir(d)):
+                if not name.endswith('.json'):
+                    continue
+                try:
+                    data = json.load(open(os.path.join(d, name)))
+                except Exception as e:
+                    print(name, 'ILEGIBLE', e); continue
+                has_key = bool(data.get('openrouter_api_key_encrypted'))
+                print(name, '-> key propia:', has_key, '| model_override:', data.get('model_id') or data.get('model'))
+            "
+
             echo ""
-            echo "=== agent-v2: ERROR/WARN/Exception/Traceback/fallo (desde hace 6h) ==="
-            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
-              | grep -iE "error|warn|exception|traceback|fallo|failed|timeout" \
-              | tail -200) || echo "(sin coincidencias)"
+            echo "=== tenants conocidos (slug <-> id) ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            p.\$queryRawUnsafe('select id, slug from \"Tenant\" order by \"createdAt\" asc').then((r) => { console.log(JSON.stringify(r)); return p.\$disconnect(); });
+            "
+
             echo ""
-            echo "=== commerce-worker: ERROR/WARN (desde hace 6h) ==="
-            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-worker 2>&1 \
-              | grep -iE "error|warn|exception|traceback|failed" \
-              | tail -80) || echo "(sin coincidencias)"
-            echo ""
-            echo "=== agent-v2: últimos POST /chat con status != 200 ==="
-            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
-              | grep "POST /chat" | grep -v "200 OK" | tail -40) || echo "(sin coincidencias)"
+            echo "=== OPENROUTER_KEY_REF de plataforma (solo prefijo/longitud) ==="
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-v2 sh -c 'echo "${OPENROUTER_KEY_REF:0:12}... (len=${#OPENROUTER_KEY_REF})"'
