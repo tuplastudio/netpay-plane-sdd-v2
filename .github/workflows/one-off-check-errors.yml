@@ -25,21 +25,21 @@ jobs:
             docker compose -f compose.prod.yaml --env-file .env.prod ps
             echo ""
             echo "=== commerce-api: ERROR/WARN/Exception/Traceback (desde hace 6h) ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-api 2>&1 \
+            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-api 2>&1 \
               | grep -iE "error|warn|exception|traceback|failed|timeout" \
               | grep -viE "RouterExplorer|RoutesResolver|InstanceLoader|BYPASSRLS" \
-              | tail -150
+              | tail -150) || echo "(sin coincidencias)"
             echo ""
             echo "=== agent-v2: ERROR/WARN/Exception/Traceback/fallo (desde hace 6h) ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
+            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
               | grep -iE "error|warn|exception|traceback|fallo|failed|timeout" \
-              | tail -200
+              | tail -200) || echo "(sin coincidencias)"
             echo ""
             echo "=== commerce-worker: ERROR/WARN (desde hace 6h) ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-worker 2>&1 \
+            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h commerce-worker 2>&1 \
               | grep -iE "error|warn|exception|traceback|failed" \
-              | tail -80
+              | tail -80) || echo "(sin coincidencias)"
             echo ""
             echo "=== agent-v2: últimos POST /chat con status != 200 ==="
-            docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
-              | grep "POST /chat" | grep -v "200 OK" | tail -40
+            (docker compose -f compose.prod.yaml --env-file .env.prod logs --since 6h agent-v2 2>&1 \
+              | grep "POST /chat" | grep -v "200 OK" | tail -40) || echo "(sin coincidencias)"
