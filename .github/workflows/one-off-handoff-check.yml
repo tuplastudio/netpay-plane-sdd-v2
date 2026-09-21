@@ -1,0 +1,94 @@
+name: One-off - por qué el agente pasó conversaciones a humano en prod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-handoff-check.yml"
+
+jobs:
+  check:
+    name: Conversaciones HANDED_OFF recientes, motivos y transcripts con herramientas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Diagnose
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 10m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+
+            echo "=== versión de agent-v2 corriendo ==="
+            $DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/healthz', timeout=5).json())"
+            $DC ps --format '{{.Name}} {{.Status}}' 2>/dev/null | grep -E "agent|commerce" || true
+
+            echo ""
+            echo "=== conversaciones de WhatsApp con actividad en las últimas 12h (demo-store) ==="
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const convs = await p.\$queryRawUnsafe(\"select id, \\\"externalPhone\\\", status, \\\"handoffToHuman\\\", \\\"lastMessageAt\\\", \\\"updatedAt\\\" from \\\"WhatsAppConversation\\\" where \\\"updatedAt\\\" > now() - interval '12 hours' order by \\\"updatedAt\\\" desc limit 8\");
+              for (const c of convs) {
+                console.log('\\n--- conv', c.id, '| tel', String(c.externalPhone).replace(/^(\\\\+?\\\\d{4})\\\\d+(\\\\d{2})$/, '\$1***\$2'), '| status', c.status, '| handoffToHuman', c.handoffToHuman, '| last', c.lastMessageAt);
+                const msgs = await p.\$queryRawUnsafe(\"select direction, \\\"messageType\\\", left(body, 320) as body, status, \\\"errorMessage\\\", \\\"createdAt\\\" from \\\"WhatsAppMessage\\\" where \\\"conversationId\\\" = '\" + c.id + \"' order by \\\"createdAt\\\" desc limit 14\");
+                for (const m of msgs.reverse()) {
+                  console.log('   ', m.createdAt.toISOString().slice(11,19), m.direction === 'INBOUND' ? 'CLIENTE' : 'BOT    ', '|', m.messageType, '|', m.status, m.errorMessage ? '| err=' + m.errorMessage : '', '|', String(m.body).replace(/\\n/g, ' / '));
+                }
+              }
+              console.log('\\nCONV_IDS=' + convs.map((c) => c.id).join(','));
+              await p.\$disconnect();
+            })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
+            " | tee /tmp/handoff-convs.txt
+
+            CONV_IDS=$(grep '^CONV_IDS=' /tmp/handoff-convs.txt | cut -d= -f2)
+
+            echo ""
+            echo "=== señales de aprendizaje (handoffs registrados por el agente, con motivo y resumen) ==="
+            $DC exec -T agent-v2 python - <<'PY'
+            import os, httpx
+            key = os.environ["AGENT_INTERNAL_KEY"]
+            tenant = "8e3ecbd4-e06c-49a7-a3be-fa18f9af413f"
+            with httpx.Client(base_url="http://localhost:8010", headers={"x-internal-key": key}, timeout=30) as c:
+                for status in ("pending", "approved", "dismissed"):
+                    r = c.get("/learning/signals", params={"tenantId": tenant, "status": status})
+                    sig = r.json().get("signals", []) if r.status_code == 200 else []
+                    for s in sig[-8:]:
+                        print(status, "|", s.get("kind") or s.get("type"), "|", s.get("createdAt"), "| conv", (s.get("conversationId") or "")[:8], "| reason", s.get("reason"), "|", str(s.get("summary") or s.get("question") or "")[:220])
+            PY
+
+            echo ""
+            echo "=== transcript del agente (con herramientas) por conversación reciente ==="
+            for cid in $(echo "$CONV_IDS" | tr ',' ' '); do
+              echo "--- conv $cid"
+              CID="$cid" $DC exec -T -e CID agent-v2 python - <<'PY'
+            import os, httpx
+            key = os.environ["AGENT_INTERNAL_KEY"]
+            tenant = "8e3ecbd4-e06c-49a7-a3be-fa18f9af413f"
+            cid = os.environ["CID"]
+            with httpx.Client(base_url="http://localhost:8010", headers={"x-internal-key": key}, timeout=30) as c:
+                r = c.get(f"/conversations/{cid}/messages", params={"tenantId": tenant, "limit": 80})
+                if r.status_code != 200:
+                    print("  (sin hilo en agent-v2:", r.status_code, ")"); raise SystemExit
+                data = r.json()
+                msgs = data if isinstance(data, list) else data.get("messages") or data.get("items") or []
+                for x in msgs[-40:]:
+                    print("  ", x.get("role"), "|", x.get("tool") or "", "|", str(x.get("text") or "")[:300].replace("\n", " / "), "|", x.get("toolCalls") or "")
+                st = c.get(f"/conversations/{cid}", params={"tenantId": tenant})
+                if st.status_code == 200:
+                    b = st.json()
+                    print("   estado:", {k: b.get(k) for k in ("stage", "handoff", "handoffReason", "failureStreak", "failure_streak", "handoff_reason")})
+            PY
+            done
+
+            echo ""
+            echo "=== agent-v2: fallos, handoffs y turnos (últimas 12h) ==="
+            ($DC logs --since 12h agent-v2 2>&1 | grep -E "fallo del turno|handoff|turn.done|guard de salida|respaldo determinista|degradando|reanudando" | grep -v DeprecationWarning | tail -60 | cut -c1-400) || echo "(nada)"
+            echo ""
+            echo "=== commerce-api: 4xx/5xx (últimas 12h) ==="
+            ($DC logs --since 12h commerce-api 2>&1 | grep -E -A 3 -e "-> (4|5)[0-9]{2}" | grep -vE "^\s+at " | tail -40 | cut -c1-300) || echo "(nada)"
