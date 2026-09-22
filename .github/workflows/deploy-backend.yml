@@ -48,6 +48,19 @@ jobs:
             if [ -z "$REF" ]; then REF="${{ github.ref_name }}"; fi
             echo "Desplegando ref: $REF"
 
+            echo "--- Espacio en disco antes del deploy ---"
+            df -h / | tail -1
+
+            # PRUNE AL INICIO (no antes del build): el build cache de Docker
+            # acumula GBs entre deploys y el disco se llenó tanto que hasta
+            # `git fetch` fallaba con "No space left on device" (2026-09-22)
+            # ANTES de llegar al prune. -f = sin prompt; -a = TODO el cache,
+            # no solo dangling (el build siguiente lo reconstruye, solo
+            # tarda un poco más).
+            echo "--- Liberando espacio (prune de build cache) ---"
+            docker builder prune -af || true
+            docker image prune -f || true
+
             # Directorio de build (fresco cada deploy) separado del runtime
             BUILD_DIR="/opt/netpay-build"
             sudo mkdir -p "$BUILD_DIR"
@@ -92,19 +105,6 @@ jobs:
               ln -s /opt/netpay/infra/.env.prod .env.prod
             fi
             test -s .env.prod || { echo "Falta /opt/netpay/infra/.env.prod en el droplet"; exit 1; }
-
-            echo "--- Espacio en disco antes del build ---"
-            df -h / | tail -1
-
-            # El build cache de Docker acumula GBs entre deploys (cada build
-            # deja capas intermedias que nunca se reutilizan al cambiar el
-            # código). Sin prune, el droplet se queda sin disco y el COPY
-            # final falla con "no space left on device" (pasó el 2026-09-22).
-            # -f = sin prompt; -a = TODO el cache, no solo dangling (el build
-            # siguiente lo reconstruye, solo tarda un poco más).
-            echo "--- Liberando espacio (prune de build cache) ---"
-            docker builder prune -af || true
-            docker image prune -f || true
 
             echo "--- Construyendo imágenes ---"
             docker compose -f compose.prod.yaml --env-file .env.prod build
