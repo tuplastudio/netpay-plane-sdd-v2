@@ -28,6 +28,7 @@ TOOL_SCOPES: dict[str, str] = {
     "agregar_al_carrito": "catalog.read",
     "quitar_del_carrito": "catalog.read",
     "calcular_total": "quotes.read",
+    "calcular_unidades_para_cubrir": "catalog.read",
     "emitir_cotizacion": "quotes.write",
     "convertir_en_pedido": "orders.write",
     "generar_enlace_pago": "orders.write",
@@ -138,3 +139,32 @@ def image_size_error(image_b64: str | None, settings: Settings | None = None) ->
         limit_mb = settings.max_image_bytes / (1024 * 1024)
         return f"La imagen es muy pesada (máximo {limit_mb:.1f} MB)."
     return None
+
+
+def video_size_error(video_b64: str | None, settings: Settings | None = None) -> str | None:
+    """Valida el tamaño de un video en base64 antes de mandarlo al modelo.
+
+    Mismo razonamiento que `image_size_error`: si el video entra al modelo
+    sin tope, un cliente puede mandar varios minutos y encarecer o tumbar
+    el turno. Los videos pesan mucho más que las imágenes (tope por
+    defecto 50 MB vs 5 MB). Para videos por URL no se valida acá — el
+    proveedor (Gemini) los descarga y rechaza si son demasiado largos;
+    ese error vuelve como CommerceUnavailable y el pipeline lo degrada.
+    """
+    if not video_b64:
+        return None
+    settings = settings or get_settings()
+    approx_bytes = (len(video_b64) * 3) // 4
+    if approx_bytes > settings.max_video_bytes:
+        limit_mb = settings.max_video_bytes / (1024 * 1024)
+        return f"El video es muy pesado (máximo {limit_mb:.1f} MB)."
+    return None
+
+
+def media_size_error(
+    image_b64: str | None,
+    video_b64: str | None,
+    settings: Settings | None = None,
+) -> str | None:
+    """Tope único para ambos — el pipeline llama uno solo en lugar de dos."""
+    return image_size_error(image_b64, settings) or video_size_error(video_b64, settings)

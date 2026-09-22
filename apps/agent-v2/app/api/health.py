@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..agent import model_capabilities
 from ..commerce import CommerceClient
 from ..knowledge import DEFAULT_TENANT_ID, load_knowledge
 from ..prompts import get_prompt_registry
@@ -55,12 +56,16 @@ async def diagnostics() -> dict[str, Any]:
         "engine": "langgraph+deepagents",
         "version": VERSION,
         "model": settings.model,
+        "modelCapabilities": model_capabilities(settings.model),
         "tools": [t.name for t in SALES_TOOLS],
         "knowledgeChars": len(load_knowledge(DEFAULT_TENANT_ID)),
         "budgets": {
             "recursionLimit": settings.recursion_limit,
             "turnTimeoutSeconds": settings.turn_timeout_seconds,
             "turnTimeoutImageSeconds": settings.turn_timeout_image_seconds,
+            "turnTimeoutVideoSeconds": settings.turn_timeout_video_seconds,
+            "maxImageBytes": settings.max_image_bytes,
+            "maxVideoBytes": settings.max_video_bytes,
             "summarizeAfterMessages": settings.summarize_after_messages,
             "keepMessages": settings.keep_messages,
             "compactAfterChars": settings.compact_after_chars,

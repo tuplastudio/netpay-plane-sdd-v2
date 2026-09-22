@@ -20,6 +20,12 @@ class ChatRequest(BaseModel):
     messageId: str | None = None
     text: str | None = None
     imageBase64: str | None = None
+    # Video: o base64 (cuando el canal lo manda embebido, p. ej. WhatsApp) o
+    # URL pública (más eficiente: Gemini la baja él mismo; OpenRouter la
+    # proxy). Si vienen los dos, gana el base64.
+    videoBase64: str | None = None
+    videoUrl: str | None = None
+    videoMimeType: str | None = Field(default="video/mp4")
     channel: str = "web"
     customerName: str | None = None
     customerPhone: str | None = None

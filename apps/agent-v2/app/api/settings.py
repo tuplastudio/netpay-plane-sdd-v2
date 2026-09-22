@@ -7,12 +7,33 @@ from typing import Any
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from ..agent_settings import DELIVERY_MODES, HUMAN_REPLY_FILTER_ACTIONS, SALES_STYLES, get_settings_store
+from ..agent import model_capabilities
+from ..agent_settings import (
+    DELIVERY_MODES,
+    HUMAN_REPLY_FILTER_ACTIONS,
+    SALES_STYLES,
+    get_settings_store,
+)
 from ..knowledge import load_profile
-from ..moderation import DEFAULT_MODERATION_MODEL, model_options as moderation_model_options, moderate_reply
+from ..moderation import DEFAULT_MODERATION_MODEL, moderate_reply
+from ..moderation import model_options as moderation_model_options
 from ..prompts import get_prompt_registry
 from ..runtime import runtime
 from ..tenant_context import load_company_context
+
+# Modelos que el panel puede elegir para `text_model`. La lista incluye uno
+# que NO soporta video (gpt-4o-mini, el más barato para texto-only) y los
+# multimodales de Google (video + imagen + audio). Anadir más exige
+# actualizar `PRICE_PER_1K` y `model_capabilities` en `app/agent.py`.
+_SUPPORTED_MODELS: tuple[str, ...] = (
+    "google/gemini-2.0-flash-001",
+    "google/gemini-1.5-pro",
+    "google/gemini-2.5-pro",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o",
+    "anthropic/claude-3-5-haiku",
+    "anthropic/claude-3-5-sonnet",
+)
 
 router = APIRouter(tags=["ajustes"])
 
@@ -79,7 +100,19 @@ async def settings_view(tenant_id: str) -> dict[str, Any]:
             "prompt_version": ["latest", *get_prompt_registry().versions()],
             "sales_style": list(SALES_STYLES),
             "default_delivery_mode": list(DELIVERY_MODES),
-            "models": [{"id": settings.model, "toolCalling": True, "notes": ""}],
+            # Modelos que el panel puede elegir. La lista es cerrada a
+            # propósito: solo entran modelos que el agente ya sabe usar y
+            # cobrar. `capabilities` viene de `model_capabilities()` así el
+            # front puede filtrar/avisar según lo que el tenant subió
+            # (video requiere video-capable).
+            "models": [
+                {
+                    "id": mid,
+                    "toolCalling": True,
+                    "capabilities": model_capabilities(mid),
+                }
+                for mid in _SUPPORTED_MODELS
+            ],
             "human_reply_filter_model": moderation_model_options(),
             "human_reply_filter_action": list(HUMAN_REPLY_FILTER_ACTIONS),
         },

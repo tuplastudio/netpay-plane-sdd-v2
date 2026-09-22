@@ -79,9 +79,8 @@ class RegistryTests(TestCase):
             self.assertEqual(registry.resolve(None).version, "1.2.0")
 
     def test_empty_root_raises(self) -> None:
-        with TemporaryDirectory() as directory:
-            with self.assertRaises(PromptRegistryEmpty):
-                PromptRegistry(Path(directory))
+        with TemporaryDirectory() as directory, self.assertRaises(PromptRegistryEmpty):
+            PromptRegistry(Path(directory))
 
     def test_folders_without_blocks_are_ignored(self) -> None:
         with TemporaryDirectory() as directory:
@@ -257,3 +256,146 @@ class ConversationalPromptTests(TestCase):
         # aunque ya no sea latest.
         older = get_prompt_registry().get("1.1.0")
         self.assertIsNone(older.block("65_carritos_multiples"))
+
+
+class StylesTests(TestCase):
+    """Los estilos de venta v1.4.1 cubren los errores típicos del modelo.
+
+    Antes cada estilo era un bullet suelto. Eso bastaba para distinguir el
+    modo por defecto (cerrador) pero dejaba huecos: el modelo podía derivar a
+    "consultivo = interrogar" o "informativo = modo kiosko" sin que el prompt
+    lo frenara. Los estilos robustos anclan a los bloques que ya existen y
+    fijan anti-patrones explícitos.
+    """
+
+    MIN_STYLE_CHARS = 800
+    ANCHORED_BLOCKS_CONSULTIVO = (
+        "30_vender",
+        "20_nada_generico",
+        "40_que_nunca_haces",
+        "80_fluidez",
+    )
+    ANCHORED_BLOCKS_INFORMATIVO = (
+        "30_vender",
+        "20_nada_generico",
+        "40_que_nunca_haces",
+        "85_ritmo_y_cierre",
+    )
+
+    def _latest(self):
+        return get_prompt_registry().get("1.4.1")
+
+    def test_consultivo_is_substantial(self) -> None:
+        text = self._latest().styles["consultivo"]
+        self.assertGreaterEqual(
+            len(text),
+            self.MIN_STYLE_CHARS,
+            "consultivo.md debe estar al nivel de los otros bloques del prompt",
+        )
+        for block in self.ANCHORED_BLOCKS_CONSULTIVO:
+            self.assertIn(
+                block,
+                text,
+                f"consultivo debe anclar al bloque {block} (ya manda sobre cualquier estilo)",
+            )
+        # Anti-patrones explícitos (NUNCA en MAYÚSCULAS, como el resto del prompt).
+        self.assertGreaterEqual(text.count("NUNCA"), 3)
+        # El estilo consultivo no es un sustituto del cierre.
+        self.assertIn("cierre", text.lower())
+        self.assertIn("cotiz", text.lower())
+
+    def test_informativo_is_substantial(self) -> None:
+        text = self._latest().styles["informativo"]
+        self.assertGreaterEqual(len(text), self.MIN_STYLE_CHARS)
+        for block in self.ANCHORED_BLOCKS_INFORMATIVO:
+            self.assertIn(
+                block,
+                text,
+                f"informativo debe anclar al bloque {block}",
+            )
+        self.assertGreaterEqual(text.count("NUNCA"), 3)
+        # Informativo tampoco es excusa para no cerrar.
+        self.assertIn("cierre", text.lower())
+        self.assertIn("cotiz", text.lower())
+
+    def test_styles_anti_patterns(self) -> None:
+        """Ancla los dos anti-patrones que el usuario suele confundir."""
+        consultivo = self._latest().styles["consultivo"]
+        informativo = self._latest().styles["informativo"]
+        # Consultivo no es "interrogar".
+        self.assertIn("interrogatorio", consultivo.lower())
+        self.assertIn("anti-interrogatorio", consultivo.lower())
+        # Informativo no es "modo kiosko".
+        self.assertIn("kiosko", informativo.lower())
+
+    def test_styles_keep_titles_for_backward_compat(self) -> None:
+        """El título `ESTILO: X` debe seguir en la primera línea: lo buscan
+        los tests existentes y el output del endpoint /prompts."""
+        for name in ("consultivo", "informativo"):
+            text = self._latest().styles[name]
+            self.assertTrue(
+                text.splitlines()[0].startswith(f"ESTILO: {name.upper()}"),
+                f"la primera línea de {name}.md debe seguir siendo el título",
+            )
+
+    def test_styles_appear_in_assembled_prompt(self) -> None:
+        profile = BusinessProfile(name="Negocio", agent_name="A", tone="t", hours="9-18")
+        for style in ("consultivo", "informativo"):
+            prompt = assemble_prompt(
+                self._latest(),
+                profile=profile,
+                overrides=AgentSettings(sales_style=style),
+            )
+            self.assertIn(f"ESTILO: {style.upper()}", prompt)
+            # Anclajes visibles: cuando el estilo se inserta en el prompt, las
+            # reglas que cita (anti-patrones, etc.) deben seguir presentes.
+            self.assertIn("NUNCA", prompt)
+            self.assertIn("cierre", prompt.lower())
+
+
+class MathToolIsMandatoryTests(TestCase):
+    """El LLM NO calcula: la matemática va por `calcular_unidades_para_cubrir`.
+
+    El prompt debe nombrarla y decir `NUNCA calcules tú`. Antes el prompt
+    decía "haz la cuenta tú con los rendimientos de <informacion_negocio>" —
+    eso quedaba a merced del LLM para dividir y redondear.
+    """
+
+    def test_prompt_documents_the_tool(self) -> None:
+        version = get_prompt_registry().get("1.4.1")
+        text = version.static_text(
+            {"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"}
+        )
+        self.assertIn(
+            "calcular_unidades_para_cubrir",
+            text,
+            "el prompt 1.4.1 debe nombrar la herramienta determinista",
+        )
+
+    def test_prompt_forbids_llm_math(self) -> None:
+        version = get_prompt_registry().get("1.4.1")
+        # El LLM no debe dividir/roundar; la regla explícita está en 20_nada_generico.md.
+        nada = version.block("20_nada_generico")
+        self.assertIsNotNone(nada)
+        self.assertIn("NUNCA", nada.text)
+        self.assertIn("calcular", nada.text.lower())
+
+    def test_image_and_video_block_loaded(self) -> None:
+        """v1.4.1 trae un bloque dedicado a imágenes Y videos."""
+        version = get_prompt_registry().get("1.4.1")
+        block = version.block("15_imagenes_y_videos")
+        self.assertIsNotNone(block)
+        text = block.text.lower()
+        self.assertIn("video", text)
+        self.assertIn("foto", text)
+
+    def test_image_block_covers_reference_use_case(self) -> None:
+        """Foto/video puede ser REFERENCIA (no el producto exacto): el LLM
+        debe extraer atributos y pasarlos a buscar_productos, no cotizar
+        el producto de la imagen como si fuera el que el cliente quiere."""
+        block = get_prompt_registry().get("1.4.1").block("15_imagenes_y_videos")
+        text = block.text.lower()
+        self.assertIn("referencia", text)
+        self.assertIn("atributo", text)
+        self.assertIn("buscar_productos", text)
+        self.assertIn("asumas", text, "debe advertir contra asumir que la foto es un producto del catálogo")

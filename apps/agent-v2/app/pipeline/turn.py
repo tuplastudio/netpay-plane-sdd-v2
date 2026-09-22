@@ -51,7 +51,7 @@ from ..guards import (
 from ..knowledge import load_profile
 from ..log_context import bind_turn_id, reset_turn_id
 from ..memory import build_llm_summarizer, compact_thread, history_chars
-from ..security import image_size_error
+from ..security import media_size_error
 from ..state import TurnContext
 from ..tenant_context import TenantBundle, resolve_tenant_bundle
 from ..text import format_for_whatsapp
@@ -185,7 +185,14 @@ class TurnPipeline:
 
     def _turn_budget(self, req: ChatRequest) -> float:
         s = self.settings
-        return s.turn_timeout_image_seconds if req.imageBase64 else s.turn_timeout_seconds
+        # Video es lo más caro (frames + audio); después imagen; si no, el
+        # default. Cada capa es estrictamente creciente para que un turno con
+        # los tres tenga budget suficiente (Settings.__post_init__ lo valida).
+        if req.videoBase64 or req.videoUrl:
+            return s.turn_timeout_video_seconds
+        if req.imageBase64:
+            return s.turn_timeout_image_seconds
+        return s.turn_timeout_seconds
 
     async def _invoke(
         self,
@@ -307,8 +314,8 @@ class TurnPipeline:
             ctx.text = "[el cliente envió una imagen]"
         if not ctx.text:
             raise TurnRejected(400, "Se requiere text")
-        if image_error := image_size_error(req.imageBase64):
-            raise TurnRejected(413, image_error)
+        if media_error := media_size_error(req.imageBase64, req.videoBase64):
+            raise TurnRejected(413, media_error)
         if ctx.rt.agent is None:
             raise TurnRejected(503, "El agente todavía no está listo")
 
@@ -329,11 +336,39 @@ class TurnPipeline:
             "customer_email": req.customerEmail,
         }
 
-        if req.imageBase64:
-            ctx.content = [
-                {"type": "text", "text": ctx.text},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{req.imageBase64}"}},
-            ]
+        if req.imageBase64 or req.videoBase64 or req.videoUrl:
+            # Bloques multimodales: LangChain y OpenRouter aceptan image_url
+            # con `data:video/<mime>;base64,…` o con una URL pública (Gemini
+            # la descarga él mismo). El tipo sigue siendo `image_url` porque
+            # OpenAI's API no distingue; OpenRouter lo traduce al formato
+            # nativo del proveedor (Gemini inline_data con mime_type).
+            ctx.content = [{"type": "text", "text": ctx.text}]
+            if req.imageBase64:
+                ctx.content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{req.imageBase64}"
+                        },
+                    }
+                )
+            if req.videoBase64:
+                mime = req.videoMimeType or "video/mp4"
+                ctx.content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime};base64,{req.videoBase64}"
+                        },
+                    }
+                )
+            elif req.videoUrl:
+                ctx.content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": req.videoUrl},
+                    }
+                )
         else:
             ctx.content = ctx.text
 

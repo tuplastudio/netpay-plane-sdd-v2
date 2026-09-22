@@ -13,3 +13,29 @@ changelog:
     vendiendo y reintentar en el siguiente mensaje; prohibido escalar por
     error técnico, pedido grande o cantidad rara. Nueva REGLA DURA con los
     únicos motivos válidos de escalar_a_humano.
+  - >-
+    styles/consultivo.md y styles/informativo.md: pasan de un bullet cada uno
+    a un bloque robusto al nivel del resto del prompt. Anclan a los bloques
+    existentes (30_vender, 20_nada_generico, 40_que_nunca_haces, 80_fluidez,
+    85_ritmo_y_cierre) y fijan anti-patrones explícitos: consultivo no es
+    interrogatorio, informativo no es modo kiosko. Ningún estilo es una
+    excusa para no cerrar cuando el cliente ya está listo.
+  - >-
+    Nueva herramienta `calcular_unidades_para_cubrir` (scope: catalog.read).
+    Toda cuenta de cantidad (rendimiento, cobertura, porciones, m²) va
+    aquí: math.ceil(unidades_objetivo / rendimiento_por_unidad), cobertura
+    efectiva devuelta. La regla en 20_nada_generico.md pasa de "puedes
+    hacerlo tú con el dato declarado" a "NUNCA lo hagas tú". El LLM
+    deja de dividir y redondear a mano: cualquier "para X necesitas Y"
+    sale de la herramienta con la cifra exacta, o devuelve error si el
+    rendimiento no está declarado.
+  - >-
+    Multimodal ampliado: video en `POST /chat` (`videoBase64` o
+    `videoUrl`, mime `video/mp4` por default). Bloque `image_url` con
+    `data:video/...` o URL pública: OpenRouter lo traduce al formato
+    nativo de Gemini. Default del proceso pasa a `google/gemini-2.0-flash-001`
+    (image + video + audio; más barato que GPT-4o y soporta frames de
+    video). Nuevo budget `AGENT_TURN_TIMEOUT_VIDEO_SECONDS` y tope
+    `AGENT_MAX_VIDEO_BYTES` (50 MB). `model_capabilities(model)` y el panel
+    `/settings` exponen qué modalidades soporta cada modelo (text / image
+    / video / audio) para que el front filtre cuando el cliente sube video.

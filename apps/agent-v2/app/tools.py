@@ -24,8 +24,8 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from langchain.tools import ToolRuntime, tool
-from langgraph.types import Command
 from langchain_core.messages import ToolMessage
+from langgraph.types import Command
 
 from .commerce import CommerceClient, CommerceError, CommerceUnavailable
 from .config import get_settings
@@ -413,6 +413,148 @@ def _cart_signature(lines: list[CartLine]) -> str:
 
 def _lines_payload(lines: list[CartLine]) -> list[dict[str, Any]]:
     return [{"variantId": c["variantId"], "quantity": format_quantity(c["quantity"])} for c in lines]
+
+
+# ---------------------------------------------------------------- cálculo de uso
+
+
+def _coerce_number(value: Any, field: str) -> float:
+    """Coerce a number from LLM-supplied args; rejects NaN/inf."""
+    try:
+        number = float(str(value).strip().replace(",", "."))
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"{field} debe ser un número, recibí {value!r}") from exc
+    if number != number or number in (float("inf"), float("-inf")):  # noqa: PLR0124 (NaN check)
+        raise ValueError(f"{field} no puede ser NaN ni infinito")
+    return number
+
+
+def _round_up_coverage(
+    unidades_objetivo: float, rendimiento_por_unidad: float
+) -> tuple[int, float]:
+    """`math.ceil(unidades / rendimiento)` y la cobertura efectiva.
+
+    Redondeo hacia arriba porque el uso típico es "necesito cubrir X" — pasar
+    por debajo deja al cliente corto. Si el cliente pidiera explícitamente
+    "dame lo mínimo exacto", usa el `mode='exact'`.
+    """
+    import math
+
+    return math.ceil(unidades_objetivo / rendimiento_por_unidad), (
+        math.ceil(unidades_objetivo / rendimiento_por_unidad) * rendimiento_por_unidad
+    )
+
+
+@tool
+async def calcular_unidades_para_cubrir(
+    unidades_objetivo: str,
+    rendimiento_por_unidad: str,
+    unidad_objetivo: str,
+    unidad_cobertura: str,
+    variantId: str,
+    runtime: ToolRuntime,
+    mode: str = "cubrir",
+) -> Command:
+    """Calcula cuántas unidades del producto necesita el cliente para su uso.
+
+    Única herramienta para cuentas de cantidad (rendimiento, cobertura,
+    porciones, m²). Si la divides tú con un "40/25 = 1.6, te digo 2", te
+    puedes equivocar; aquí la matemática es determinista.
+
+    Args:
+    - `variantId`: id de la variante (el que devolvió `buscar_productos`).
+      Solo se usa para validar que existe; el cálculo no depende de él.
+    - `unidades_objetivo`: total que el cliente quiere cubrir (ej. 40 si son
+      40 personas, 100 si son 100 m²). Pasar como número o como texto.
+    - `rendimiento_por_unidad`: cuánto cubre UNA unidad del producto (ej. 25
+      porciones por envase, 8 m² por litro). Sale de <informacion_negocio>
+      o de lo que dice el producto; NO lo inventes.
+    - `unidad_objetivo` y `unidad_cobertura`: cómo se llaman las unidades
+      ("personas" / "porciones", "m²" / "m² por litro"). Solo se usan para
+      armar el texto; no afectan el cálculo.
+    - `mode`: "cubrir" (default, redondea hacia arriba para garantizar
+      cobertura) o "exact" (redondeo bancario — usar solo si el cliente
+      pidió explícitamente "lo mínimo exacto" o "ni uno de más").
+
+    Devuelve "Necesitas N unidades (cubren M {unidad_cobertura})". Si el
+    rendimiento es 0 o falta, devuelve error: NUNCA devuelve una cifra
+    inventada.
+    """
+    if denied := _require_scope(runtime, "calcular_unidades_para_cubrir"):
+        return _tool_reply(runtime, _fail(denied))
+
+    try:
+        objetivo = _coerce_number(unidades_objetivo, "unidades_objetivo")
+        rendimiento = _coerce_number(rendimiento_por_unidad, "rendimiento_por_unidad")
+    except ValueError as exc:
+        return _tool_reply(runtime, _fail(str(exc)))
+
+    if rendimiento <= 0:
+        return _tool_reply(
+            runtime,
+            _fail(
+                "rendimiento_por_unidad debe ser > 0. Si el producto no tiene "
+                "rendimiento declarado en <informacion_negocio> ni en el catálogo, "
+                "NO calcules cantidad: di que no tienes el dato preciso."
+            ),
+        )
+    if objetivo < 0:
+        return _tool_reply(
+            runtime, _fail("unidades_objetivo debe ser >= 0.")
+        )
+    if objetivo == 0:
+        return _tool_reply(runtime, "Necesitas 0 unidades (objetivo 0).")
+
+    # Validar que la variante existe en el catálogo: si no, no hay rendimiento
+    # confiable para ella. Sin esto, el LLM podría pasar un rendimiento
+    # "razonable" para una variante que no es la correcta.
+    tenant_id = _ctx(runtime).get("tenant_id", "")
+    client = _client(runtime)
+    variants, error = await _safe(
+        load_variants(tenant_id, lambda: client.search_products(None, limit=100))
+    )
+    if error:
+        return _tool_reply(runtime, _fail(error))
+    if not any(v.get("variantId") == variantId for v in (variants or [])):
+        # Caché pudo quedar desfasada: una relectura antes de fallar.
+        invalidate_tenant_caches(tenant_id)
+        variants, error = await _safe(
+            load_variants(tenant_id, lambda: client.search_products(None, limit=100))
+        )
+        if error:
+            return _tool_reply(runtime, _fail(error))
+    variant_exists = any(v.get("variantId") == variantId for v in (variants or []))
+    if not variant_exists:
+        return _tool_reply(
+            runtime,
+            _fail(
+                f"El variantId '{variantId}' no existe. Llama a buscar_productos "
+                "primero y pasa uno de los variantId que te devolvió. No calcules "
+                "cantidad sobre una variante inventada."
+            ),
+        )
+
+    import math
+
+    if mode == "exact":
+        unidades = round(objetivo / rendimiento)
+    else:
+        unidades = math.ceil(objetivo / rendimiento)
+    cobertura = unidades * rendimiento
+
+    objetivo_label = (
+        f"{int(objetivo)}" if objetivo == int(objetivo) else f"{objetivo:g}"
+    )
+    cobertura_label = (
+        f"{int(cobertura)}" if cobertura == int(cobertura) else f"{cobertura:g}"
+    )
+    unidad_obj = clamp_text(unidad_objetivo, 40, collapse_newlines=True) or "unidades"
+    unidad_cob = clamp_text(unidad_cobertura, 40, collapse_newlines=True) or "unidades"
+    text = (
+        f"Necesitas {unidades} unidades para cubrir {objetivo_label} {unidad_obj} "
+        f"({cobertura_label} {unidad_cob})."
+    )
+    return _tool_reply(runtime, text)
 
 
 @tool
@@ -962,6 +1104,7 @@ SALES_TOOLS = [
     agregar_al_carrito,
     quitar_del_carrito,
     calcular_total,
+    calcular_unidades_para_cubrir,
     emitir_cotizacion,
     detalle_de_cotizacion,
     convertir_en_pedido,

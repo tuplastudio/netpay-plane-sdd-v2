@@ -25,7 +25,11 @@ import logging
 from typing import Any
 
 from deepagents import create_deep_agent
-from langchain.agents.middleware import SummarizationMiddleware, dynamic_prompt, wrap_model_call
+from langchain.agents.middleware import (
+    SummarizationMiddleware,
+    dynamic_prompt,
+    wrap_model_call,
+)
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -146,13 +150,41 @@ class _TenantModelCache:
 # de OpenRouter al momento de escribir esto — no se actualiza solo, así que
 # el costo reportado es una ESTIMACIÓN, no una factura real de OpenRouter.
 # Fallback conservador para modelos fuera de esta lista.
+#
+# Capacidades por modelo (referencia rápida para el panel / `GET /tools`):
+#   - multimodal: acepta image_url y video (data:video/* o URL) en el turno.
+#   - audio: notas de voz se transcriben aparte (Whisper); el modelo no las
+#     procesa directamente, pero Gemini 2.0 Flash sí lo hace si se lo mandan
+#     como bloque `input_audio`.
 PRICE_PER_1K: dict[str, tuple[float, float]] = {
-    "openai/gpt-4o-mini": (0.00015, 0.0006),
-    "openai/gpt-4o": (0.0025, 0.01),
-    "anthropic/claude-3-5-sonnet": (0.003, 0.015),
-    "anthropic/claude-3-5-haiku": (0.0008, 0.004),
+    "openai/gpt-4o-mini": (0.00015, 0.0006),  # image: sí, video: NO
+    "openai/gpt-4o": (0.0025, 0.01),  # image: sí, video: NO
+    "anthropic/claude-3-5-sonnet": (0.003, 0.015),  # image: sí, video: NO
+    "anthropic/claude-3-5-haiku": (0.0008, 0.004),  # image: sí, video: NO
+    "google/gemini-2.0-flash-001": (0.0001, 0.0004),  # image+video+audio: sí
+    "google/gemini-2.0-flash-thinking-exp": (0.0, 0.0),  # experimental; precio incierto
+    "google/gemini-1.5-pro": (0.00125, 0.005),  # image+video+audio: sí
+    "google/gemini-2.5-pro": (0.00125, 0.01),  # image+video+audio: sí
 }
 _DEFAULT_PRICE_PER_1K = (0.001, 0.003)
+
+
+def model_capabilities(model: str) -> dict[str, bool]:
+    """Qué modalidades soporta un modelo OpenRouter.
+
+    Devuelve siempre las cuatro llaves para que el panel / endpoint pueda
+    iterar sin chequear KeyError. `multimodal` = True si soporta AL MENOS
+    imágenes (que es lo mínimo para `imageBase64`); `video` y `audio`
+    granularizan para que el front pueda filtrar.
+    """
+    mid = (model or "").strip().lower()
+    if mid.startswith("google/gemini"):
+        return {"text": True, "multimodal": True, "video": True, "audio": True}
+    if mid.startswith("openai/") and ("gpt-4o" in mid or "gpt-4.1" in mid or "o1" in mid or "o3" in mid or "o4" in mid):
+        return {"text": True, "multimodal": True, "video": False, "audio": False}
+    if mid.startswith(("anthropic/claude-3", "anthropic/claude-4")):
+        return {"text": True, "multimodal": True, "video": False, "audio": False}
+    return {"text": True, "multimodal": False, "video": False, "audio": False}
 
 
 def _estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> str:
@@ -170,7 +202,7 @@ def _extract_usage(response: Any) -> tuple[int, int] | None:
     """
     messages: list[Any]
     if hasattr(response, "result"):
-        messages = list(getattr(response, "result") or [])
+        messages = list(response.result or [])
     else:
         messages = [response]
 

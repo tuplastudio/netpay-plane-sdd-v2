@@ -69,7 +69,14 @@ class Settings:
     openrouter_base_url: str = field(
         default_factory=lambda: _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     )
-    model: str = field(default_factory=lambda: _env("MODEL_ID", "openai/gpt-4o-mini"))
+    # Default: Gemini 2.0 Flash (multimodal: imagen + video + audio). Razones:
+    # es lo más barato de OpenRouter que procesa video, soporta audio en el
+    # mismo turno, y el contrato de OpenAI que ya hablamos le sirve. Si un
+    # tenant prefiere texto-only (más barato aún), fija `text_model` desde
+    # el panel — `MODEL_ID` lo sobreescribe en cualquier punto.
+    model: str = field(
+        default_factory=lambda: _env("MODEL_ID", "google/gemini-2.0-flash-001")
+    )
     summary_model: str = field(default_factory=lambda: _env("SUMMARY_MODEL_ID", ""))
     temperature: float = field(default_factory=lambda: _env_float("AGENT_TEMPERATURE", 0.4))
     max_tokens: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOKENS", 800))
@@ -108,6 +115,13 @@ class Settings:
     turn_timeout_image_seconds: float = field(
         default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_IMAGE_SECONDS", 42.0)
     )
+    # Video: procesarlo toma más (extracción de frames + audio). Por encima
+    # del de imagen para que el turno no aborte antes de que el modelo
+    # alcance a devolver respuesta. Sigue por debajo del puente de
+    # commerce-api (45 s con multimedia).
+    turn_timeout_video_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_VIDEO_SECONDS", 50.0)
+    )
 
     # ---- Ráfagas de mensajes (ver pipeline/coalesce.py) ----
     # En WhatsApp la gente escribe en varios mensajes seguidos ("hola" /
@@ -144,6 +158,13 @@ class Settings:
     # imageBase64 (ver security.image_size_error, cableado en pipeline/turn.py).
     max_image_bytes: int = field(
         default_factory=lambda: _env_int("AGENT_MAX_IMAGE_BYTES", 5 * 1024 * 1024)
+    )
+    # Video: tope por encima del de imagen (los videos pesan más). El cliente
+    # (WhatsApp) suele mandar clips <2 minutos; 50 MB cubre eso con margen.
+    # Si el cliente sube uno más largo, hay que pedirle que recorte o mande
+    # por URL — el LLM tarda más en procesar cuanto más largo.
+    max_video_bytes: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_VIDEO_BYTES", 50 * 1024 * 1024)
     )
 
     # ---- Guardarraíl de tema ----
@@ -276,6 +297,18 @@ class Settings:
                 f"AGENT_TURN_TIMEOUT_SECONDS ({self.turn_timeout_seconds}) debe ser "
                 f"< AGENT_TURN_TIMEOUT_IMAGE_SECONDS ({self.turn_timeout_image_seconds})"
             )
+        if self.turn_timeout_video_seconds <= 0:
+            raise SettingsError("AGENT_TURN_TIMEOUT_VIDEO_SECONDS debe ser > 0")
+        if self.turn_timeout_video_seconds <= self.turn_timeout_image_seconds:
+            # El video debe tardar al menos tanto como la imagen (procesar
+            # frames + audio es más caro). Si alguien invierte esto, el
+            # agente aborta videos antes de llegar a tiempo.
+            raise SettingsError(
+                f"AGENT_TURN_TIMEOUT_VIDEO_SECONDS ({self.turn_timeout_video_seconds}) "
+                f"debe ser > AGENT_TURN_TIMEOUT_IMAGE_SECONDS ({self.turn_timeout_image_seconds})"
+            )
+        if self.max_video_bytes < 1:
+            raise SettingsError("AGENT_MAX_VIDEO_BYTES debe ser >= 1")
         if self.coalesce_window_ms < 0:
             raise SettingsError("AGENT_COALESCE_WINDOW_MS no puede ser negativo")
         if self.handoff_after_failures < 1:
