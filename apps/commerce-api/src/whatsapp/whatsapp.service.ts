@@ -539,8 +539,10 @@ export class WhatsAppService {
     externalPhone: string;
     body: string;
     externalId: string;
-    messageType?: "TEXT" | "IMAGE" | "AUDIO" | "DOCUMENT";
+    messageType?: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "LOCATION";
     mediaUrl?: string;
+    latitude?: number;
+    longitude?: number;
   }) {
     if (input.externalId) {
       const dup = await this.prisma.whatsAppMessage.findUnique({
@@ -605,6 +607,8 @@ export class WhatsAppService {
           externalId: input.externalId,
           body: input.body,
           mediaUrl: input.mediaUrl,
+          latitude: input.latitude ?? null,
+          longitude: input.longitude ?? null,
           status: "DELIVERED",
           deliveredAt: new Date(),
         },

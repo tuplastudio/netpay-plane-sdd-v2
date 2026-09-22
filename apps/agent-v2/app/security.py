@@ -34,6 +34,8 @@ TOOL_SCOPES: dict[str, str] = {
     "convertir_en_pedido": "orders.write",
     "generar_enlace_pago": "orders.write",
     "estado_del_pedido": "orders.read",
+    "recordar_direccion_entrega": "chat.write",
+    "limpiar_direccion_entrega": "chat.write",
     "recordar_cliente": "chat.write",
     "historial_del_cliente": "customers.read",
     "detalle_de_cotizacion": "quotes.read",

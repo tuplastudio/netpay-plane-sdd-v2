@@ -160,6 +160,11 @@ class SalesState(DeepAgentState):
     # Último carrito que tocó una herramienta: a qué carrito resuelven las
     # tools cuando el modelo no pasa `carritoId` explícito (ver tools.py).
     active_cart_id: Annotated[str | None, _last]
+    # Dirección de entrega del cliente para ESTE hilo: la guarda
+    # `recordar_direccion_entrega` (T-SHIP-04) y la usa `calcular_total`
+    # automáticamente al cotizar `LOCAL_DELIVERY`. Vacío = el cliente aún no
+    # dio CP / ciudad / estado; el bot lo pide antes de cotizar.
+    delivery_address: Annotated[dict[str, Any] | None, _replace]
     # Adjunto (PDF) de ESTE turno; `main.py` lo limpia después de mandarlo.
     pending_attachment: Annotated[dict[str, Any] | None, _replace]
     handoff: Annotated[bool, _last]
@@ -229,7 +234,7 @@ def primary_cart(values: dict[str, Any]) -> tuple[str, CartRecord]:
     if visible:
         cart_id = max(
             visible,
-            key=lambda cid: len((visible[cid].get("lines") or [])) + bool(visible[cid].get("quoteId")),
+            key=lambda cid: len(visible[cid].get("lines") or []) + bool(visible[cid].get("quoteId")),
         )
         return cart_id, visible[cart_id]
     return "", {}

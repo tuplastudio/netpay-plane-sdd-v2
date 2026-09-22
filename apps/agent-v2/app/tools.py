@@ -600,14 +600,23 @@ async def calcular_total(
         return _tool_reply(runtime, _fail("Ese carrito está vacío: agrega productos primero."))
 
     mode = _delivery_mode(runtime, record, deliveryMode)
+    # Si el cliente ya dio dirección con `recordar_direccion_entrega` y no
+    # estamos recibiendo argumentos explícitos, usamos la guardada.
+    # La dirección NO se auto-hereda al `cotizar_cotizacion` porque ese
+    # paso no la necesita; solo calcular_total la usa para resolver la
+    # zona del admin.
+    saved = (runtime.state.get("delivery_address") or {}) if hasattr(runtime, "state") else {}
+    pc = postalCode or saved.get("postalCode") or ""
+    c = city or saved.get("city") or ""
+    s = state or saved.get("state") or ""
     client = _client(runtime)
     totals, error = await _safe(
         client.price_preview(
             _lines_payload(lines),
             delivery_mode=mode,
-            postal_code=postalCode or None,
-            city=city or None,
-            state=state or None,
+            postal_code=pc or None,
+            city=c or None,
+            state=s or None,
         )
     )
     if error:
@@ -696,6 +705,80 @@ async def validar_zona_de_envio(
     else:
         text = f"Envío a esa dirección: ${price}."
     return _tool_reply(runtime, text)
+
+
+@tool
+async def recordar_direccion_entrega(
+    postalCode: str,
+    city: str = "",
+    state: str = "",
+    line1: str = "",
+    line2: str = "",
+    notes: str = "",
+    runtime: ToolRuntime = None,  # type: ignore[assignment]
+) -> Command:
+    """Guarda la dirección de entrega del cliente para este hilo.
+
+    Llama esto cuando el cliente confirma su dirección de envío
+    (después de pedirle CP / ciudad / estado). La dirección queda
+    persistida en el checkpoint de LangGraph: el bot la reutiliza en
+    turnos siguientes si el cliente cierra y vuelve, y `calcular_total`
+    con `LOCAL_DELIVERY` la lee automáticamente para cobrar el envío
+    correcto.
+
+    `line1` y `line2` son opcionales (calle + número, colonia,
+    referencias). El CP es obligatorio (4-5 dígitos) — sin él no se
+    puede resolver la zona del admin.
+    """
+    if denied := _require_scope(runtime, "recordar_direccion_entrega"):
+        return _tool_reply(runtime, _fail(denied))
+    cp = postalCode.strip()
+    if not (4 <= len(cp) <= 5 and cp.isdigit()):
+        return _tool_reply(
+            runtime,
+            _fail(
+                "postalCode debe ser 4-5 dígitos. Pídele al cliente que lo confirme."
+            ),
+        )
+    address: dict[str, Any] = {
+        "postalCode": cp,
+        "city": clamp_text(city, 80, collapse_newlines=True),
+        "state": clamp_text(state, 80, collapse_newlines=True),
+        "line1": clamp_text(line1, 200, collapse_newlines=True),
+        "line2": clamp_text(line2, 200, collapse_newlines=True),
+        "notes": clamp_text(notes, 200, collapse_newlines=True),
+        "savedAt": "now",
+    }
+    # Limpia vacíos para no guardar strings vacíos en el checkpoint.
+    address = {k: v for k, v in address.items() if v}
+    summary_parts = [cp]
+    if city.strip():
+        summary_parts.append(city.strip())
+    if state.strip():
+        summary_parts.append(state.strip())
+    return _tool_reply(
+        runtime,
+        f"Dirección guardada: {', '.join(summary_parts)}. "
+        "La usaré para calcular el envío y la cotizaré en el PDF.",
+        update={"delivery_address": address},
+    )
+
+
+@tool
+async def limpiar_direccion_entrega(runtime: ToolRuntime) -> Command:
+    """Borra la dirección guardada (T-SHIP-04).
+
+    Úsala cuando el cliente rectifica una dirección anterior: "perdón,
+    era para otro domicilio" / "cambié a esta otra". Sin esto, los
+    totales de envío a domicilio seguirían usando la vieja.
+    """
+    if denied := _require_scope(runtime, "limpiar_direccion_entrega"):
+        return _tool_reply(runtime, _fail(denied))
+    return _tool_reply(
+        runtime,
+        "Dirección olvidada. Pídele la nueva al cliente cuando cotices a domicilio.",
+        update={"delivery_address": None},
+    )
 
 
 # ---------------------------------------------------------------- cotización
@@ -1203,6 +1286,8 @@ SALES_TOOLS = [
     calcular_total,
     calcular_unidades_para_cubrir,
     validar_zona_de_envio,
+    recordar_direccion_entrega,
+    limpiar_direccion_entrega,
     emitir_cotizacion,
     detalle_de_cotizacion,
     convertir_en_pedido,

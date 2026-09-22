@@ -968,6 +968,13 @@ model WhatsAppMessage {
   externalId      String?  @unique // id del mensaje en WhatsApp
   body            String
   mediaUrl        String?
+  /// Coordenadas para mensajes LOCATION (WhatsApp: lat/lng que el cliente
+  /// comparte desde el menú "Ubicación"). Se guardan como Float para
+  /// soportar búsquedas por geofencing si la admin UI lo pide; el cuerpo
+  /// del mensaje (`body`) trae la dirección textual que WhatsApp adjunta
+  /// (calle, ciudad) para que el agente pueda usarla si la quiere.
+  latitude        Float?
+  longitude       Float?
   status          MessageStatus @default(PENDING)
   errorMessage    String?
   sentAt          DateTime?
@@ -1009,6 +1016,7 @@ enum MessageType {
   AUDIO
   VIDEO
   DOCUMENT
+  LOCATION
   TEMPLATE
 }
 

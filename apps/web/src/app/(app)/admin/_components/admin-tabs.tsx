@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BellRing, Building2, KeyRound, Palette, ShieldCheck, Users } from "lucide-react";
+import { BellRing, Building2, KeyRound, Palette, ShieldCheck, Truck, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BusinessSettingsSection } from "./business-settings-section";
 import { UsageSection } from "./usage-section";
@@ -11,6 +11,7 @@ import { MembersSection } from "./members-section";
 import { ApiKeysSection } from "./api-keys-section";
 import { NotificationsSection } from "./notifications-section";
 import { SecurityTabs } from "./security-tabs";
+import { DeliveryZonesSection } from "./delivery-zones-section";
 
 /**
  * Secciones de la administración, en una barra lateral (no en pestañas): con
@@ -27,6 +28,7 @@ import { SecurityTabs } from "./security-tabs";
 const SECTIONS = [
   { value: "empresa", label: "Empresa", icon: Building2 },
   { value: "marca", label: "Marca", icon: Palette },
+  { value: "envio", label: "Envío a domicilio", icon: Truck },
   { value: "usuarios", label: "Usuarios", icon: Users },
   { value: "api-keys", label: "API keys", icon: KeyRound },
   { value: "notificaciones", label: "Notificaciones", icon: BellRing },
@@ -106,6 +108,7 @@ export function AdminTabs() {
           </>
         ) : null}
         {section === "marca" ? <BrandingSection /> : null}
+        {section === "envio" ? <DeliveryZonesSection /> : null}
         {section === "usuarios" ? <MembersSection /> : null}
         {section === "api-keys" ? <ApiKeysSection /> : null}
         {section === "notificaciones" ? <NotificationsSection /> : null}

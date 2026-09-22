@@ -95,6 +95,26 @@ export class DeliveryZonesController {
         notes: body.notes,
       },
     });
+    // T-SHIP-06 — auditar cualquier cambio de precio (compliance + soporte
+    // cuando un cliente discute el envío cobrado): el admin del tenant
+    // también lo ve desde /audit, pero queda en log persistente.
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId: RequestContext.userId ?? null,
+        action: "delivery_zone.created",
+        targetType: "DeliveryZone",
+        targetId: zone.id,
+        metadata: {
+          name: zone.name,
+          price: zone.price.toFixed(2),
+          postalCodes: zone.postalCodes,
+          cityPattern: zone.cityPattern,
+          state: zone.state,
+          active: zone.active,
+        },
+      },
+    });
     return { data: zone, requestId: RequestContext.requestId };
   }
 
@@ -126,6 +146,31 @@ export class DeliveryZonesController {
       if (body[k] !== undefined) data[k] = body[k];
     }
     const zone = await this.prisma.deliveryZone.update({ where: { id }, data });
+    // T-SHIP-06: el diff de campos contra `existing` queda en `metadata`
+    // para que el admin pueda ver QUÉ cambió exactamente (precio, CPs,
+    // estado) sin tener que comparar manualmente. `Prisma.InputJsonValue`
+    // es más estricto que `unknown` y rechaza objetos no-JSON-serializables;
+    // aquí todo viene de columnas Prisma, así que es seguro.
+    const diff: Record<string, { from: unknown; to: unknown }> = {};
+    for (const k of Object.keys(data)) {
+      const before = (existing as Record<string, unknown>)[k];
+      const after = (zone as Record<string, unknown>)[k];
+      const beforeJson = JSON.stringify(before);
+      const afterJson = JSON.stringify(after);
+      if (beforeJson !== afterJson) {
+        diff[k] = { from: before, to: after };
+      }
+    }
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId: RequestContext.userId ?? null,
+        action: "delivery_zone.updated",
+        targetType: "DeliveryZone",
+        targetId: zone.id,
+        metadata: diff as Record<string, unknown> as never,
+      },
+    });
     return { data: zone, requestId: RequestContext.requestId };
   }
 
@@ -140,6 +185,16 @@ export class DeliveryZonesController {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Zona no encontrada" });
     }
     await this.prisma.deliveryZone.delete({ where: { id } });
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId: RequestContext.userId ?? null,
+        action: "delivery_zone.deleted",
+        targetType: "DeliveryZone",
+        targetId: id,
+        metadata: { name: existing.name, price: existing.price.toFixed(2) },
+      },
+    });
     return { data: { id, deleted: true }, requestId: RequestContext.requestId };
   }
 }

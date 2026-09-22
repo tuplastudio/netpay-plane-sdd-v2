@@ -8,12 +8,13 @@ Cubren:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest import TestCase
 
 from app.agent_settings import AgentSettings, get_settings_store
+from app.knowledge import BusinessProfile
 from app.prompts import assemble_prompt
 from app.prompts.registry import get_prompt_registry
-from app.knowledge import BusinessProfile
 
 
 class BotPayFirstTests(TestCase):
@@ -129,6 +130,181 @@ class ValidarZonaToolTests(TestCase):
         sig = inspect.signature(tools.calcular_total.coroutine)
         for arg in ("postalCode", "city", "state"):
             self.assertIn(arg, sig.parameters)
+
+
+class DeliveryAddressToolTests(TestCase):
+    """`recordar_direccion_entrega` guarda la dirección en el checkpoint;
+    `limpiar_direccion_entrega` la borra. `calcular_total` la usa
+    automáticamente cuando se cotiza a domicilio.
+
+    Las pruebas async viven como funciones pytest (abajo): unittest.TestCase
+    no soporta métodos async — los marcaba como pasados sin ejecutarlos.
+    """
+
+    def _runtime(self, state: dict | None = None) -> object:
+        from app.security import TOOL_SCOPES
+
+        return SimpleNamespace(
+            state=state or {},
+            context={"tenant_id": "t1", "scopes": list(TOOL_SCOPES.values())},
+            tool_call_id="call-1",
+        )
+
+    def test_registered(self) -> None:
+        from app import tools
+
+        self.assertIn(tools.recordar_direccion_entrega, tools.SALES_TOOLS)
+        self.assertIn(tools.limpiar_direccion_entrega, tools.SALES_TOOLS)
+        self.assertIn(tools.validar_zona_de_envio, tools.SALES_TOOLS)
+
+
+async def test_recordar_persists_in_state() -> None:
+    from app import tools
+    from app.security import TOOL_SCOPES
+
+    rt = SimpleNamespace(
+        state={},
+        context={"tenant_id": "t1", "scopes": list(TOOL_SCOPES.values())},
+        tool_call_id="call-1",
+    )
+    cmd = await tools.recordar_direccion_entrega.coroutine(
+        postalCode="06000",
+        city="CDMX",
+        state="CDMX",
+        line1="Av. Reforma 123",
+        notes="edificio azul",
+        runtime=rt,
+    )
+    update = cmd.update
+    assert "delivery_address" in update
+    addr = update["delivery_address"]
+    assert addr["postalCode"] == "06000"
+    assert addr["city"] == "CDMX"
+    assert addr["line1"] == "Av. Reforma 123"
+
+
+async def test_recordar_rejects_invalid_cp() -> None:
+    from app import tools
+    from app.security import TOOL_SCOPES
+
+    rt = SimpleNamespace(
+        state={},
+        context={"tenant_id": "t1", "scopes": list(TOOL_SCOPES.values())},
+        tool_call_id="call-1",
+    )
+    cmd = await tools.recordar_direccion_entrega.coroutine(
+        postalCode="12",  # muy corto
+        city="CDMX",
+        runtime=rt,
+    )
+    update = cmd.update
+    assert "delivery_address" not in update, "CP inválido no debe guardar dirección"
+    text = update["messages"][0].content
+    assert "postalCode" in text
+
+
+async def test_limpiar_clears_address() -> None:
+    from app import tools
+    from app.security import TOOL_SCOPES
+
+    rt = SimpleNamespace(
+        state={"delivery_address": {"postalCode": "06000"}},
+        context={"tenant_id": "t1", "scopes": list(TOOL_SCOPES.values())},
+        tool_call_id="call-1",
+    )
+    cmd = await tools.limpiar_direccion_entrega.coroutine(runtime=rt)
+    update = cmd.update
+    assert update.get("delivery_address") is None
+
+
+async def test_calcular_total_uses_saved_address() -> None:
+    """`calcular_total` con LOCAL_DELIVERY y sin args explícitos lee la
+    dirección guardada en el estado (T-SHIP-04)."""
+    from unittest.mock import patch
+
+    from app import tools
+    from app.security import TOOL_SCOPES
+
+    saved = {"postalCode": "06000", "city": "CDMX", "state": "CDMX"}
+    rt = SimpleNamespace(
+        state={
+            "delivery_address": saved,
+            "carts": {"1": {"cartId": "1", "lines": [
+                {"variantId": "v", "sku": "S", "title": "T", "quantity": "1.000"}
+            ]}},
+            "active_cart_id": "1",
+        },
+        context={"tenant_id": "t1", "scopes": list(TOOL_SCOPES.values())},
+        tool_call_id="call-1",
+    )
+
+    seen: dict = {}
+
+    class FakeClient:
+        live = True
+
+        async def price_preview(self, lines, *, delivery_mode=None, postal_code=None, city=None, state=None):
+            seen.update(
+                {"delivery_mode": delivery_mode, "postal_code": postal_code, "city": city, "state": state}
+            )
+            return {
+                "totals": {"subtotal": "100.00", "discount": "0.00", "taxBase": "100.00",
+                           "tax": "16.00", "shipping": "50.00", "total": "166.00"},
+                "shippingZone": {"id": "z1", "name": "Centro", "fallback": False},
+            }
+
+    with patch.object(tools, "_client", return_value=FakeClient()):
+        cmd = await tools.calcular_total.coroutine(
+            deliveryMode="LOCAL_DELIVERY", runtime=rt
+        )
+
+    assert seen["postal_code"] == "06000", "la dirección guardada debe entrar al preview"
+    assert seen["city"] == "CDMX"
+    assert seen["state"] == "CDMX"
+    text = cmd.update["messages"][0].content
+    assert "Centro" in text, "el nombre de la zona debe salir en el texto"
+
+
+async def test_calcular_total_explicit_args_win_over_saved() -> None:
+    """Args explícitos ganan sobre la dirección guardada."""
+    from unittest.mock import patch
+
+    from app import tools
+    from app.security import TOOL_SCOPES
+
+    saved = {"postalCode": "06000", "city": "CDMX", "state": "CDMX"}
+    rt = SimpleNamespace(
+        state={
+            "delivery_address": saved,
+            "carts": {"1": {"cartId": "1", "lines": [
+                {"variantId": "v", "sku": "S", "title": "T", "quantity": "1.000"}
+            ]}},
+            "active_cart_id": "1",
+        },
+        context={"tenant_id": "t1", "scopes": list(TOOL_SCOPES.values())},
+        tool_call_id="call-1",
+    )
+
+    seen: dict = {}
+
+    class FakeClient:
+        live = True
+
+        async def price_preview(self, lines, *, delivery_mode=None, postal_code=None, city=None, state=None):
+            seen.update({"postal_code": postal_code, "city": city})
+            return {
+                "totals": {"subtotal": "100.00", "discount": "0.00", "taxBase": "100.00",
+                           "tax": "16.00", "shipping": "80.00", "total": "196.00"},
+                "shippingZone": {"id": "z2", "name": "Norte", "fallback": False},
+            }
+
+    with patch.object(tools, "_client", return_value=FakeClient()):
+        await tools.calcular_total.coroutine(
+            deliveryMode="LOCAL_DELIVERY", postalCode="64000", city="Monterrey", runtime=rt
+        )
+
+    assert seen["postal_code"] == "64000", "el arg explícito gana sobre el guardado"
+    assert seen["city"] == "Monterrey"
 
 
 class RoundTripPersistenceTests(TestCase):

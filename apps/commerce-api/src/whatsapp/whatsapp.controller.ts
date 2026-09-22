@@ -616,8 +616,10 @@ export class WhatsAppController {
     }
 
     let message = parsed.message;
-    let messageType: "TEXT" | "AUDIO" | "IMAGE" = "TEXT";
+    let messageType: "TEXT" | "AUDIO" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION" = "TEXT";
     let imageBase64: string | undefined;
+    let latitude: number | undefined;
+    let longitude: number | undefined;
 
     if (!message && parsed.audio) {
       // Nota de voz: se descarga el binario y se transcribe a nivel backend
@@ -654,6 +656,31 @@ export class WhatsAppController {
       }
     }
 
+    if (!message && parsed.location) {
+      // Ubicación compartida por el cliente desde WhatsApp. NO la guardamos
+      // como dirección de envío: las coordenadas del GPS no resuelven la
+      // zona del admin (necesita CP / ciudad / estado). El agente usa la
+      // lat/lng para confirmar zona horaria o ubicación geográfica general
+      // y PIDE el CP / ciudad / estado por texto, como hace el prompt
+      // v1.4.1 `55_envio_domicilio.md`.
+      const lat = parsed.location.latitude;
+      const lng = parsed.location.longitude;
+      const caption = parsed.location.caption?.trim();
+      const body = caption
+        ? `[ubicación compartida: ${lat}, ${lng}] ${caption}`
+        : `[el cliente compartió su ubicación: ${lat}, ${lng}]`;
+      message = {
+        provider: parsed.location.provider,
+        connectionId: parsed.location.connectionId,
+        externalPhone: parsed.location.externalPhone,
+        body,
+        externalId: parsed.location.externalId,
+      };
+      messageType = "LOCATION";
+      latitude = lat;
+      longitude = lng;
+    }
+
     if (!message) {
       // Evento reconocido pero sin texto que procesar (media sin caption o
       // que no se pudo descargar/transcribir, eco de un mensaje propio,
@@ -670,6 +697,8 @@ export class WhatsAppController {
       body: message.body,
       externalId: message.externalId,
       messageType,
+      latitude,
+      longitude,
     });
 
     // El agente responde en el mismo hilo. Si está caído o el chat ya lo tomó
@@ -721,6 +750,17 @@ export class WhatsAppController {
           externalPhone: string;
           externalId: string;
           key: { id: string; remoteJid: string; fromMe?: boolean };
+          caption?: string;
+        };
+        /** Ubicación compartida por el cliente desde WhatsApp. */
+        location?: {
+          provider: "EVOLUTION";
+          connectionId: string;
+          externalPhone: string;
+          externalId: string;
+          key: { id: string; remoteJid: string; fromMe?: boolean };
+          latitude: number;
+          longitude: number;
           caption?: string;
         };
         /** Evento `connection.update` de Evolution (QR escaneado, logout…). */
@@ -790,6 +830,11 @@ export class WhatsAppController {
           extendedTextMessage?: { text?: string };
           audioMessage?: { ptt?: boolean; mimetype?: string };
           imageMessage?: { caption?: string; mimetype?: string };
+          locationMessage?: {
+            degreesLatitude?: number;
+            degreesLongitude?: number;
+            caption?: string;
+          };
         };
       };
       if (data.key?.fromMe) {
@@ -825,6 +870,28 @@ export class WhatsAppController {
             externalId: data.key.id,
             key: { id: data.key.id, remoteJid, fromMe: data.key.fromMe },
             caption: data.message.imageMessage.caption,
+          },
+        };
+      }
+      if (
+        !text &&
+        data.message?.locationMessage &&
+        typeof data.message.locationMessage.degreesLatitude === "number" &&
+        typeof data.message.locationMessage.degreesLongitude === "number" &&
+        data.key?.id
+      ) {
+        return {
+          ok: true,
+          message: null,
+          location: {
+            provider: "EVOLUTION",
+            connectionId: connection.id,
+            externalPhone: `+${remoteJid.split("@")[0]}`,
+            externalId: data.key.id,
+            key: { id: data.key.id, remoteJid, fromMe: data.key.fromMe },
+            latitude: data.message.locationMessage.degreesLatitude,
+            longitude: data.message.locationMessage.degreesLongitude,
+            caption: data.message.locationMessage.caption,
           },
         };
       }

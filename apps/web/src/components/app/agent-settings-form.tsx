@@ -37,6 +37,10 @@ interface AgentSettings {
   auto_history_lookup: boolean;
   max_products_per_message: number;
   default_delivery_mode: "PICKUP" | "LOCAL_DELIVERY";
+  /** Si true: tras confirmar, va directo al link de pago sin cotización previa. */
+  bot_pay_first: boolean;
+  /** Si true: pregunta CP/ciudad/estado antes de cotizar a domicilio. */
+  collect_customer_address: boolean;
   handoff_keywords: string[];
   forbidden_topics: string;
   extra_rules: string;
@@ -158,6 +162,8 @@ const FACTORY = {
   auto_history_lookup: true,
   max_products_per_message: 3,
   default_delivery_mode: "PICKUP",
+  bot_pay_first: false,
+  collect_customer_address: true,
   whatsapp_plain_text: true,
   auto_reply: true,
   human_reply_filter_enabled: false,
@@ -775,6 +781,24 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
               )}
             </Field>
           </div>
+          <Toggle
+            id="bot_pay_first"
+            label="Ir directo al pago tras confirmar"
+            tip="Salta la cotización: tras un 'sí' explícito, manda el link de pago. Útil cuando el cliente suele pagar ya (comida para llevar, recargas)."
+            hint="El cliente paga desde el link; sigue aplicando confirmar con un 'sí' explícito en el mensaje actual."
+            checked={draft.bot_pay_first}
+            onChange={(v) => set("bot_pay_first", v)}
+            defaultLabel={FACTORY.bot_pay_first ? "activado" : "desactivado"}
+          />
+          <Toggle
+            id="collect_customer_address"
+            label="Pedir dirección antes de cotizar a domicilio"
+            tip="Antes de calcular envío a domicilio, el bot pregunta CP / ciudad / estado y resuelve la zona que tú configuraste en 'Envío a domicilio'."
+            hint="Apagado = cae al envío flat del tenant sin preguntar."
+            checked={draft.collect_customer_address}
+            onChange={(v) => set("collect_customer_address", v)}
+            defaultLabel={FACTORY.collect_customer_address ? "activado" : "desactivado"}
+          />
         </Section>
 
         {/* ============== REGLAS DEL NEGOCIO ============== */}
