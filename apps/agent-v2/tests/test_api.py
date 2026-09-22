@@ -375,3 +375,116 @@ def test_transcript_endpoint_redacts_by_default(client: TestClient) -> None:
 
     detail = client.get("/conversations/c8?tenantId=t1").json()
     assert detail["failureStreak"] == 0 and detail["handoffReason"] is None
+
+
+# ---------------- arquitectura: stages, runtime, context ----------------
+
+
+def test_turn_pipeline_stages_are_callable_independently(client: TestClient) -> None:
+    """Cada etapa del pipeline es un método separado y se puede probar de a una.
+
+    No requiere levantar el grafo: el doble ya está cableado por el fixture.
+    """
+    from app.contracts import ChatRequest
+    from app.pipeline.trace import TurnTrace
+    from app.pipeline.turn import PipelineContext
+
+    pipeline = main.runtime.pipeline
+    assert pipeline is not None
+    ctx = PipelineContext(
+        req=ChatRequest(tenantId="t1", conversationId="s1", text="hola", channel="web"),
+        rt=main.runtime,
+        settings=pipeline.settings,
+        trace=TurnTrace(),
+    )
+    pipeline._prepare(ctx)
+    assert ctx.thread_id == "t1:s1" and ctx.conversation_id == "s1"
+    assert ctx.content == "hola"
+
+
+def test_pipeline_context_redirect_returns_response(client: TestClient) -> None:
+    """`PipelineContext.redirect()` arma un `ChatResponse` listo y registra métricas."""
+    from app.contracts import ChatRequest
+    from app.pipeline.trace import TurnTrace
+    from app.pipeline.turn import PipelineContext
+
+    pipeline = main.runtime.pipeline
+    assert pipeline is not None
+    ctx = PipelineContext(
+        req=ChatRequest(tenantId="t1", conversationId="s2", text="hola", channel="web"),
+        rt=main.runtime,
+        settings=pipeline.settings,
+        trace=TurnTrace(),
+    )
+    pipeline._prepare(ctx)
+    before = main.runtime.metrics.counters.get("turn.redirect.inyeccion", 0)
+    response = ctx.redirect(
+        intent="INYECCION",
+        engine="injection-guard",
+        reply="No, gracias 🙂",
+        metric="turn.redirect.inyeccion",
+    )
+    assert response.intent == "INYECCION" and response.reply == "No, gracias 🙂"
+    assert main.runtime.metrics.counters["turn.redirect.inyeccion"] == before + 1
+
+
+def test_turn_id_is_bound_during_pipeline_run(client: TestClient) -> None:
+    """El `turnId` se liga al contexto de asyncio durante el turno y se libera al final."""
+    from app.log_context import turn_id_var
+
+    body = _chat(client, "hola")
+    bound = body["turnId"]
+    assert bound and len(bound) == 12
+    # Fuera del turno, la variable vuelve a "".
+    assert turn_id_var.get() == ""
+
+
+async def test_runtime_background_tracks_tasks_until_done(client: TestClient) -> None:
+    """`runtime.background()` debe drenar las tareas en background al apagar."""
+    import asyncio
+    import contextlib
+
+    rt = main.runtime
+    finished: list[int] = []
+
+    async def work(value: int) -> None:
+        await asyncio.sleep(0)
+        finished.append(value)
+
+    t1 = rt.background(work(1))
+    t2 = rt.background(work(2))
+    assert rt.background_count >= 2
+    await asyncio.gather(t1, t2)
+    assert sorted(finished) == [1, 2]
+    # Las tareas se auto-eliminan al terminar.
+    assert rt.background_count == 0
+
+    async def hang() -> None:
+        await asyncio.sleep(60)
+
+    task = rt.background(hang())
+    try:
+        rt.cancel_background()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
+        assert task.cancelled() or task.done(), "cancel_background debe cortar la tarea"
+    finally:
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+async def test_thread_locks_purge_keeps_recently_used() -> None:
+    """La purga oportunista no debe borrar un lock recién adquirido."""
+    from app.runtime import ThreadLocks
+
+    locks = ThreadLocks()
+    # Forzar el umbral de purga (>5000) generando muchos ids distintos.
+    for i in range(5001):
+        await locks.acquire(f"t-{i}")
+    # Tras la purga, los locks más recientes (incluido el siguiente) siguen
+    # disponibles sin levantar KeyError.
+    fresh = await locks.acquire("t-fresh")
+    async with fresh:
+        assert fresh.locked()

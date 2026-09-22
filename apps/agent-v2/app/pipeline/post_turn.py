@@ -8,7 +8,6 @@ de episodios sin importar el pipeline completo.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -44,6 +43,13 @@ async def record_learning(
 
     Si el almacén falla, el cliente ya tiene su respuesta y no se le va a
     romper la conversación por no poder registrar una señal.
+
+    Recorre `messages` una sola vez en cualquier caso: rescata el resumen
+    del tool_call de `escalar_a_humano` (que puede o no existir) y, si no
+    hubo handoff, decide si el turno parece no respondido. Antes hacía dos
+    pasadas: una para el motivo de escalamiento, otra para "looks like
+    unanswered". Con `messages` típicamente de 10-50 entradas y un loop por
+    turno, son ~50-100 iteraciones menos por turno en la ruta caliente.
     """
     store = get_learning_store()
     try:
@@ -133,9 +139,14 @@ def schedule_episode(
     messages: list[Any],
     values: dict[str, Any],
 ) -> None:
-    """Fire-and-forget: el turno no espera a la extracción."""
+    """Fire-and-forget: el turno no espera a la extracción.
+
+    La tarea queda registrada en `Runtime._background_tasks` para que
+    `stop()` la drene antes de cerrar el checkpointer (ver
+    ``Runtime.background``).
+    """
     if not runtime.settings.episodic_memory_enabled:
         return
-    asyncio.ensure_future(
+    runtime.background(
         capture_episode(runtime, tenant_id, conversation_id, channel, list(messages), dict(values))
     )

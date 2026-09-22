@@ -15,6 +15,15 @@ SERVICE_DIR = Path(__file__).resolve().parent.parent
 _OPEN_ENVIRONMENTS = {"local", "development", "dev", "test", ""}
 
 
+class SettingsError(RuntimeError):
+    """Una variable de entorno tiene un valor fuera de rango o incoherente.
+
+    `get_settings()` la convierte en `RuntimeError` con detalle al arrancar:
+    más claro que dejar que un valor absurdo tumbe el primer turno que toque
+    ese knob.
+    """
+
+
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
@@ -38,6 +47,14 @@ def _env_float(name: str, default: float) -> float:
         return float(_env(name) or default)
     except ValueError:
         return default
+
+
+def _require_range(name: str, value: float, *, lo: float, hi: float | None = None) -> int | float:
+    """Valida rango y lanza `SettingsError` con detalle si está fuera."""
+    if value < lo or (hi is not None and value > hi):
+        bounds = f">= {lo}" if hi is None else f"in [{lo}, {hi}]"
+        raise SettingsError(f"{name}={value!r} debe ser {bounds}")
+    return value
 
 
 @dataclass(frozen=True)
@@ -172,6 +189,14 @@ class Settings:
     public_base_url: str = field(
         default_factory=lambda: _env("PUBLIC_BASE_URL", "http://localhost:3000")
     )
+    # Orígenes adicionales permitidos por CORS (además de `public_base_url`).
+    # Separados por coma; vacíos = sin extras. Evita tocar `main.py` cuando
+    # un tenant expone el chat web desde otro dominio.
+    cors_extra_origins: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            o.strip() for o in _env("AGENT_CORS_EXTRA_ORIGINS").split(",") if o.strip()
+        )
+    )
 
     knowledge_dir: Path = field(
         default_factory=lambda: Path(_env("KNOWLEDGE_DIR") or str(SERVICE_DIR / "knowledge"))
@@ -224,6 +249,52 @@ class Settings:
         default_factory=lambda: _env_int("AGENT_EPISODIC_LESSONS", 5)
     )
 
+    def __post_init__(self) -> None:
+        """Sanea y valida rangos. Los valores fuera de rango se cortan al
+        límite en vez de reventar: un knob mal configurado en producción
+        degrada en vez de tumbar el arranque.
+
+        Solo se valida (sin recortar) lo que rompería una invariante obvia:
+        un timeout negativo, un ratio sin denominador, un contador que
+        siempre sería 0.
+        """
+        if self.temperature < 0 or self.temperature > 2:
+            raise SettingsError(
+                f"AGENT_TEMPERATURE={self.temperature} fuera de rango [0, 2]"
+            )
+        if self.max_tokens <= 0:
+            raise SettingsError(f"AGENT_MAX_TOKENS={self.max_tokens} debe ser > 0")
+        if self.recursion_limit < 1:
+            raise SettingsError(f"AGENT_RECURSION_LIMIT={self.recursion_limit} debe ser >= 1")
+        if self.turn_timeout_seconds <= 0 or self.turn_timeout_image_seconds <= 0:
+            raise SettingsError("AGENT_TURN_TIMEOUT_* deben ser > 0")
+        if self.turn_timeout_seconds >= self.turn_timeout_image_seconds:
+            # El budget con imagen debe ser MAYOR (las imágenes tardan más),
+            # no igual ni menor. Si alguien invierte esto, el agente deja de
+            # aceptar imágenes para no superar el puente.
+            raise SettingsError(
+                f"AGENT_TURN_TIMEOUT_SECONDS ({self.turn_timeout_seconds}) debe ser "
+                f"< AGENT_TURN_TIMEOUT_IMAGE_SECONDS ({self.turn_timeout_image_seconds})"
+            )
+        if self.coalesce_window_ms < 0:
+            raise SettingsError("AGENT_COALESCE_WINDOW_MS no puede ser negativo")
+        if self.handoff_after_failures < 1:
+            raise SettingsError("AGENT_HANDOFF_AFTER_FAILURES debe ser >= 1")
+        if self.compact_after_chars < 0 or self.compact_keep_turns < 0:
+            raise SettingsError("AGENT_COMPACT_AFTER_CHARS / KEEP_TURNS no pueden ser negativos")
+        if self.summarize_after_messages < 1:
+            raise SettingsError("AGENT_SUMMARIZE_AFTER debe ser >= 1")
+        if self.keep_messages < 1:
+            raise SettingsError("AGENT_KEEP_MESSAGES debe ser >= 1")
+        if self.max_input_chars < 1:
+            raise SettingsError("AGENT_MAX_INPUT_CHARS debe ser >= 1")
+        if self.max_tool_arg_chars < 1:
+            raise SettingsError("AGENT_MAX_TOOL_ARG_CHARS debe ser >= 1")
+        if self.max_audio_bytes < 1 or self.max_image_bytes < 1:
+            raise SettingsError("AGENT_MAX_*_BYTES deben ser >= 1")
+        if self.metrics_latency_samples < 1:
+            raise SettingsError("AGENT_METRICS_LATENCY_SAMPLES debe ser >= 1")
+
     @property
     def llm_live(self) -> bool:
         return bool(self.openrouter_key)
@@ -249,7 +320,13 @@ class Settings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    settings = Settings()
+    try:
+        settings = Settings()
+    except SettingsError as exc:
+        # Reempaquetado en RuntimeError: la app solo espera RuntimeError al
+        # arrancar (uvicorn muere si start() lanza), y el detalle original
+        # sigue en `__cause__`.
+        raise RuntimeError(f"Configuración inválida: {exc}") from exc
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     # Fuera de local/desarrollo, degradar a "sin autenticación de servicio"
     # (comportamiento heredado de v1) deja el puerto abierto a cualquiera

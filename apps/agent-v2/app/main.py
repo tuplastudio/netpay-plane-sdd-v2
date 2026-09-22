@@ -33,6 +33,7 @@ from .api.deps import require_internal_key  # noqa: E402
 from .api.health import VERSION  # noqa: E402
 from .guards import install_log_redaction  # noqa: E402
 from .knowledge import DEFAULT_TENANT_ID, load_knowledge  # noqa: E402
+from .log_context import install_turn_id_filter  # noqa: E402
 from .runtime import runtime  # noqa: E402
 from .tenant_context import warm_catalog  # noqa: E402
 
@@ -60,6 +61,7 @@ async def _lifespan(_: FastAPI):
     # Los ids de conversación llevan el teléfono del cliente y los mensajes
     # pueden traer correos: ningún log del proceso debe escribirlos en claro.
     install_log_redaction()
+    install_turn_id_filter()
     await runtime.start()
     # El primer turno tras arrancar tardaba ~28s (catálogo sin cachear,
     # conocimiento sin leer, cliente del modelo sin inicializar) y el puente
@@ -80,9 +82,25 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+# Orígenes CORS: el dominio público del proceso + extras por env. El chat
+# web de `apps/web` corre por defecto en :3000/:3001 en dev y en
+# `public_base_url` en producción; `AGENT_CORS_EXTRA_ORIGINS` agrega otros
+# sin tocar código.
+cors_origins: list[str] = [
+    settings.public_base_url,
+    "http://localhost:3000",
+    "http://localhost:3001",
+    *settings.cors_extra_origins,
+]
+# `allow_origins` no acepta comodines con `allow_credentials=True`; un "*"
+# explícito en extras se traduce a regex.
+cors_origin_regex: str | None = r"https://.*\.vercel\.app" if any(
+    o == "*" for o in cors_origins
+) else None
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.public_base_url, "http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[o for o in cors_origins if o != "*"],
+    allow_origin_regex=cors_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", "X-Internal-Key"],

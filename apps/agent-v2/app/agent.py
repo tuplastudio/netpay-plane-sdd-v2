@@ -207,7 +207,9 @@ def _report_usage(tenant_id: str, model: str, response: Any) -> None:
         except Exception:
             logger.warning("tenant %s: no se pudo reportar uso de tokens", tenant_id, exc_info=True)
 
-    asyncio.ensure_future(_send())
+    from .runtime import runtime as _runtime
+
+    _runtime.background(_send())
 
 
 def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):

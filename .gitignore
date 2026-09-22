@@ -8,6 +8,15 @@ coverage/
 .env
 .env.bak
 .env.*.local
+# Variantes comunes de dotenv (Vercel CLI y similares crean `.env.<scope>`).
+.env.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.test
+.env.test.local
+.env.vercel
 !.env.example
 .DS_Store
 .idea/
