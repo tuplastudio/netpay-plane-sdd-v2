@@ -29,6 +29,7 @@ TOOL_SCOPES: dict[str, str] = {
     "quitar_del_carrito": "catalog.read",
     "calcular_total": "quotes.read",
     "calcular_unidades_para_cubrir": "catalog.read",
+    "validar_zona_de_envio": "quotes.read",
     "emitir_cotizacion": "quotes.write",
     "convertir_en_pedido": "orders.write",
     "generar_enlace_pago": "orders.write",

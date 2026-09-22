@@ -52,6 +52,12 @@ class AgentSettingsPayload(BaseModel):
     auto_history_lookup: bool | None = None
     max_products_per_message: int | None = None
     default_delivery_mode: str | None = None
+    # Si True: después de confirmar, va directo a `generar_enlace_pago`
+    # sin `emitir_cotizacion`. Útil para negocios donde el cliente paga ya.
+    bot_pay_first: bool | None = None
+    # Si True: para envío a domicilio pregunta CP/ciudad/estado antes de
+    # cotizar (para resolver la zona del admin). Si False: cae al flat.
+    collect_customer_address: bool | None = None
     handoff_keywords: list[str] | str | None = None
     forbidden_topics: str | None = None
     extra_rules: str | None = None

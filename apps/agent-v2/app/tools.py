@@ -558,7 +558,29 @@ async def calcular_unidades_para_cubrir(
 
 
 @tool
-async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "", carritoId: str = "") -> Command:
+async def calcular_total(
+    runtime: ToolRuntime,
+    deliveryMode: str = "",
+    carritoId: str = "",
+    postalCode: str = "",
+    city: str = "",
+    state: str = "",
+) -> Command:
+    """Calcula el total exacto de UN carrito con impuestos y envío.
+
+    Es la ÚNICA fuente de importes: nunca sumes tú. No crea la cotización.
+    `deliveryMode`: PICKUP (recoge en tienda) o LOCAL_DELIVERY (envío a
+    domicilio); vacío = el que ya usaste para ese carrito o el por defecto del
+    negocio. Si el cliente pide envío, pásalo explícito. `carritoId` vacío =
+    el carrito activo (ver agregar_al_carrito). Si el cliente lleva dos
+    pedidos y pregunta "¿y el total de las playeras?", pasa ese carritoId
+    explícito para no calcular el equivocado.
+
+    Para `LOCAL_DELIVERY`, si el cliente ya dio dirección pasa `postalCode`,
+    `city`, `state`. El backend resuelve la zona que el admin configuró y
+    sobreescribe el envío. Sin dirección, se cae al `shippingFlat` del
+    tenant (genérico).
+    """
     """Calcula el total exacto de UN carrito con impuestos y envío.
 
     Es la ÚNICA fuente de importes: nunca sumes tú. No crea la cotización.
@@ -578,18 +600,32 @@ async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "", carritoId
         return _tool_reply(runtime, _fail("Ese carrito está vacío: agrega productos primero."))
 
     mode = _delivery_mode(runtime, record, deliveryMode)
+    client = _client(runtime)
     totals, error = await _safe(
-        _client(runtime).price_preview(_lines_payload(lines), delivery_mode=mode)
+        client.price_preview(
+            _lines_payload(lines),
+            delivery_mode=mode,
+            postal_code=postalCode or None,
+            city=city or None,
+            state=state or None,
+        )
     )
     if error:
         return _tool_reply(runtime, _fail(error))
 
     body = (totals or {}).get("totals", totals or {})
+    zone = (totals or {}).get("shippingZone") or {}
     detail = "; ".join(f"{c['quantity']} x {c['title']}" for c in lines)
     total_open = len(open_carts(runtime.state.get("carts"))) or 1
+    zone_note = ""
+    if mode == "LOCAL_DELIVERY":
+        if zone.get("name"):
+            zone_note = f" (zona: {zone['name']})"
+        elif zone.get("fallback"):
+            zone_note = " (envío estándar, el admin no configuró zona para esta dirección)"
     text = (
         f"Total para {detail}: subtotal ${body.get('subtotal')}, IVA ${body.get('tax')}, "
-        f"envío ${body.get('shipping')} → TOTAL ${body.get('total')}" + _cart_ref(cart_id, total_open)
+        f"envío ${body.get('shipping')}{zone_note} → TOTAL ${body.get('total')}" + _cart_ref(cart_id, total_open)
     )
     return _tool_reply(
         runtime,
@@ -599,6 +635,67 @@ async def calcular_total(runtime: ToolRuntime, deliveryMode: str = "", carritoId
             "active_cart_id": cart_id,
         },
     )
+
+
+@tool
+async def validar_zona_de_envio(
+    postalCode: str = "",
+    city: str = "",
+    state: str = "",
+    runtime: ToolRuntime = None,  # type: ignore[assignment]
+) -> Command:
+    """Confirma cuánto costaría el envío a la dirección del cliente.
+
+    Úsala cuando el cliente confirma una dirección a domicilio ANTES de
+    pasarle el total: si el admin configuró zonas (CP, ciudad, estado),
+    esta herramienta devuelve el precio exacto de su zona. Si no hay zona
+    que coincida, devuelve `fallback: true` con el `shippingFlat` genérico:
+    avisale al cliente que el envío es estándar (no específico de su zona).
+
+    Si el cliente aún NO dio dirección completa (solo dijo "es a
+    domicilio"), no llames esto: primero pídele CP / ciudad / estado y
+    luego usa la respuesta aquí.
+
+    Args:
+    - `postalCode`: 4-5 dígitos (MX: 5; CR/ES: 4-5). Vacío = no lo dio.
+    - `city`: nombre de la ciudad ("Guadalajara", "Querétaro", ...).
+    - `state`: estado/departamento ("JAL", "QRO", "CDMX", ...).
+
+    Devuelve "Zona {nombre}: ${precio}." o "Sin zona configurada para esa
+    dirección: se cobrará el envío estándar (${precio})."
+    """
+    if denied := _require_scope(runtime, "validar_zona_de_envio"):
+        return _tool_reply(runtime, _fail(denied))
+    if not (postalCode or city or state):
+        return _tool_reply(
+            runtime,
+            _fail(
+                "Necesito al menos CP, ciudad o estado para resolver la zona. "
+                "Pídeselo al cliente."
+            ),
+        )
+    zone, error = await _safe(
+        _client(runtime).lookup_delivery_zone(
+            postal_code=postalCode or None,
+            city=city or None,
+            state=state or None,
+        )
+    )
+    if error:
+        return _tool_reply(runtime, _fail(error))
+    price = (zone or {}).get("price", "0.00")
+    name = (zone or {}).get("zoneName")
+    fallback = bool((zone or {}).get("fallback"))
+    if name:
+        text = f"Zona de envío: {name} → ${price}."
+    elif fallback:
+        text = (
+            f"Sin zona configurada para esa dirección: se cobrará el envío "
+            f"estándar (${price})."
+        )
+    else:
+        text = f"Envío a esa dirección: ${price}."
+    return _tool_reply(runtime, text)
 
 
 # ---------------------------------------------------------------- cotización
@@ -1105,6 +1202,7 @@ SALES_TOOLS = [
     quitar_del_carrito,
     calcular_total,
     calcular_unidades_para_cubrir,
+    validar_zona_de_envio,
     emitir_cotizacion,
     detalle_de_cotizacion,
     convertir_en_pedido,

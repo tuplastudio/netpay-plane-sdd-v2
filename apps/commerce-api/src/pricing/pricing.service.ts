@@ -137,6 +137,91 @@ export class PricingService {
   }
 
   /**
+   * Resuelve la zona de envío para `LOCAL_DELIVERY` con los datos de dirección
+   * del cliente. Orden de precedencia:
+   *   1. Coincidencia exacta por CP en `postalCodes[]`.
+   *   2. Coincidencia por `state` + `cityPattern` (LIKE del admin).
+   *   3. Zona "catch-all" (sin CP ni state; solo debería existir UNA por tenant).
+   *   4. `tenant.shippingFlat` (compatibilidad).
+   *
+   * Devuelve `{ price, zoneId, zoneName, fallback }`. `fallback=true` cuando
+   * no se encontró zona y se cobró `shippingFlat` (el caller debe avisar al
+   * cliente que el envío es estándar, no personalizado).
+   */
+  async resolveShippingZone(
+    tenantId: string,
+    address: { postalCode?: string; city?: string; state?: string },
+  ): Promise<{
+    price: string;
+    zoneId: string | null;
+    zoneName: string | null;
+    fallback: boolean;
+  }> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { shippingFlat: true },
+    });
+    const flat = tenant ? this.decimalToMoney(tenant.shippingFlat) : "0.00";
+
+    const zones = await this.prisma.deliveryZone.findMany({
+      where: { tenantId, active: true },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    });
+    if (zones.length === 0) {
+      return { price: flat, zoneId: null, zoneName: null, fallback: true };
+    }
+
+    const cp = (address.postalCode ?? "").trim();
+    const city = (address.city ?? "").trim().toLowerCase();
+    const state = (address.state ?? "").trim().toLowerCase();
+
+    // 1) Coincidencia por CP
+    if (cp) {
+      const byCp = zones.find((z) => z.postalCodes.some((p) => p.trim() === cp));
+      if (byCp) {
+        return {
+          price: this.decimalToMoney(byCp.price),
+          zoneId: byCp.id,
+          zoneName: byCp.name,
+          fallback: false,
+        };
+      }
+    }
+    // 2) Coincidencia por estado + ciudad (LIKE)
+    if (state && city) {
+      const byStateCity = zones.find(
+        (z) =>
+          (z.state ?? "").trim().toLowerCase() === state &&
+          city.includes((z.cityPattern ?? "").trim().toLowerCase()) &&
+          (z.cityPattern ?? "").trim() !== "",
+      );
+      if (byStateCity) {
+        return {
+          price: this.decimalToMoney(byStateCity.price),
+          zoneId: byStateCity.id,
+          zoneName: byStateCity.name,
+          fallback: false,
+        };
+      }
+    }
+    // 3) Zona catch-all (sin postalCodes ni cityPattern: aplica a TODO)
+    const catchAll = zones.find(
+      (z) =>
+        z.postalCodes.length === 0 && !(z.cityPattern ?? "").trim() && !(z.state ?? "").trim(),
+    );
+    if (catchAll) {
+      return {
+        price: this.decimalToMoney(catchAll.price),
+        zoneId: catchAll.id,
+        zoneName: catchAll.name,
+        fallback: false,
+      };
+    }
+    // 4) Fallback al flat del tenant.
+    return { price: flat, zoneId: null, zoneName: null, fallback: true };
+  }
+
+  /**
    * Reserva atómica de stock al iniciar checkout.
    * Ver docs/05-prc.md T-PRC-05: evita oversell con decrement condicional.
    */

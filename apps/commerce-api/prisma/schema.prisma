@@ -63,6 +63,7 @@ model Tenant {
   usageEvents  AgentUsageEvent[]
   conversationNotes ConversationNote[]
   messageNotes MessageNote[]
+  deliveryZones DeliveryZone[]
 }
 
 enum TenantStatus {
@@ -1099,4 +1100,34 @@ model NotificationTimeline {
 
   @@index([tenantId, subjectType, subjectId])
   @@index([tenantId, createdAt])
+}
+
+// Zonas de envío a domicilio (T-SHIP-01..03). El admin las administra desde
+// el panel del tenant; el agente y commerce-api las consultan para cobrar
+// el envío correcto según el CP o la ciudad del cliente. Si no hay zona
+// activa que coincida, se cae al `shippingFlat` del tenant (compatibilidad).
+model DeliveryZone {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String   @db.Uuid
+  name         String   // "Centro", "Zona metropolitana", "Foráneo", ...
+  /// CPs que cubre la zona. Vacío = aplica por ciudad/estado (campo
+  /// `cityPattern` / `state`). Si ambos están vacíos, la zona es el
+  /// fallback y solo debe existir UNA por tenant.
+  postalCodes  String[] @default([])
+  cityPattern  String?  // LIKE del cliente: "Guadalajara", "CDMX", ...
+  state        String?  // "JAL", "CDMX", ...
+  price        Decimal  @db.Decimal(12, 2)
+  /// Pedido mínimo para que la zona aplique (NULL = sin mínimo). Útil para
+  /// forzar recogida en pedidos muy chicos.
+  minOrder     Decimal? @db.Decimal(12, 2)
+  active       Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  notes        String?
+  createdAt    DateTime @default(now()) @db.Timestamptz
+  updatedAt    DateTime @updatedAt @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
 }

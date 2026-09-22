@@ -9,6 +9,10 @@ import { PricingPreviewDto } from "../quotes/quote.dto.js";
  *
  * Es la única fuente de totales para el agente IA y para el front: calcula
  * sin crear nada, de modo que el modelo nunca tenga que estimar un precio.
+ *
+ * Para `LOCAL_DELIVERY`, si el cliente ya dio CP / ciudad / estado, el
+ * backend resuelve la zona del admin y sobreescribe `shipping` con el
+ * precio de esa zona. Sin dirección, se cae al `shippingFlat` del tenant.
  */
 @Controller("pricing")
 @UseGuards(RoleGuard)
@@ -23,13 +27,42 @@ export class PricingController {
       throw new NotFoundException({ code: "UNAUTHORIZED", message: "Sin tenant" });
     }
     const priced = await this.pricing.price(tenantId, body.lines ?? []);
+    const deliveryMode = body.deliveryMode ?? "PICKUP";
+
+    let shipping = priced.totals.shipping;
+    let shippingZone: { id: string | null; name: string | null; fallback: boolean } = {
+      id: null,
+      name: null,
+      fallback: false,
+    };
+    if (deliveryMode === "LOCAL_DELIVERY" && (body.postalCode || body.city || body.state)) {
+      const resolved = await this.pricing.resolveShippingZone(tenantId, {
+        postalCode: body.postalCode,
+        city: body.city,
+        state: body.state,
+      });
+      shipping = resolved.price;
+      shippingZone = { id: resolved.zoneId, name: resolved.zoneName, fallback: resolved.fallback };
+    }
+
+    // `total` ya viene sumado; ajustamos solo el delta de envío para no
+    // recomponer a mano la aritmética de BigInt del domain package.
+    const newTotal = (
+      Number(priced.totals.total) -
+      Number(priced.totals.shipping) +
+      Number(shipping)
+    ).toFixed(2);
+
     return {
       data: {
         lines: priced.lines,
-        totals: priced.totals,
-        // El envío por recolección no cobra flat; el backend decide, no el cliente.
-        deliveryMode: body.deliveryMode ?? "PICKUP",
-        ...priced.totals,
+        totals: {
+          ...priced.totals,
+          shipping,
+          total: newTotal,
+        },
+        shippingZone,
+        deliveryMode,
       },
       requestId: RequestContext.requestId,
     };

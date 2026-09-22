@@ -106,6 +106,28 @@ def overrides_block(overrides: "AgentSettings | None") -> str:
             f"- Modo de entrega por defecto: {mode}; úsalo en calcular_total y "
             "generar_enlace_pago salvo que el cliente pida otra cosa."
         )
+    if getattr(o, "bot_pay_first", False):
+        # El admin eligió el flujo corto: tras confirmar el pedido, va
+        # directo al link de pago sin emitir cotización intermedia.
+        lines.append(
+            "- FLUJO RÁPIDO habilitado por el admin: cuando el cliente confirme "
+            "el pedido, llama `generar_enlace_pago` directamente. NO emitas "
+            "cotización previa: el cliente va a pagar ya. Sí o sí explícito "
+            "del cliente en el mensaje actual."
+        )
+    if getattr(o, "collect_customer_address", True):
+        lines.append(
+            "- Para envío a domicilio, antes de llamar `calcular_total` pide "
+            "al cliente su CP / ciudad / estado. Con esos datos, llama "
+            "`validar_zona_de_envio` para confirmar el costo del envío y "
+            "luego `calcular_total` con `postalCode`/`city`/`state`."
+        )
+    else:
+        lines.append(
+            "- Para envío a domicilio, NO preguntes dirección al cliente: "
+            "pasa el carrito directamente con `default_delivery_mode` y "
+            "cobra el envío flat del tenant."
+        )
     if getattr(o, "auto_history_lookup", True) is False:
         lines.append(
             "- No consultes historial_del_cliente por iniciativa propia: solo "

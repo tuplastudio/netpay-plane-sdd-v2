@@ -79,6 +79,23 @@ export class PricingPreviewDto {
   @IsOptional()
   @IsIn(["PICKUP", "LOCAL_DELIVERY"])
   deliveryMode?: "PICKUP" | "LOCAL_DELIVERY";
+
+  /** Para envío a domicilio: con estos datos el backend elige la zona del
+   *  admin. Cualquier campo faltante cae al `shippingFlat` del tenant. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  state?: string;
 }
 
 export class ShareQuoteDto {

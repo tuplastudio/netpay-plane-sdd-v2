@@ -121,10 +121,13 @@ function BrandMark({ merchant }: { merchant?: string }) {
 /** Pie de confianza: siempre visible, incluso en error o carga. */
 function TrustLine() {
   return (
-    <p className="flex flex-wrap items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
-      <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
-      Modo de pruebas · sin dinero real
-    </p>
+    <div className="flex flex-col items-center justify-center gap-1 text-center text-xs text-muted-foreground">
+      <p className="flex flex-wrap items-center justify-center gap-1.5">
+        <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
+        Pago seguro con NetPay
+      </p>
+      <p className="opacity-70">Modo de pruebas · sin dinero real</p>
+    </div>
   );
 }
 

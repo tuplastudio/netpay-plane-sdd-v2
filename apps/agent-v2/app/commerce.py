@@ -229,14 +229,60 @@ class CommerceClient:
     # ---------- precios y cotizaciones ----------
 
     async def price_preview(
-        self, lines: list[dict[str, Any]], *, delivery_mode: str | None = None
+        self,
+        lines: list[dict[str, Any]],
+        *,
+        delivery_mode: str | None = None,
+        postal_code: str | None = None,
+        city: str | None = None,
+        state: str | None = None,
     ) -> dict[str, Any]:
-        """Calculadora oficial. No crea nada: solo totaliza."""
-        return await self._request(
-            "POST",
-            "/pricing/preview",
-            json_body={"lines": lines, "deliveryMode": delivery_mode},
+        """Calculadora oficial. No crea nada: solo totaliza.
+
+        Para `LOCAL_DELIVERY` con `postal_code`/`city`/`state`, el backend
+        resuelve la zona de envío del admin y la usa en vez del `shippingFlat`
+        del tenant. La respuesta incluye `shippingZone` con `{id, name,
+        fallback}` para que el LLM sepa si el envío es personalizado o
+        genérico.
+        """
+        body: dict[str, Any] = {"lines": lines, "deliveryMode": delivery_mode}
+        if postal_code or city or state:
+            body["postalCode"] = postal_code
+            body["city"] = city
+            body["state"] = state
+        return await self._request("POST", "/pricing/preview", json_body=body)
+
+    async def lookup_delivery_zone(
+        self,
+        *,
+        postal_code: str | None = None,
+        city: str | None = None,
+        state: str | None = None,
+    ) -> dict[str, Any]:
+        """Resuelve la zona de envío del admin para una dirección.
+
+        Devuelve `{price, zoneId, zoneName, fallback}`. `fallback=true`
+        significa que el admin no configuró una zona que coincida y se cobró
+        el `shippingFlat` genérico: el LLM debe avisar al cliente.
+        """
+        params: dict[str, Any] = {}
+        if postal_code:
+            params["postalCode"] = postal_code
+        if city:
+            params["city"] = city
+        if state:
+            params["state"] = state
+        return await self._request("GET", "/shipping/lookup", params=params or None)
+
+    async def list_delivery_zones(self, *, active_only: bool = True) -> list[dict[str, Any]]:
+        """Zonas activas del tenant (para mostrarlas al cliente o para que
+        el LLM sepa si el admin ya configuró envío a domicilio)."""
+        data = await self._request(
+            "GET",
+            "/tenants/me/delivery-zones",
+            params={"activeOnly": "true"} if active_only else None,
         )
+        return data or []
 
     async def create_quote(
         self,

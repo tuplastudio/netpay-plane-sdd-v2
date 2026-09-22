@@ -17,6 +17,7 @@ import { IntegrationModule } from "./integrations/integration.module.js";
 import { WhatsAppModule } from "./whatsapp/whatsapp.module.js";
 import { OpsModule } from "./ops/ops.module.js";
 import { TenantsModule } from "./tenants/tenants.module.js";
+import { ShippingModule } from "./shipping/shipping.module.js";
 import { UsageModule } from "./usage/usage.module.js";
 import { SuperAdminModule } from "./super-admin/super-admin.module.js";
 import { PrismaModule } from "./prisma/prisma.module.js";
@@ -49,6 +50,7 @@ import { RateLimitMiddleware, SecurityHeadersMiddleware } from "./ops/security.m
     WhatsAppModule,
     OpsModule,
     TenantsModule,
+    ShippingModule,
     UsageModule,
     SuperAdminModule,
     AgentProxyModule,

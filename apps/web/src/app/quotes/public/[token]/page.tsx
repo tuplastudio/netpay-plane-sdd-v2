@@ -11,6 +11,7 @@ import {
   Download,
   FileText,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -452,6 +453,10 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
           </div>
         ) : null}
       </section>
+      <footer className="mt-8 flex flex-wrap items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+        <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
+        Pago seguro con NetPay
+      </footer>
     </article>
   );
 }

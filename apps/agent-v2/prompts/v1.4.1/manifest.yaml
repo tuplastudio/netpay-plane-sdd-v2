@@ -39,3 +39,16 @@ changelog:
     `AGENT_MAX_VIDEO_BYTES` (50 MB). `model_capabilities(model)` y el panel
     `/settings` exponen qué modalidades soporta cada modelo (text / image
     / video / audio) para que el front filtre cuando el cliente sube video.
+  - >-
+    Envío a domicilio configurable. Nueva herramienta
+    `validar_zona_de_envio(postalCode, city, state)` que consulta las
+    zonas que el admin del tenant configuró (`/tenants/me/delivery-zones`
+    CRUD, RLS por tenant, índice GIN sobre `postalCodes`). `calcular_total`
+    ahora acepta `postalCode/city/state`: si los pasas y el modo es
+    `LOCAL_DELIVERY`, el backend resuelve la zona y sobrescribe el envío.
+    Settings: `bot_pay_first` (va directo a `generar_enlace_pago` sin
+    cotización previa, configurable por tenant) y `collect_customer_address`
+    (preguntar CP/ciudad/estado o caer al flat). Nuevo bloque del prompt
+    `55_envio_domicilio.md` cubre: pedir dirección completa antes de
+    cotizar a domicilio, no usar ubicación de WhatsApp como CP, manejar
+    el caso `fallback=true` (zona no configurada para esa dirección).

@@ -135,6 +135,16 @@ class AgentSettings:
     auto_history_lookup: bool = True
     max_products_per_message: int = 3
     default_delivery_mode: str = "PICKUP"
+    # Si True, después de confirmar un pedido el bot va directo al link de
+    # pago sin pasar por `emitir_cotizacion`. Útil para negocios donde el
+    # cliente suele pagar ya (ej. comida para llevar, recargas): saltarse
+    # la cotización quita un paso y reduce el tiempo al cobro. Default False
+    # por compatibilidad con el flujo que ya funciona.
+    bot_pay_first: bool = False
+    # Si True, antes de cotizar con envío a domicilio el bot pregunta CP /
+    # ciudad / estado del cliente y llama `validar_zona_de_envio`. Si False,
+    # se cae al `shippingFlat` genérico sin preguntar (modo "rápido").
+    collect_customer_address: bool = True
     handoff_keywords: list[str] = field(default_factory=list)
     forbidden_topics: str = ""
     extra_rules: str = ""
@@ -204,7 +214,7 @@ class AgentSettings:
 
 _BOOL_FIELDS = {"ask_name_before_quote", "ask_email_before_quote", "auto_history_lookup",
                 "whatsapp_plain_text", "auto_reply", "human_reply_filter_enabled",
-                "auto_close_enabled"}
+                "auto_close_enabled", "bot_pay_first", "collect_customer_address"}
 _OPT_BOOL_FIELDS = {"emoji"}
 _STR_LIMITS = {
     "agent_name": 60, "business_name": 120, "tone": 300, "greeting": 300,
