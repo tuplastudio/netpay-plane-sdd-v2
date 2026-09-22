@@ -121,8 +121,18 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/netpay-build/infra
+            # `pnpm exec prisma` en la RAÍZ del workspace falla con
+            # "Command prisma not found" (prisma es dependencia del paquete
+            # commerce-api, no del root) — y el `|| true` anterior lo
+            # enmascaraba: las migraciones NUNCA se aplicaban desde este
+            # workflow y la BD se desfasaba del código en silencio (pasó con
+            # 0014/0015/0016 el 2026-09-22: el contenedor nuevo insertaba
+            # columnas que la BD no tenía y la ingesta de WhatsApp fallaba).
+            # Se corre desde apps/commerce-api, donde prisma SÍ está, y SIN
+            # `|| true`: un fallo de migración debe tumbar el deploy, no
+            # desfasar la base en silencio.
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              pnpm exec prisma migrate deploy || true
+              sh -c "cd apps/commerce-api && pnpm exec prisma migrate deploy"
 
       # El API público (api-easysell.tupla.dev: Vercel y el webhook de
       # Evolution dependen de él) se sirve desde captain-nginx de CapRover
