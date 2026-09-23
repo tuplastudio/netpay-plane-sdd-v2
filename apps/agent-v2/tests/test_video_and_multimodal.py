@@ -222,7 +222,30 @@ class DiagnosticsIncludesCapabilitiesTests(TestCase):
 class DiagnosticsTenantAwareTests(TestCase):
     """`/diagnostics` y `/readyz` reflejan el estado EFECTIVO del tenant:
     con OPENROUTER_KEY_REF global vacía, un tenant con su propia key en
-    `AgentSettings` debe seguir apareciendo como LLM vivo."""
+    `AgentSettings` debe seguir apareciendo como LLM vivo.
+
+    El endpoint también expone `commerce` y `knowledge` en la forma
+    v1 que el chat web espera (`{docs, chunks, business}` y
+    `{configured, ok}`). Antes (cuando el chat leía `/healthz` de v2 que
+    solo traía `{status, version}`) esas dos pantallas estaban rotas."""
+
+    def test_diagnostics_exposes_commerce_and_knowledge(self):
+        from fastapi.testclient import TestClient
+
+        from app import main
+
+        with TestClient(main.app) as client:
+            diag = client.get("/diagnostics?tenantId=t-tenant").json()
+            self.assertIn("commerce", diag)
+            self.assertIn("configured", diag["commerce"])
+            self.assertIn("ok", diag["commerce"])
+            self.assertIn("knowledge", diag)
+            self.assertIn("docs", diag["knowledge"])
+            self.assertIn("chunks", diag["knowledge"])
+            self.assertIn("business", diag["knowledge"])
+            self.assertIsInstance(diag["knowledge"]["docs"], int)
+            self.assertIsInstance(diag["knowledge"]["chunks"], int)
+            self.assertIsInstance(diag["knowledge"]["business"], str)
 
     def test_tenant_key_makes_llm_live_even_without_global_key(self):
         from fastapi.testclient import TestClient

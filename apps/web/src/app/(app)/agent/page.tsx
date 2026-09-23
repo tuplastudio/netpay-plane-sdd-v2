@@ -535,11 +535,25 @@ export default function AgentConsolePage() {
                       label="Estado"
                       value={
                         <Badge variant={diagnostics.data.llm.live ? "success" : "neutral"}>
-                          {diagnostics.data.llm.live ? "LLM activo" : "Motor determinista"}
+                          {diagnostics.data.llm.live
+                            ? diagnostics.data.llm.keySource === "tenant"
+                              ? "LLM activo (key propia)"
+                              : "LLM activo"
+                            : "Sin LLM — configura tu OpenRouter API key"}
                         </Badge>
                       }
                     />
                     <Row label="Modelo" value={diagnostics.data.llm.model} mono />
+                    <Row
+                      label="OpenRouter key"
+                      value={
+                        diagnostics.data.llm.keySource === "tenant"
+                          ? "Tu key propia (configurada)"
+                          : diagnostics.data.llm.keySource === "global"
+                            ? "Compartida de la plataforma"
+                            : "Sin configurar"
+                      }
+                    />
                     <Row
                       label="Tool calling"
                       value={
@@ -1193,7 +1207,7 @@ function HealthBanner({
     state === "ok"
       ? "Agente en línea"
       : state === "fallback"
-        ? "Motor determinista (sin LLM)"
+        ? "Sin LLM: configura tu OpenRouter API key en General → Modelo"
         : state === "degraded"
           ? "Agente sin conexión al catálogo"
           : "Cargando estado…";

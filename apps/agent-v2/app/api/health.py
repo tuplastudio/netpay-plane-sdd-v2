@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from ..agent import model_capabilities
 from ..agent_settings import get_agent_settings
 from ..commerce import CommerceClient
-from ..knowledge import DEFAULT_TENANT_ID, load_knowledge
+from ..knowledge import DEFAULT_TENANT_ID, knowledge_stats, load_knowledge
 from ..prompts import get_prompt_registry
 from ..runtime import runtime
 from ..security import TOOL_SCOPES
@@ -105,6 +105,16 @@ async def diagnostics(tenantId: str | None = Query(default=None)) -> dict[str, A
         else "none"
     )
 
+    # Paridad v1 para el chat web: el chat (`/agent → Probar en el chat`)
+    # muestra el negocio y el estado de commerce-api desde ESTE endpoint.
+    # Antes (cuando el chat leía /healthz de v2, que solo trae
+    # {status, version}) esas dos pantallas estaban rotas desde la
+    # migración: business siempre "el negocio" y el badge de commerce
+    # siempre vacío. /diagnostics es el endpoint vivo del panel, así que
+    # aquí es donde van.
+    kb = knowledge_stats(tenant_id or DEFAULT_TENANT_ID)
+    commerce = await CommerceClient().health()
+
     return {
         "engine": "langgraph+deepagents",
         "version": VERSION,
@@ -112,6 +122,18 @@ async def diagnostics(tenantId: str | None = Query(default=None)) -> dict[str, A
         "modelCapabilities": model_capabilities(effective_model),
         "tools": [t.name for t in SALES_TOOLS],
         "knowledgeChars": len(load_knowledge(tenant_id or DEFAULT_TENANT_ID)),
+        # Forma v1 que el chat espera: {docs (conteo), chunks, business}.
+        "knowledge": {
+            "docs": len(kb["docs"]),
+            "chunks": kb["chunks"],
+            "business": kb["profile"]["name"],
+        },
+        # Forma que el badge de commerce del chat espera: {configured}.
+        # `ok` es la forma de /readyz; `configured` la que lee el chat.
+        "commerce": {
+            "configured": bool(settings.commerce_live and commerce.get("ok")),
+            "ok": bool(commerce.get("ok")),
+        },
         "llm": {
             "live": effective_llm_live,
             "keySource": key_source,
