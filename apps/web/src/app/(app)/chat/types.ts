@@ -92,9 +92,19 @@ export interface ChatMessage {
 }
 
 export interface AgentHealth {
-  status: string;
-  /** Forma mínima v2: `{live, model}`. El v1 también traía `toolCalling`. */
-  llm: { live: boolean; model: string; toolCalling?: boolean };
+  status?: string;
+  /** Forma v2: `{live, model, keySource, tenantKeySet, globalKeySet}`.
+   *  Antes solo `{live, model}` (estado GLOBAL); ahora tenant-aware: si
+   *  el tenant tiene su propia OpenRouter API key configurada, `live`
+   *  es true aunque la global esté vacía. */
+  llm: {
+    live: boolean;
+    model: string;
+    toolCalling?: boolean;
+    keySource?: "global" | "tenant" | "none";
+    tenantKeySet?: boolean;
+    globalKeySet?: boolean;
+  };
   /** Configurado puede no venir si el agente no expone el catálogo. */
   commerce?: { configured: boolean };
   /** El negocio se anuncia en el header del chat; si el agente no lo trae,

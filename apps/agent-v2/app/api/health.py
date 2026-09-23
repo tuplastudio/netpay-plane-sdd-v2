@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from ..agent import model_capabilities
+from ..agent_settings import get_agent_settings
 from ..commerce import CommerceClient
 from ..knowledge import DEFAULT_TENANT_ID, load_knowledge
 from ..prompts import get_prompt_registry
@@ -28,19 +29,43 @@ async def healthz() -> dict[str, Any]:
     return {"status": "ok", "version": VERSION}
 
 
+def _resolve_tenant(tenantId: str | None) -> str | None:
+    """Si llega `?tenantId=` lo usa; si no, devuelve None para que la
+    respuesta represente estado GLOBAL (útil para super-admin sin tenant
+    resuelto). El panel siempre manda su tenantId."""
+    if not tenantId:
+        return None
+    return tenantId.strip() or None
+
+
 @router.get("/readyz")
-async def readyz() -> dict[str, Any]:
+async def readyz(tenantId: str | None = Query(default=None)) -> dict[str, Any]:
     settings = runtime.settings
     commerce = await CommerceClient().health()
+    # El LLM está "live" si HAY alguna key usable: la global del proceso,
+    # o la del tenant que llamó. Sin tenantId y sin global: nada arranca.
+    tenant_key = ""
+    if tenantId:
+        tenant_key = get_agent_settings(tenantId).openrouter_api_key()
+    effective_llm_live = bool(settings.openrouter_key or tenant_key)
     return {
-        "ready": bool(settings.llm_live and commerce.get("ok")),
-        "llm": {"live": settings.llm_live, "model": settings.model},
+        "ready": bool(effective_llm_live and commerce.get("ok")),
+        "llm": {
+            "live": effective_llm_live,
+            "model": settings.model,
+            "source": "global" if settings.openrouter_key and not tenant_key
+                      else "tenant" if tenant_key
+                      else "none",
+        },
         "commerce": commerce,
         "checkpointer": str(settings.checkpoint_path),
         "warnings": [
             w
             for w in (
-                None if settings.llm_live else "OPENROUTER_KEY_REF no configurada",
+                None if effective_llm_live else (
+                    "OPENROUTER_KEY_REF no configurada y este tenant no tiene "
+                    "OpenRouter API key propia (configúrala en /agent → General → Modelo)"
+                ),
                 None if settings.commerce_live else "AGENT_INTERNAL_KEY_REF o AGENT_API_KEY_REF no configurada",
                 None if settings.internal_key else "AGENT_INTERNAL_KEY_REF no configurada",
             )
@@ -50,15 +75,49 @@ async def readyz() -> dict[str, Any]:
 
 
 @router.get("/diagnostics")
-async def diagnostics() -> dict[str, Any]:
+async def diagnostics(tenantId: str | None = Query(default=None)) -> dict[str, Any]:
+    """Estado del agente.
+
+    Tenant-aware: con `?tenantId=X` reporta el estado EFECTIVO para ese
+    tenant (modelo + key override si lo configuró en el panel). Sin
+    `tenantId`, devuelve el estado global del proceso (útil para super-admin).
+
+    Sin key global y sin key de tenant, `llm.live` es false aunque el
+    contenedor esté vivo: la API de OpenRouter rechazaría las llamadas.
+    El panel usa esto para mostrar "Motor determinista (sin LLM)" en la
+    franja superior — antes siempre decía eso incluso para tenants que ya
+    habían configurado su key, porque `settings.llm_live` solo veía el
+    proceso. Por tenant, ya no es engañoso.
+    """
     settings = runtime.settings
+    tenant_id = _resolve_tenant(tenantId)
+
+    effective_model = settings.model
+    tenant_key = ""
+    if tenant_id:
+        overrides = get_agent_settings(tenant_id)
+        effective_model = overrides.effective_model(settings.model)
+        tenant_key = overrides.openrouter_api_key()
+    effective_llm_live = bool(settings.openrouter_key or tenant_key)
+    key_source = (
+        "tenant" if tenant_key
+        else "global" if settings.openrouter_key
+        else "none"
+    )
+
     return {
         "engine": "langgraph+deepagents",
         "version": VERSION,
-        "model": settings.model,
-        "modelCapabilities": model_capabilities(settings.model),
+        "model": effective_model,
+        "modelCapabilities": model_capabilities(effective_model),
         "tools": [t.name for t in SALES_TOOLS],
-        "knowledgeChars": len(load_knowledge(DEFAULT_TENANT_ID)),
+        "knowledgeChars": len(load_knowledge(tenant_id or DEFAULT_TENANT_ID)),
+        "llm": {
+            "live": effective_llm_live,
+            "keySource": key_source,
+            "tenantKeySet": bool(tenant_key),
+            "globalKeySet": bool(settings.openrouter_key),
+        },
         "budgets": {
             "recursionLimit": settings.recursion_limit,
             "turnTimeoutSeconds": settings.turn_timeout_seconds,

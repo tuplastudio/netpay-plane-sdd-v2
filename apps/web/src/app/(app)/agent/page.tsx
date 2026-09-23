@@ -82,7 +82,16 @@ interface KnowledgeStats {
 }
 
 interface Diagnostics {
-  llm?: { live: boolean; model: string; toolCalling?: boolean; registered?: boolean; promptVersion?: string };
+  llm?: {
+    live: boolean;
+    model: string;
+    toolCalling?: boolean;
+    registered?: boolean;
+    promptVersion?: string;
+    keySource?: "global" | "tenant" | "none";
+    tenantKeySet?: boolean;
+    globalKeySet?: boolean;
+  };
   commerce: { ok: boolean; reason?: string };
   budgets: Record<string, number>;
 }

@@ -49,7 +49,9 @@ export function ContextPanels({
 
   const engineLabel = health.data?.llm?.live
     ? `${health.data.llm.model}${health.data.llm.toolCalling ? " · tools" : ""}`
-    : "Motor determinista (sin OPENROUTER_KEY)";
+    : health.data?.llm
+      ? `Motor determinista (${health.data.llm.keySource === "global" ? "OPENROUTER_KEY global" : "key de tenant no configurada"})`
+      : "Motor determinista (sin LLM)";
 
   return (
     <div className="space-y-4">

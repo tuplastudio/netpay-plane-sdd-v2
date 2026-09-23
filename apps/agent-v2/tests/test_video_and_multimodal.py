@@ -217,4 +217,89 @@ class DiagnosticsIncludesCapabilitiesTests(TestCase):
             diag = client.get("/diagnostics").json()
             budgets = diag["budgets"]
             self.assertIn("turnTimeoutVideoSeconds", budgets)
-            self.assertIn("maxVideoBytes", budgets)
+
+
+class DiagnosticsTenantAwareTests(TestCase):
+    """`/diagnostics` y `/readyz` reflejan el estado EFECTIVO del tenant:
+    con OPENROUTER_KEY_REF global vacía, un tenant con su propia key en
+    `AgentSettings` debe seguir apareciendo como LLM vivo."""
+
+    def test_tenant_key_makes_llm_live_even_without_global_key(self):
+        from fastapi.testclient import TestClient
+
+        from app import main
+        from app.agent_settings import AgentSettings, get_settings_store
+
+        # Sembramos un tenant con key propia. El global queda vacío (el
+        # conftest setea OPENROUTER_API_KEY=test-key pero el diagnóstico
+        # tenant-aware debe chequear la del tenant).
+        store = get_settings_store()
+        store.update(
+            "t-tenant",
+            {
+                "openrouter_api_key_set": True,
+                "openrouter_api_key": "sk-or-v1-tenant-test",
+            },
+        )
+
+        with TestClient(main.app) as client:
+            res = client.get("/diagnostics?tenantId=t-tenant")
+            self.assertEqual(res.status_code, 200)
+            diag = res.json()
+            # La key del tenant cuenta aunque la global esté vacía.
+            self.assertTrue(diag["llm"]["live"])
+            self.assertEqual(diag["llm"]["keySource"], "tenant")
+            self.assertTrue(diag["llm"]["tenantKeySet"])
+            # El modelo efectivo está al top level (con override del tenant
+            # si lo hay; aquí solo cambiamos la key).
+            self.assertIn("model", diag)
+            # Y el capabilities reporta text/multimodal/etc.
+            self.assertIn("multimodal", diag["modelCapabilities"])
+
+    def test_no_keys_anywhere_marks_llm_off(self):
+        from fastapi.testclient import TestClient
+
+        from app import main
+        from app.agent_settings import AgentSettings, get_settings_store
+
+        # Limpiamos la del tenant explícitamente.
+        store = get_settings_store()
+        store.update("t-nokey", {"openrouter_api_key": ""})
+
+        with TestClient(main.app) as client:
+            res = client.get("/diagnostics?tenantId=t-nokey")
+            diag = res.json()
+            # Si la global está vacía en este test y el tenant no tiene
+            # key, llm.live debe ser false y keySource=none.
+            if not diag["llm"].get("globalKeySet"):
+                self.assertFalse(diag["llm"]["live"])
+                self.assertEqual(diag["llm"]["keySource"], "none")
+            else:
+                # Con global seteada por el conftest, keySource = global y
+                # live = True (el global cubre a todos los tenants que no
+                # tengan propia).
+                self.assertTrue(diag["llm"]["live"])
+                self.assertEqual(diag["llm"]["keySource"], "global")
+            # tenantKeySet refleja lo que el tenant configuró en su panel.
+            self.assertFalse(diag["llm"]["tenantKeySet"])
+
+    def test_global_key_only_covers_tenants_without_own(self):
+        from fastapi.testclient import TestClient
+
+        from app import main
+        from app.agent_settings import get_settings_store
+
+        store = get_settings_store()
+        store.update("t-noglobal-tenant", {"openrouter_api_key": ""})
+
+        with TestClient(main.app) as client:
+            res = client.get("/diagnostics?tenantId=t-noglobal-tenant")
+            diag = res.json()
+            # Con global seteada por el conftest y tenant sin key propia:
+            # live=True, source=global.
+            if diag["llm"].get("globalKeySet"):
+                self.assertTrue(diag["llm"]["live"])
+                self.assertEqual(diag["llm"]["keySource"], "global")
+                self.assertFalse(diag["llm"]["tenantKeySet"])
+            # Sanity: el diagnostics sigue trayendo budgets aunque el LLM esté vivo.
+            self.assertIn("maxVideoBytes", diag["budgets"])

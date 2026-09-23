@@ -87,7 +87,13 @@ export default function ChatPage() {
   const health = useQuery({
     queryKey: ["agent-health"],
     queryFn: async (): Promise<AgentHealth> => {
-      const res = await fetch(`${AGENT_BASE}/healthz`);
+      // /diagnostics devuelve estado del LLM tenant-aware (key global o
+      // key del propio tenant). Con `tenantId` el chat reporta el modo
+      // REAL del agente para esta conversación; antes este fetch iba a
+      // /healthz que solo trae `{status, version}` y por eso el label
+      // "Motor determinista (sin OPENROUTER_KEY)" aparecía SIEMPRE.
+      const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
+      const res = await fetch(`${AGENT_BASE}/diagnostics${qs}`);
       if (!res.ok) throw new Error("agente no disponible");
       return res.json();
     },
