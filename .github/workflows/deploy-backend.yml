@@ -121,18 +121,43 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/netpay-build/infra
-            # `pnpm exec prisma` en la RAÍZ del workspace falla con
-            # "Command prisma not found" (prisma es dependencia del paquete
-            # commerce-api, no del root) — y el `|| true` anterior lo
-            # enmascaraba: las migraciones NUNCA se aplicaban desde este
+            # Este repo NO usa `prisma migrate deploy`: las migraciones son
+            # archivos planos .sql (documentación de la evolución del
+            # esquema) que prisma no reconoce — "No migration found" (y el
+            # `pnpm exec` en la raíz del workspace además fallaba con
+            # "Command prisma not found": prisma es dependencia del paquete
+            # commerce-api, no del root). El `|| true` original enmascaraba
+            # ambos fallos: el esquema NUNCA se sincronizaba desde este
             # workflow y la BD se desfasaba del código en silencio (pasó con
             # 0014/0015/0016 el 2026-09-22: el contenedor nuevo insertaba
             # columnas que la BD no tenía y la ingesta de WhatsApp fallaba).
-            # Se corre desde apps/commerce-api, donde prisma SÍ está, y SIN
-            # `|| true`: un fallo de migración debe tumbar el deploy, no
-            # desfasar la base en silencio.
+            #
+            # `prisma db push` diff del schema.prisma contra la BD real y
+            # agrega lo que falta (tablas, columnas, índices, FKs). Sin
+            # --accept-data-loss se niega a operaciones destructivas: si
+            # algo se tendría que borrar, falla ruidosamente y tumbar el
+            # deploy — nunca desfasa la base en silencio.
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              sh -c "cd apps/commerce-api && pnpm exec prisma migrate deploy"
+              sh -c "cd apps/commerce-api && pnpm exec prisma db push --skip-generate"
+
+      # RLS de tablas nuevas que no vienen del schema.prisma (vive en SQL
+      # plano, ver migrations/0015): `db push` no lo aplica. Idempotente:
+      # DROP POLICY IF EXISTS + CREATE POLICY. current_tenant_id() ya existe
+      # en la BD (la creó 0002). Sin esto, DeliveryZone dependería solo del
+      # `where: { tenantId }` del código y una query con bug podría filtrar
+      # zonas de otro negocio.
+      - name: RLS DeliveryZone
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
+              node -e "const {PrismaClient}=require('@prisma/client');const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe('ALTER TABLE \"DeliveryZone\" ENABLE ROW LEVEL SECURITY');await p.\$executeRawUnsafe('DROP POLICY IF EXISTS tenant_isolation ON \"DeliveryZone\"');await p.\$executeRawUnsafe('CREATE POLICY tenant_isolation ON \"DeliveryZone\" USING (\"tenantId\" = current_tenant_id()) WITH CHECK (\"tenantId\" = current_tenant_id())');console.log('OK RLS DeliveryZone');await p.\$disconnect();})().catch(e=>{console.error('FAIL RLS:',e.message);process.exit(1);})"
 
       # El API público (api-easysell.tupla.dev: Vercel y el webhook de
       # Evolution dependen de él) se sirve desde captain-nginx de CapRover
