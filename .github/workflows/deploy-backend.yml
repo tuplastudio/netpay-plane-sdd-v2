@@ -156,8 +156,12 @@ jobs:
           script: |
             set -euo pipefail
             cd /opt/netpay-build/infra
+            # `cd` adentro del exec para que `require('@prisma/client')`
+            # resuelva contra apps/commerce-api/node_modules (cwd del exec es
+            # /repo, donde @prisma/client no existe como dependencia
+            # directa — la primera versión fallaba con MODULE_NOT_FOUND).
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              node -e "const {PrismaClient}=require('@prisma/client');const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe('ALTER TABLE \"DeliveryZone\" ENABLE ROW LEVEL SECURITY');await p.\$executeRawUnsafe('DROP POLICY IF EXISTS tenant_isolation ON \"DeliveryZone\"');await p.\$executeRawUnsafe('CREATE POLICY tenant_isolation ON \"DeliveryZone\" USING (\"tenantId\" = current_tenant_id()) WITH CHECK (\"tenantId\" = current_tenant_id())');console.log('OK RLS DeliveryZone');await p.\$disconnect();})().catch(e=>{console.error('FAIL RLS:',e.message);process.exit(1);})"
+              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"DeliveryZone\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"DeliveryZone\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"DeliveryZone\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS DeliveryZone\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
 
       # El API público (api-easysell.tupla.dev: Vercel y el webhook de
       # Evolution dependen de él) se sirve desde captain-nginx de CapRover
