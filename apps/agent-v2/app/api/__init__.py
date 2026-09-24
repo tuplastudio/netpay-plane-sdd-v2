@@ -9,7 +9,7 @@ HTTP. Así `main.py` queda como cableado y `POST /chat` se lee completo en
 
 from fastapi import APIRouter
 
-from . import audio, chat, conversations, health, knowledge, learning, memory, prompts, settings
+from . import audio, chat, conversations, health, knowledge, learning, memory, prompts, settings, setup
 
 ROUTERS: tuple[APIRouter, ...] = (
     health.router,
@@ -21,6 +21,7 @@ ROUTERS: tuple[APIRouter, ...] = (
     learning.router,
     memory.router,
     audio.router,
+    setup.router,
 )
 
 __all__ = ["ROUTERS"]

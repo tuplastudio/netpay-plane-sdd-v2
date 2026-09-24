@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CircleHelp, RotateCcw, Save, Trash2, Undo2 } from "lucide-react";
+import { AlertCircle, CircleHelp, RotateCcw, Save, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Section } from "@/components/app/section";
 import { DateTime } from "@/components/app/date-time";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { BotSetupWizard } from "@/components/app/bot-setup-wizard";
 import { fetchAuthMe } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -240,6 +241,10 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
   // re-generara desde la lista en cada pulsación, una coma al final
   // desaparecería antes de poder escribir la siguiente palabra.
   const [handoffText, setHandoffText] = React.useState("");
+  // Asistente modal para generar el bot a partir de una descripción libre.
+  // El wizard vive en este componente porque ya tiene resuelto el tenant y la
+  // sesión; cualquier otra parte del portal tendría que duplicar esa consulta.
+  const [wizardOpen, setWizardOpen] = React.useState(false);
 
   /**
    * Tenant de la sesión, con la misma consulta compartida `["auth-me"]` y el
@@ -475,6 +480,17 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          {tenantId ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setWizardOpen(true)}
+              disabled={save.isPending}
+            >
+              <Sparkles aria-hidden className="h-4 w-4" />
+              Crear bot con IA
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -1295,6 +1311,14 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
         pending={reset.isPending}
         onConfirm={() => reset.mutate()}
       />
+
+      {tenantId ? (
+        <BotSetupWizard
+          open={wizardOpen}
+          onOpenChange={setWizardOpen}
+          tenantId={tenantId}
+        />
+      ) : null}
     </form>
   );
 }
