@@ -163,6 +163,21 @@ jobs:
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
               sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"DeliveryZone\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"DeliveryZone\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"DeliveryZone\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS DeliveryZone\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
 
+      # Mismo caso que DeliveryZone arriba, para ProductImage (migrations/0018):
+      # `db push` crea la tabla desde schema.prisma pero no aplica RLS.
+      - name: RLS ProductImage
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
+              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"ProductImage\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"ProductImage\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS ProductImage\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
+
       # El API público (api-easysell.tupla.dev: Vercel y el webhook de
       # Evolution dependen de él) se sirve desde captain-nginx de CapRover
       # con un vhost manual. CapRover regenera captain.conf y puede recrear
