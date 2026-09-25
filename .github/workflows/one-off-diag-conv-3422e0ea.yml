@@ -33,23 +33,20 @@ jobs:
             # `runtime` es singleton a nivel de proceso: el `docker exec` arranca
             # un proceso NUEVO, así que hay que llamar `start()` antes de leer.
             echo "=== ESTADO DEL HILO (LangGraph) ==="
-            # Primero sacamos el UUID del tenant demo-store (el bridge pasa el
-            # UUID como tenantId, no el slug — por eso el thread_id real tiene
-            # un UUID como prefijo).
-            TENANT_ID_UUID=$($DC exec -T commerce-api node -e "
-            const { PrismaClient } = require('@prisma/client');
-            const prisma = new PrismaClient();
-            (async () => {
-              const t = await prisma.tenant.findUnique({ where: { slug: 'demo-store' }, select: { id: true } });
-              console.log(t ? t.id : 'NOT_FOUND');
-              await prisma.\$disconnect();
-            })().catch((e) => { console.error('FAIL', e.message); process.exit(1); });
-            " 2>&1 | tail -1)
-            echo "tenant UUID: $TENANT_ID_UUID"
-            TID_FULL="${TENANT_ID_UUID}:3422e0ea-9751-4da7-b8b5-a4d0d01c5081"
-            echo "thread_id: $TID_FULL"
+            # Sacamos el UUID del tenant demo-store con psql directamente (más
+            # robusto que invocar node en el contenedor commerce-api).
+            TENANT_ID_UUID=$(cd /opt/netpay-build/infra && grep '^DATABASE_URL=' .env.prod | cut -d= -f2-)
+            # El thread_id que el bridge realmente escribe usa el UUID del tenant,
+            # no el slug — es el formato "<uuid>:<conversationUuid>".
+            # Lo extraemos de la propia tabla de checkpoints (más confiable que
+            # adivinarlo).
+            TID_PREFIX=$($DC exec -T agent-v2 sqlite3 /data/agent-v2/threads.sqlite \
+              "SELECT DISTINCT substr(thread_id, 1, instr(thread_id, ':') - 1) FROM checkpoints WHERE thread_id LIKE '%3422e0ea%' LIMIT 1;")
+            echo "tenant prefix en checkpoint: $TID_PREFIX"
+            TID_FULL="${TID_PREFIX}:3422e0ea-9751-4da7-b8b5-a4d0d01c5081"
+            echo "thread_id completo: $TID_FULL"
             $DC exec -T agent-v2 python -c "
-            import asyncio, os
+            import asyncio
             from app.runtime import runtime
             tid = '$TID_FULL'
             async def main():
