@@ -70,6 +70,13 @@ jobs:
             $DC exec -T agent-v2 sh -c "which sqlite3 || (apt-get update -qq && apt-get install -y -qq sqlite3 >/dev/null && which sqlite3)" 2>&1 | tail -2
             $DC exec -T agent-v2 sqlite3 /data/agent-v2/threads.sqlite 'SELECT count(*) AS total FROM checkpoints;' 2>&1 | head -3
             $DC exec -T agent-v2 sqlite3 /data/agent-v2/threads.sqlite "SELECT count(*) FROM checkpoints WHERE thread_id LIKE '%3422e0ea%';" 2>&1 | head -3
+            # Lista los thread_ids que matchean — para confirmar que el formato
+            # es el que armamos en runtime (demo-store:<uuid>).
+            $DC exec -T agent-v2 sqlite3 /data/agent-v2/threads.sqlite "SELECT DISTINCT thread_id FROM checkpoints WHERE thread_id LIKE '%3422e0ea%' LIMIT 5;" 2>&1 | head -10
+            # El último checkpoint de ESTE thread: ¿qué handoff/failure_streak tiene?
+            echo
+            echo "=== ÚLTIMO CHECKPOINT PARA ESTE THREAD ==="
+            $DC exec -T agent-v2 sqlite3 /data/agent-v2/threads.sqlite "SELECT json_extract(channel_values, '\$.handoff'), json_extract(channel_values, '\$.stage'), json_extract(channel_values, '\$.failure_streak'), thread_ts FROM checkpoints WHERE thread_id LIKE '%3422e0ea%' ORDER BY thread_ts DESC LIMIT 3;" 2>&1 | head -10
 
             # 2) Mensajes de WhatsApp de este cliente (lo que el agente vio).
             echo
