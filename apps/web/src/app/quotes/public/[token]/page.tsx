@@ -387,9 +387,6 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
       >
         <h2 id="quote-lines" className="px-5 pt-5 text-base font-semibold sm:px-6 sm:pt-6">
           Conceptos
-          <span className="ml-2 text-xs font-normal text-muted-foreground">
-            toca una fila para ver el detalle del producto
-          </span>
         </h2>
 
         {quote.lines.length === 0 ? (
@@ -414,6 +411,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
               currency={currency}
               showDiscount={false}
               footerLabel="Total de la cotización"
+              interactiveDetail={false}
             />
           </div>
         )}

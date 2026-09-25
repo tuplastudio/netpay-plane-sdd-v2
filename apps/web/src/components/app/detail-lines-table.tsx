@@ -41,7 +41,7 @@ interface CatalogProduct {
   variants: ProductDetailVariant[];
 }
 
-function useProductsByVariant() {
+function useProductsByVariant(enabled: boolean) {
   return useQuery({
     queryKey: ["products", { _use: "lookup-by-variant" }],
     queryFn: async (): Promise<CatalogProduct[]> => {
@@ -51,6 +51,7 @@ function useProductsByVariant() {
       return res.data.data;
     },
     staleTime: 5 * 60_000,
+    enabled,
   });
 }
 
@@ -66,6 +67,14 @@ interface LinesTableProps {
   showDiscount?: boolean;
   /** Currency override del componente Money. */
   currency?: string;
+  /**
+   * Si se puede tocar una fila para ver el detalle del producto (llama a
+   * `GET /catalog/products`, requiere sesión con `catalog.read`). Default
+   * true. La cotización pública (`quotes/public/[token]`) la pasa en false:
+   * ahí no hay sesión, y ese 401 disparaba el redirect global a `/login`
+   * de `lib/api.ts` — la página pública "pedía iniciar sesión".
+   */
+  interactiveDetail?: boolean;
 }
 
 /**
@@ -85,8 +94,9 @@ export function DetailLinesTable({
   footerLabel = "Total",
   showDiscount = true,
   currency,
+  interactiveDetail = true,
 }: LinesTableProps) {
-  const products = useProductsByVariant();
+  const products = useProductsByVariant(interactiveDetail);
   const [selected, setSelected] = useState<DetailLine | null>(null);
 
   const byVariant = new Map<string, CatalogProduct>();
@@ -117,21 +127,23 @@ export function DetailLinesTable({
   })();
 
   function rowFor(line: DetailLine) {
+    const detailProps = interactiveDetail
+      ? {
+          onClick: () => setSelected(line),
+          className: "cursor-pointer",
+          tabIndex: 0,
+          role: "button" as const,
+          "aria-label": `Ver detalle de ${line.title}`,
+          onKeyDown: (event: React.KeyboardEvent) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              setSelected(line);
+            }
+          },
+        }
+      : {};
     return (
-      <TableRow
-        key={line.key}
-        onClick={() => setSelected(line)}
-        className="cursor-pointer"
-        tabIndex={0}
-        role="button"
-        aria-label={`Ver detalle de ${line.title}`}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setSelected(line);
-          }
-        }}
-      >
+      <TableRow key={line.key} {...detailProps}>
         <TableCell className="font-mono text-xs">{line.sku}</TableCell>
         <TableCell>
           <span className="font-medium">{line.title}</span>
