@@ -9,7 +9,7 @@ import { useSession } from "./user-menu";
 
 /** Nombre del producto: aparece solo cuando no hay empresa activa y como
  * sufijo del título de la pestaña. */
-export const PLATFORM_NAME = "Easy Sell";
+export const PLATFORM_NAME = "Atiende ya";
 
 export interface TenantBrandingView {
   /** Nombre comercial de la empresa activa; `null` sin sesión o sin tenant. */
@@ -49,7 +49,7 @@ export function useTenantBranding(): TenantBrandingView {
 }
 
 /**
- * `<Nombre del negocio> · Easy Sell` en la pestaña. Se reaplica en cada
+ * `<Nombre del negocio> · Atiende ya` en la pestaña. Se reaplica en cada
  * cambio de ruta porque el App Router vuelve a escribir `<title>` desde la
  * `metadata` del layout al navegar.
  */

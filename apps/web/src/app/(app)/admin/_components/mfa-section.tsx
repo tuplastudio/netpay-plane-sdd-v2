@@ -54,7 +54,7 @@ function groupSecret(secret: string): string {
 
 function downloadRecoveryCodes(codes: string[], email: string) {
   const body = [
-    "Easy Sell — códigos de recuperación de verificación en dos pasos",
+    "Atiende ya — códigos de recuperación de verificación en dos pasos",
     `Cuenta: ${email}`,
     `Generados: ${new Date().toLocaleString("es-MX")}`,
     "",

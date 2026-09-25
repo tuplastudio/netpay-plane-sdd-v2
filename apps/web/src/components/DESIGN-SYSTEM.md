@@ -1,4 +1,4 @@
-# Sistema de diseño — Easy Sell (portal operativo)
+# Sistema de diseño — Atiende ya (portal operativo)
 
 Referencia de la capa de primitivas. Todo lo de aquí ya existe y compila: no
 reimplementes nada, no copies clases de una pantalla a otra.

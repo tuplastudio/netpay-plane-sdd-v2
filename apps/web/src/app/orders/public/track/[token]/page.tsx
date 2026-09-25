@@ -77,7 +77,7 @@ export default function PublicOrderTrackingPage() {
             >
               <Sparkles className="h-4 w-4" />
             </span>
-            <span className="text-sm font-semibold">{q.data?.merchant ?? "Easy Sell"}</span>
+            <span className="text-sm font-semibold">{q.data?.merchant ?? "Atiende ya"}</span>
           </span>
           <span className="text-xs text-muted-foreground">Seguimiento de pedido</span>
         </div>

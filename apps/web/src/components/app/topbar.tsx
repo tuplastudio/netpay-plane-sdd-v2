@@ -48,7 +48,7 @@ export function Topbar() {
               lectores de pantalla porque la marca ya identifica el panel. */}
           <SheetTitle className="sr-only">Navegación</SheetTitle>
           <SheetDescription className="sr-only">
-            Secciones del portal operativo Easy Sell.
+            Secciones del portal operativo Atiende ya.
           </SheetDescription>
           <Brand className="border-b" />
           <div className="flex-1 overflow-y-auto">

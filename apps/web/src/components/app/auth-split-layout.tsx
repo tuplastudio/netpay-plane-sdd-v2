@@ -57,7 +57,7 @@ export function AuthSplitLayout({
               Cotiza, conversa y cobra — todo desde un mismo chat.
             </p>
             <p className="text-sm text-foreground/70">
-              Easy Sell es el portal operativo de tu tienda: el cliente escribe
+              Atiende ya es el portal operativo de tu tienda: el cliente escribe
               por WhatsApp, el agente responde y tú cierras la venta.
             </p>
           </div>
@@ -79,12 +79,12 @@ function Brand() {
   return (
     <Link
       href="/login"
-      aria-label="Easy Sell — ir a iniciar sesión"
+      aria-label="Atiende ya — ir a iniciar sesión"
       className="flex w-fit items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <SellLogo className="h-8 w-8" />
       <span className="flex flex-col leading-tight">
-        <span className="font-display text-sm font-semibold text-foreground">Easy Sell</span>
+        <span className="font-display text-sm font-semibold text-foreground">Atiende ya</span>
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Portal operativo
         </span>

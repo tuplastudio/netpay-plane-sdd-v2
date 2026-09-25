@@ -89,7 +89,7 @@ def build_model(
         max_completion_tokens=settings.max_tokens if max_tokens is None else max_tokens,
         default_headers={
             "HTTP-Referer": settings.public_base_url,
-            "X-Title": "Easy Sell Agent v2 (Tupla)",
+            "X-Title": "Atiende ya Agent v2 (Tupla)",
         },
         **extra,
     )

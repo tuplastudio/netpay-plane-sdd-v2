@@ -20,13 +20,13 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Easy Sell",
+  title: "Atiende ya",
   description: "Catálogo, cotizaciones y pedidos",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Easy Sell",
+    title: "Atiende ya",
   },
   icons: {
     icon: [

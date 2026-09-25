@@ -1,4 +1,4 @@
-"""Easy Sell (Tupla) — agente v2 (FastAPI + LangGraph + deepagents).
+"""Atiende ya (Tupla) — agente v2 (FastAPI + LangGraph + deepagents).
 
 Mantiene el mismo contrato HTTP que el agente v1 (`POST /chat`), así que
 commerce-api puede apuntarle con solo cambiar `AGENT_URL`, sin tocar el
@@ -75,7 +75,7 @@ async def _lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Easy Sell Agent v2",
+    title="Atiende ya Agent v2",
     version=VERSION,
     description="Agente comercial sobre LangGraph con memoria persistente por conversación.",
     dependencies=[Depends(require_internal_key)],

@@ -136,7 +136,7 @@ function poweredBy(): string {
   return `<div class="powered">
     <span class="lock">${LOCK_SVG} Pago seguro</span>
     <span class="sep"></span>
-    <span>Con tecnología de <b>Easy Sell</b> by Tupla</span>
+    <span>Con tecnología de <b>Atiende ya</b> by Tupla</span>
     <span class="sep"></span>
     <span>Sandbox · sin dinero real</span>
   </div>`;

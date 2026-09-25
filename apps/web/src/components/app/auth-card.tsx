@@ -58,7 +58,7 @@ export function AuthBrand({ className }: { className?: string }) {
   return (
     <Link
       href="/login"
-      aria-label="Easy Sell — ir a iniciar sesión"
+      aria-label="Atiende ya — ir a iniciar sesión"
       className={cn(
         "flex w-fit items-center gap-2.5",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2",
@@ -67,7 +67,7 @@ export function AuthBrand({ className }: { className?: string }) {
     >
       <SellLogo className="h-8 w-8" />
       <span className="flex flex-col leading-tight">
-        <span className="text-sm font-semibold">Easy Sell</span>
+        <span className="text-sm font-semibold">Atiende ya</span>
         <span className="text-xs uppercase tracking-wider text-muted-foreground">
           Portal operativo
         </span>

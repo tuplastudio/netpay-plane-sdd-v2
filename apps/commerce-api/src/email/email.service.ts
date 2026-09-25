@@ -30,7 +30,7 @@ export class EmailService {
   }
 
   private get defaultFrom(): string {
-    return process.env.RESEND_FROM_EMAIL ?? "Easy Sell by Tupla <onboarding@resend.dev>";
+    return process.env.RESEND_FROM_EMAIL ?? "Atiende ya by Tupla <onboarding@resend.dev>";
   }
 
   private compile(template: string): HandlebarsTemplateDelegate {

@@ -97,7 +97,7 @@ export default function PublicQuotePage() {
               >
                 <Sparkles className="h-4 w-4" />
               </span>
-              <span className="text-sm font-semibold">Easy Sell</span>
+              <span className="text-sm font-semibold">Atiende ya</span>
             </span>
           )}
           <span className="text-xs text-muted-foreground">Documento comercial</span>
@@ -452,7 +452,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
       </section>
       <footer className="mt-8 flex flex-wrap items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
         <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
-        Pago seguro con NetPay
+        Pago seguro con Atiende ya
       </footer>
     </article>
   );

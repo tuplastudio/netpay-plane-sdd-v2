@@ -147,7 +147,7 @@ function TrustLine() {
     <div className="flex flex-col items-center justify-center gap-1 text-center text-xs text-muted-foreground">
       <p className="flex flex-wrap items-center justify-center gap-1.5">
         <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
-        Pago seguro con NetPay
+        Pago seguro con Atiende ya
       </p>
       <p className="opacity-70">Modo de pruebas · sin dinero real</p>
     </div>

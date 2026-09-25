@@ -71,7 +71,7 @@ export interface MfaEnrollment {
 
 @Injectable()
 export class MfaService {
-  private readonly ISSUER = "Easy Sell";
+  private readonly ISSUER = "Atiende ya";
 
   /** Genera un nuevo secreto TOTP + URL otpauth + N recovery codes. */
   enroll(userEmail: string): MfaEnrollment {
