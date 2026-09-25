@@ -1,6 +1,6 @@
 name: One-off - reset owner@demo.local password
 
-on:
+"on":
   workflow_dispatch:
 
 jobs:
