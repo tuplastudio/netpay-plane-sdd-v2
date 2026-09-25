@@ -114,7 +114,12 @@ jobs:
             })().catch((e) => { console.error('FAIL', e.message); process.exit(1); });
             "
 
-            # 3) Logs del agente para este thread en las últimas 24h.
+            # 3) Logs del agente para este thread en las últimas 24h. El
+            # thread_id completo aparece en los logs porque el runtime lo
+            # loguea como prefijo.
             echo
-            echo "=== LOGS DEL AGENTE (últimas 200 líneas, grep por thread_id) ==="
-            $DC logs --tail=2000 agent-v2 2>&1 | grep -E "3422e0ea|fallo del turno|turn\.failure|turn\.handoff" | tail -40 || true
+            echo "=== LOGS DEL AGENTE (fallos de turno y tools para este thread) ==="
+            $DC logs --tail=10000 agent-v2 2>&1 | grep -E "3422e0ea" | tail -80 || true
+            echo
+            echo "=== LOGS DE FALLOS DE TURNO (cualquier thread) ==="
+            $DC logs --tail=10000 agent-v2 2>&1 | grep -E "fallo del turno|turn\.failure|tool_call_error" | tail -30 || true
