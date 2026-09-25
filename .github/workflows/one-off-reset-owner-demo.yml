@@ -1,0 +1,55 @@
+name: One-off - reset owner@demo.local password
+
+on:
+  workflow_dispatch:
+
+jobs:
+  reset:
+    name: Reset password en prod (owner@demo.local)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reset password via commerce-api container
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+
+            # Hash con los MISMOS parámetros que PasswordService (apps/commerce-api/src/auth/password.service.ts):
+            # argon2id, memoryCost=19456, timeCost=2, parallelism=1. El login compara con
+            # argon2.verify, que lee los parámetros del hash codificado; cambiarlos aquí
+            # solo alargaría el hasheo sin afectar la verificación.
+            #
+            # La contraseña vive en `OWNER_DEMO_RESET_PASSWORD` (GitHub Secret, NO en logs):
+            # se pasa al contenedor como env var, no como argv, para que `docker exec` no
+            # la muestre en `ps`/logs del host.
+            EMAIL="owner@demo.local"
+            $DC exec -T -e RESET_PASSWORD="${{ secrets.OWNER_DEMO_RESET_PASSWORD }}" commerce-api \
+              sh -c "cd apps/commerce-api && node -e '
+                const { PrismaClient } = require(\"@prisma/client\");
+                const argon2 = require(\"argon2\");
+                const prisma = new PrismaClient();
+                (async () => {
+                  const hash = await argon2.hash(process.env.RESET_PASSWORD, {
+                    type: argon2.argon2id,
+                    memoryCost: 19456,
+                    timeCost: 2,
+                    parallelism: 1,
+                  });
+                  const user = await prisma.user.update({
+                    where: { email: \"$EMAIL\" },
+                    data: { passwordHash: hash },
+                    select: { id: true, email: true },
+                  });
+                  console.log(\"OK password updated for\", user.email, \"id=\" + user.id);
+                  await prisma.\$disconnect();
+                })().catch((e) => {
+                  console.error(\"FAIL\", e.message);
+                  process.exit(1);
+                });
+              '"
