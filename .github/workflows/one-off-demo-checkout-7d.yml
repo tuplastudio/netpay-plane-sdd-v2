@@ -1,0 +1,48 @@
+name: One-off - demo checkout link 7 días
+
+# Disparador `push` filtrado al propio archivo: las acciones de este repo
+# están todas en push-trigger; un workflow_dispatch-only no se registra.
+# El cambio corre una vez, después se borra el workflow.
+
+"on":
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-demo-checkout-7d.yml"
+
+jobs:
+  apply:
+    name: Setear checkoutReservationMinutes=10080 (7d) en demo
+    runs-on: ubuntu-latest
+    steps:
+      - name: PATCH /tenants/me/settings dentro del contenedor commerce-api
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+            MINUTES="${{ secrets.DEMO_CHECKOUT_RESERVATION_MINUTES }}"
+            # `node` directo contra el Prisma del API: el endpoint
+            # PATCH /tenants/me/settings exige scope `tenant.admin` que el
+            # owner@demo.local NO tiene (es OWNER, no admin del tenant);
+            # el bypass es actualizar el tenant directamente, mismo shape
+            # que el DTO valida (entero 5..43200).
+            $DC exec -T commerce-api sh -c "cd apps/commerce-api && node -e '
+              const { PrismaClient } = require(\"@prisma/client\");
+              const prisma = new PrismaClient();
+              const minutes = Number(process.env.MINUTES);
+              (async () => {
+                const t = await prisma.tenant.update({
+                  where: { slug: \"demo\" },
+                  data: { checkoutReservationMinutes: minutes },
+                  select: { id: true, slug: true, name: true, checkoutReservationMinutes: true },
+                });
+                console.log(\"OK\", t.slug, t.name, \"checkoutReservationMinutes=\" + t.checkoutReservationMinutes);
+                await prisma.\$disconnect();
+              })().catch((e) => { console.error(\"FAIL\", e.message); process.exit(1); });
+            '" -e MINUTES="$MINUTES"

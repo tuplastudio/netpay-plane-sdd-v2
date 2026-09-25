@@ -84,11 +84,34 @@ function useCountdown(expiresAt: string | null) {
   return remainingMs;
 }
 
-function formatCountdown(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+/**
+ * `remainingMs` legible para el cliente. El backend permite reservas desde 5
+ * minutos hasta 30 días, así que la copia tiene que cubrir los dos extremos:
+ * el `MM:SS` solo se ve bien para < 1 hora; arriba de eso se acumula y deja
+ * de decir algo útil ("1440:00" no le dice a nadie que son 24 horas).
+ *
+ *   < 1 min  → "menos de 1 min" (rojo)
+ *   < 1 h    → "X:XX" con segundos
+ *   < 1 día  → "X h Y min"
+ *   ≥ 1 día  → "N días" o "N días Y h" si las horas no cierran el día exacto
+ */
+function humanRemaining(ms: number): string {
+  if (ms <= 0) return "vencido";
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return "menos de 1 min";
+  if (totalSec < 3_600) {
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+  if (totalSec < 86_400) {
+    const h = Math.floor(totalSec / 3_600);
+    const m = Math.floor((totalSec % 3_600) / 60);
+    return m === 0 ? `${h} h` : `${h} h ${m} min`;
+  }
+  const days = Math.floor(totalSec / 86_400);
+  const h = Math.floor((totalSec % 86_400) / 3_600);
+  return h === 0 ? `${days} ${days === 1 ? "día" : "días"}` : `${days} ${days === 1 ? "día" : "días"} ${h} h`;
 }
 
 /** Columna centrada de ancho acotado: la misma en los cuatro estados. */
@@ -278,8 +301,10 @@ export default function CheckoutPublicPage() {
                 >
                   <Clock aria-hidden className="h-3.5 w-3.5 shrink-0" />
                   <span>
-                    Este cobro expira en{" "}
-                    <span className="tabular-nums">{formatCountdown(remainingMs)}</span>
+                    Este link vence en{" "}
+                    <span className="font-medium tabular-nums text-foreground">
+                      {humanRemaining(remainingMs)}
+                    </span>
                   </span>
                 </p>
               )}
