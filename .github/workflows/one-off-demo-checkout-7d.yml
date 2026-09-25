@@ -37,8 +37,22 @@ jobs:
               const prisma = new PrismaClient();
               const minutes = Number(process.env.MINUTES);
               (async () => {
+                // owner@demo.local pertenece a exactamente un tenant. El slug
+                // puede no llamarse \"demo\" en prod (BOOTSTRAP_TENANT_SLUG
+                // puede haberlo cambiado en el deploy real), así que resolvemos
+                // por la membresía del owner en vez de por slug.
+                const owner = await prisma.user.findUnique({
+                  where: { email: \"owner@demo.local\" },
+                  select: { id: true },
+                });
+                if (!owner) { console.error(\"FAIL owner@demo.local no existe\"); process.exit(1); }
+                const m = await prisma.membership.findFirst({
+                  where: { userId: owner.id },
+                  select: { tenantId: true },
+                });
+                if (!m) { console.error(\"FAIL owner sin membership\"); process.exit(1); }
                 const t = await prisma.tenant.update({
-                  where: { slug: \"demo\" },
+                  where: { id: m.tenantId },
                   data: { checkoutReservationMinutes: minutes },
                   select: { id: true, slug: true, name: true, checkoutReservationMinutes: true },
                 });
