@@ -31,6 +31,14 @@ import {
   EvolutionOnboardingService,
   type ProvisionResult,
 } from "./evolution-onboarding.service.js";
+import {
+  OPT_IN_CONFIRMATION,
+  OPT_OUT_CONFIRMATION,
+  isOptInMessage,
+  isOptOutMessage,
+  isWithinServiceWindow,
+  samePhone,
+} from "./service-window.js";
 
 /** Tope de adjunto que manda un operador desde el portal (decodificado). */
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -93,6 +101,8 @@ export const CONVERSATION_AUDIT = {
   returned: "whatsapp.conversation.returned",
   tagsChanged: "whatsapp.conversation.tags_changed",
   customerLinked: "whatsapp.conversation.customer_linked",
+  optOut: "whatsapp.conversation.opt_out",
+  optIn: "whatsapp.conversation.opt_in",
 } as const;
 
 /** Estados que un operador puede fijar a mano desde el portal. */
@@ -627,6 +637,145 @@ export class WhatsAppService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Cuándo escribió por última vez ese número, en cualquier hilo del tenant.
+   *
+   * Es lo que decide si la ventana de servicio de 24 h de Meta sigue abierta
+   * (ver `service-window.ts`). Se busca por `externalPhone` exacto primero
+   * —el caso normal, el proveedor siempre manda el mismo formato— y, si no
+   * hay nada, se compara por dígitos contra los hilos del tenant, porque el
+   * teléfono del cliente pudo darlo de alta una persona con otro formato.
+   */
+  async lastInboundAt(tenantId: string, phone: string): Promise<Date | null> {
+    const exact = await this.prisma.whatsAppMessage.findFirst({
+      where: { tenantId, direction: "INBOUND", conversation: { externalPhone: phone } },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    if (exact) return exact.createdAt;
+
+    const conversations = await this.prisma.whatsAppConversation.findMany({
+      where: { tenantId },
+      orderBy: { lastMessageAt: "desc" },
+      take: 200,
+      select: { id: true, externalPhone: true },
+    });
+    const match = conversations.find((c) => samePhone(c.externalPhone, phone));
+    if (!match) return null;
+    const row = await this.prisma.whatsAppMessage.findFirst({
+      where: { tenantId, direction: "INBOUND", conversationId: match.id },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    return row?.createdAt ?? null;
+  }
+
+  /**
+   * ¿Se le puede mandar texto libre a ese número ahora mismo?
+   *
+   * `true` sólo dentro de la ventana de servicio de 24 h de Meta. Fuera de
+   * ella el mensaje que inicia el negocio tiene que ser una plantilla
+   * aprobada; quien llama decide qué hacer (ver `NotificationService`).
+   */
+  async canSendFreeForm(tenantId: string, phone: string): Promise<boolean> {
+    return isWithinServiceWindow(await this.lastInboundAt(tenantId, phone));
+  }
+
+  /**
+   * Opt-out / opt-in por palabra clave (obligación de la política de Meta).
+   *
+   * Devuelve `"OPT_OUT"` / `"OPT_IN"` si el mensaje era eso —y entonces el
+   * webhook NO se lo pasa al agente: la baja se confirma y ahí termina el
+   * turno— o `null` si era un mensaje normal.
+   *
+   * La revocación se graba en `CustomerConsent.WHATSAPP`, que es lo que ya
+   * consulta `NotificationService.schedule` antes de encolar nada, así que
+   * con una sola escritura se apagan cotizaciones, recordatorios y avisos de
+   * pedido para ese cliente.
+   */
+  async applyConsentKeyword(input: {
+    tenantId: string;
+    conversationId: string;
+    externalPhone: string;
+    text: string;
+  }): Promise<"OPT_OUT" | "OPT_IN" | null> {
+    const optOut = isOptOutMessage(input.text);
+    const optIn = !optOut && isOptInMessage(input.text);
+    if (!optOut && !optIn) return null;
+
+    const customerId = await this.resolveCustomerId(input.tenantId, input.conversationId, input.externalPhone);
+    if (customerId) {
+      const now = new Date();
+      await this.prisma.customerConsent.upsert({
+        where: { customerId_scope: { customerId, scope: "WHATSAPP" } },
+        create: {
+          customerId,
+          scope: "WHATSAPP",
+          granted: optIn,
+          grantedAt: optIn ? now : null,
+          revokedAt: optOut ? now : null,
+          note: optOut
+            ? "Baja solicitada por el cliente desde WhatsApp."
+            : "Alta solicitada por el cliente desde WhatsApp.",
+          source: "auto",
+        },
+        update: {
+          granted: optIn,
+          grantedAt: optIn ? now : undefined,
+          revokedAt: optOut ? now : null,
+          note: optOut
+            ? "Baja solicitada por el cliente desde WhatsApp."
+            : "Alta solicitada por el cliente desde WhatsApp.",
+          source: "auto",
+        },
+      });
+    } else {
+      this.logger.warn(
+        `opt-${optOut ? "out" : "in"} de ${input.externalPhone} sin cliente asociado: no hay dónde grabar el consentimiento`,
+      );
+    }
+
+    await this.audit(
+      input.tenantId,
+      input.conversationId,
+      optOut ? CONVERSATION_AUDIT.optOut : CONVERSATION_AUDIT.optIn,
+      null,
+      { externalPhone: input.externalPhone, customerId },
+    );
+
+    // La confirmación va dentro de ventana: el cliente acaba de escribir.
+    await this.send(input.tenantId, {
+      tenantId: input.tenantId,
+      to: input.externalPhone,
+      type: "text",
+      body: optOut ? OPT_OUT_CONFIRMATION : OPT_IN_CONFIRMATION,
+    });
+
+    return optOut ? "OPT_OUT" : "OPT_IN";
+  }
+
+  private async resolveCustomerId(
+    tenantId: string,
+    conversationId: string,
+    externalPhone: string,
+  ): Promise<string | null> {
+    const conversation = await this.prisma.whatsAppConversation.findFirst({
+      where: { id: conversationId, tenantId },
+      select: { customerId: true },
+    });
+    if (conversation?.customerId) return conversation.customerId;
+    const identity = await this.prisma.customerIdentity.findFirst({
+      where: { externalId: externalPhone, customer: { tenantId } },
+      select: { customerId: true },
+    });
+    if (identity) return identity.customerId;
+    const byPhone = await this.prisma.customer.findFirst({
+      where: { tenantId, phone: externalPhone },
+      select: { id: true },
+    });
+    return byPhone?.id ?? null;
   }
 
   /**

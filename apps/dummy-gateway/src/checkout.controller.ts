@@ -49,6 +49,15 @@ interface OutcomeBody {
 }
 
 const CARD_BRANDS = new Set(["visa", "mastercard", "amex", "unknown"]);
+
+/** Vida mínima y máxima de una sesión de pago. */
+const MIN_TTL_MS = 60 * 1000;
+const MAX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+function clampTtl(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return Math.min(Math.max(Math.round(value), MIN_TTL_MS), MAX_TTL_MS);
+}
 const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 
 /**
@@ -86,6 +95,13 @@ export class CheckoutController {
       totals?: SessionTotals;
       /** Métodos que acepta el comercio. Ausente = todos los que simula el gateway. */
       paymentMethods?: string[];
+      /**
+       * Vida de la sesión en milisegundos. La manda el comercio a partir de
+       * su `checkoutReservationMinutes`; ausente = 15 min, que era el fijo de
+       * antes. Se acota entre 1 minuto y 30 días para que un valor absurdo no
+       * deje una sesión de pago viva para siempre.
+       */
+      expiresInMs?: number;
     },
     @Headers("authorization") auth?: string,
   ) {
@@ -116,6 +132,7 @@ export class CheckoutController {
       lineItems: Array.isArray(body.lineItems) ? body.lineItems.slice(0, 200) : undefined,
       totals: body.totals,
       paymentMethods,
+      expiresInMs: clampTtl(body.expiresInMs),
     });
 
     return {

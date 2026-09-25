@@ -28,7 +28,8 @@ import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { PaymentService } from "../payments/payment.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
-import { WhatsAppService } from "../whatsapp/whatsapp.service.js";
+import { NotificationService } from "../notifications/notification.service.js";
+import { pickChannel } from "../notifications/pick-channel.js";
 import { randomBytes } from "node:crypto";
 
 @Controller("orders")
@@ -40,7 +41,7 @@ export class OrderController {
     private readonly orders: OrderService,
     private readonly payments: PaymentService,
     private readonly prisma: PrismaService,
-    private readonly wa: WhatsAppService,
+    private readonly notifications: NotificationService,
   ) {}
 
   @Get()
@@ -165,14 +166,25 @@ export class OrderController {
       const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
       const link = `${base}/checkout/${token}`;
 
-      if (quote.customer.phone) {
-        await this.wa.send(tenantId, {
+      // Va por NotificationService, no por `wa.send` directo: es un mensaje
+      // que inicia el negocio, así que tiene que pasar por el opt-out del
+      // cliente, el horario local y la ventana de servicio de 24 h de Meta.
+      // Además el texto ya no promete "unos minutos": la vigencia del link
+      // la fija el negocio (`checkoutReservationMinutes`).
+      const target = pickChannel(quote.customer);
+      if (target) {
+        await this.notifications.scheduleFromTemplate({
           tenantId,
-          to: quote.customer.phone,
-          type: "text",
-          body:
-            `¡Tu cotización quedó aceptada! Aquí tu link para pagar en línea: ${link}\n` +
-            "Se vence en unos minutos, así que complétalo cuanto antes.",
+          recipientType: "CUSTOMER",
+          recipientId: quote.customerId,
+          channel: target.channel,
+          templateKey: "REMINDER",
+          to: target.to,
+          vars: {
+            customerName: quote.customer.fullName,
+            total: quote.total.toFixed(2),
+            link,
+          },
         });
       }
       return link;

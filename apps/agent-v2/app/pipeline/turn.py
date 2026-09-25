@@ -51,6 +51,7 @@ from ..guards import (
 from ..knowledge import load_profile
 from ..log_context import bind_turn_id, reset_turn_id
 from ..memory import build_llm_summarizer, compact_thread, history_chars
+from ..memory.profile import get_profile_store
 from ..security import media_size_error
 from ..state import TurnContext
 from ..tenant_context import TenantBundle, resolve_tenant_bundle
@@ -280,6 +281,9 @@ class TurnPipeline:
                 if response := await stage(ctx):
                     return await self._remember(ctx.thread_id, req.messageId, response)
 
+            # Lo que ya sabíamos de este número de conversaciones anteriores.
+            await self._stage_customer_memory(ctx)
+
             # Higiene de contexto: compacta si el historial ya pesa demasiado.
             await self._stage_auto_compact(ctx)
 
@@ -409,6 +413,38 @@ class TurnPipeline:
         snapshot = await ctx.rt.agent.aget_state(ctx.config)
         ctx.state_values = dict(snapshot.values or {})
         ctx.trace.mark("load_state", messages=len(ctx.state_values.get("messages") or []))
+
+    async def _stage_customer_memory(self, ctx: PipelineContext) -> None:
+        """Perfil del cliente por teléfono → bloque ``<memoria_cliente>``.
+
+        El hilo (`thread_id`) muere con la conversación; el cliente no. Esta
+        es la única parte del turno que mira lo que pasó en conversaciones
+        ANTERIORES del mismo número con el mismo negocio (ver
+        ``memory/profile.py``).
+
+        Además deja el teléfono en el estado del hilo la primera vez: al
+        cerrar la conversación ya no hay request donde leerlo, y sin él no
+        habría a qué perfil escribirle lo aprendido.
+
+        Best-effort: si la memoria falla, el turno sigue sin ella.
+        """
+        settings = ctx.settings
+        phone = (ctx.req.customerPhone or "").strip()
+        if not settings.customer_memory_enabled or not phone or not ctx.req.tenantId:
+            ctx.trace.mark("customer_memory", enabled=False)
+            return
+        try:
+            block = await get_profile_store().block_for(ctx.req.tenantId, phone)
+        except Exception:
+            log.warning("no se pudo leer la memoria del cliente", exc_info=True)
+            block = ""
+        ctx.context["customer_memory"] = block
+
+        known = (ctx.state_values.get("customer") or {}).get("phone")
+        if not known:
+            with contextlib.suppress(Exception):
+                await ctx.rt.agent.aupdate_state(ctx.config, {"customer": {"phone": phone}})
+        ctx.trace.mark("customer_memory", chars=len(block))
 
     async def _stage_active_handoff(self, ctx: PipelineContext) -> ChatResponse | None:
         """Una persona ya tomó la conversación: el bot no vuelve a publicar.

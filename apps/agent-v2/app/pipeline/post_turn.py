@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 
 from ..guards import redact_pii
 from ..learning import get_learning_store, looks_like_unanswered
-from ..security import clamp_text
 from ..memory import (
     Episode,
     enrich_with_llm,
@@ -21,6 +20,13 @@ from ..memory import (
     get_episode_store,
     heuristic_episode,
 )
+from ..memory.profile import (
+    CustomerProfile,
+    extract_facts_with_llm,
+    facts_from_state,
+    get_profile_store,
+)
+from ..security import clamp_text
 from ..tenant_context import resolve_tenant_bundle
 
 if TYPE_CHECKING:
@@ -82,12 +88,12 @@ async def record_learning(
                 conversation_id=conversation_id,
                 question=redact_pii(question),
             )
-    except Exception:  # noqa: BLE001 - registrar la señal nunca puede tumbar el turno
+    except Exception:
         log.warning("no se pudo registrar la señal de aprendizaje", exc_info=True)
 
 
 async def capture_episode(
-    runtime: "Runtime",
+    runtime: Runtime,
     tenant_id: str,
     conversation_id: str,
     channel: str,
@@ -98,7 +104,12 @@ async def capture_episode(
 ) -> Episode | None:
     """Extrae y guarda el episodio de una conversación terminada. Nunca lanza."""
     settings = runtime.settings
-    if not settings.episodic_memory_enabled or not tenant_id:
+    if not tenant_id:
+        return None
+    if not settings.episodic_memory_enabled:
+        # La memoria episódica puede estar apagada y la del cliente no: son
+        # dos knobs distintos y el mismo disparador.
+        await capture_customer_profile(runtime, tenant_id, values, messages)
         return None
     try:
         bundle = await resolve_tenant_bundle(tenant_id, include_catalog=False, include_lessons=False)
@@ -125,14 +136,49 @@ async def capture_episode(
                 episode, messages, model=runtime.utility_model, forbidden_terms=terms
             )
         await get_episode_store().save(episode)
+        # Mismo disparador, otra memoria: el episodio aprende CÓMO conversar
+        # (sin datos de nadie), el perfil recuerda A QUIÉN se atendió.
+        await capture_customer_profile(runtime, tenant_id, values, messages)
         return episode
-    except Exception:  # noqa: BLE001 - la memoria episódica nunca afecta al cliente
+    except Exception:
         log.warning("no se pudo guardar el episodio de la conversación", exc_info=True)
+        await capture_customer_profile(runtime, tenant_id, values, messages)
+        return None
+
+
+async def capture_customer_profile(
+    runtime: Runtime,
+    tenant_id: str,
+    values: dict[str, Any],
+    messages: list[Any],
+) -> CustomerProfile | None:
+    """Guarda lo que conviene recordar de ESTE cliente para la próxima vez.
+
+    La llave es el teléfono del estado del hilo (lo deja el pipeline en el
+    primer turno, o una herramienta con ``recordar_cliente``). Sin teléfono no
+    hay a quién recordar y se sale sin escribir nada — el chat web, por
+    ejemplo, no tiene número.
+
+    Nunca lanza: es memoria, no la respuesta del cliente.
+    """
+    settings = runtime.settings
+    if not settings.customer_memory_enabled or not tenant_id:
+        return None
+    phone = str((values.get("customer") or {}).get("phone") or "").strip()
+    if not phone:
+        return None
+    try:
+        facts = facts_from_state(values)
+        if runtime.utility_model is not None and messages:
+            facts = await extract_facts_with_llm(runtime.utility_model, messages, values)
+        return await get_profile_store().remember(tenant_id, phone, facts)
+    except Exception:
+        log.warning("no se pudo guardar el perfil del cliente", exc_info=True)
         return None
 
 
 def schedule_episode(
-    runtime: "Runtime",
+    runtime: Runtime,
     tenant_id: str,
     conversation_id: str,
     channel: str,
@@ -145,7 +191,8 @@ def schedule_episode(
     `stop()` la drene antes de cerrar el checkpointer (ver
     ``Runtime.background``).
     """
-    if not runtime.settings.episodic_memory_enabled:
+    settings = runtime.settings
+    if not settings.episodic_memory_enabled and not settings.customer_memory_enabled:
         return
     runtime.background(
         capture_episode(runtime, tenant_id, conversation_id, channel, list(messages), dict(values))

@@ -701,6 +701,20 @@ export class WhatsAppController {
       longitude,
     });
 
+    // Baja / alta por palabra clave (política de Meta: el opt-out se honra de
+    // inmediato). Si el mensaje era eso, el turno termina aquí: se confirma al
+    // cliente y no se invoca al agente — contestar "¿en qué te ayudo?" a quien
+    // acaba de pedir que no le escribamos es justo lo que la política prohíbe.
+    const consentKeyword = await this.wa.applyConsentKeyword({
+      tenantId: tenant.id,
+      conversationId: msg.conversationId,
+      externalPhone: message.externalPhone,
+      text: message.body,
+    });
+    if (consentKeyword) {
+      return { data: { ok: true, messageId: msg.id, consent: consentKeyword } };
+    }
+
     // El agente responde en el mismo hilo. Si está caído o el chat ya lo tomó
     // un humano, el webhook igual confirma la recepción del mensaje.
     const answered = await this.agent.handleInbound({

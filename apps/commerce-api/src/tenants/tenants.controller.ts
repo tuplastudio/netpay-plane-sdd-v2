@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -26,6 +27,7 @@ import {
   UpdateTenantDto,
   UpdateTenantMembershipDto,
 } from "../super-admin/super-admin.dto.js";
+import { resolveApprovedTemplate } from "../notifications/whatsapp-template-map.js";
 import { TenantProvisioningService } from "./tenant-provisioning.service.js";
 import { TenantLogoService } from "./tenant-logo.service.js";
 import { LogoUploadInterceptor } from "./logo-upload.interceptor.js";
@@ -33,6 +35,7 @@ import {
   CreateTenantApiKeyDto,
   CreateTenantDto,
   UpdateBrandingDto,
+  UpdateBusinessSettingsDto,
   UpdateTenantStatusDto,
 } from "./tenants.dto.js";
 
@@ -293,6 +296,77 @@ export class TenantSelfController {
         version: { increment: 1 },
       },
     });
+    return { data: tenant, requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Parámetros comerciales del propio tenant. Es la parte de "CMS" de la
+   * ficha de empresa: IVA, envío fijo, descuento máximo del vendedor y —lo
+   * que más se pide— cuánto dura una cotización, cuánto vive el link de pago
+   * y cada cuánto se recuerda una cotización sin pagar.
+   *
+   * Cambiar cualquiera de estos valores sube `configVersion`: las
+   * cotizaciones ya emitidas guardan la versión con la que se calcularon, así
+   * que el cambio afecta a las nuevas y nunca reescribe una vigente.
+   */
+  @Patch("settings")
+  @RequireScopes("tenant.admin")
+  async updateSettings(@Body() body: UpdateBusinessSettingsDto) {
+    const tenantId = this.requireTenant();
+    const data: Record<string, unknown> = {};
+    for (const key of [
+      "taxRatePct",
+      "shippingFlat",
+      "quoteValidityHours",
+      "quickPayValidityHours",
+      "checkoutReservationMinutes",
+      "maxSellerDiscountPct",
+      "quoteReminderEnabled",
+      "quoteReminderEveryHours",
+      "quoteReminderMaxCount",
+    ] as const) {
+      const value = body[key];
+      if (value !== undefined) data[key] = value;
+    }
+    if (body.whatsappTemplates !== undefined) {
+      // Sólo entran las entradas que el despachador sabe leer; el resto se
+      // descarta en silencio en vez de quedar guardado sin efecto.
+      const clean: Record<string, { name: string; language: string }> = {};
+      for (const key of Object.keys(body.whatsappTemplates)) {
+        const approved = resolveApprovedTemplate(body.whatsappTemplates, key);
+        if (approved) clean[key] = approved;
+      }
+      data.whatsappTemplates = clean;
+    }
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "No se mandó ningún campo a actualizar",
+      });
+    }
+
+    const before = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!before) throw new NotFoundException({ code: "NOT_FOUND", message: "Tenant no encontrado" });
+
+    const tenant = await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { ...data, configVersion: { increment: 1 }, version: { increment: 1 } },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId: RequestContext.userId ?? null,
+        action: "tenant.settings.updated",
+        targetType: "Tenant",
+        targetId: tenantId,
+        metadata: {
+          changed: Object.keys(data),
+          configVersion: tenant.configVersion,
+        },
+      },
+    });
+
     return { data: tenant, requestId: RequestContext.requestId };
   }
 

@@ -201,6 +201,10 @@ class TurnContext(TypedDict, total=False):
     customer_phone: str | None
     customer_name: str | None
     customer_email: str | None
+    # Bloque `<memoria_cliente>` ya renderizado para ESTE número: lo resuelve
+    # el pipeline una vez por turno (`memory/profile.py`) y lo lee
+    # `agent.sales_prompt`, que corre en cada llamada al modelo.
+    customer_memory: str
 
 
 def cart_summary(lines: list[CartLine] | None) -> str:

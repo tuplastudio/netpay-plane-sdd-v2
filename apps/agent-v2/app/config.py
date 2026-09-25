@@ -270,6 +270,24 @@ class Settings:
         default_factory=lambda: _env_int("AGENT_EPISODIC_LESSONS", 5)
     )
 
+    # ---- Memoria del cliente por teléfono (ver memory/profile.py) ----
+    # Lo que sabemos de ESTE cliente entre conversaciones distintas: se
+    # guarda al cerrar el hilo y se reinyecta cuando el mismo número vuelve a
+    # escribir, aunque sea otra conversación y otro `thread_id`.
+    customer_memory_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_CUSTOMER_MEMORY", True)
+    )
+    # Días sin volver a escribir tras los que el perfil deja de inyectarse
+    # (sigue en disco hasta la poda; 0 = nunca caduca).
+    customer_memory_ttl_days: int = field(
+        default_factory=lambda: _env_int("AGENT_CUSTOMER_MEMORY_TTL_DAYS", 365)
+    )
+    # Modelo para extraer los hechos duraderos (vacío = el del tenant). Sin
+    # LLM se guarda la versión determinista derivada del estado comercial.
+    customer_memory_model: str = field(
+        default_factory=lambda: _env("CUSTOMER_MEMORY_MODEL_ID", "")
+    )
+
     def __post_init__(self) -> None:
         """Sanea y valida rangos. Los valores fuera de rango se cortan al
         límite en vez de reventar: un knob mal configurado en producción
@@ -349,6 +367,10 @@ class Settings:
     @property
     def episodes_path(self) -> Path:
         return self.data_dir / "episodes.sqlite"
+
+    @property
+    def customer_profiles_path(self) -> Path:
+        return self.data_dir / "customer-profiles.sqlite"
 
 
 @lru_cache(maxsize=1)

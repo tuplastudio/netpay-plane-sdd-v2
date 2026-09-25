@@ -20,6 +20,11 @@ export interface Tenant {
   quickPayValidityHours: number;
   checkoutReservationMinutes: number;
   maxSellerDiscountPct: string;
+  quoteReminderEnabled: boolean;
+  quoteReminderEveryHours: number;
+  quoteReminderMaxCount: number;
+  /** Plantillas aprobadas por Meta, por clave interna. `null` = ninguna. */
+  whatsappTemplates: Record<string, { name: string; language: string } | string> | null;
   logoUrl: string | null;
   primaryColor: string;
   secondaryColor: string;

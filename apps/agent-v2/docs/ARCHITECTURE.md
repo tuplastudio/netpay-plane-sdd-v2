@@ -73,9 +73,10 @@ app/
     injection.py       Heurísticas de inyección y fuera de alcance (sin LLM)
     scope.py           Clasificador LLM de tema (falla abierto por defecto)
     output.py          Guard de salida: fugas, código, URLs, datos sensibles
-  memory/              Memoria en tres niveles
+  memory/              Memoria en cuatro niveles
     context.py         Compactar / vaciar el historial de un hilo
     episodic.py        Episodios de comportamiento por conversación + lecciones
+    profile.py         Perfil del cliente por teléfono, entre conversaciones
   evals/               Suite de evaluación (cuesta dinero real)
 prompts/               Versiones del prompt en disco (ver prompts/README.md)
 knowledge/             Conocimiento del negocio (Markdown por tenant)
@@ -210,7 +211,7 @@ queda sin prompt. `POST /prompts/reload` relee el disco sin reiniciar.
 El ensamblador (`app/prompts/assembler.py`) construye el prompt del turno en
 un orden fijo: identidad → bloques estáticos → estilo de venta → ajustes del
 panel → `<reglas_negocio>` → `<lecciones>` → `<memoria_conversacion>` →
-`<catalogo>` → `<informacion_negocio>`. Todo lo dinámico va entre
+`<memoria_cliente>` → `<catalogo>` → `<informacion_negocio>`. Todo lo dinámico va entre
 delimitadores; los delimitadores dentro de contenido no confiable se
 neutralizan para que un producto o documento no pueda "cerrar" un bloque.
 
@@ -226,6 +227,8 @@ Ver `prompts/README.md` para cómo publicar una versión nueva.
 | Fuga del prompt / notas internas / secretos | Guard de salida compara líneas protegidas; sustituye reply y AIMessage | `guards/output.py`, `PromptVersion.protected_lines` |
 | URLs inventadas | Solo URLs de tools, del conocimiento o de `PUBLIC_BASE_URL` | `guards/output.py` |
 | PII en memoria episódica | Esquema cerrado + redacción antes y después del LLM + términos prohibidos | `memory/episodic.py` |
+| Teléfono en claro en la memoria del cliente | La llave es un HMAC con el `tenant_id` como sal: sirve para buscar, no para leer, y no correlaciona entre negocios | `memory/profile.py` |
+| Perfil de un cliente visible para otro negocio | Llave primaria `(tenant_id, phone_key)`; toda consulta lleva el tenant | `memory/profile.py` |
 | PII en señales del panel | Redacción antes de guardar | `pipeline/post_turn.py` (`record_learning`) |
 | PII en logs | `RedactingFilter` en todos los handlers | `guards/pii.py`, `main._lifespan` (instala el filtro) |
 | Datos sensibles (tarjeta, CLABE, CURP) repetidos por el modelo | Enmascarado en la salida; prompt prohíbe pedirlos | `guards/output.py` |
@@ -311,6 +314,24 @@ fricción (códigos cerrados), qué funcionó y qué mejorar. Se guarda en
 `episodes.sqlite` por tenant y se agrega en un bloque `<lecciones>` corto que
 entra al prompt. Nunca contiene nombres, teléfonos, correos, productos,
 precios ni texto literal: ver las tres capas en el docstring del módulo.
+
+**Cliente** (`memory/profile.py`): lo único que sobrevive al hilo. El
+checkpoint muere con la conversación; cuando el mismo número vuelve a
+escribir días después, el canal abre una conversación nueva y el agente
+tendría que volver a preguntar nombre, correo y dirección. El perfil —llave
+`(tenant_id, HMAC del teléfono)`, en `customer-profiles.sqlite`— guarda
+nombre, correo, ciudad/CP, modo de entrega, qué le interesó, en qué quedó y
+un resumen corto. Se escribe con el MISMO disparador que el episodio y se
+reinyecta como bloque `<memoria_cliente>` en el primer turno en que ese
+número vuelve a aparecer (`pipeline/turn._stage_customer_memory`).
+
+Es la memoria que sí sabe de personas, así que tiene reglas propias: el
+teléfono nunca se guarda en claro (la llave es un HMAC con el `tenant_id`
+como sal, así que tampoco correlaciona al mismo número entre dos negocios),
+el esquema es cerrado y acotado, el texto libre pasa por `guards.pii.redact`,
+`AGENT_CUSTOMER_MEMORY_TTL_DAYS` deja de inyectar un perfil inactivo y
+`DELETE /memory/customers?phone=…` lo borra de verdad. `AGENT_CUSTOMER_MEMORY=0`
+apaga la capa entera sin tocar la episódica.
 
 ## Integración con commerce-api y el panel (una sola verdad por conversación)
 

@@ -135,3 +135,25 @@ SSE autenticado para inbox/QR con event ID y reconexión; en móvil polling como
 **AC-WHA-07 — prueba de aceptación:** Reiniciar Evolution permite recuperar sesión persistente; UI indica desconectado; conciliación dummy continúa.
 
 **Evidencia para cerrar:** cambio de código/contrato, prueba indicada y resultado reproducible vinculados a T-WHA-07. Estado inicial: `TODO`.
+
+### REQ-WHA-08 / T-WHA-08 — Política Comercial de Meta: ventana de 24 h y opt-out
+
+**Regla normativa:** Fuera de la ventana de servicio de 24 h, un mensaje que inicia el negocio sólo puede ser una plantilla aprobada por Meta; y una baja pedida por el cliente se honra de inmediato.
+
+**Trabajo específico:**
+
+- `service-window.ts` concentra la política: `isWithinServiceWindow` (24 h desde el último INBOUND), `phoneDigits`/`samePhone` (normalizan el `1` que WhatsApp mete en los móviles mexicanos, para que el teléfono del cliente case con el `externalPhone` del hilo), `isOptOutMessage`/`isOptInMessage` (frase completa o frase corta que empieza por la palabra clave: "baja por favor" sí, "no quiero la baja de mi pedido" no) y el pie `OPT_OUT_FOOTER`.
+- `WhatsAppService.lastInboundAt` / `canSendFreeForm` contestan si la ventana sigue abierta para ese número.
+- `NotificationService.dispatchPending` consulta la ventana antes de cada envío WHATSAPP. Cerrada: si el tenant registró una plantilla aprobada para esa clave (`Tenant.whatsappTemplates`, panel → Notificaciones) el mensaje sale como `type: "template"` con el texto como primer parámetro del cuerpo; si no, la notificación queda `CANCELLED` con el motivo a la vista en el panel, en vez de salir violando la política (y, con Cloud API, en vez de reintentar cinco veces un 131047).
+- `WhatsAppService.applyConsentKeyword`, llamado por el webhook ANTES de pasarle el mensaje al agente: revoca `CustomerConsent.WHATSAPP`, audita (`whatsapp.conversation.opt_out`) y confirma al cliente. El agente no contesta ese turno — responder "¿en qué te ayudo?" a quien acaba de pedir que no le escriban es justo lo que la política prohíbe. `ALTA` hace lo inverso.
+- El aviso de "cotización aceptada, aquí tu link de pago" dejó de salir por `wa.send` directo: ahora pasa por `NotificationService`, así que también respeta opt-out, horario y ventana.
+
+La ventana se evalúa igual para Meta y para Evolution: Cloud API rechaza el texto libre fuera de ventana, y una cuenta conectada por Baileys sigue sujeta a la misma política y a los bloqueos por reportes de spam.
+
+**Entregable esperado:** `src/whatsapp/service-window.ts`, `src/notifications/whatsapp-template-map.ts`, columna `Tenant.whatsappTemplates` (migración `0017`), sección "Plantillas aprobadas de WhatsApp" en el panel.
+
+**Dependencias:** T-WHA-04, T-WHA-05, T-NTF-01.
+
+**AC-WHA-08 — prueba de aceptación:** Con el último INBOUND hace 23 h la ventana está abierta; a las 24 h exactas está cerrada. "BAJA", "STOP" y "no molestar" revocan el consentimiento; "no quiero la baja de mi pedido" no. Una plantilla configurada como `{"QUOTE_REMINDER": "recordatorio"}` se resuelve con idioma `es_MX`; una sin nombre útil se ignora.
+
+**Evidencia para cerrar:** `apps/commerce-api/tests/whatsapp-policy.test.ts` (16 casos), verde.

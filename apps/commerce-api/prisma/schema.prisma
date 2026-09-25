@@ -35,6 +35,18 @@ model Tenant {
   checkoutReservationMinutes Int @default(15)
   maxSellerDiscountPct Decimal @default(10.00) @db.Decimal(5, 2)
 
+  // Recordatorios de cotización sin pagar (T-NTF-07). El dueño los controla
+  // desde el panel: si los apaga, no se programa ninguno.
+  quoteReminderEnabled    Boolean @default(true)
+  quoteReminderEveryHours Int     @default(24)
+  quoteReminderMaxCount   Int     @default(2)
+
+  /// Plantillas aprobadas por Meta, por clave de plantilla interna:
+  /// `{ "QUOTE_REMINDER": { "name": "recordatorio_cotizacion", "language": "es_MX" } }`.
+  /// Fuera de la ventana de servicio de 24 h es lo único que se puede enviar;
+  /// sin una entrada aquí, la notificación se cancela con motivo explícito.
+  whatsappTemplates Json?
+
   // Marca del tenant (branding), editable por su propio ADMIN
   logoUrl        String?
   primaryColor   String  @default("#0f172a")
@@ -413,6 +425,12 @@ model Quote {
   createdById   String?     @db.Uuid
   version       Int         @default(1)
 
+  // Recordatorios de pago ya enviados por esta cotización: el barrido no
+  // vuelve a mandar uno antes de `quoteReminderEveryHours` ni pasa de
+  // `quoteReminderMaxCount`.
+  remindersSent  Int       @default(0)
+  lastReminderAt DateTime? @db.Timestamptz
+
   tenant   Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer Customer    @relation(fields: [customerId], references: [id])
   lines    QuoteLine[]
@@ -421,6 +439,10 @@ model Quote {
 
   @@index([tenantId, status])
   @@index([tenantId, expiresAt])
+  // El barrido de vencimiento/recordatorios (quote-reminder.service.ts) busca
+  // por estado y vigencia a través de TODOS los tenants, así que necesita su
+  // propio índice: los dos de arriba empiezan por tenantId y no le sirven.
+  @@index([status, expiresAt])
 }
 
 enum QuoteStatus {

@@ -42,22 +42,22 @@ def _chat(client: TestClient, text: str, **extra):
 def test_health_and_diagnostics(client: TestClient) -> None:
     assert client.get("/healthz").json()["status"] == "ok"
     diag = client.get("/diagnostics").json()
-    assert diag["prompts"]["latest"] == "1.4.1"
+    assert diag["prompts"]["latest"] == "1.5.0"
     assert diag["guards"]["outputGuard"] is True
     assert "compactAfterChars" in diag["budgets"]
 
 
 def test_prompts_endpoints(client: TestClient) -> None:
     index = client.get("/prompts").json()
-    assert index["latest"] == "1.4.1" and index["processDefault"] == "latest"
-    assert [v["version"] for v in index["versions"]] == ["1.4.1", "1.4.0", "1.3.0", "1.2.1", "1.2.0", "1.1.0", "1.0.0"]
+    assert index["latest"] == "1.5.0" and index["processDefault"] == "latest"
+    assert [v["version"] for v in index["versions"]] == ["1.5.0", "1.4.1", "1.4.0", "1.3.0", "1.2.1", "1.2.0", "1.1.0", "1.0.0"]
     detail = client.get("/prompts/v1.0.0").json()
     assert "blockTexts" not in detail and "40_que_nunca_haces" in detail["blocks"]
     with_text = client.get("/prompts/1.2.0?text=true").json()
     assert "SEGURIDAD Y PRIVACIDAD" in with_text["blockTexts"]["05_seguridad_y_privacidad"]
     assert "VARIOS PEDIDOS A LA VEZ" in with_text["blockTexts"]["65_carritos_multiples"]
     assert client.get("/prompts/9.9.9").status_code == 404
-    assert client.post("/prompts/reload").json()["latest"] == "1.4.1"
+    assert client.post("/prompts/reload").json()["latest"] == "1.5.0"
 
 
 def test_settings_prompt_version_roundtrip(client: TestClient) -> None:
@@ -201,7 +201,7 @@ def test_close_conversation_stores_scrubbed_episode(client: TestClient) -> None:
     assert body["deleted"] is False
     episode = body["episode"]
     assert episode["outcome"] == "CARRITO_SIN_CIERRE" and episode["turns"] == 1
-    assert episode["promptVersion"] == "1.4.1"
+    assert episode["promptVersion"] == "1.5.0"
     dumped = str(episode)
     for leak in ("Laura", "6671234567", "LATA-1", "Lata blanca"):
         assert leak not in dumped

@@ -44,11 +44,13 @@ lo que hay además del grafo:
 | Respuesta nunca vacía | `app/pipeline/replies.py` | Toma solo el texto de ESTE turno (str o bloques de contenido); si el modelo no dejó texto, respaldo determinista según el estado (`engine=reply-fallback`). |
 | Observabilidad | `app/pipeline/trace.py` | `turnId` en cada respuesta, línea `turn.done` con duración por etapa, `GET /metrics` (contadores + p50/p95), `GET /conversations/{id}/messages` (transcript redactado). |
 | Memoria episódica | `app/memory/episodic.py` | Al cerrar una conversación (`POST /conversations/{id}/close`, handoff, borrado) se guarda un episodio de *comportamiento* (ánimo, fricción, mejoras) sin datos de personas ni del negocio; se agrega como `<lecciones>` en el prompt. `GET /memory/episodes`, `/memory/episodes/stats`, `/memory/lessons`. |
+| Memoria del cliente | `app/memory/profile.py` | Con el teléfono como llave, sobrevive al hilo: cuando el mismo número abre una conversación NUEVA, el agente ya sabe su nombre, su correo, su zona de entrega y en qué quedaron. Entra al prompt como `<memoria_cliente>`. El teléfono se guarda hasheado (HMAC con el tenant como sal) y `DELETE /memory/customers?phone=` lo borra. |
 
 Variables nuevas (todas opcionales): `PROMPTS_DIR`, `PROMPT_VERSION`,
 `AGENT_INPUT_HEURISTICS`, `AGENT_SCOPE_GUARD_FAIL_CLOSED`, `AGENT_OUTPUT_GUARD`,
 `AGENT_COMPACT_AFTER_CHARS`, `AGENT_COMPACT_KEEP_TURNS`, `AGENT_EPISODIC_MEMORY`,
-`EPISODIC_MODEL_ID`, `AGENT_EPISODIC_LESSONS`, `AGENT_TURN_TIMEOUT_SECONDS` (28),
+`EPISODIC_MODEL_ID`, `AGENT_EPISODIC_LESSONS`, `AGENT_CUSTOMER_MEMORY`,
+`AGENT_CUSTOMER_MEMORY_TTL_DAYS`, `CUSTOMER_MEMORY_MODEL_ID`, `AGENT_TURN_TIMEOUT_SECONDS` (28),
 `AGENT_TURN_TIMEOUT_IMAGE_SECONDS` (42), `AGENT_COALESCE_WINDOW_MS` (1500; 0
 apaga), `AGENT_COALESCE_CHANNELS` (`whatsapp`), `AGENT_RETRY_TRANSIENT` (1),
 `AGENT_HANDOFF_AFTER_FAILURES` (2; 1 = todo fallo es handoff, como antes),
@@ -179,7 +181,7 @@ Todo detrás de `X-Internal-Key` salvo `GET /healthz`. Confírmalo con
 | Ajustes | `GET/PUT/DELETE /settings`, `POST /moderation/reply` |
 | Conocimiento | `GET /knowledge`, `GET /knowledge/search`, `POST /knowledge/upload`, `DELETE /knowledge/{docId}`, `POST /knowledge/reload`, `POST /knowledge/web/preview`, `POST /knowledge/web/save` |
 | Aprendizaje | `GET /learning/signals`, `POST /learning/signals/{id}/approve`, `POST /learning/signals/{id}/dismiss` |
-| Memoria | `GET /memory/episodes`, `GET /memory/episodes/stats`, `GET /memory/lessons`, `DELETE /memory/episodes` |
+| Memoria | `GET /memory/episodes`, `GET /memory/episodes/stats`, `GET /memory/lessons`, `DELETE /memory/episodes`, `GET /memory/customers`, `GET /memory/customers/stats`, `GET /memory/customers/lookup?phone=`, `DELETE /memory/customers[?phone=]` |
 | Audio | `POST /audio/stt`, `POST /audio/tts` (503 si el proveedor no lo soporta) |
 
 Paridad con v1: completa (`/knowledge/*`, `/learning/*`, `/audio/*` y

@@ -10,6 +10,7 @@ import { BrandingSection } from "./branding-section";
 import { MembersSection } from "./members-section";
 import { ApiKeysSection } from "./api-keys-section";
 import { NotificationsSection } from "./notifications-section";
+import { WhatsAppTemplatesSection } from "./whatsapp-templates-section";
 import { SecurityTabs } from "./security-tabs";
 import { DeliveryZonesSection } from "./delivery-zones-section";
 
@@ -111,7 +112,12 @@ export function AdminTabs() {
         {section === "envio" ? <DeliveryZonesSection /> : null}
         {section === "usuarios" ? <MembersSection /> : null}
         {section === "api-keys" ? <ApiKeysSection /> : null}
-        {section === "notificaciones" ? <NotificationsSection /> : null}
+        {section === "notificaciones" ? (
+          <>
+            <NotificationsSection />
+            <WhatsAppTemplatesSection />
+          </>
+        ) : null}
         {section === "seguridad" ? <SecurityTabs /> : null}
       </div>
     </div>

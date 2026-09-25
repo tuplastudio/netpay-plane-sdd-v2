@@ -336,6 +336,7 @@ async def sales_prompt(request) -> SystemMessage:  # type: ignore[no-untyped-def
             profile=bundle.profile,
             overrides=bundle.overrides,
             working_memory=working_memory_block(state),
+            customer_memory=str(context.get("customer_memory") or ""),
             catalog=bundle.catalog,
             knowledge=bundle.knowledge,
             lessons=bundle.lessons,

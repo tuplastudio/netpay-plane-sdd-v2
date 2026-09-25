@@ -13,6 +13,7 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { WhatsAppService } from "../whatsapp/whatsapp.service.js";
 import { EmailService } from "../email/email.service.js";
 import { renderTemplate, type TemplateKey } from "./notification-templates.js";
+import { resolveApprovedTemplate } from "./whatsapp-template-map.js";
 
 /**
  * Escapa una celda CSV: previene inyección de fórmulas (Excel/Sheets
@@ -25,6 +26,10 @@ function csvField(value: string): string {
   if (/[",\n]/.test(v)) v = `"${v.replace(/"/g, '""')}"`;
   return v;
 }
+
+/** Motivo con el que se cancela una notificación fuera de ventana. */
+export const WINDOW_CLOSED_REASON =
+  "Ventana de 24 h de Meta cerrada: se requiere una plantilla aprobada para este mensaje";
 
 export interface ScheduleInput {
   tenantId: string;
@@ -72,7 +77,17 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     to: string;
     scheduledAt?: Date;
   }) {
-    const body = renderTemplate(input.templateKey, input.vars);
+    // `businessName` lo pone el servicio, no cada caller: Meta exige que el
+    // mensaje diga de parte de quién va, y así ninguna plantilla se queda sin
+    // él por olvido en un caller nuevo.
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: input.tenantId },
+      select: { name: true },
+    });
+    const body = renderTemplate(input.templateKey, {
+      businessName: tenant?.name ?? "",
+      ...input.vars,
+    });
     return this.schedule({
       tenantId: input.tenantId,
       recipientType: input.recipientType,
@@ -109,11 +124,34 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
           if (!payload.to || !payload.body) {
             throw new Error("payload incompleto (to/body)");
           }
+          // Política de Meta: el texto libre solo vale dentro de la ventana
+          // de servicio de 24 h. Fuera de ella, el mensaje que inicia el
+          // negocio tiene que ser una plantilla aprobada; si el tenant no
+          // configuró una para esta clave, la notificación se cancela con el
+          // motivo a la vista en vez de salir violando la política (y, con
+          // Meta Cloud API, en vez de reintentar cinco veces un 131047).
+          const insideWindow = await this.whatsapp.canSendFreeForm(n.tenantId, payload.to);
+          const approved = insideWindow
+            ? null
+            : resolveApprovedTemplate(n.tenant.whatsappTemplates, n.templateKey);
+          if (!insideWindow && !approved) {
+            await this.cancel(n.id, WINDOW_CLOSED_REASON);
+            await this.recordTimeline({
+              tenantId: n.tenantId,
+              subjectType: n.recipientType,
+              subjectId: n.recipientId,
+              eventType: `notification.${n.templateKey}.blocked_outside_window`,
+            });
+            continue;
+          }
           const result = await this.whatsapp.send(n.tenantId, {
             tenantId: n.tenantId,
             to: payload.to,
-            type: "text",
+            type: approved ? "template" : "text",
             body: payload.body,
+            templateName: approved?.name,
+            templateLanguage: approved?.language,
+            templateVars: approved ? { body: payload.body } : undefined,
           });
           if (result.status === "FAILED") {
             throw new Error(result.error ?? "envío falló");
@@ -215,6 +253,14 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.notification.update({
       where: { id },
       data: { status: "DELIVERED", deliveredAt: new Date() },
+    });
+  }
+
+  /** Cancelada por política (no es un fallo de envío: no se reintenta). */
+  async cancel(id: string, reason: string) {
+    return this.prisma.notification.update({
+      where: { id },
+      data: { status: "CANCELLED", lastError: reason.slice(0, 500) },
     });
   }
 

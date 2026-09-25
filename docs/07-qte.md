@@ -121,3 +121,17 @@ Concepto 1–300, importe string, taxProfile, taxMode, expiración y cliente opc
 **AC-QTE-07 — prueba de aceptación:** 116 al 16% produce base100/tax16; retry crea un pedido; concepto no aparece como producto del catálogo.
 
 **Evidencia para cerrar:** cambio de código/contrato, prueba indicada y resultado reproducible vinculados a T-QTE-07. Estado inicial: `TODO`.
+
+### REQ-QTE-08 / T-QTE-08 — Vigencia configurable, vencimiento automático y recordatorios
+
+**Regla normativa:** La vigencia de una cotización la fija el negocio, no el código, y una cotización vencida no puede seguir figurando como vigente.
+
+**Trabajo específico:** `Tenant.quoteValidityHours` pasa a editarse desde el panel (`PATCH /tenants/me/settings`, scope `tenant.admin`, rango 1–8 760 h). El token público (`QuoteShareToken`) sigue heredando `quote.expiresAt`, así que el link vive exactamente lo que el negocio configuró. `QuoteReminderService` barre cada 5 min: pasa a `EXPIRED` las `ISSUED` cuya `expiresAt` ya pasó —antes nadie llamaba a `markExpired`— y encola un `QUOTE_REMINDER` por cada cotización vigente sin pagar a la que le toca, según `quoteReminderEnabled`, `quoteReminderEveryHours` y `quoteReminderMaxCount`. El turno se reserva con un `updateMany` condicionado a `remindersSent`, así que dos instancias del API no mandan el mismo recordatorio dos veces. El envío pasa por `NotificationService`, que aplica opt-out, horario 09-19 local y ventana de 24 h de Meta (ver T-WHA-08).
+
+**Entregable esperado:** `src/quotes/quote-reminder.service.ts`, migración `0017_quote_reminders.sql`, `tests/quote-reminders.test.ts`, sección "Datos de la empresa" editable en el panel.
+
+**Dependencias:** T-QTE-05, T-NTF-01.
+
+**AC-QTE-08 — prueba de aceptación:** Con `quoteReminderEveryHours=24` y `quoteReminderMaxCount=2`, una cotización emitida hace 48 h y sin pagar recibe un recordatorio con su link público vigente; a las 3 h del primero no recibe otro; al llegar a 2 no recibe más. Una cotización con `expiresAt` en el pasado queda `EXPIRED`. Con `claimCount=0` (otra instancia ganó la carrera) no se encola nada.
+
+**Evidencia para cerrar:** `apps/commerce-api/tests/quote-reminders.test.ts` (9 casos), verde.

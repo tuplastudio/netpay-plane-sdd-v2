@@ -10,8 +10,11 @@ prompts/
   v1.2.0/                 varios carritos a la vez (carritoId)
   v1.2.1/                 necesidad sin nombre de producto → opciones y precio
   v1.3.0/                 ráfagas de mensajes, ritmo, correcciones y cierre
-  v1.4.0/                 latest: detalle_de_cotizacion, errores de tool,
+  v1.4.0/                 detalle_de_cotizacion, errores de tool,
                           notas de voz, complemento obvio, cancelación
+  v1.4.1/                 error de tool ≠ escalar; estilos de venta robustos
+  v1.5.0/                 latest: memoria del cliente entre conversaciones
+                          (<memoria_cliente>)
     manifest.yaml         version, status, created, description, changelog
     00_identidad.md       plantilla con {{agent_name}}, {{business_name}}, ...
     05_seguridad_y_privacidad.md
@@ -46,8 +49,10 @@ llaves sueltas y el JSON de ejemplo son literales.
 
 El ensamblador (`app/prompts/assembler.py`) añade después de los bloques
 estáticos: `<reglas_negocio>`, `<lecciones>`, `<memoria_conversacion>`,
-`<catalogo>`, `<informacion_negocio>`. El prompt debe referirse a ellos por
-esos nombres (desde v1.1.0). Cualquier aparición de esas etiquetas dentro
+`<memoria_cliente>`, `<catalogo>`, `<informacion_negocio>`. El prompt debe
+referirse a ellos por esos nombres (desde v1.1.0; `<memoria_cliente>` desde
+v1.5.0 — una versión congelada no se edita para nombrar un delimitador
+posterior, sólo `latest` tiene que estar al día). Cualquier aparición de esas etiquetas dentro
 del contenido dinámico se neutraliza (`‹catalogo›`).
 
 ## Publicar una versión nueva

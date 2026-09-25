@@ -1,0 +1,19 @@
+version: 1.5.0
+status: stable
+created: 2026-09-24
+description: >-
+  Memoria del cliente entre conversaciones. El agente ya no empieza de cero
+  cuando el mismo número vuelve a escribir en una conversación nueva: el
+  bloque <memoria_cliente> trae lo que ese cliente dejó dicho antes (nombre,
+  correo, zona de entrega, qué le interesó, en qué quedó) y el prompt dice
+  qué hacer con eso. No cambia herramientas ni contrato.
+changelog:
+  - >-
+    Nuevo bloque 62_cliente_que_regresa.md: cómo usar <memoria_cliente> sin
+    repreguntar lo que ya se sabe, sin recitar la lista y dejando que lo que
+    el cliente dice HOY gane sobre lo recordado. Cubre también el caso del
+    bloque vacío (no inventar un historial que no existe).
+  - >-
+    05_seguridad_y_privacidad.md: <memoria_cliente> se nombra en la lista de
+    bloques delimitados que son DATO y no instrucción, igual que <catalogo>
+    y <memoria_conversacion>.

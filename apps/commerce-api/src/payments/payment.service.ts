@@ -204,7 +204,7 @@ export class PaymentService {
     const order = await this.prisma.order.findFirst({
       where: { id: input.orderId, tenantId: input.tenantId },
       include: {
-        tenant: { select: { name: true } },
+        tenant: { select: { name: true, checkoutReservationMinutes: true } },
         customer: { select: { fullName: true, email: true } },
         revisions: { orderBy: { revisionNumber: "desc" }, take: 1, include: { lines: true } },
       },
@@ -256,6 +256,11 @@ export class PaymentService {
         webhookUrl: `${selfUrl.replace(/\/$/, "")}/api/v1/payments/webhook`,
         secret: webhookSecret,
         paymentMethods,
+        // La sesión de pago vive lo que el negocio configuró en el panel
+        // (`checkoutReservationMinutes`). Antes el gateway aplicaba siempre
+        // su fijo de 15 minutos, así que un link de pago mandado por
+        // WhatsApp estaba muerto antes de que el cliente lo abriera.
+        expiresInMs: order.tenant.checkoutReservationMinutes * 60 * 1000,
         ...presentation,
       }),
     });

@@ -86,10 +86,11 @@ export default function PublicQuotePage() {
           {merchant ? (
             <MerchantBrand merchant={merchant} />
           ) : (
-            <Link
-              href="/"
-              className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
-            >
+            // Marca, no navegación: esta página la abre un cliente final sin
+            // cuenta. Enlazar a `/` lo mandaba al middleware, que redirige a
+            // `/login` a quien no trae sesión — parecía que la cotización
+            // pedía iniciar sesión.
+            <span className="flex items-center gap-2">
               <span
                 aria-hidden
                 className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"
@@ -97,7 +98,7 @@ export default function PublicQuotePage() {
                 <Sparkles className="h-4 w-4" />
               </span>
               <span className="text-sm font-semibold">Easy Sell</span>
-            </Link>
+            </span>
           )}
           <span className="text-xs text-muted-foreground">Documento comercial</span>
         </div>
@@ -154,9 +155,7 @@ function ErrorState({ onRetry, retrying }: { onRetry: () => void; retrying: bool
             <RefreshCw aria-hidden className="h-3.5 w-3.5" />
             Reintentar
           </Button>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/">Volver al inicio</Link>
-          </Button>
+
         </div>
       </AlertDescription>
     </Alert>

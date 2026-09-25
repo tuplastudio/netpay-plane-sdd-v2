@@ -24,6 +24,13 @@ export interface SendMessageInput {
   body: string;
   mediaUrl?: string;
   templateName?: string;
+  /** Idioma con el que quedó aprobada la plantilla (`es_MX` por defecto). */
+  templateLanguage?: string;
+  /**
+   * Parámetros del cuerpo de la plantilla, en orden `{{1}}`, `{{2}}`, …
+   * La clave `body` es el atajo de una plantilla de un solo parámetro:
+   * `{{1}}` = el texto ya renderizado.
+   */
   templateVars?: Record<string, string>;
 }
 
@@ -56,6 +63,27 @@ export function mediaTypeFromMime(mimetype: string): MediaType {
   if (mime.startsWith("audio/")) return "audio";
   if (mime.startsWith("video/")) return "video";
   return "document";
+}
+
+/**
+ * Parámetros del cuerpo de una plantilla de Meta.
+ *
+ * Meta los recibe posicionales (`{{1}}`, `{{2}}`, …), no por nombre. Se ordena
+ * por clave —`body` primero, que es el atajo de la plantilla de un solo
+ * parámetro— para que el orden sea estable entre envíos.
+ */
+export function templateComponents(
+  vars: Record<string, string> | undefined,
+): Array<Record<string, unknown>> {
+  const entries = Object.entries(vars ?? {}).filter(([, v]) => typeof v === "string" && v.length > 0);
+  if (entries.length === 0) return [];
+  entries.sort(([a], [b]) => (a === "body" ? -1 : b === "body" ? 1 : a.localeCompare(b)));
+  return [
+    {
+      type: "body",
+      parameters: entries.map(([, value]) => ({ type: "text", text: value })),
+    },
+  ];
 }
 
 export interface MediaKey {
@@ -126,9 +154,14 @@ export class MetaChannel implements ChannelAdapter {
             to: input.to,
             type: input.type === "text" ? "text" : "template",
             text: input.type === "text" ? { body: input.body } : undefined,
-            template: input.type === "template"
-              ? { name: input.templateName, language: { code: "es_MX" }, components: [] }
-              : undefined,
+            template:
+              input.type === "template"
+                ? {
+                    name: input.templateName,
+                    language: { code: input.templateLanguage || "es_MX" },
+                    components: templateComponents(input.templateVars),
+                  }
+                : undefined,
           }),
           signal: AbortSignal.timeout(5000),
         },

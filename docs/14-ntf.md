@@ -128,3 +128,17 @@ Reportes filtros fecha local, canal, vendedor, origen; almacenamiento UTC y lím
 **AC-NTF-06 — prueba de aceptación:** Vendedor sin export financiero recibe403; CSV con nombre =formula se escapa; link expira a24h y solo tenant correcto descarga.
 
 **Evidencia para cerrar:** cambio de código/contrato, prueba indicada y resultado reproducible vinculados a T-NTF-06. Estado inicial: `TODO`.
+
+### REQ-NTF-07 / T-NTF-07 — Recordatorio de cotización sin pagar
+
+**Regla normativa:** El negocio decide si recuerda, cada cuánto y cuántas veces; el cliente decide si quiere recibirlo.
+
+**Trabajo específico:** Nueva plantilla `QUOTE_REMINDER` con el nombre del negocio, el total, la fecha de vencimiento, el link público y el pie de opt-out. La programa `QuoteReminderService` (ver T-QTE-08) vía `scheduleFromTemplate`, así que hereda todo lo que ya aplicaba el dispatcher: consentimiento `CustomerConsent.WHATSAPP`, ventana 09-19 local del tenant y backoff. `scheduleFromTemplate` inyecta `businessName` desde el tenant para que ninguna plantilla salga sin identificar al remitente.
+
+**Entregable esperado:** `notification-templates.ts` (clave nueva + pie de baja en las plantillas que inicia el negocio), columnas `Tenant.quoteReminder*` y `Quote.remindersSent/lastReminderAt`.
+
+**Dependencias:** T-NTF-01, T-QTE-08.
+
+**AC-NTF-07 — prueba de aceptación:** El texto de `QUOTE_REMINDER` contiene el nombre del negocio, el link y "Responde BAJA para dejar de recibir estos mensajes"; `PAYMENT_SIMULATED_SUCCESS` (respuesta a una acción del cliente) no lleva ese pie; `HANDOFF` (va a una persona del negocio) tampoco.
+
+**Evidencia para cerrar:** `apps/commerce-api/tests/whatsapp-policy.test.ts`, bloque "plantillas", verde.

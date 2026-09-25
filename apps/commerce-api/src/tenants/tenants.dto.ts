@@ -2,10 +2,13 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsHexColor,
   IsIn,
   IsInt,
+  IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUrl,
@@ -62,6 +65,85 @@ export class UpdateBrandingDto {
   @IsOptional()
   @IsHexColor()
   accentColor?: string;
+}
+
+/**
+ * Parámetros comerciales del propio tenant (`PATCH /tenants/me/settings`).
+ *
+ * Todos los campos son opcionales: el panel manda solo lo que el admin tocó.
+ * Los rangos son de negocio, no de tipo — un `quoteValidityHours` de 0 deja
+ * la cotización vencida en el instante en que se emite, y uno de 100 años
+ * convierte el link público en una credencial permanente.
+ *
+ * `checkoutReservationMinutes` admite hasta 43 200 minutos (30 días) porque
+ * es lo que decide cuánto vive el link de pago; el mínimo de 5 evita que el
+ * cliente reciba un enlace ya vencido.
+ */
+export class UpdateBusinessSettingsDto {
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  taxRatePct?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(9_999_999.99)
+  shippingFlat?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(8_760)
+  quoteValidityHours?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(8_760)
+  quickPayValidityHours?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(5)
+  @Max(43_200)
+  checkoutReservationMinutes?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  maxSellerDiscountPct?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  quoteReminderEnabled?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(720)
+  quoteReminderEveryHours?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  quoteReminderMaxCount?: number;
+
+  /**
+   * Plantillas aprobadas por Meta, por clave interna:
+   * `{ "QUOTE_REMINDER": { "name": "recordatorio_cotizacion", "language": "es_MX" } }`.
+   *
+   * Se valida como objeto y el controller se queda sólo con las entradas que
+   * `resolveApprovedTemplate` entiende: una clave con basura no puede dejar
+   * la columna en un estado que el despachador no sepa leer. `{}` borra
+   * todas.
+   */
+  @IsOptional()
+  @IsObject()
+  whatsappTemplates?: Record<string, unknown>;
 }
 
 /** Mismo contrato que `POST /iam/api-keys`, pero emitido por un super-admin

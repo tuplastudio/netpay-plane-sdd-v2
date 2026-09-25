@@ -18,6 +18,19 @@ from app.prompts import (
 )
 
 
+# Delimitadores que existían cuando se congelaron v1.1.0..v1.4.1. Una versión
+# publicada es inmutable, así que no se le puede exigir que nombre una
+# etiqueta que se inventó después: `DATA_TAGS` crece con el producto y sólo
+# `latest` tiene que estar al día (ver test_latest_names_every_tool).
+DATA_TAGS_UNTIL_1_4_1: tuple[str, ...] = (
+    "catalogo",
+    "informacion_negocio",
+    "memoria_conversacion",
+    "reglas_negocio",
+    "lecciones",
+)
+
+
 def _make_version(root: Path, version: str, *, status: str = "stable", blocks: dict[str, str] | None = None) -> None:
     folder = root / f"v{version}"
     folder.mkdir(parents=True)
@@ -135,13 +148,14 @@ class ShippedPromptsTests(TestCase):
         self.assertIn("1.3.0", registry.versions())
         self.assertIn("1.4.0", registry.versions())
         self.assertIn("1.4.1", registry.versions())
-        self.assertEqual(registry.latest(), "1.4.1")
+        self.assertIn("1.5.0", registry.versions())
+        self.assertEqual(registry.latest(), "1.5.0")
         hardened = registry.get("1.1.0")
         self.assertIsNotNone(hardened.block("05_seguridad_y_privacidad"))
         self.assertIn("consultivo", hardened.styles)
         self.assertIn("informativo", hardened.styles)
         text = hardened.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
-        for tag in DATA_TAGS:
+        for tag in DATA_TAGS_UNTIL_1_4_1:
             self.assertIn(f"<{tag}>", text, f"el prompt 1.1.0 debe nombrar el delimitador {tag}")
         self.assertIn("NUNCA pides ni aceptas: número de tarjeta", text)
 
@@ -223,26 +237,40 @@ class ConversationalPromptTests(TestCase):
         text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
         self.assertIn("RITMO, CORRECCIONES Y CIERRE", text)
         self.assertIn("varios mensajes", text, "debe explicar que varias líneas = ráfaga de mensajes")
-        for tag in DATA_TAGS:
+        for tag in DATA_TAGS_UNTIL_1_4_1:
             self.assertIn(f"<{tag}>", text, f"el prompt 1.3.0 debe nombrar el delimitador {tag}")
         self.assertIn("NUNCA pides ni aceptas: número de tarjeta", text)
 
     def test_latest_names_every_tool(self) -> None:
         registry = get_prompt_registry()
-        self.assertEqual(registry.latest(), "1.4.1")
-        version = registry.get("1.4.1")
+        self.assertEqual(registry.latest(), "1.5.0")
+        version = registry.get("1.5.0")
         self.assertEqual(version.status, "stable")
         text = version.static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
         from app.tools import SALES_TOOLS
 
         for tool in SALES_TOOLS:
-            self.assertIn(tool.name, text, f"el prompt 1.4.0 debe explicar cuándo usar {tool.name}")
+            self.assertIn(tool.name, text, f"el prompt latest debe explicar cuándo usar {tool.name}")
+        # `latest` sí nombra TODOS los delimitadores vigentes: es el que se
+        # sirve por defecto, así que un bloque de datos sin mención aquí
+        # llegaría al modelo sin que el bloque de seguridad lo cubra.
         for tag in DATA_TAGS:
             self.assertIn(f"<{tag}>", text)
         self.assertNotIn("Jazyfrut", text, "el prompt compartido no debe citar productos de un tenant")
         self.assertNotIn("MEMORIA DE LA CONVERSACIÓN", text, "se referencia el delimitador por su nombre")
         self.assertIn("NUNCA es motivo para", text)
         self.assertIn("NUNCA pides ni aceptas: número de tarjeta", text)
+
+    def test_customer_memory_block_is_documented(self) -> None:
+        """v1.5.0 explica qué hacer con `<memoria_cliente>`."""
+        text = (
+            get_prompt_registry()
+            .get("1.5.0")
+            .static_text({"agent_name": "A", "business_name": "B", "language": "es", "tone": "t", "currency": "MXN"})
+        )
+        self.assertIn("CLIENTE QUE REGRESA", text)
+        self.assertIn("<memoria_cliente>", text)
+        self.assertIn("mismo número de teléfono", text)
 
     def test_auto_history_lookup_off_enters_overrides_block(self) -> None:
         version = get_prompt_registry().get("1.4.1")

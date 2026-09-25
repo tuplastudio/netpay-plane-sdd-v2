@@ -1,7 +1,6 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
-import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -69,10 +68,9 @@ export default function PublicOrderTrackingPage() {
     <div className="min-h-screen bg-muted/30">
       <header className="border-b bg-background">
         <div className="mx-auto flex max-w-2xl items-center justify-between gap-2 px-4 py-4">
-          <Link
-            href="/"
-            className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
-          >
+          {/* Marca, no navegación: la abre un cliente final sin cuenta, y `/`
+              redirige a `/login` a quien no trae sesión. */}
+          <span className="flex items-center gap-2">
             <span
               aria-hidden
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"
@@ -80,7 +78,7 @@ export default function PublicOrderTrackingPage() {
               <Sparkles className="h-4 w-4" />
             </span>
             <span className="text-sm font-semibold">{q.data?.merchant ?? "Easy Sell"}</span>
-          </Link>
+          </span>
           <span className="text-xs text-muted-foreground">Seguimiento de pedido</span>
         </div>
       </header>

@@ -28,6 +28,8 @@ interface Notification {
   scheduledAt: string;
   sentAt: string | null;
   deliveredAt: string | null;
+  /** Motivo del último fallo o de la cancelación por política. */
+  lastError: string | null;
 }
 
 const columns: Array<DataTableColumn<Notification>> = [
@@ -180,6 +182,9 @@ function NotificationDetailSheet({
                 <FieldRow label="ID" mono>
                   {notification.id}
                 </FieldRow>
+                {notification.lastError ? (
+                  <FieldRow label="Motivo">{notification.lastError}</FieldRow>
+                ) : null}
               </DescriptionList>
             </div>
           </>
