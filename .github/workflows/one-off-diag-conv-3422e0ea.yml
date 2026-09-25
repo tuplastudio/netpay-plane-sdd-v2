@@ -29,22 +29,17 @@ jobs:
             # 1) Estado del hilo en LangGraph: failure_streak, handoff, handoff_reason,
             #    stage, últimos mensajes. Si `failure_streak` se resetea solo o
             #    `handoff=True` no persiste, lo veremos acá.
+            #
+            # `runtime` es singleton a nivel de proceso: el `docker exec` arranca
+            # un proceso NUEVO, así que hay que llamar `start()` antes de leer.
             echo "=== ESTADO DEL HILO (LangGraph) ==="
             $DC exec -T agent-v2 python -c "
-            import asyncio, time
+            import asyncio
             from app.runtime import runtime
             cid = '3422e0ea-9751-4da7-b8b5-a4d0d01c5081'
             tid = f'demo-store:{cid}'
-            # Espera a que el agente esté listo (lifespan tarda un poco).
-            for _ in range(30):
-                if runtime.ready:
-                    break
-                time.sleep(2)
-            print('runtime.ready:', runtime.ready)
-            if not runtime.ready:
-                print('agent NOT ready; abort')
-                raise SystemExit(1)
             async def main():
+                await runtime.start()
                 snap = await runtime.agent.aget_state({'configurable': {'thread_id': tid}})
                 v = dict(snap.values or {})
                 print('thread_id:', tid)
@@ -52,16 +47,16 @@ jobs:
                 print('stage:', v.get('stage'))
                 print('handoff_reason:', v.get('handoff_reason'))
                 print('failure_streak:', v.get('failure_streak'))
-                print('updated_at keys:', sorted(k for k in v.keys() if not k.startswith('_')))
+                print('keys:', sorted(k for k in v.keys() if not k.startswith('_')))
                 msgs = v.get('messages') or []
                 print('total messages:', len(msgs))
-                # Muestra los últimos 6 mensajes con su tipo y un preview del contenido.
                 for m in msgs[-6:]:
                     cls = type(m).__name__
                     c = getattr(m, 'content', '')
                     if isinstance(c, list):
                         c = ' | '.join(b.get('text', '') if isinstance(b, dict) else str(b) for b in c)
                     print(f'  {cls}: {(c or '')[:140]!r}')
+                await runtime.stop()
             asyncio.run(main())
             "
 
