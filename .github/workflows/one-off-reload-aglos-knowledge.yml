@@ -27,19 +27,22 @@ jobs:
             cd /opt/netpay-build/infra
             DC="docker compose -f compose.prod.yaml --env-file .env.prod"
 
-            echo "=== localizar tenant Aglos ==="
-            TENANT_ID=$($DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            echo "=== confirmar tenant (demo-store, catalogo AGLOSTONE en prod) ==="
+            # No existe un tenant separado "Aglos" en prod: el tenant demo-store
+            # vende el catalogo AGLOSTONE (ver SKUs AGL-AGLOSTONE-* en /catalog),
+            # asi que es a este tenant al que pertenece el conocimiento del bot.
+            TENANT_ID="8e3ecbd4-e06c-49a7-a3be-fa18f9af413f"
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
             const { PrismaClient } = require('@prisma/client');
             const p = new PrismaClient();
             (async () => {
-              const t = await p.tenant.findFirst({ where: { name: { contains: 'aglos', mode: 'insensitive' } } });
+              const t = await p.tenant.findUnique({ where: { id: '$TENANT_ID' } });
               if (!t) { console.error('NOT_FOUND'); process.exit(1); }
-              console.log(t.id);
+              console.log('tenant:', t.id, t.name, t.slug);
               await p.\$disconnect();
             })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
-            " | tail -1)
+            "
             echo "tenant_id=$TENANT_ID"
-            if [ -z "$TENANT_ID" ]; then echo "no se encontro tenant Aglos"; exit 1; fi
 
             echo "=== conocimiento actual (antes) ==="
             $DC exec -T agent-v2 python -c "
