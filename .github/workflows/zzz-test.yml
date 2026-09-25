@@ -1,10 +1,10 @@
-name: One-off - test registration
+name: test reg
 
 on:
   workflow_dispatch:
 
 jobs:
-  hello:
+  a:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "hello"
+      - run: echo hi
