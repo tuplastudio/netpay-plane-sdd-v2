@@ -404,9 +404,10 @@ class ToolGateway:
             # El matching real (trigrama + léxico + sinónimos) vive en matching.py.
             # El backend solo hace `contains` por substring, así que frases
             # largas ("dame el original 500") devuelven 0 y bloquean la
-            # búsqueda. Pedimos el catálogo completo y decidimos del lado del
-            # agente, que es el que sabe explicar.
-            variants = await self.commerce.search_products(None, limit=50)
+            # búsqueda. Pedimos el catálogo completo (paginado, sin tope de
+            # 50/100 SKUs) y decidimos del lado del agente, que es el que sabe
+            # explicar.
+            variants = await self.commerce.full_catalog()
             if variants:
                 self.catalog_cache = variants
                 self._catalog_snapshots.append(list(variants))

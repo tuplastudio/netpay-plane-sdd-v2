@@ -45,6 +45,10 @@ class FakeCommerce(CommerceClient):
         self.calls.append("search_products")
         return FIXTURE_CATALOG
 
+    async def full_catalog(self):  # type: ignore[override]
+        self.calls.append("search_products")
+        return FIXTURE_CATALOG
+
     async def price_preview(self, lines, *, delivery_mode=None):  # type: ignore[override]
         self.calls.append("price_preview")
         subtotal = sum(

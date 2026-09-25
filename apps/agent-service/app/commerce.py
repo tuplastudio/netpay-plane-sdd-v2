@@ -52,6 +52,7 @@ class CommerceClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
         idempotency_key: str | None = None,
+        raw: bool = False,
     ) -> Any:
         if not self.live:
             raise CommerceUnavailable("AGENT_API_KEY_REF no configurada")
@@ -90,15 +91,54 @@ class CommerceClient:
         if not response.content:
             return None
         body = response.json()
+        if raw:
+            return body
         return body.get("data", body) if isinstance(body, dict) else body
 
     # ---------- catálogo ----------
 
+    # Techo real del backend (`catalog.service.ts: listProducts`); pedir más
+    # que esto solo lo recorta de vuelta, así que no tiene caso mandarlo.
+    _CATALOG_PAGE_LIMIT = 100
+    # Techo de páginas para el volcado completo: evita un loop sin fin si el
+    # backend un día deja de mandar `nextCursor: null`.
+    _CATALOG_MAX_PAGES = 50
+
     async def search_products(self, query: str | None = None, *, limit: int = 20) -> list[CatalogVariant]:
         data = await self._request(
-            "GET", "/catalog/products", params={"q": query or "", "limit": min(limit, 50)}
+            "GET",
+            "/catalog/products",
+            params={"q": query or "", "limit": min(limit, self._CATALOG_PAGE_LIMIT)},
         )
         return self._flatten_variants(data)
+
+    async def full_catalog(self) -> list[CatalogVariant]:
+        """Catálogo completo del tenant, paginado.
+
+        `search_products(None, limit=N)` solo trae la primera página: con
+        tenants de más de `_CATALOG_PAGE_LIMIT` SKUs el agente dejaba de ver
+        (y de poder cotizar) todo lo que quedara después del corte. Aquí se
+        recorre `pageInfo.nextCursor` hasta agotarlo.
+        """
+        variants: list[CatalogVariant] = []
+        cursor: str | None = None
+        for _ in range(self._CATALOG_MAX_PAGES):
+            body = await self._request(
+                "GET",
+                "/catalog/products",
+                params={
+                    "limit": self._CATALOG_PAGE_LIMIT,
+                    **({"cursor": cursor} if cursor else {}),
+                },
+                raw=True,
+            )
+            if not isinstance(body, dict):
+                break
+            variants.extend(self._flatten_variants(body.get("data")))
+            cursor = (body.get("pageInfo") or {}).get("nextCursor")
+            if not cursor:
+                break
+        return variants
 
     async def get_product(self, product_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/catalog/products/{product_id}")
