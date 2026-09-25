@@ -32,7 +32,7 @@ jobs:
             # owner@demo.local NO tiene (es OWNER, no admin del tenant);
             # el bypass es actualizar el tenant directamente, mismo shape
             # que el DTO valida (entero 5..43200).
-            $DC exec -T commerce-api sh -c "cd apps/commerce-api && node -e '
+            $DC exec -T -e MINUTES="$MINUTES" commerce-api sh -c "cd apps/commerce-api && node -e '
               const { PrismaClient } = require(\"@prisma/client\");
               const prisma = new PrismaClient();
               const minutes = Number(process.env.MINUTES);
@@ -45,4 +45,4 @@ jobs:
                 console.log(\"OK\", t.slug, t.name, \"checkoutReservationMinutes=\" + t.checkoutReservationMinutes);
                 await prisma.\$disconnect();
               })().catch((e) => { console.error(\"FAIL\", e.message); process.exit(1); });
-            '" -e MINUTES="$MINUTES"
+            '"
