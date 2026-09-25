@@ -72,6 +72,8 @@ import { blobToBase64, formatDuration, useVoiceRecorder } from "./use-voice-reco
 import { EmojiPickerPanel } from "./emoji-picker-panel";
 import { linkify } from "./linkify";
 import { ShortcutsHelp } from "./shortcuts-help";
+import { useConversationContext } from "./use-conversation-context";
+import { Money } from "@/components/app/money";
 
 const ACCEPTED_FILES = "image/*,audio/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.txt";
 // Mismo criterio que `ACCEPTED_FILES`, pero evaluable en JS: el atributo
@@ -201,11 +203,16 @@ function MessageMarker({
   customerName,
   agentLabel,
   agentName,
+  compact = false,
 }: {
   message: Message;
   customerName: string;
   agentLabel: "Agente" | "Asesor";
   agentName?: string;
+  /** Sin icono ni nombre del sender: concatenación visual con el mensaje
+   *  anterior (mismo sender, < 5 min). La fecha sigue, alineada al borde
+   *  correcto, para que la cronología no se pierda. */
+  compact?: boolean;
 }) {
   const outbound = message.direction === "OUTBOUND";
   const Icon = outbound ? (agentLabel === "Asesor" ? UserCog : Bot) : UserRound;
@@ -213,12 +220,18 @@ function MessageMarker({
   return (
     <div
       className={cn(
-        "flex items-baseline gap-1.5 px-1 pb-1 text-[11px] text-muted-foreground",
+        "flex items-baseline gap-1.5 px-1 pb-0.5 text-[11px] text-muted-foreground",
         outbound ? "justify-end" : "justify-start",
       )}
     >
-      <Icon aria-hidden className="h-3 w-3 shrink-0" />
-      <span className="truncate font-medium text-foreground">{label}</span>
+      {compact ? (
+        <span aria-hidden className="h-3 w-3 shrink-0" />
+      ) : (
+        <Icon aria-hidden className="h-3 w-3 shrink-0" />
+      )}
+      {compact ? null : (
+        <span className="truncate font-medium text-foreground">{label}</span>
+      )}
       <span aria-hidden>·</span>
       <DateTime value={message.createdAt} className="text-[11px]" />
       {outbound ? (
@@ -253,18 +266,19 @@ function MessageBubble({
   customerName,
   agentLabel,
   agentName,
+  compactMarker = false,
 }: {
   message: Message;
   customerName: string;
   agentLabel: "Agente" | "Asesor";
   agentName?: string;
+  /** Concatenación visual con el mensaje anterior. */
+  compactMarker?: boolean;
 }) {
   const outbound = message.direction === "OUTBOUND";
   const failed = message.status === "FAILED";
   const media = MEDIA_LABELS[message.messageType];
   const MediaIcon = media?.icon;
-  // Si el visor falla (URL vencida, CORS, lo que sea) se cae al mismo label
-  // + "Abrir" que ya tenían DOCUMENT/TEMPLATE, en vez de dejar un hueco roto.
   const [mediaError, setMediaError] = useState(false);
   const hasPreview = !!message.mediaUrl && !mediaError && PREVIEWABLE_TYPES.has(message.messageType);
 
@@ -276,10 +290,11 @@ function MessageBubble({
           customerName={customerName}
           agentLabel={agentLabel}
           agentName={agentName}
+          compact={compactMarker}
         />
         <div
           className={cn(
-            "overflow-hidden whitespace-pre-wrap break-words rounded-card px-3 py-2 text-sm",
+            "overflow-hidden whitespace-pre-wrap break-words rounded-card px-2.5 py-1.5 text-sm",
             outbound
               ? "rounded-br-sm bg-primary-strong text-primary-foreground"
               : "rounded-bl-sm bg-muted text-foreground",
@@ -394,40 +409,66 @@ function MessagesPane({
   customerName,
   agentLabel,
   agentName,
+  scrollContainerRef,
 }: {
   conversationId: string;
   handedOff: boolean;
   customerName: string;
   agentLabel: "Agente" | "Asesor";
   agentName?: string;
+  /** Ref externo al contenedor scrollable: si el padre (ConversationThread)
+   *  lo pasa, lo usamos. ScrollToEndButton comparte el mismo nodo y
+   *  necesita el mismo ref para detectar posición. */
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const messages = useMessages(conversationId, { poll: handedOff });
-  const listRef = useRef<HTMLDivElement>(null);
+  const internalRef = useRef<HTMLDivElement>(null);
+  const listRef = scrollContainerRef ?? internalRef;
   const lastId = messages.data?.[messages.data.length - 1]?.id;
 
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [lastId]);
+  }, [lastId]); // eslint-disable-line react-hooks/exhaustive-deps -- listRef es ref estable
 
-  /** Lista con separadores de día inyectados; una sola pasada. */
+  /** Lista con separadores de día y marcadores compactos; una sola pasada.
+   *
+   * Concatenación visual: cuando el sender no cambia entre dos mensajes y
+   * pasaron menos de 5 minutos, el segundo oculta ícono+nombre (la fecha
+   * sí se pinta — la cronología se mantiene). En un hilo de 100 mensajes
+   * del mismo cliente, esto recorta el alto a la mitad. WhatsApp/IMessage
+   * colapsan igual. */
+  const SENDER_GAP_MINUTES = 5;
   const interleaved = useMemo(() => {
     if (!messages.data) return [];
     const out: Array<
-      | { kind: "bubble"; key: string; message: Message }
+      | { kind: "bubble"; key: string; message: Message; compactMarker: boolean }
       | { kind: "day"; key: string; iso: string }
     > = [];
     let prevDay = "";
+    let prevMessage: Message | null = null;
     for (const m of messages.data) {
       const d = new Date(m.createdAt);
-      if (!Number.isNaN(d.getTime())) {
-        const day = d.toDateString();
-        if (day !== prevDay) {
-          out.push({ kind: "day", key: `day-${m.id}`, iso: m.createdAt });
-          prevDay = day;
-        }
+      const day = Number.isNaN(d.getTime()) ? "" : d.toDateString();
+      if (day !== prevDay) {
+        out.push({ kind: "day", key: `day-${m.id}`, iso: m.createdAt });
+        prevDay = day;
       }
-      out.push({ kind: "bubble", key: m.id, message: m });
+      let compact = false;
+      if (prevMessage) {
+        const sameDirection = prevMessage.direction === m.direction;
+        // Para INBOUND el sender siempre es el cliente de la conversación.
+        // Para OUTBOUND asumimos mismo agente mientras el dueño no haya
+        // cambiado el `handoffUser` (transición visible en el panel y rara
+        // en la práctica): si pasa, el marcador aparece de nuevo — es
+        // información útil, no ruido.
+        const close =
+          Math.abs(d.getTime() - new Date(prevMessage.createdAt).getTime()) <
+          SENDER_GAP_MINUTES * 60_000;
+        compact = close && sameDirection;
+      }
+      out.push({ kind: "bubble", key: m.id, message: m, compactMarker: compact });
+      prevMessage = m;
     }
     return out;
   }, [messages.data]);
@@ -453,7 +494,7 @@ function MessagesPane({
           description="Este hilo aún no tiene mensajes registrados."
         />
       ) : (
-        <ol aria-label="Mensajes de la conversación" className="space-y-3">
+        <ol aria-label="Mensajes de la conversación" className="space-y-1">
           {interleaved.map((node) =>
             node.kind === "day" ? (
               <DaySeparator key={node.key} iso={node.iso} />
@@ -464,6 +505,7 @@ function MessagesPane({
                 customerName={customerName}
                 agentLabel={agentLabel}
                 agentName={agentName}
+                compactMarker={node.compactMarker}
               />
             ),
           )}
@@ -1030,6 +1072,133 @@ function HeaderAction({
 }
 
 /**
+ * Resumen del hilo ARRIBA de los mensajes: cliente, total gastado y lo que
+ * está abierto AHORA (pedido/cotización pendiente). Antes toda esta info
+ * vivía en la columna derecha, fuera de vista en móvil (ahí es un Sheet
+ * que hay que abrir) y enterrada en una columna larga en escritorio.
+ *
+ * El resumen es de UNA fila en desktop y dos en móvil. El pedido/cotización
+ * en curso lleva badge de estado + monto; el resto son chips planos. No es
+ * navegable: para detalle del pedido se usa el panel derecho (o el Sheet
+ * en móvil); el resumen es de un vistazo, no de acción.
+ */
+function ThreadContextBar({ conversation }: { conversation: Conversation }) {
+  const ctx = useConversationContext(conversation.id);
+  const data = ctx.data;
+  const customerName = conversation.customer?.fullName ?? conversation.externalPhone;
+  const totalSpend = data?.metrics.totalSpend ?? "0";
+  const orderCount = data?.metrics.orderCount ?? 0;
+  const quoteCount = data?.metrics.quoteCount ?? 0;
+  const openOrder = data?.orders.find((o) => o.id === data.openOrderId) ?? null;
+  const openQuote = data?.quotes.find((q) => q.id === data.openQuoteId) ?? null;
+  const loading = ctx.isLoading;
+
+  return (
+    <div
+      role="group"
+      aria-label="Resumen del hilo"
+      className="shrink-0 border-b border-border bg-muted/30 px-3 py-2"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span className="inline-flex items-center gap-1.5">
+          <UserRound aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="font-medium text-foreground">{customerName}</span>
+        </span>
+        <span aria-hidden className="text-muted-foreground/50">·</span>
+        <span
+          className="text-muted-foreground"
+          title={`${data?.metrics.paidOrders ?? 0} pagado(s)`}
+        >
+          {orderCount} {orderCount === 1 ? "pedido" : "pedidos"} ·{" "}
+          {quoteCount} {quoteCount === 1 ? "cotización" : "cotizaciones"}
+        </span>
+        <span aria-hidden className="text-muted-foreground/50">·</span>
+        <span className="text-muted-foreground">
+          <Money value={totalSpend} className="font-medium text-foreground" /> gastado
+        </span>
+      </div>
+
+      {(openOrder || openQuote) && (
+        <ul className="mt-1.5 flex flex-wrap gap-1.5">
+          {openOrder ? (
+            <li className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-card px-2 py-0.5 text-xs">
+              <Badge variant="info" size="sm">
+                Pedido
+              </Badge>
+              <StatusBadge status={openOrder.status} domain="order" size="sm" />
+              <Money value={openOrder.total} className="font-medium tabular-nums" />
+            </li>
+          ) : null}
+          {openQuote ? (
+            <li className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-card px-2 py-0.5 text-xs">
+              <Badge variant="neutral" size="sm">
+                Cotización
+              </Badge>
+              <StatusBadge status={openQuote.status} domain="quote" size="sm" />
+              <Money value={openQuote.total} className="font-medium tabular-nums" />
+              <span className="text-muted-foreground">· vence</span>
+              <DateTime value={openQuote.expiresAt} className="text-muted-foreground" />
+            </li>
+          ) : null}
+        </ul>
+      )}
+      {loading && !data ? (
+        <p className="sr-only" role="status">
+          Cargando resumen del cliente…
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Botón flotante "ir al final" que aparece cuando el usuario está scroll
+ * arriba en una conversación larga: scrollear 14 000 px para encontrar el
+ * último mensaje no es trabajo, es castigo.
+ */
+function ScrollToEndButton({
+  containerRef,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    function check() {
+      if (!el) return;
+      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+      // Muestra cuando hay > 200 px por debajo del borde inferior: un usuario
+      // que lee un mensaje largo debería poder saltar al final sin scrollear.
+      setShow(distance > 200);
+    }
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    return () => el.removeEventListener("scroll", check);
+  }, [containerRef]);
+
+  function go() {
+    const el = containerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }
+
+  if (!show) return null;
+  return (
+    <button
+      type="button"
+      onClick={go}
+      aria-label="Ir al mensaje más reciente"
+      className="absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-airbnb-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
+    >
+      <ChevronLeft aria-hidden className="h-3.5 w-3.5 rotate-[270deg]" />
+      Ir al más reciente
+    </button>
+  );
+}
+
+/**
  * Panel central de la bandeja: encabezado del hilo, mensajes/notas y el
  * redactor. Reemplaza al `ConversationSheet` (ya no es un overlay: llena la
  * columna central de la página de 3 paneles).
@@ -1050,6 +1219,10 @@ export function ConversationThread({
   const setStatus = useSetConversationStatus();
   const [confirmReturn, setConfirmReturn] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  // Ref compartido entre MessagesPane (auto-scroll al fondo al cargar) y
+  // ScrollToEndButton (detectar si el usuario está lejos del fondo para
+  // mostrar el atajo).
+  const messagesListRef = useRef<HTMLDivElement | null>(null);
 
   // Regla de Escape en el hilo: si el foco está en el textarea del redactor
   // (o el de notas) y tiene texto sin enviar, el primer Escape solo le quita
@@ -1207,6 +1380,12 @@ export function ConversationThread({
         </DropdownMenu>
       </div>
 
+      {/* Resumen del hilo: cliente + KPIs + orden/cotización en curso, encima
+          de los mensajes. En móvil el panel derecho es un Sheet que hay que
+          abrir, así que este resumen es la única forma de ver "qué está
+          abierto" sin tocar la barra. */}
+      <ThreadContextBar conversation={current} />
+
       {/* `key` reinicia pestaña, borradores y cola al cambiar de hilo. */}
       <Tabs key={current.id} defaultValue="messages" className="flex min-h-0 flex-1 flex-col">
         <TabsList aria-label="Secciones de la conversación" className="mx-3 mt-2 w-fit">
@@ -1214,13 +1393,17 @@ export function ConversationThread({
           <TabsTrigger value="notes">Notas del hilo</TabsTrigger>
         </TabsList>
         <TabsContent value="messages" className="mt-2 flex min-h-0 flex-1 flex-col">
-          <MessagesPane
-            conversationId={current.id}
-            handedOff={current.handoffToHuman}
-            customerName={current.customer?.fullName ?? current.externalPhone}
-            agentLabel={current.handoffToHuman ? "Asesor" : "Agente"}
-            agentName={current.handoffUser?.fullName.split(" ")[0]}
-          />
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <MessagesPane
+              conversationId={current.id}
+              handedOff={current.handoffToHuman}
+              customerName={current.customer?.fullName ?? current.externalPhone}
+              agentLabel={current.handoffToHuman ? "Asesor" : "Agente"}
+              agentName={current.handoffUser?.fullName.split(" ")[0]}
+              scrollContainerRef={messagesListRef}
+            />
+            <ScrollToEndButton containerRef={messagesListRef} />
+          </div>
           {/* Aviso suave, no bloqueante: el agente exige nombre antes de cotizar.
               Aparece solo cuando el hilo todavía no tiene ficha de cliente, para
               que el asesor recuerde pedirlo (o lo pida él antes de transferir de
