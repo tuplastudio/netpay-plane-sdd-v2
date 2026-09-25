@@ -61,13 +61,15 @@ jobs:
             "
 
             # 1b) sqlite directo del checkpoint para confirmar que el archivo
-            # tiene contenido.
+            # tiene contenido. La config usa data_dir = AGENT_V2_DATA_DIR, no
+            # AGENT_CHECKPOINT_DIR, así que el archivo está en
+            # /data/agent-v2/threads.sqlite (no /checkpoints/).
             echo
             echo "=== ARCHIVO DE CHECKPOINT ==="
-            $DC exec -T agent-v2 sh -c "ls -la /data/agent-v2/checkpoints/threads.sqlite 2>&1 || echo 'no existe threads.sqlite'"
-            $DC exec -T agent-v2 sqlite3 /data/agent-v2/checkpoints/threads.sqlite 'SELECT count(*) AS n FROM checkpoints;' 2>&1 | head -3
-            # Conteo de checkpoints cuyo thread_id contiene el UUID de la conversación.
-            $DC exec -T agent-v2 sqlite3 /data/agent-v2/checkpoints/threads.sqlite "SELECT count(*) FROM checkpoints WHERE thread_id LIKE '%3422e0ea%';" 2>&1 | head -3
+            $DC exec -T agent-v2 sh -c "ls -la /data/agent-v2/threads.sqlite /data/agent-v2/checkpoints/ 2>&1 | head -10"
+            $DC exec -T agent-v2 sh -c "which sqlite3 || (apt-get update -qq && apt-get install -y -qq sqlite3 >/dev/null && which sqlite3)" 2>&1 | tail -2
+            $DC exec -T agent-v2 sqlite3 /data/agent-v2/threads.sqlite 'SELECT count(*) AS total FROM checkpoints;' 2>&1 | head -3
+            $DC exec -T agent-v2 sqlite3 /data/agent-v2/threads.sqlite "SELECT count(*) FROM checkpoints WHERE thread_id LIKE '%3422e0ea%';" 2>&1 | head -3
 
             # 2) Mensajes de WhatsApp de este cliente (lo que el agente vio).
             echo
