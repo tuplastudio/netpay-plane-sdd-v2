@@ -60,6 +60,7 @@ model Tenant {
   auditLog     AuditLog[]
   products     Product[]
   variants     ProductVariant[]
+  productImages ProductImage[]
   customers    Customer[]
   quotes       Quote[]
   orders       Order[]
@@ -252,6 +253,7 @@ model Product {
 
   tenant   Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   variants ProductVariant[]
+  images   ProductImage[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, status])
@@ -289,10 +291,35 @@ model ProductVariant {
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  images  ProductImage[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, status])
   @@index([productId])
+}
+
+/// Fotos de catálogo. `variantId` NULL = imagen general del producto;
+/// no-NULL = imagen específica de esa variante (p.ej. color). Un producto o
+/// una variante pueden tener varias, ordenadas por `position` (0 = portada).
+model ProductImage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @db.Uuid
+  productId  String   @db.Uuid
+  variantId  String?  @db.Uuid
+  url        String
+  storageKey String
+  position   Int      @default(0)
+  width      Int?
+  height     Int?
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@unique([storageKey])
+  @@index([tenantId, productId, position])
+  @@index([variantId, position])
 }
 
 // ============================================================

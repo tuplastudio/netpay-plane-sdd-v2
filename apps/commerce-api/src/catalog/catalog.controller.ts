@@ -10,11 +10,14 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { CatalogService } from "./catalog.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
+import { ProductImageUploadInterceptor } from "./product-image-upload.interceptor.js";
 import {
   AddVariantDto,
   CreateProductDto,
@@ -85,6 +88,39 @@ export class CatalogController {
     const tenantId = this.requireTenant();
     const variant = await this.catalog.updateVariant(tenantId, id, body);
     return { data: variant, requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Foto general del producto (portada de la galería). Multipart, campo
+   * `file`. PNG, JPG o WebP, ≤ 5 MB, entre 200×200 y 6000×6000 px; ver
+   * `product-image-validation.ts`. Se puede llamar varias veces: cada
+   * llamada agrega una imagen más, no reemplaza las anteriores.
+   */
+  @Post("products/:id/images")
+  @RequireScopes("catalog.write")
+  @UseInterceptors(ProductImageUploadInterceptor)
+  async addProductImage(@Param("id") id: string, @UploadedFile() file?: Express.Multer.File) {
+    const tenantId = this.requireTenant();
+    const image = await this.catalog.addProductImage(tenantId, id, RequestContext.userId ?? null, file);
+    return { data: image, requestId: RequestContext.requestId };
+  }
+
+  /** Foto propia de una variante (p.ej. color distinto al del producto). Mismas reglas que arriba. */
+  @Post("variants/:id/images")
+  @RequireScopes("catalog.write")
+  @UseInterceptors(ProductImageUploadInterceptor)
+  async addVariantImage(@Param("id") id: string, @UploadedFile() file?: Express.Multer.File) {
+    const tenantId = this.requireTenant();
+    const image = await this.catalog.addVariantImage(tenantId, id, RequestContext.userId ?? null, file);
+    return { data: image, requestId: RequestContext.requestId };
+  }
+
+  @Delete("images/:id")
+  @HttpCode(204)
+  @RequireScopes("catalog.write")
+  async removeImage(@Param("id") id: string) {
+    const tenantId = this.requireTenant();
+    await this.catalog.deleteImage(tenantId, id, RequestContext.userId ?? null);
   }
 
   @Post("imports/dry-run")

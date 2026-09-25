@@ -12,6 +12,15 @@ import { X } from "lucide-react";
 
 export type CatalogStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
 
+export interface ProductImage {
+  id: string;
+  url: string;
+  position: number;
+  width: number | null;
+  height: number | null;
+  variantId: string | null;
+}
+
 export interface Variant {
   id: string;
   sku: string;
@@ -26,6 +35,8 @@ export interface Variant {
   originSystem: string | null;
   /** ID de este producto/variante en ese sistema de origen. */
   originExternalId: string | null;
+  /** Fotos propias de esta variante (además de las generales del producto). */
+  images: ProductImage[];
 }
 
 /**
@@ -87,6 +98,8 @@ export interface Product {
   version: number;
   updatedAt: string;
   variants: Variant[];
+  /** Galería general del producto (portada = position 0). */
+  images: ProductImage[];
 }
 
 // ---------------------------------------------------------------------------

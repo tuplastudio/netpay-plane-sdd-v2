@@ -693,13 +693,23 @@ function ProductCard({
       className="group flex h-full flex-col gap-2 rounded-lg border bg-card p-3 transition-colors hover:border-foreground/40 focus-within:border-foreground/60"
     >
       <header className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="line-clamp-2 text-sm font-medium leading-tight">
-            {highlight(product.title)}
-          </h3>
-          <p className="mt-0.5 truncate font-mono text-[10px] uppercase text-muted-foreground">
-            {highlight(product.sku)}
-          </p>
+        <div className="flex min-w-0 items-start gap-2">
+          {product.images[0] ? (
+            // eslint-disable-next-line @next/next/no-img-element -- foto de catálogo servida por el API
+            <img
+              src={product.images[0].url}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-md border object-cover"
+            />
+          ) : null}
+          <div className="min-w-0">
+            <h3 className="line-clamp-2 text-sm font-medium leading-tight">
+              {highlight(product.title)}
+            </h3>
+            <p className="mt-0.5 truncate font-mono text-[10px] uppercase text-muted-foreground">
+              {highlight(product.sku)}
+            </p>
+          </div>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

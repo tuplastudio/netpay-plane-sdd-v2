@@ -1,12 +1,16 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { validateProductImage } from "./product-image-validation.js";
+import { deleteObject, publicUrlForKey, writeObject } from "../tenants/logo-storage.js";
 
 export interface ListProductsInput {
   q?: string;
@@ -15,8 +19,21 @@ export interface ListProductsInput {
   limit?: number;
 }
 
+export interface UploadedImage {
+  buffer: Buffer;
+  mimetype?: string;
+  originalname?: string;
+}
+
+/** Ver comentario de `purpose` en el modelo `StorageObject`. */
+const IMAGE_PURPOSE = "product.media";
+
+const IMAGES_ORDER = { orderBy: { position: "asc" as const } };
+
 @Injectable()
 export class CatalogService {
+  private readonly logger = new Logger(CatalogService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async listProducts(tenantId: string, input: ListProductsInput) {
@@ -34,7 +51,10 @@ export class CatalogService {
     }
     const rows = await this.prisma.product.findMany({
       where,
-      include: { variants: true },
+      include: {
+        variants: { include: { images: IMAGES_ORDER } },
+        images: IMAGES_ORDER,
+      },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
@@ -53,7 +73,10 @@ export class CatalogService {
   async getProduct(tenantId: string, productId: string) {
     const product = await this.prisma.product.findFirst({
       where: { id: productId, tenantId },
-      include: { variants: { orderBy: { createdAt: "asc" } } },
+      include: {
+        variants: { orderBy: { createdAt: "asc" }, include: { images: IMAGES_ORDER } },
+        images: IMAGES_ORDER,
+      },
     });
     if (!product) {
       throw new NotFoundException({
@@ -305,6 +328,167 @@ export class CatalogService {
       }
     }
     return result;
+  }
+
+  // ---------- imágenes ----------
+
+  /** Foto general del producto (`variantId` null): portada y galería en listados. */
+  async addProductImage(
+    tenantId: string,
+    productId: string,
+    actorId: string | null,
+    file: UploadedImage | undefined,
+  ) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, tenantId },
+      select: { id: true },
+    });
+    if (!product) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Producto no accesible" });
+    }
+    return this.storeImage(
+      tenantId,
+      actorId,
+      { productId, variantId: null, prefix: `products/${tenantId}/${productId}` },
+      file,
+    );
+  }
+
+  /** Foto propia de una variante (p.ej. color/presentación distinta a la del producto). */
+  async addVariantImage(
+    tenantId: string,
+    variantId: string,
+    actorId: string | null,
+    file: UploadedImage | undefined,
+  ) {
+    const variant = await this.prisma.productVariant.findFirst({
+      where: { id: variantId, tenantId },
+      select: { id: true, productId: true },
+    });
+    if (!variant) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Variante no accesible" });
+    }
+    return this.storeImage(
+      tenantId,
+      actorId,
+      {
+        productId: variant.productId,
+        variantId: variant.id,
+        prefix: `products/${tenantId}/${variant.productId}/variants/${variant.id}`,
+      },
+      file,
+    );
+  }
+
+  private async storeImage(
+    tenantId: string,
+    actorId: string | null,
+    target: { productId: string; variantId: string | null; prefix: string },
+    file: UploadedImage | undefined,
+  ) {
+    if (!file?.buffer) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Adjunta la imagen en el campo «file».",
+      });
+    }
+    const meta = validateProductImage(file.buffer, file.mimetype);
+
+    const hash = createHash("sha256").update(file.buffer).digest("hex").slice(0, 16);
+    const key = `${target.prefix}/${hash}.${meta.ext}`;
+    await writeObject(key, file.buffer);
+    const url = publicUrlForKey(key);
+
+    const last = await this.prisma.productImage.findFirst({
+      where: { tenantId, productId: target.productId, variantId: target.variantId },
+      orderBy: { position: "desc" },
+      select: { position: true },
+    });
+    const position = (last?.position ?? -1) + 1;
+
+    const image = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.productImage.create({
+        data: {
+          tenantId,
+          productId: target.productId,
+          variantId: target.variantId,
+          url,
+          storageKey: key,
+          position,
+          width: meta.width,
+          height: meta.height,
+        },
+      });
+      await tx.storageObject.upsert({
+        where: { tenantId_key: { tenantId, key } },
+        create: {
+          tenantId,
+          key,
+          contentType: meta.mime,
+          sizeBytes: file.buffer.length,
+          purpose: IMAGE_PURPOSE,
+          metadata: {
+            width: meta.width,
+            height: meta.height,
+            originalName: file.originalname ?? null,
+            productId: target.productId,
+            variantId: target.variantId,
+          },
+          uploadedBy: actorId,
+        },
+        update: {
+          contentType: meta.mime,
+          sizeBytes: file.buffer.length,
+          deletedAt: null,
+          uploadedBy: actorId,
+        },
+      });
+      return created;
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId,
+        action: target.variantId ? "catalog.variant_image_added" : "catalog.product_image_added",
+        targetType: target.variantId ? "ProductVariant" : "Product",
+        targetId: target.variantId ?? target.productId,
+        metadata: { imageId: image.id, key, width: meta.width, height: meta.height },
+      },
+    });
+
+    return image;
+  }
+
+  async deleteImage(tenantId: string, imageId: string, actorId: string | null): Promise<void> {
+    const image = await this.prisma.productImage.findFirst({ where: { id: imageId, tenantId } });
+    if (!image) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Imagen no accesible" });
+    }
+    await this.prisma.productImage.delete({ where: { id: imageId } });
+
+    // Best-effort, igual que TenantLogoService.retire(): la fila ya se borró,
+    // que falle el borrado del archivo no debe revertir la operación.
+    try {
+      await deleteObject(image.storageKey);
+      await this.prisma.storageObject.updateMany({
+        where: { tenantId, key: image.storageKey, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+    } catch (err) {
+      this.logger.warn(`No se pudo retirar la imagen ${image.storageKey}: ${String(err)}`);
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId,
+        action: image.variantId ? "catalog.variant_image_removed" : "catalog.product_image_removed",
+        targetType: image.variantId ? "ProductVariant" : "Product",
+        targetId: image.variantId ?? image.productId,
+        metadata: { imageId: image.id, key: image.storageKey },
+      },
+    });
   }
 
   async assertOwnership(tenantId: string, productId: string): Promise<void> {

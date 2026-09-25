@@ -24,6 +24,7 @@ import {
   type VariantValues,
 } from "../catalog-shared";
 import { isOutOfStock } from "./product-helpers";
+import { ImageGallery } from "./image-gallery";
 
 export function VariantsSection({
   variants,
@@ -32,6 +33,7 @@ export function VariantsSection({
   addForm,
   onAddSubmit,
   adding,
+  onImagesChanged,
 }: {
   variants: Variant[];
   onSaveVariant: (variant: Variant, values: VariantValues) => void;
@@ -39,6 +41,8 @@ export function VariantsSection({
   addForm: UseFormReturn<AddVariantValues>;
   onAddSubmit: (e?: React.BaseSyntheticEvent) => Promise<void>;
   adding: boolean;
+  /** Refresca el producto tras subir/borrar una foto de variante. */
+  onImagesChanged: () => Promise<unknown> | void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const addErrors = addForm.formState.errors;
@@ -166,6 +170,7 @@ export function VariantsSection({
                 variant={variant}
                 saving={savingVariantId === variant.id}
                 onSave={(values) => onSaveVariant(variant, values)}
+                onImagesChanged={onImagesChanged}
               />
             </li>
           ))}
@@ -179,10 +184,12 @@ function VariantRow({
   variant,
   onSave,
   saving,
+  onImagesChanged,
 }: {
   variant: Variant;
   onSave: (values: VariantValues) => void;
   saving: boolean;
+  onImagesChanged: () => Promise<unknown> | void;
 }) {
   const [editing, setEditing] = useState(false);
   const form = useForm<VariantValues>({
@@ -203,7 +210,16 @@ function VariantRow({
   if (!editing) {
     return (
       <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div className="min-w-0 space-y-0.5">
+        <div className="flex min-w-0 items-center gap-3">
+          {variant.images[0] ? (
+            // eslint-disable-next-line @next/next/no-img-element -- foto de catálogo servida por el API
+            <img
+              src={variant.images[0].url}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-md border object-cover"
+            />
+          ) : null}
+          <div className="min-w-0 space-y-0.5">
           <p className="truncate text-sm font-medium">{variant.title}</p>
           <p className="font-mono text-xs text-muted-foreground">{variant.sku}</p>
           <p className="text-xs text-muted-foreground">
@@ -226,6 +242,7 @@ function VariantRow({
               </>
             ) : null}
           </p>
+          </div>
         </div>
         <div className="flex items-center justify-between gap-3 sm:justify-end">
           <Money value={variant.price} className="text-sm font-medium" />
@@ -263,6 +280,15 @@ function VariantRow({
         <span className="font-semibold">Editando</span>{" "}
         <span className="font-mono text-xs text-muted-foreground">{variant.sku}</span>
       </p>
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-muted-foreground">Fotos de esta variante</p>
+        <ImageGallery
+          compact
+          images={variant.images}
+          uploadUrl={`/catalog/variants/${variant.id}/images`}
+          onChanged={onImagesChanged}
+        />
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Título" className="sm:col-span-2" error={errors.title?.message}>
           {(p) => <Input autoFocus placeholder="ej. Blanco, 1 L" {...p} {...form.register("title")} />}

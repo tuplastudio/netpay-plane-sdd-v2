@@ -13,7 +13,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { DateTime } from "@/components/app/date-time";
+import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ImageGallery } from "./_components/image-gallery";
 import {
   CATALOG_STATUS_OPTIONS,
   Field,
@@ -274,6 +276,19 @@ export function EditProductSheet({
                   </Field>
                 </form>
 
+                <Section
+                  as="h3"
+                  density="compact"
+                  title="Fotos"
+                  description="Galería general del producto. La primera es la portada en listados y en el chat."
+                >
+                  <ImageGallery
+                    images={product.images}
+                    uploadUrl={`/catalog/products/${product.id}/images`}
+                    onChanged={invalidate}
+                  />
+                </Section>
+
                 <VariantsSection
                   variants={product.variants}
                   onSaveVariant={(variant, values) => updateVariant.mutate({ variant, values })}
@@ -283,6 +298,7 @@ export function EditProductSheet({
                   addForm={addVariantForm}
                   onAddSubmit={onAddVariantSubmit}
                   adding={addVariant.isPending}
+                  onImagesChanged={invalidate}
                 />
               </SheetBody>
 
