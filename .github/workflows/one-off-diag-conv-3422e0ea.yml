@@ -40,9 +40,27 @@ jobs:
             tid = f'demo-store:{cid}'
             async def main():
                 await runtime.start()
+                # Lista TODOS los threads para confirmar que el checkpointer
+                # está leyendo de un archivo con datos.
+                cp = runtime.checkpointer
+                threads = []
+                if hasattr(cp, 'alist'):
+                    async for ck in cp.alist():
+                        threads.append(ck.configurable.get('thread_id'))
+                elif hasattr(cp, 'list'):
+                    lst = cp.list(None)
+                    if hasattr(lst, '__aiter__'):
+                        async for ck in lst:
+                            threads.append(ck.configurable.get('thread_id'))
+                    else:
+                        for ck in lst:
+                            threads.append(ck.configurable.get('thread_id'))
+                print('total threads en checkpoint:', len(threads))
+                print('threads (primeros 5):', threads[:5])
+                print('contains demo-store:3422e0ea?', tid in threads)
                 snap = await runtime.agent.aget_state({'configurable': {'thread_id': tid}})
                 v = dict(snap.values or {})
-                print('thread_id:', tid)
+                print('--- estado de', tid, '---')
                 print('handoff:', v.get('handoff'))
                 print('stage:', v.get('stage'))
                 print('handoff_reason:', v.get('handoff_reason'))
@@ -59,6 +77,14 @@ jobs:
                 await runtime.stop()
             asyncio.run(main())
             "
+
+            # 1b) sqlite directo del checkpoint para confirmar que el archivo
+            # tiene contenido.
+            echo
+            echo "=== ARCHIVO DE CHECKPOINT ==="
+            $DC exec -T agent-v2 ls -la /data/agent-v2/checkpoints/
+            $DC exec -T agent-v2 sh -c "ls -la /data/agent-v2/checkpoints/threads.sqlite 2>&1 || echo 'no existe threads.sqlite'"
+            $DC exec -T agent-v2 sqlite3 /data/agent-v2/checkpoints/threads.sqlite 'SELECT count(*) FROM checkpoints;' 2>&1 | head -3
 
             # 2) Mensajes de WhatsApp de este cliente (lo que el agente vio).
             echo
