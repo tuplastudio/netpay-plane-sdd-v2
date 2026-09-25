@@ -31,11 +31,19 @@ jobs:
             #    `handoff=True` no persiste, lo veremos acá.
             echo "=== ESTADO DEL HILO (LangGraph) ==="
             $DC exec -T agent-v2 python -c "
-            import asyncio, json
+            import asyncio, time
             from app.runtime import runtime
-            from app.config import get_settings
             cid = '3422e0ea-9751-4da7-b8b5-a4d0d01c5081'
             tid = f'demo-store:{cid}'
+            # Espera a que el agente esté listo (lifespan tarda un poco).
+            for _ in range(30):
+                if runtime.ready:
+                    break
+                time.sleep(2)
+            print('runtime.ready:', runtime.ready)
+            if not runtime.ready:
+                print('agent NOT ready; abort')
+                raise SystemExit(1)
             async def main():
                 snap = await runtime.agent.aget_state({'configurable': {'thread_id': tid}})
                 v = dict(snap.values or {})
