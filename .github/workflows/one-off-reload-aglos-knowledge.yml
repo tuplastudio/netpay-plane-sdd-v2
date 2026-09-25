@@ -1,0 +1,76 @@
+name: One-off - recargar conocimiento del bot de Pinturas Aglos
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-reload-aglos-knowledge.yml"
+
+jobs:
+  reload:
+    name: Localizar tenant Aglos y subir negocio.md + preguntas-frecuentes.md
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reload
+        uses: appleboy/ssh-action@v1
+        env:
+          NEGOCIO_B64: "LS0tCm5lZ29jaW86IFBpbnR1cmFzIEFnbG9zCmFnZW50ZTogQWdsb3N0IGJvdAp0b25vOiBwcm9mZXNpb25hbCwgY2VyY2FubyB5IGRpcmVjdG87IHR1dGVvIG1leGljYW5vIGRlbCBub3JvZXN0ZTsgZnJhc2VzIGNvcnRhczsgbnVuY2Egcm9iw7N0aWNvCmlkaW9tYTogZXMtTVgKbW9uZWRhOiBNWE4KaG9yYXJpbzogTHVuZXMgYSB2aWVybmVzIGRlIDg6MDAgYSAxNzowMCB5IHPDoWJhZG9zIGRlIDg6MDAgYSAxMzowMApjb2JlcnR1cmE6IEN1bGlhY8OhbiwgU2luYWxvYSAoc2VkZSkgY29uIGFsaWFuemFzIGRlIGRpc3RyaWJ1Y2nDs24gZW4gZWwgbm9ydGUgZGUgU2luYWxvYSB5IEJhamEgQ2FsaWZvcm5pYSBOb3J0ZQp0ZWxlZm9ubzogNjY3IDcxOCAyMTc4CndlYjogaHR0cHM6Ly9hZ2xvcy5jb20ubXgKZW1vamk6IHRydWUKc2FsdWRvOiDCoUhvbGEhIFNveSBBZ2xvc3QgYm90LCBkZWwgZXF1aXBvIGRlIFBpbnR1cmFzIEFnbG9zIPCfjqgKLS0tCgojIFBpbnR1cmFzIEFnbG9zCgo+IGludGVybm86IEZ1ZW50ZSBkZSBlc3RvcyBkYXRvczogc2l0aW8gcMO6YmxpY28gYWdsb3MuY29tLm14IChJbmljaW8sIE5vc290cm9zLCBDb250w6FjdGFub3MpLCBjb25zdWx0YWRvIGVsIDI1IGRlIHNlcHRpZW1icmUgZGUgMjAyNiDigJQgY29udGVuaWRvIHZlcmlmaWNhZG8gc2luIGNhbWJpb3MgZnJlbnRlIGEgbGEgcmV2aXNpw7NuIGFudGVyaW9yIGRlbCA5IGRlIHNlcHRpZW1icmUgZGUgMjAyNi4gTG9zIHByZWNpb3MgYXF1w60gc29uIGRlIHJlZmVyZW5jaWE7IGVsIHByZWNpbyBxdWUgc2UgY290aXphIHNhbGUgZGVsIGNhdMOhbG9nbyBkZWwgYmFja2VuZC4KCiMjIFF1acOpbmVzIHNvbW9zCgpTb21vcyBmYWJyaWNhbnRlcyB5IGRpc3RyaWJ1aWRvcmVzIGRlIHBpbnR1cmFzIHkgcmVjdWJyaW1pZW50b3MgcXVlIHByb3RlZ2VuIHkKZGFuIGNvbG9yIGEgbXVyb3MsIHRlY2hvcywgcGlzb3MsIGVzdHJ1Y3R1cmFzLCBzZcOxYWxhbWllbnRvcyB5IGN1YWxxdWllcgpzdXBlcmZpY2llIHF1ZSBuZWNlc2l0ZSB1biBhY2FiYWRvIGR1cmFibGUgeSBlc3TDqXRpY28uCgpQaW50dXJhcyBBZ2xvcyBuYWNpw7MgZW4gMTk5OCBlbiBDdWxpYWPDoW4sIFNpbmFsb2EsIGNvbiBlbCBub21icmUgZGUgUGludHVyYXMKQ2FsaWZvcm5pYSwgYXRlbmRpZW5kbyBzb2xvIGVsIG1lcmNhZG8gbG9jYWwuIEVuIDIwMDQgY2FtYmnDsyBkZSBhZG1pbmlzdHJhY2nDs24KeSBtb2RlbG8gZGUgbmVnb2NpbywgeSBjcmXDsyBzdSBsw61uZWEgZGUgaW1wZXJtZWFiaWxpemFudGVzLiBEZXNkZSAyMDExIG9wZXJhCnRhbWJpw6luIGNvbiBhbGlhbnphcyBkZSBkaXN0cmlidWNpw7NuIGVuIGVsIG5vcnRlIGRlIFNpbmFsb2EgeSBCYWphIENhbGlmb3JuaWEKTm9ydGUuIEN1ZW50YSBjb24gbcOhcyBkZSAyNCBhw7FvcyBkZSB0cmF5ZWN0b3JpYSB5IGNlcnRpZmljYWNpw7NuIElTTyA5MDAxOjIwMTUuCgpOdWVzdHJhIG1pc2nDs246IGJyaW5kYXIgcmVjdWJyaW1pZW50b3MgZGUgY2FsaWRhZCBwYXJhIHByb3RlZ2VyIHkgZW1iZWxsZWNlciBsYQppbmR1c3RyaWEgeSBlbCBob2dhci4gTnVlc3RyYSB2aXNpw7NuOiBzZXIgbGEgbWVqb3IgYWx0ZXJuYXRpdmEgZGVsIG5vcm9lc3RlIGRlCk3DqXhpY28gZW4gcmVjdWJyaW1pZW50b3MgZGUgaW5ub3ZhY2nDs24gcGFyYSBsYSBpbmR1c3RyaWEgeSBlbCBob2dhci4KCiMjIEEgcXVpw6luIGF0ZW5kZW1vcwoKUGludG9yZXMsIGNhcnBpbnRlcm9zLCBoZXJyZXJvcywgYWxiYcOxaWxlcywgYXBsaWNhZG9yZXMsIGNvbnN0cnVjdG9yYXMgeQpww7pibGljbyBlbiBnZW5lcmFsLgoKIyMgUXXDqSBub3MgZGlzdGluZ3VlCgotIENlcnRpZmljYWNpw7NuIElTTyA5MDAxOjIwMTUuCi0gTcOhcyBkZSAyNCBhw7FvcyBkZSBleHBlcmllbmNpYSBlbiByZWN1YnJpbWllbnRvcy4KLSBMw61uZWFzIG1hcmNhIHByb3BpYTogQUdMT1NJVk8sIENPTE9Sw41TSU1PLCBLT1JBIEtPTlRST0wsIEFHTE9TVE9ORSB5IENPVkVSLVNPTC4KLSBBbGlhbnphcyBkZSBkaXN0cmlidWNpw7NuIGVuIGVsIG5vcnRlIGRlIFNpbmFsb2EgeSBCYWphIENhbGlmb3JuaWEgTm9ydGUuCgojIyBRdcOpIHZlbmRlbW9zCgpNYW5lamFtb3MgcGludHVyYXMgYmFzZSBhZ3VhIHkgYmFzZSBzb2x2ZW50ZSwgaW1wZXJtZWFiaWxpemFudGVzIHkKcmVjdWJyaW1pZW50b3MgdMOpcm1pY29zLCBzZWxsYWRvcmVzIGVuIHZhcmlhcyBjb25jZW50cmFjaW9uZXMgeSBiYXNlcywKcGlnbWVudG9zIGRlIGNvbG9yIGludGVncmFsIHkgZXN0YW1wYWRvLCBwaW50dXJhIGVuIHBvbHZvLCBwaWdtZW50b3MgcGFyYQppZ3VhbGFjacOzbiBkZSBjb2xvciwgbWFzaWxsYSBwbMOhc3RpY2EsIGhpZHJvLXByb3RlY3RvcmVzIHBhcmEgdGV4dGlsZXMgeQpzdXBlcmZpY2llcywgeSBsYSBMw61uZWEgU2FsdWQgKGdlbCBhbnRpYmFjdGVyaWFsIHkgc2FuaXRpemFudGVzIHBhcmEgdXNvCmRvbcOpc3RpY28gZSBpbmR1c3RyaWFsLCBtYXJjYSA1VklEKS4gTMOtbmVhcyBtYXJjYSBwcm9waWEgZGVzdGFjYWRhczogQUdMT1NJVk8KKHNlbGxhZG9yZXMpLCBDT0xPUsONU0lNTyAoaWd1YWxhY2nDs24gZGUgY29sb3IpLCBLT1JBIEtPTlRST0wKKGltcGVybWVhYmlsaXphbnRlcyksIEFHTE9TVE9ORSAocGludHVyYSB2aW5pbC1hY3LDrWxpY2EpIHkgQ09WRVItU09MLgoKPiBpbnRlcm5vOiBDT1ZFUi1TT0wgYXBhcmVjZSBjb21vIGzDrW5lYSBtYXJjYSBwcm9waWEgZW4gZWwgc2l0aW8gKGxvZ28gZW4gSW5pY2lvKSBwZXJvIHNpbiBww6FnaW5hIGRlIHByb2R1Y3RvIHByb3BpYSBjb24gZGV0YWxsZS4gU2kgcHJlZ3VudGFuIGVzcGVjw61maWNhbWVudGUgcXXDqSBlcywgZGlsbyBhc8OtIGRlIGhvbmVzdG8geSBvZnJlY2UgcGFzYXIgY29uIHVuYSBwZXJzb25hOyBubyBpbnZlbnRlcyBkZSBxdcOpIHNlIHRyYXRhLgoKPiBpbnRlcm5vOiBFbCBkZXRhbGxlIGVzdMOhIGVuIGVsIGNhdMOhbG9nbyBkZWwgYmFja2VuZC4gRXhpc3RlbmNpYSB5IHByZWNpbyB2aWdlbnRlIHNpZW1wcmUgc2UgY29uc3VsdGFuIGNvbiBzZWFyY2hfcHJvZHVjdHM7IG51bmNhIHNlIGNpdGFuIGRlIG1lbW9yaWEuIExhIHDDoWdpbmEgL3Byb2R1Y3RvcyBkZWwgc2l0aW8gcMO6YmxpY28gbm8gbGlzdGEgY2F0w6Fsb2dvICh2YWPDrWEgYWwgMjUtc2VwLTIwMjYpOiBubyBlcyBmdWVudGUgY29uZmlhYmxlIHBhcmEgU0tVcyBuaSBwcmVjaW9zLgoKIyMgQ29iZXJ0dXJhCgpTZWRlIHkgYXRlbmNpw7NuIHByaW5jaXBhbCBlbiBDdWxpYWPDoW4sIFNpbmFsb2EsIGNvbiBhbGlhbnphcyBkZSBkaXN0cmlidWNpw7NuIGVuCmVsIG5vcnRlIGRlIFNpbmFsb2EgeSBCYWphIENhbGlmb3JuaWEgTm9ydGUuCgo+IGludGVybm86IEVsIHNpdGlvIHDDumJsaWNvIG5vIGxpc3RhIHN1Y3Vyc2FsZXMgZsOtc2ljYXMgYWRpY2lvbmFsZXMuIFNpIHByZWd1bnRhbiBwb3IgdW5hIHN1Y3Vyc2FsIGVuIGVzcGVjw61maWNvIGZ1ZXJhIGRlIEN1bGlhY8OhbiwgZXNjYWxhIGNvbiByZXF1ZXN0X2h1bWFuLgoKIyMgRW52w61vcwoKPiBpbnRlcm5vOiBFbCBzaXRpbyBww7pibGljbyBubyBwdWJsaWNhIHBvbMOtdGljYSBkZSBlbnbDrW9zIG5pIGNvc3Rvcy4gTm8gaW52ZW50ZXMgdGllbXBvcyBuaSB0YXJpZmFzOiBlbCBjb3N0byB5IGVsIHBsYXpvIGV4YWN0b3MgbG9zIGNhbGN1bGEgbGEgcGxhdGFmb3JtYSBhbCBjb3RpemFyLiBQYXJhIGR1ZGFzIGRlIGVudsOtbyBmdWVyYSBkZSBsbyBxdWUgcmVzdWVsdmUgZWwgY2F0w6Fsb2dvLCBlc2NhbGEgY29uIHJlcXVlc3RfaHVtYW4uCgojIyBGb3JtYXMgZGUgcGFnbwoKRWwgY29icm8gc2UgaGFjZSBwb3IgZWwgZW5sYWNlIGRlIHBhZ28gcXVlIGVudmlhbW9zOyBudW5jYSBwZWRpbW9zIGRhdG9zIGRlCnRhcmpldGEgcG9yIGNoYXQgbmkgcG9yIHRlbMOpZm9uby4KCj4gaW50ZXJubzogRWwgc2l0aW8gcMO6YmxpY28gbm8gZGV0YWxsYSBxdcOpIHRhcmpldGFzIG8gbcOpdG9kb3MgYWNlcHRhIG3DoXMgYWxsw6EgZGVsIGNoZWNrb3V0IGRlIGxhIHBsYXRhZm9ybWEuIE5vIGVudW1lcmVzIG1hcmNhcyBkZSB0YXJqZXRhIHF1ZSBubyBlc3TDqW4gY29uZmlybWFkYXMuCgojIyBQcm9tb2Npb25lcyB2aWdlbnRlcwoKPiBpbnRlcm5vOiBFbCBzaXRpbyBww7pibGljbyBubyBwdWJsaWNhIHByb21vY2lvbmVzIGFjdGl2YXMuIE5vIGludmVudGVzIGRlc2N1ZW50b3MgbmkgZ2FyYW50w61hczogc2kgcHJlZ3VudGFuLCBkaWxvIGNvbiBob25lc3RpZGFkIHkgb2ZyZWNlIHBhc2FyIGNvbiB1bmEgcGVyc29uYS4KCiMjIFNlciBkaXN0cmlidWlkb3IKClRyYWJhamFtb3MgY29uIGFsaWFuemFzIGRlIGRpc3RyaWJ1Y2nDs24gZW4gZWwgbm9ydGUgZGUgU2luYWxvYSB5IEJhamEKQ2FsaWZvcm5pYSBOb3J0ZS4gTG9zIHJlcXVpc2l0b3MsIGVsIHZvbHVtZW4gbcOtbmltbyB5IGxhcyB6b25hcyBkaXNwb25pYmxlcwpsb3MgZGVmaW5lIGVsIMOhcmVhIGNvbWVyY2lhbCwgYXPDrSBxdWUgdGUgY29udGFjdGEgdW4gYXNlc29yIHBhcmEgZGFydGUgbGFzCmNvbmRpY2lvbmVzLgoKPiBpbnRlcm5vOiBUb21hIG5vbWJyZSwgY2l1ZGFkLCB0aXBvIGRlIG5lZ29jaW8geSB0ZWzDqWZvbm87IGRlc3B1w6lzIHVzYSByZXF1ZXN0X2h1bWFuIGNvbiByZWFzb24gUFJFQ0lPX0VTUEVDSUFMIG8gQ1JFRElUTyBzZWfDum4gZWwgY2Fzby4KCiMjIERldm9sdWNpb25lcywgZ2FyYW50w61hIHkgY2FtYmlvcwoKQ2FkYSBjYXNvIGRlIGRldm9sdWNpw7NuIG8gY2FtYmlvIGxvIHJldmlzYSB1bmEgcGVyc29uYSBkZWwgZXF1aXBvIHBhcmEgZGFydGUgbGEKc29sdWNpw7NuIGNvcnJlY3RhIHNlZ8O6biBlbCBwcm9kdWN0byB5IGxhIGZlY2hhIGRlIGNvbXByYS4KCj4gaW50ZXJubzogRWwgc2l0aW8gcMO6YmxpY28gbm8gcHVibGljYSB1bmEgcG9sw610aWNhIGRlIGRldm9sdWNpb25lcy4gTm8gY2l0ZXMgcGxhem9zIG5pIGNvbmRpY2lvbmVzOiBlc2NhbGEgY29uIHJlcXVlc3RfaHVtYW4uCgojIyBGYWN0dXJhY2nDs24KCkZhY3R1cmFtb3MgY29uIFJGQywgcmF6w7NuIHNvY2lhbCwgY8OzZGlnbyBwb3N0YWwgeSB1c28gZGUgQ0ZESS4gTGEgY290aXphY2nDs24gbm8KZXMgdW4gY29tcHJvYmFudGUgZmlzY2FsLgoKIyMgQ29udGFjdG8KCk9maWNpbmEgZW4gQ3VsaWFjw6FuOiA2NjcgNzE4IDIxNzggeSA2NjcgNzE4IDUwNDAuIFdoYXRzQXBwOiA2NjcgMzIwIDA0NTIuCkNvcnJlbzogY29udGFjdG9AYWdsb3MuY29tLm14LiBEaXJlY2Npw7NuOiBDYWxsZSBDbGF2ZWwgMTczMywgQ29sLiBNYXJnYXJpdGEsCkMuUC4gODAyNzAsIEN1bGlhY8OhbiwgU2luYWxvYS4gVGFtYmnDqW4gZXN0YW1vcyBlbiBGYWNlYm9vaywgSW5zdGFncmFtIHkKWW91VHViZSBjb21vIHBpbnR1cmFzYWdsb3MuCgojIyBDdWFuZG8gbm8gdGVuZW1vcyBlbCBkYXRvCgo+IGludGVybm86IFNpIGxhIHJlc3B1ZXN0YSBubyBlc3TDoSBlbiBlc3RhIGJhc2UgbmkgZW4gZWwgY2F0w6Fsb2dvLCBkaWxvIGNvbiBob25lc3RpZGFkIHkgb2ZyZWNlIHBhc2FyIGNvbiB1bmEgcGVyc29uYS4gTnVuY2EgaW1wcm92aXNlcyBwb2zDrXRpY2FzLCBwcmVjaW9zLCBwbGF6b3MgbmkgcHJvbW9jaW9uZXMuCgpTaSBhbGdvIG5vIGxvIHRlbmVtb3MgYSBsYSBtYW5vLCBwcmVmZXJpbW9zIGRlY2lybG8geSBjb25lY3RhcnRlIGNvbiB1bmEgcGVyc29uYQpkZWwgZXF1aXBvIHF1ZSB0ZSBkw6kgZWwgZGF0byBleGFjdG8uCg=="
+          FAQ_B64: "IyBQcmVndW50YXMgZnJlY3VlbnRlcwoKIyMgwr9RdcOpIGVzIFBpbnR1cmFzIEFnbG9zPwoKVW5hIGVtcHJlc2EgZGUgQ3VsaWFjw6FuLCBTaW5hbG9hLCBjb24gbcOhcyBkZSAyNCBhw7FvcyBkZSBleHBlcmllbmNpYSBlbgpyZWN1YnJpbWllbnRvczogcGludHVyYXMsIGJhc2VzLCBlc21hbHRlcywgZm9uZG9zLCBpbXBlcm1lYWJpbGl6YW50ZXMsCnNlbGxhZG9yZXMgeSBtw6FzLCBwYXJhIGluZHVzdHJpYSB5IGhvZ2FyLgoKIyMgwr9RdcOpIGzDrW5lYXMgbWFuZWphbj8KCkzDrW5lYXMgcHJvcGlhcyBBR0xPU0lWTywgQ09MT1LDjVNJTU8sIEtPUkEgS09OVFJPTCwgQUdMT1NUT05FIHkgQ09WRVItU09MLCBtw6FzCmNhdGVnb3LDrWFzIGRlIHBpbnR1cmEgYmFzZSBhZ3VhLCBiYXNlIHNvbHZlbnRlLCBzZWxsYWRvcmVzLCBpbXBlcm1lYWJpbGl6YW50ZXMsCmNhcmdhcywgY29sb3IgaW50ZWdyYWwsIHNvbHZlbnRlcyB5IGxpbXBpZXphLgoKIyMgwr9BIHF1acOpbiBsZSB2ZW5kZW4/CgpBIHBpbnRvcmVzLCBjYXJwaW50ZXJvcywgaGVycmVyb3MsIGFsYmHDsWlsZXMsIGFwbGljYWRvcmVzLCBjb25zdHJ1Y3RvcmFzIHkKcMO6YmxpY28gZW4gZ2VuZXJhbC4KCiMjIMK/SGFjZW4gZW52w61vcz8KCj4gaW50ZXJubzogRWwgc2l0aW8gcMO6YmxpY28gbm8gcHVibGljYSBwb2zDrXRpY2EgZGUgZW52w61vcyBuaSBjb3N0b3MuIE5vIGludmVudGVzIHRpZW1wb3MgbmkgdGFyaWZhczogZWwgY29zdG8geSBlbCBwbGF6byBleGFjdG9zIGxvcyBjYWxjdWxhIGxhIHBsYXRhZm9ybWEgYWwgY290aXphci4gU2kgcHJlZ3VudGFuIGFsZ28gcXVlIGVsIGNhdMOhbG9nbyBubyByZXN1ZWx2ZSwgZXNjYWxhIGNvbiByZXF1ZXN0X2h1bWFuLgoKIyMgwr9Dw7NtbyBwdWVkbyBwYWdhcj8KCkVsIGNvYnJvIHNlIGhhY2UgcG9yIGVsIGVubGFjZSBkZSBwYWdvIHF1ZSB0ZSBlbnZpYW1vcy4gTnVuY2EgcGVkaW1vcyBkYXRvcyBkZQp0YXJqZXRhIHBvciBjaGF0IG5pIHBvciB0ZWzDqWZvbm8uCgojIyDCv1RpZW5lbiBjZXJ0aWZpY2FjacOzbiBkZSBjYWxpZGFkPwoKU8OtLCBjZXJ0aWZpY2FjacOzbiBJU08gOTAwMToyMDE1LgoKIyMgwr9QdWVkbyB2ZW5kZXIgUGludHVyYXMgQWdsb3MgZW4gbWkgbmVnb2Npbz8KClRyYWJhamFtb3MgY29uIGFsaWFuemFzIGRlIGRpc3RyaWJ1Y2nDs24gZW4gZWwgbm9ydGUgZGUgU2luYWxvYSB5IEJhamEKQ2FsaWZvcm5pYSBOb3J0ZS4gTG9zIHJlcXVpc2l0b3MgeSB2b2zDum1lbmVzIGxvcyBkZWZpbmUgZWwgw6FyZWEgY29tZXJjaWFsOwp0b21hbW9zIHR1cyBkYXRvcyB5IHRlIGNvbnRhY3RhIHVuIGFzZXNvci4KCiMjIMK/UHVlZG8gZGV2b2x2ZXIgdW4gcHJvZHVjdG8/Cgo+IGludGVybm86IEVsIHNpdGlvIHDDumJsaWNvIG5vIHB1YmxpY2EgdW5hIHBvbMOtdGljYSBkZSBkZXZvbHVjaW9uZXMuIE5vIGNpdGVzIHBsYXpvcyBuaSBjb25kaWNpb25lczogZXNjYWxhIGNvbiByZXF1ZXN0X2h1bWFuLgoKQ2FkYSBjYXNvIGxvIHJldmlzYSB1bmEgcGVyc29uYSBkZWwgZXF1aXBvIHBhcmEgZGFydGUgbGEgc29sdWNpw7NuIGNvcnJlY3RhCnNlZ8O6biBlbCBwcm9kdWN0byB5IGxhIGZlY2hhIGRlIGNvbXByYS4KCiMjIMK/RMOzbmRlIGVzdMOhbiB1YmljYWRvcz8KCk51ZXN0cmEgc2VkZSB5IGF0ZW5jacOzbiBwcmluY2lwYWwgZXN0w6EgZW4gQ3VsaWFjw6FuLCBTaW5hbG9hLiBDb250YW1vcyBjb24KYWxpYW56YXMgZGUgZGlzdHJpYnVjacOzbiBlbiBlbCBub3J0ZSBkZSBTaW5hbG9hIHkgQmFqYSBDYWxpZm9ybmlhIE5vcnRlLgo="
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          envs: NEGOCIO_B64,FAQ_B64
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+
+            echo "=== localizar tenant Aglos ==="
+            TENANT_ID=$($DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const t = await p.tenant.findFirst({ where: { name: { contains: 'aglos', mode: 'insensitive' } } });
+              if (!t) { console.error('NOT_FOUND'); process.exit(1); }
+              console.log(t.id);
+              await p.\$disconnect();
+            })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
+            " | tail -1)
+            echo "tenant_id=$TENANT_ID"
+            if [ -z "$TENANT_ID" ]; then echo "no se encontro tenant Aglos"; exit 1; fi
+
+            echo "=== conocimiento actual (antes) ==="
+            $DC exec -T agent-v2 python -c "
+            import os, httpx
+            r = httpx.get('http://localhost:8010/knowledge', params={'tenantId': '$TENANT_ID'}, headers={'X-Internal-Key': os.environ['AGENT_INTERNAL_KEY']}, timeout=30)
+            print(r.status_code, r.text[:800])
+            "
+
+            echo "=== subir negocio.md y preguntas-frecuentes.md ==="
+            $DC exec -T -e NEGOCIO_B64="$NEGOCIO_B64" -e FAQ_B64="$FAQ_B64" -e TENANT_ID="$TENANT_ID" agent-v2 python -c "
+            import base64, os, httpx
+            key = os.environ['AGENT_INTERNAL_KEY']
+            tenant = os.environ['TENANT_ID']
+            docs = {
+                'negocio.md': base64.b64decode(os.environ['NEGOCIO_B64']),
+                'preguntas-frecuentes.md': base64.b64decode(os.environ['FAQ_B64']),
+            }
+            for name, content in docs.items():
+                r = httpx.post(
+                    'http://localhost:8010/knowledge/upload',
+                    params={'tenantId': tenant},
+                    headers={'X-Internal-Key': key},
+                    files={'file': (name, content, 'text/markdown')},
+                    timeout=30,
+                )
+                print(name, r.status_code, r.text[:300])
+            "
+
+            echo "=== conocimiento actual (despues) ==="
+            $DC exec -T agent-v2 python -c "
+            import os, httpx
+            r = httpx.get('http://localhost:8010/knowledge', params={'tenantId': '$TENANT_ID'}, headers={'X-Internal-Key': os.environ['AGENT_INTERNAL_KEY']}, timeout=30)
+            print(r.status_code, r.text[:1500])
+            "
