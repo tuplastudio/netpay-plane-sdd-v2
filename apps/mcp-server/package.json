@@ -1,7 +1,7 @@
 {
   "name": "atiendeya-mcp",
-  "version": "0.1.0",
-  "description": "Servidor MCP sobre la API de Atiende ya: catálogo, clientes, cotizaciones, pedidos, pagos, envíos, reportes, notificaciones, integraciones y conversaciones de WhatsApp, autenticado con tu API key de tenant.",
+  "version": "0.2.0",
+  "description": "Servidor MCP sobre la API de Atiende ya: catálogo, clientes, cotizaciones, pedidos, pagos, envíos, reportes, notificaciones, integraciones, conversaciones de WhatsApp, auditoría y administración de plataforma, autenticado con tu API key.",
   "keywords": ["mcp", "model-context-protocol", "atiendeya", "whatsapp", "ecommerce"],
   "license": "MIT",
   "author": "Tupla (https://tupla.dev)",
