@@ -22,6 +22,7 @@ import {
   Building2,
   Gauge,
   KeyRound,
+  HelpCircle,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -93,7 +94,10 @@ const NAV: NavGroup[] = [
   },
   {
     title: "Sistema",
-    items: [{ href: "/admin", label: "Admin", icon: Settings, description: "Notificaciones y conexiones" }],
+    items: [
+      { href: "/admin", label: "Admin", icon: Settings, description: "Notificaciones y conexiones" },
+      { href: "/ayuda", label: "Ayuda", icon: HelpCircle, description: "Guías de uso del panel" },
+    ],
   },
 ];
 
