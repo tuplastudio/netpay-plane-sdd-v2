@@ -94,12 +94,20 @@ const NAV: NavGroup[] = [
   },
   {
     title: "Sistema",
-    items: [
-      { href: "/admin", label: "Admin", icon: Settings, description: "Notificaciones y conexiones" },
-      { href: "/ayuda", label: "Ayuda", icon: HelpCircle, description: "Guías de uso del panel" },
-    ],
+    items: [{ href: "/admin", label: "Admin", icon: Settings, description: "Notificaciones y conexiones" }],
   },
 ];
+
+/**
+ * "Ayuda" no vive en `NAV` ni en `PLATFORM_NAV`: un super-admin SIN
+ * impersonar solo ve `PLATFORM_NAV` (líneas abajo, en `SidebarNav`) — si
+ * "Ayuda" estuviera dentro de `NAV`, quedaría invisible justo para quien más
+ * la necesita al entrar por primera vez. Se agrega una sola vez, al final,
+ * sin importar qué combinación de `NAV`/`PLATFORM_NAV` esté activa.
+ */
+const HELP_NAV_GROUP: NavGroup = {
+  items: [{ href: "/ayuda", label: "Ayuda", icon: HelpCircle, description: "Guías de uso del panel" }],
+};
 
 /**
  * Consola de plataforma: solo para `isSuperAdmin`. Va SIEMPRE arriba — es el
@@ -281,7 +289,7 @@ export function SidebarNav({
           [PLATFORM_NAV, ...NAV]
         : [PLATFORM_NAV];
     return filterByScope(
-      filterAgentGroup(base, {
+      filterAgentGroup([...base, HELP_NAV_GROUP], {
         chatVisible,
         conversationsVisible,
         scopes: session?.scopes ?? null,
