@@ -1,0 +1,36 @@
+name: One-off - checar estado real de RLS en prod
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-check-rls-status.yml"
+
+jobs:
+  check:
+    name: Ver log de TENANT ISOLATION y rolbypassrls
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+            echo "=== log de arranque (TENANT ISOLATION) ==="
+            $DC logs commerce-api 2>&1 | grep -i "TENANT ISOLATION" | tail -5
+            echo "=== consulta directa a pg_roles ==="
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const rows = await p.\$queryRaw\`SELECT rolname, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = current_user\`;
+              console.log(JSON.stringify(rows));
+              await p.\$disconnect();
+            })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
+            "
