@@ -1,0 +1,147 @@
+import type { RouteDef } from "./types.js";
+
+const addressFields = {
+  label: { type: "string" as const, required: true, description: "Etiqueta, p. ej. \"Casa\" o \"Bodega\"." },
+  line1: { type: "string" as const, required: true },
+  line2: { type: "string" as const },
+  city: { type: "string" as const, required: true },
+  state: { type: "string" as const, required: true },
+  postalCode: { type: "string" as const, required: true, description: "5 dígitos." },
+  country: { type: "string" as const },
+  isDefault: { type: "boolean" as const },
+};
+
+export const customerRoutes: RouteDef[] = [
+  {
+    name: "customers_list",
+    method: "GET",
+    path: "/customers",
+    description: "Lista clientes del tenant, con búsqueda opcional por nombre/teléfono/correo.",
+    scopes: ["customers.read"],
+    query: {
+      q: { type: "string" },
+      includeArchived: { type: "string", enum: ["true", "false"], description: "Default false: no incluye archivados." },
+    },
+  },
+  {
+    name: "customers_get",
+    method: "GET",
+    path: "/customers/:id",
+    description: "Detalle de un cliente: datos de contacto, direcciones, identidades de canal.",
+    scopes: ["customers.read"],
+    pathParams: { id: { type: "string" } },
+  },
+  {
+    name: "customers_history",
+    method: "GET",
+    path: "/customers/:id/history",
+    description: "Historial de cotizaciones y pedidos de un cliente.",
+    scopes: ["customers.read"],
+    pathParams: { id: { type: "string" } },
+  },
+  {
+    name: "customers_archive",
+    method: "POST",
+    path: "/customers/:id/archive",
+    description: "Archiva un cliente (no lo borra; queda oculto de las listas por defecto).",
+    scopes: ["customers.write"],
+    destructiveHint: true,
+    pathParams: { id: { type: "string" } },
+  },
+  {
+    name: "customers_unarchive",
+    method: "POST",
+    path: "/customers/:id/unarchive",
+    description: "Revierte el archivado de un cliente.",
+    scopes: ["customers.write"],
+    pathParams: { id: { type: "string" } },
+  },
+  {
+    name: "customers_create",
+    method: "POST",
+    path: "/customers",
+    description: "Crea un cliente nuevo, con direcciones opcionales (hasta 20).",
+    scopes: ["customers.write"],
+    body: {
+      fullName: { type: "string", required: true },
+      email: { type: "string", description: "Correo válido." },
+      phone: { type: "string" },
+      taxId: { type: "string" },
+      addresses: { type: "array", items: { type: "object", fields: addressFields } },
+    },
+  },
+  {
+    name: "customers_resolve_channel",
+    method: "POST",
+    path: "/customers/resolve-channel",
+    description:
+      "Crea o encuentra el cliente de un contacto de WhatsApp y lo liga a la conversación en una sola llamada " +
+      "(pensada para el agente de chat). Con conversationId, el backend resuelve canal/teléfono desde el hilo real.",
+    scopes: ["customers.write"],
+    body: {
+      fullName: { type: "string", required: true },
+      email: { type: "string" },
+      phone: { type: "string" },
+      conversationId: { type: "string", description: "id de la conversación de WhatsApp de origen." },
+    },
+  },
+  {
+    name: "customers_update",
+    method: "PATCH",
+    path: "/customers/:id",
+    description: "Actualiza datos de contacto de un cliente. Control de concurrencia optimista por expectedVersion.",
+    scopes: ["customers.write"],
+    pathParams: { id: { type: "string" } },
+    body: {
+      expectedVersion: { type: "number", required: true },
+      fullName: { type: "string" },
+      email: { type: "string" },
+      phone: { type: "string" },
+      taxId: { type: "string" },
+      notes: { type: "string", description: "Máx. 2000 caracteres." },
+    },
+  },
+  {
+    name: "customers_add_address",
+    method: "POST",
+    path: "/customers/:id/addresses",
+    description: "Agrega una dirección al cliente.",
+    scopes: ["customers.write"],
+    pathParams: { id: { type: "string" } },
+    body: addressFields,
+  },
+  {
+    name: "customers_link_identity",
+    method: "POST",
+    path: "/customers/:id/identities",
+    description: "Liga una identidad de canal (WhatsApp Meta o Evolution) al cliente por su id externo.",
+    scopes: ["customers.write"],
+    pathParams: { id: { type: "string" } },
+    body: {
+      channel: { type: "string", required: true, enum: ["WHATSAPP_META", "WHATSAPP_EVOLUTION"] },
+      externalId: { type: "string", required: true },
+    },
+  },
+  {
+    name: "customers_grant_consent",
+    method: "POST",
+    path: "/customers/:id/consents/:scope",
+    description: "Registra el consentimiento del cliente para un propósito dado.",
+    scopes: ["customers.write"],
+    pathParams: {
+      id: { type: "string" },
+      scope: { type: "string", enum: ["WHATSAPP", "MARKETING", "DATA_PROCESSING"] },
+    },
+  },
+  {
+    name: "customers_revoke_consent",
+    method: "DELETE",
+    path: "/customers/:id/consents/:scope",
+    description: "Revoca un consentimiento previamente otorgado.",
+    scopes: ["customers.write"],
+    pathParams: {
+      id: { type: "string" },
+      scope: { type: "string", enum: ["WHATSAPP", "MARKETING", "DATA_PROCESSING"] },
+    },
+  },
+];
