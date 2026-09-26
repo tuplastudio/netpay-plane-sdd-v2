@@ -21,6 +21,7 @@ import {
   FlaskConical,
   Building2,
   Gauge,
+  KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -124,6 +125,12 @@ const PLATFORM_NAV: NavGroup = {
       label: "Uso y costos",
       icon: Gauge,
       description: "Consumo de tokens por empresa",
+    },
+    {
+      href: "/super-admin/api-keys",
+      label: "API keys globales",
+      icon: KeyRound,
+      description: "Credenciales de plataforma, cross-tenant",
     },
   ],
 };

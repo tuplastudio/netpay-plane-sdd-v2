@@ -49,17 +49,28 @@ const DEFAULT_BASE_PATH = "/iam/api-keys";
 
 /** La caché se parte por ruta: las keys de /admin y las de cada empresa en
  * /super-admin son listas distintas aunque el componente sea el mismo. */
-const apiKeysQueryKey = (basePath: string) => ["api-keys", basePath] as const;
+export const apiKeysQueryKey = (basePath: string) => ["api-keys", basePath] as const;
 
 export interface ApiKeysSectionProps {
   /**
    * Prefijo del recurso. Por defecto el tenant-scoped `/iam/api-keys`; el
    * super-admin pasa `/super-admin/tenants/:id/api-keys` para operar sobre
-   * otra empresa. Toda llamada y la query key derivan de aquí.
+   * otra empresa, o `/super-admin/api-keys` para keys globales. Toda llamada
+   * y la query key derivan de aquí.
    */
   basePath?: string;
   title?: string;
   description?: string;
+  /**
+   * "choose" (default): el formulario deja marcar scopes y los manda en el
+   * body, como `/iam/api-keys` y `/super-admin/tenants/:id/api-keys`.
+   * "all": oculta el selector — es una key GLOBAL (T-IAM-09b), siempre con
+   * TODOS los scopes decididos por el backend
+   * (`ApiKeyService.createGlobal`); mandar `scopes` en el body de
+   * `POST /super-admin/api-keys` lo rechaza el ValidationPipe
+   * (`forbidNonWhitelisted`), así que el form ni lo intenta.
+   */
+  scopesMode?: "choose" | "all";
 }
 
 /** Scopes disponibles, agrupados por dominio para que el sheet sea legible. */
@@ -76,11 +87,15 @@ const SCOPE_GROUPS: Array<{ title: string; scopes: string[] }> = [
   { title: "Administración", scopes: ["tenant.admin", "users.invite", "users.manage", "apikeys.manage"] },
 ];
 
+/**
+ * `scopes` es opcional en el esquema: con scopesMode "all" el form no lo
+ * pinta y nunca lo manda. Con "choose" sí es obligatorio, pero eso se exige
+ * a mano en el submit (ver `CreateApiKeyForm`) — un `.min(1)` condicional
+ * al modo no se puede expresar limpio en un solo `z.object` estático.
+ */
 const schema = z.object({
   name: z.string().trim().min(1, "Ponle un nombre a la key").max(100, "Máximo 100 caracteres"),
-  scopes: z
-    .array(z.string())
-    .min(1, "Marca al menos un permiso"),
+  scopes: z.array(z.string()).optional(),
   expiresInDays: z
     .string()
     .trim()
@@ -105,6 +120,7 @@ export function ApiKeysSection({
   basePath = DEFAULT_BASE_PATH,
   title = "API keys",
   description = "Credenciales de servidor para integrar sistemas externos.",
+  scopesMode = "choose",
 }: ApiKeysSectionProps = {}) {
   const queryClient = useQueryClient();
   const queryKey = apiKeysQueryKey(basePath);
@@ -157,7 +173,11 @@ export function ApiKeysSection({
       key: "scopes",
       header: "Permisos",
       cell: (k) =>
-        k.scopes.length > 0 ? (
+        scopesMode === "all" ? (
+          <Badge variant="warning" size="sm" className="font-medium">
+            Todos (global)
+          </Badge>
+        ) : k.scopes.length > 0 ? (
           <span className="flex flex-wrap gap-1">
             {k.scopes.map((s) => (
               <Badge key={s} variant="neutral" size="sm" className="font-mono font-medium">
@@ -233,6 +253,7 @@ export function ApiKeysSection({
         actions={
           <CreateApiKeyButton
             basePath={basePath}
+            scopesMode={scopesMode}
             onCreated={(secret) => setNewSecret(secret)}
             // Si ya había un secreto recién creado, el siguiente sheet se abre
             // reseteado (no muestra el secreto anterior).
@@ -313,18 +334,17 @@ export function ApiKeysSection({
 
 /**
  * Botón que abre el sheet de creación. El sheet vive por encima del flujo
-
-/**
- * Botón que abre el sheet de creación. El sheet vive por encima del flujo
  * normal de la página y se cierra solo después de crear: el secreto aparece
  * en un banner persistente abajo para que aún se pueda copiar tras cerrar.
  */
 function CreateApiKeyButton({
   basePath,
+  scopesMode,
   onCreated,
   resetKey,
 }: {
   basePath: string;
+  scopesMode: "choose" | "all";
   onCreated: (secret: string) => void;
   resetKey: string | null;
 }) {
@@ -347,6 +367,7 @@ function CreateApiKeyButton({
         <CreateApiKeyForm
           key={resetKey ?? "fresh"}
           basePath={basePath}
+          scopesMode={scopesMode}
           onCreated={(secret) => {
             onCreated(secret);
             setOpen(false);
@@ -359,9 +380,11 @@ function CreateApiKeyButton({
 
 function CreateApiKeyForm({
   basePath,
+  scopesMode,
   onCreated,
 }: {
   basePath: string;
+  scopesMode: "choose" | "all";
   onCreated: (secret: string) => void;
 }) {
   const queryClient = useQueryClient();
@@ -371,19 +394,23 @@ function CreateApiKeyForm({
     reset,
     watch,
     setValue,
+    setError,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { name: "", scopes: [], expiresInDays: "" },
   });
 
-  const selectedScopes = watch("scopes");
+  const selectedScopes = watch("scopes") ?? [];
 
   const create = useMutation({
     mutationFn: async (values: FormValues) => {
       const res = await api.post<{ data: { secret: string } }>(basePath, {
         name: values.name,
-        scopes: values.scopes,
+        // "all": el DTO de key global no declara `scopes` — mandarlo lo
+        // rechaza el ValidationPipe (forbidNonWhitelisted). El backend
+        // siempre otorga todos los scopes para esta ruta.
+        ...(scopesMode === "choose" ? { scopes: values.scopes } : {}),
         expiresInDays: values.expiresInDays ? Number(values.expiresInDays) : undefined,
       });
       return res.data.data;
@@ -397,18 +424,30 @@ function CreateApiKeyForm({
     onError: (error) => toast.error(apiErrorMessage(error, "No se pudo crear la API key")),
   });
 
+  function onSubmit(values: FormValues) {
+    // `scopes` es opcional en el esquema (ver comentario junto a `schema`):
+    // en modo "choose" el mínimo de uno se exige aquí, no en zod.
+    if (scopesMode === "choose" && (values.scopes ?? []).length === 0) {
+      setError("scopes", { message: "Marca al menos un permiso" });
+      return;
+    }
+    create.mutate(values);
+  }
+
   return (
     <>
       <SheetHeader className="border-b px-6 py-4">
         <SheetTitle>Nueva API key</SheetTitle>
         <SheetDescription>
-          El secreto se muestra una sola vez. Cópialo antes de cerrar.
+          {scopesMode === "all"
+            ? "Master key de la plataforma: siempre con todos los permisos. El secreto se muestra una sola vez."
+            : "El secreto se muestra una sola vez. Cópialo antes de cerrar."}
         </SheetDescription>
       </SheetHeader>
 
       <form
         noValidate
-        onSubmit={handleSubmit((values) => create.mutate(values))}
+        onSubmit={handleSubmit(onSubmit)}
         className="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4"
       >
         <div className="space-y-1.5">
@@ -432,6 +471,12 @@ function CreateApiKeyForm({
           )}
         </div>
 
+        {scopesMode === "all" ? (
+          <p className="rounded-md border bg-warning-subtle p-3 text-xs text-warning-foreground">
+            Esta key siempre lleva todos los permisos del sistema — no se puede acotar. Úsala solo para
+            integraciones de plataforma que de verdad necesiten operar sobre cualquier empresa.
+          </p>
+        ) : (
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Permisos</legend>
           <p className="text-xs text-muted-foreground">
@@ -476,6 +521,7 @@ function CreateApiKeyForm({
             <p className="text-xs text-destructive">{errors.scopes.message}</p>
           )}
         </fieldset>
+        )}
 
         <div className="space-y-1.5">
           <Label htmlFor="key-expires">Expira en (días)</Label>
@@ -505,7 +551,7 @@ function CreateApiKeyForm({
           type="submit"
           size="sm"
           loading={create.isPending}
-          onClick={handleSubmit((values) => create.mutate(values))}
+          onClick={handleSubmit(onSubmit)}
         >
           {create.isPending ? "Creando…" : "Crear API key"}
         </Button>
