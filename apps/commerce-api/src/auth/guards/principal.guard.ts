@@ -9,6 +9,7 @@
  * tenant exactamente igual que su dueño. Ver docs/03-iam.md T-IAM-09.
  */
 import {
+  BadRequestException,
   CanActivate,
   ExecutionContext,
   Injectable,
@@ -48,6 +49,8 @@ export const COOKIE_ATTRS = {
   sameSite: "lax",
   path: "/",
 } as const;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const AGENT_SERVICE_SCOPES: ReadonlyArray<Scope> = [
   "catalog.read",
@@ -143,11 +146,41 @@ export class PrincipalGuard implements CanActivate {
           message: "API key inválida o revocada",
         });
       }
+
+      // Key global (sin tenant propio, T-IAM-09b): el tenant sobre el que
+      // actúa esta petición en particular lo manda X-Tenant-Id. Sin ese
+      // header queda sin tenant — vale para /super-admin/* y para
+      // administrar otras keys globales, y cualquier ruta que exija tenant
+      // (`requireTenant()`) responde su 404 normal de "Sin tenant", igual
+      // que si fuera una key de tenant mal configurada.
+      let tenantId = principal.tenantId ?? undefined;
+      if (principal.isGlobal) {
+        const headerTenant = req.headers["x-tenant-id"];
+        const raw = Array.isArray(headerTenant) ? headerTenant[0] : headerTenant;
+        if (raw) {
+          if (!UUID_RE.test(raw)) {
+            throw new BadRequestException({
+              code: "VALIDATION_FAILED",
+              message: "X-Tenant-Id debe ser un UUID",
+            });
+          }
+          const tenant = await this.prisma.tenant.findUnique({ where: { id: raw }, select: { status: true } });
+          if (!tenant || tenant.status !== "ACTIVE") {
+            throw new BadRequestException({
+              code: "VALIDATION_FAILED",
+              message: "X-Tenant-Id no corresponde a un tenant activo",
+            });
+          }
+          tenantId = raw;
+        }
+      }
+
       RequestContext.setPrincipal({
         type: "API_KEY",
-        tenantId: principal.tenantId,
+        tenantId,
         scopes: [...principal.scopes],
         apiKeyId: principal.apiKeyId,
+        isSuperAdmin: principal.isGlobal,
       });
       return true;
     }

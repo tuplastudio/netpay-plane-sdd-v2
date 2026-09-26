@@ -170,3 +170,21 @@ export class CreateTenantApiKeyDto {
   @Max(730)
   expiresInDays?: number;
 }
+
+/**
+ * Body de `POST /super-admin/api-keys` (T-IAM-09b): key global, sin tenant.
+ * Sin campo `scopes` a propósito — una global siempre lleva TODOS los scopes
+ * del catálogo (`ApiKeyService.createGlobal`); no existe una "global parcial".
+ */
+export class CreateGlobalApiKeyDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  name!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(730)
+  expiresInDays?: number;
+}

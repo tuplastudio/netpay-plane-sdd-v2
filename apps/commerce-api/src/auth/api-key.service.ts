@@ -14,11 +14,15 @@ import {
 import argon2 from "argon2";
 import { randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { ALL_SCOPES } from "./policies.js";
 
 export interface ApiKeyPrincipal {
   apiKeyId: string;
-  tenantId: string;
+  /** `null` = key global de super-admin, sin tenant fijo (ver `resolveGlobal`). */
+  tenantId: string | null;
   scopes: ReadonlyArray<string>;
+  /** true solo para keys globales; nunca viene de una key de tenant. */
+  isGlobal: boolean;
 }
 
 @Injectable()
@@ -44,6 +48,26 @@ export class ApiKeyService {
 
   async create(input: {
     tenantId: string;
+    actorId: string;
+    name: string;
+    scopes: string[];
+    expiresInDays?: number;
+  }) {
+    return this.mint(input);
+  }
+
+  /**
+   * Key global: sin tenant, con TODOS los scopes del catálogo (no es
+   * configurable — no existe una "global parcial", es la master key de la
+   * plataforma). Solo `SuperAdminApiKeysController` la expone, y ese
+   * controlador ya está detrás de `SuperAdminGuard`.
+   */
+  async createGlobal(input: { actorId: string; name: string; expiresInDays?: number }) {
+    return this.mint({ ...input, tenantId: null, scopes: [...ALL_SCOPES] });
+  }
+
+  private async mint(input: {
+    tenantId: string | null;
     actorId: string;
     name: string;
     scopes: string[];
@@ -88,6 +112,34 @@ export class ApiKeyService {
     return { ok: true };
   }
 
+  async listGlobal() {
+    return this.prisma.apiKey.findMany({
+      where: { tenantId: null, revokedAt: null },
+      select: {
+        id: true,
+        prefix: true,
+        name: true,
+        scopes: true,
+        createdAt: true,
+        expiresAt: true,
+        revokedAt: true,
+        lastUsedAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  async revokeGlobal(id: string) {
+    const result = await this.prisma.apiKey.updateMany({
+      where: { id, tenantId: null, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (result.count === 0) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "API key global no encontrada" });
+    }
+    return { ok: true };
+  }
+
   /** Verifica la key y devuelve principal. Idempotente. */
   async resolve(token: string): Promise<ApiKeyPrincipal | null> {
     if (!token.startsWith("npk_")) return null;
@@ -109,6 +161,7 @@ export class ApiKeyService {
       apiKeyId: apiKey.id,
       tenantId: apiKey.tenantId,
       scopes: apiKey.scopes,
+      isGlobal: apiKey.tenantId === null,
     };
   }
 

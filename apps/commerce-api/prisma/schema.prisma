@@ -195,7 +195,10 @@ model PasswordResetToken {
 
 model ApiKey {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId    String   @db.Uuid
+  // NULL = key global de super-admin (sin tenant fijo; el tenant sobre el
+  // que actúa cada request lo manda el header X-Tenant-Id). Ver
+  // PrincipalGuard y docs/03-iam.md T-IAM-09b.
+  tenantId    String?  @db.Uuid
   prefix      String   @unique // npk_live_xxxx público
   name        String
   secretHash  String   // Argon2id del secret
@@ -206,7 +209,7 @@ model ApiKey {
   revokedAt   DateTime?
   lastUsedAt  DateTime?
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([prefix])
@@ -218,7 +221,9 @@ model ApiKey {
 
 model AuditLog {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  tenantId  String   @db.Uuid
+  // NULL = acción de plataforma sin tenant (p.ej. crear/revocar una key
+  // global de super-admin). Ver T-IAM-09b.
+  tenantId  String?  @db.Uuid
   actorId   String?  @db.Uuid
   action    String   // ej: "user.role_changed"
   targetType String?
@@ -226,8 +231,8 @@ model AuditLog {
   metadata   Json?
   createdAt  DateTime @default(now()) @db.Timestamptz
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  actor  User?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
   @@index([targetType, targetId])

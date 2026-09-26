@@ -32,6 +32,7 @@ import { TenantProvisioningService } from "./tenant-provisioning.service.js";
 import { TenantLogoService } from "./tenant-logo.service.js";
 import { LogoUploadInterceptor } from "./logo-upload.interceptor.js";
 import {
+  CreateGlobalApiKeyDto,
   CreateTenantApiKeyDto,
   CreateTenantDto,
   UpdateBrandingDto,
@@ -234,6 +235,96 @@ export class SuperAdminTenantsController {
   private async assertTenantExists(id: string): Promise<void> {
     const tenant = await this.prisma.tenant.findUnique({ where: { id }, select: { id: true } });
     if (!tenant) throw new NotFoundException({ code: "NOT_FOUND", message: "Empresa no encontrada" });
+  }
+}
+
+/**
+ * Keys globales de super-admin (T-IAM-09b): sin tenant, con TODOS los scopes
+ * del catálogo — la master key de la plataforma. Cada request que la usa
+ * decide sobre qué tenant actuar con el header `X-Tenant-Id` (ver
+ * `PrincipalGuard`); sin ese header, solo alcanza rutas sin tenant como
+ * `/super-admin/*` o esta misma.
+ *
+ * Requiere sesión de super-admin humano para EMITIR la primera vez —
+ * `SuperAdminGuard` ya exige `isSuperAdmin`, y una key global recién creada
+ * también lo cumple (puede emitir más keys globales), pero nunca se puede
+ * arrancar de cero sin una persona real detrás.
+ */
+@Controller("super-admin/api-keys")
+@UseGuards(SuperAdminGuard)
+export class SuperAdminApiKeysController {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly apiKeys: ApiKeyService,
+  ) {}
+
+  @Get()
+  async list() {
+    return { data: await this.apiKeys.listGlobal(), requestId: RequestContext.requestId };
+  }
+
+  @Post()
+  async create(@Body() body: CreateGlobalApiKeyDto) {
+    // Una key global no puede emitir más keys globales por sí sola: sin esto,
+    // una key filtrada se auto-perpetúa indefinidamente. Solo una persona
+    // super-admin real puede acuñar (o revocar) la master key de la
+    // plataforma — mismo argumento que `users.invite` otorgando OWNER o
+    // `conversations.claim` exigiendo sesión humana.
+    const actorId = RequestContext.userId;
+    if (!actorId) {
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: "Solo una sesión de super-admin humano puede emitir una key global",
+      });
+    }
+    const created = await this.apiKeys.createGlobal({
+      actorId,
+      name: body.name,
+      expiresInDays: body.expiresInDays,
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: null,
+        actorId,
+        action: "apikey.global.created",
+        targetType: "ApiKey",
+        targetId: created.id,
+        metadata: {
+          name: created.name,
+          prefix: created.prefix,
+          scopes: created.scopes,
+          expiresAt: created.expiresAt?.toISOString() ?? null,
+        },
+      },
+    });
+    return { data: created, requestId: RequestContext.requestId };
+  }
+
+  @Delete(":id")
+  @HttpCode(204)
+  async revoke(@Param("id") id: string): Promise<void> {
+    const actorId = RequestContext.userId;
+    if (!actorId) {
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: "Solo una sesión de super-admin humano puede revocar una key global",
+      });
+    }
+    const key = await this.prisma.apiKey.findFirst({
+      where: { id, tenantId: null, revokedAt: null },
+      select: { name: true, prefix: true },
+    });
+    await this.apiKeys.revokeGlobal(id);
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId: null,
+        actorId,
+        action: "apikey.global.revoked",
+        targetType: "ApiKey",
+        targetId: id,
+        metadata: { name: key?.name ?? null, prefix: key?.prefix ?? null },
+      },
+    });
   }
 }
 
