@@ -395,9 +395,9 @@ export class QuoteService {
       },
     });
 
+    const shareLink = `${process.env.PUBLIC_BASE_URL ?? "http://localhost:3000"}/quotes/public/${shareToken.token}`;
     const target = opts.notify === false ? null : pickChannel(q.customer);
     if (target) {
-      const link = `${process.env.PUBLIC_BASE_URL ?? "http://localhost:3000"}/quotes/public/${shareToken.token}`;
       await this.notifications.scheduleFromTemplate({
         tenantId,
         recipientType: "CUSTOMER",
@@ -405,11 +405,11 @@ export class QuoteService {
         channel: target.channel,
         templateKey: "QUOTE_LINK",
         to: target.to,
-        vars: { customerName: q.customer.fullName, total: q.total.toString(), link },
+        vars: { customerName: q.customer.fullName, total: q.total.toString(), link: shareLink },
       });
     }
 
-    return shareToken;
+    return { ...shareToken, shareLink };
   }
 
   async resolveShareToken(token: string) {

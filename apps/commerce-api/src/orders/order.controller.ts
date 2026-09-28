@@ -96,9 +96,20 @@ export class OrderController {
       order.revisions[order.revisions.length - 1];
     const token = currentRev ? await this.reuseOrCreateAccessToken(currentRev.id, expiresAt) : null;
     return {
-      data: { order, checkoutToken: token },
+      data: { order, checkoutToken: token, checkoutLink: token ? this.checkoutLink(token) : null },
       requestId: RequestContext.requestId,
     };
+  }
+
+  /**
+   * El token por sí solo no es un link usable: quien lo llama (panel, MCP,
+   * un agente) tendría que conocer de memoria `PUBLIC_BASE_URL` y la ruta
+   * `/checkout/:token` para armarlo. Se arma aquí, una sola vez, igual que
+   * ya hace `autoCheckoutAndNotify` para el mensaje de WhatsApp.
+   */
+  private checkoutLink(token: string): string {
+    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+    return `${base}/checkout/${token}`;
   }
 
   @Post("from-quote/:quoteId")
@@ -163,8 +174,7 @@ export class OrderController {
       if (!currentRev) return null;
       const expiresAt = order.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000);
       const token = await this.createAccessToken(currentRev.id, expiresAt);
-      const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-      const link = `${base}/checkout/${token}`;
+      const link = this.checkoutLink(token);
 
       // Va por NotificationService, no por `wa.send` directo: es un mensaje
       // que inicia el negocio, así que tiene que pasar por el opt-out del
@@ -208,7 +218,7 @@ export class OrderController {
       order.revisions[order.revisions.length - 1];
     const token = currentRev ? await this.createAccessToken(currentRev.id, expiresAt) : null;
     return {
-      data: { order, checkoutToken: token },
+      data: { order, checkoutToken: token, checkoutLink: token ? this.checkoutLink(token) : null },
       requestId: RequestContext.requestId,
     };
   }
@@ -225,7 +235,7 @@ export class OrderController {
     const { revisionId, expiresAt } = await this.orders.resumeCheckout(tenantId, id);
     const token = await this.createAccessToken(revisionId, expiresAt);
     return {
-      data: { checkoutToken: token },
+      data: { checkoutToken: token, checkoutLink: this.checkoutLink(token) },
       requestId: RequestContext.requestId,
     };
   }

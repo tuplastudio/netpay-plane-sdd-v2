@@ -41,7 +41,8 @@ export const orderRoutes: RouteDef[] = [
     path: "/orders/quick-charge",
     description:
       "Cobro rápido: crea un pedido con un solo concepto libre (sin ir por catálogo) y abre su checkout. " +
-      "idempotencyKey evita duplicar el cargo si se reintenta la misma llamada.",
+      "idempotencyKey evita duplicar el cargo si se reintenta la misma llamada. La respuesta trae " +
+      "checkoutLink, el link de pago completo y listo para mandar al cliente (no solo el token).",
     scopes: ["orders.write"],
     destructiveHint: true,
     body: {
@@ -63,7 +64,9 @@ export const orderRoutes: RouteDef[] = [
     name: "orders_start_checkout",
     method: "POST",
     path: "/orders/:id/checkout",
-    description: "Abre el checkout de un pedido con las líneas y modo de entrega dados, y emite un token de pago público.",
+    description:
+      "Abre el checkout de un pedido con las líneas y modo de entrega dados, y emite un link de pago " +
+      "público (checkoutLink en la respuesta, ya armado — listo para mandar al cliente).",
     scopes: ["orders.write"],
     pathParams: { id: { type: "string" } },
     body: {
@@ -76,7 +79,9 @@ export const orderRoutes: RouteDef[] = [
     name: "orders_resume_checkout",
     method: "POST",
     path: "/orders/:id/checkout/resume",
-    description: "Reemite el link de pago de un pedido cuyo checkout ya está abierto, sin recalcular líneas ni total.",
+    description:
+      "Reemite el link de pago (checkoutLink) de un pedido cuyo checkout ya está abierto, sin recalcular " +
+      "líneas ni total.",
     scopes: ["orders.write"],
     pathParams: { id: { type: "string" } },
   },

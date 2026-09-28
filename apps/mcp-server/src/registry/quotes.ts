@@ -72,8 +72,9 @@ export const quoteRoutes: RouteDef[] = [
     method: "POST",
     path: "/quotes/:id/share",
     description:
-      "Genera (o renueva) el link público de la cotización (/quotes/public/:token). " +
-      "notify:false si el enlace ya se lo mandaste tú al cliente por otro medio, para que el dispatcher no lo duplique.",
+      "Genera (o renueva) el link público de la cotización. La respuesta trae shareLink, el link ya " +
+      "completo y listo para mandar (no solo el token). notify:false si el enlace ya se lo mandaste tú " +
+      "al cliente por otro medio, para que el dispatcher no lo duplique.",
     scopes: ["quotes.write"],
     pathParams: { id: { type: "string" } },
     body: {
