@@ -1,0 +1,37 @@
+name: One-off - verificar diagnostics de agent-v2 tras el deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-verify-agent-guards.yml"
+
+jobs:
+  verify:
+    name: GET /diagnostics dentro del contenedor
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+
+            echo "=== version corriendo ==="
+            $DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/healthz', timeout=5).json())"
+
+            echo ""
+            echo "=== guards + observability en /diagnostics ==="
+            $DC exec -T agent-v2 python -c "
+import os, httpx, json
+key = os.environ['AGENT_INTERNAL_KEY']
+r = httpx.get('http://localhost:8010/diagnostics', headers={'x-internal-key': key}, timeout=15)
+data = r.json()
+print(json.dumps({'guards': data.get('guards'), 'observability': data.get('observability')}, indent=2, ensure_ascii=False))
+"
