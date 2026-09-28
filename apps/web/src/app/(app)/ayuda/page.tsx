@@ -14,7 +14,7 @@ export default function AyudaIndexPage() {
     <div className="space-y-6">
       <section
         aria-labelledby="ayuda-empieza"
-        className="rounded-[30px] bg-[linear-gradient(135deg,#2b0f5c_0%,#6d28d9_55%,#a78bfa_100%)] p-6 text-white sm:p-8"
+        className="spotlight spotlight-violet p-6 text-white sm:p-8"
       >
         <p className="text-[13px] font-medium text-white/80">Empieza aquí</p>
         <h2

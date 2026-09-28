@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /**
- * Sistema visual — ver src/components/DESIGN-SYSTEM.md. Solo modo oscuro.
+ * Sistema visual — ver src/components/DESIGN-SYSTEM.md. Oscuro por defecto (`:root, .dark`) y claro (`.light`).
  *
  * Lienzo casi negro (canvas #090909) y todo monocromo: tinta blanca, gris
  * secundario (#999) y superficies que suben por pasos (canvas → surface-1
@@ -96,7 +96,7 @@
     --border: 0 0% 14.9%;
     --border-soft: 0 0% 10.2%;
     --border-strong: 0 0% 26%;
-    --input: 0 0% 20%;
+    --input: 0 0% 40%; /* #666: 3:1 contra surface-1, límite de control visible */
     --ring: 204 100% 50%;
 
     --body-text: 0 0% 90%;
@@ -114,11 +114,90 @@
     --shadow-selected: 0 0 0 1px rgb(0 153 255 / 0.6), 0 0 0 4px rgb(0 153 255 / 0.15);
 
     /* Anclas: violeta #6a4cf5 · magenta #d44df0 · naranja #ff7a3d · coral #ff5577.
-       Cada degradado va de un tinte oscuro del ancla a un tinte claro. */
-    --gradient-violet: linear-gradient(135deg, #1e1450 0%, #6a4cf5 55%, #b3a3fb 100%);
-    --gradient-magenta: linear-gradient(135deg, #3d0f47 0%, #d44df0 55%, #eeaaf8 100%);
-    --gradient-orange: linear-gradient(135deg, #4a1a06 0%, #ff7a3d 55%, #ffc2a0 100%);
-    --gradient-coral: linear-gradient(135deg, #4a0d1a 0%, #ff5577 55%, #ffaabb 100%);
+       El texto encima es blanco, así que ningún punto del degradado pasa de la
+       luz que deja 4.5:1 con blanco al 80%: cada uno va de un tinte muy oscuro
+       del ancla al ancla oscurecida justo hasta ese límite. */
+    --gradient-violet: linear-gradient(135deg, #1a1147 0%, #4a33b8 50%, #6045df 100%);
+    --gradient-magenta: linear-gradient(135deg, #33103c 0%, #7a2c8a 50%, #9435a7 100%);
+    --gradient-orange: linear-gradient(135deg, #3a1505 0%, #7a3a1c 50%, #9c4a25 100%);
+    --gradient-coral: linear-gradient(135deg, #3d0b17 0%, #862d40 50%, #a8374e 100%);
+  }
+
+  /* Modo claro: el mismo póster invertido. Lienzo blanco, superficies gris
+     claro que suben por pasos (#f5f5f5 → #ebebeb), tinta casi negra y píldora
+     primaria NEGRA con texto blanco. El azul se oscurece para pasar AA como
+     enlace; los tonos de estado bajan de luz para servir como texto. */
+  .light {
+    --canvas: 0 0% 100%;
+    --background: 0 0% 100%;
+    --foreground: 0 0% 4%; /* #0a0a0a */
+    --card: 0 0% 96%; /* surface-1 #f5f5f5 */
+    --card-foreground: 0 0% 4%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 4%;
+
+    --primary: 207 100% 38%; /* #0062c2 */
+
+    --primary-strong: 0 0% 4%;
+    --primary-strong-hover: 0 0% 20%;
+    --primary-strong-active: 0 0% 28%;
+    --primary-active: var(--primary-strong-active);
+    --primary-disabled: 0 0% 88%;
+    --primary-foreground: 0 0% 100%;
+
+    --cta: 0 0% 4%;
+    --cta-hover: 0 0% 20%;
+    --cta-active: 0 0% 28%;
+    --cta-foreground: 0 0% 100%;
+
+    --highlight: 322 70% 45%;
+    --highlight-strong: 322 75% 38%;
+    --highlight-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 92%; /* surface-2 #ebebeb */
+    --secondary-foreground: 0 0% 4%;
+
+    --muted: 0 0% 97%;
+    --muted-foreground: 0 0% 38%; /* #616161 */
+    --muted-soft: 0 0% 64%;
+
+    --accent: 0 0% 89%;
+    --accent-foreground: 0 0% 4%;
+
+    --destructive: 356 78% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-active: 356 78% 35%;
+    --destructive-subtle: 356 90% 96%;
+    --destructive-subtle-foreground: 356 78% 34%;
+
+    --success: 142 72% 29%;
+    --success-subtle: 142 60% 94%;
+    --success-foreground: 142 72% 23%;
+
+    --warning: 30 95% 33%;
+    --warning-subtle: 40 95% 93%;
+    --warning-foreground: 28 90% 27%;
+
+    --info: 207 100% 40%;
+    --info-subtle: 207 90% 95%;
+    --info-foreground: 207 100% 31%;
+
+    --neutral: 0 0% 45%;
+    --neutral-subtle: 0 0% 93%;
+    --neutral-foreground: 0 0% 28%;
+
+    --border: 0 0% 88%;
+    --border-soft: 0 0% 92%;
+    --border-strong: 0 0% 70%;
+    --input: 0 0% 52%;
+    --ring: 207 100% 38%;
+
+    --body-text: 0 0% 15%;
+    --legal-link: 207 100% 36%;
+
+    --shadow-airbnb: 0 1px 2px rgb(0 0 0 / 0.06), 0 10px 30px rgb(0 0 0 / 0.08);
+    --shadow-airbnb-lg: 0 1px 2px rgb(0 0 0 / 0.06), 0 16px 48px rgb(0 0 0 / 0.14);
+    --shadow-selected: 0 0 0 1px rgb(0 98 194 / 0.7), 0 0 0 4px rgb(0 98 194 / 0.15);
   }
 }
 
@@ -134,6 +213,7 @@
     letter-spacing: -0.01em;
   }
   html { color-scheme: dark; background: hsl(var(--background)); overflow-x: clip; }
+  html.light { color-scheme: light; }
   /* Cifras tabulares en tablas y montos: columnas que no bailan. */
   table, .tabular-nums, [data-money] {
     font-feature-settings: "cv01", "cv05", "cv09", "cv11", "ss03", "ss07", "tnum";
@@ -142,7 +222,7 @@
   :focus-visible { outline-color: hsl(var(--ring)); }
   html { -webkit-text-size-adjust: 100%; }
   input, select, textarea { font-size: max(16px, 0.875rem); } /* evita zoom iOS al enfocar */
-  ::selection { background: rgb(0 153 255 / 0.35); }
+  ::selection { background: hsl(var(--primary) / 0.35); }
   a:not([class]) { color: hsl(var(--legal-link)); }
 }
 
@@ -164,8 +244,9 @@
     input, select, textarea { font-size: 0.875rem; }
   }
 
-  /* Tarjetas spotlight con degradado. Texto siempre blanco encima: los
-     cuatro fondos son lo bastante oscuros en el tercio donde va el texto. */
+  /* Tarjetas spotlight con degradado. Texto siempre blanco encima, en ambos
+     modos: los cuatro degradados están acotados para dar ≥4.5:1 con blanco
+     al 80% en cualquier punto. */
   .spotlight {
     position: relative;
     overflow: hidden;

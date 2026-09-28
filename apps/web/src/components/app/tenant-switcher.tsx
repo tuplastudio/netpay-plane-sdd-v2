@@ -326,7 +326,7 @@ export function TenantSwitcher() {
                       <span className="flex w-full items-center gap-2">
                         <span className="truncate font-medium">{t.name}</span>
                         {isCurrent ? (
-                          <span className="ml-auto text-xs font-medium text-warning-strong">Activa</span>
+                          <span className="ml-auto text-xs font-medium text-warning-foreground">Activa</span>
                         ) : null}
                       </span>
                       <span className="font-mono text-[10px] uppercase text-muted-foreground">
@@ -346,7 +346,7 @@ export function TenantSwitcher() {
             <DropdownMenuItem
               onSelect={() => stop.mutate()}
               disabled={busy}
-              className="text-warning-strong focus:text-warning-strong"
+              className="text-warning-foreground focus:text-warning-foreground"
             >
               <StopImpersonating aria-hidden className="h-3.5 w-3.5" />
               <span>Salir y volver a la consola</span>

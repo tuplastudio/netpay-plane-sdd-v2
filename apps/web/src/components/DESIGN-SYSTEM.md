@@ -7,8 +7,10 @@ reimplementes nada, no copies clases de una pantalla a otra.
   en blanco con tracking muy negativo, CTA en píldora blanca, tarjetas carbón,
   un solo color de señal (azul) y una familia pequeña de tarjetas con
   degradado que se usan con cuentagotas.
-- **Solo modo oscuro.** `<html class="dark">` es fijo en `app/layout.tsx`; no
-  hay ThemeProvider ni selector de tema.
+- **Oscuro por defecto, con modo claro.** `ThemeProvider`
+  (`components/theme-provider.tsx`) pone `dark` o `light` en `<html>` antes del
+  primer paint (clave `easysell-theme`: sistema / claro / oscuro) y el selector
+  vive en la barra superior (`ThemeToggle`). Ver "Modo claro" en §1.
 - Fuente del tema: `src/app/globals.css` (variables CSS) + `tailwind.config.ts`.
 - Idioma de UI: **es-MX**. Todo texto visible en español.
 - Si te falta una prop, **pídela**; no hagas un fork del componente en tu pantalla.
@@ -68,7 +70,7 @@ los mismos de siempre; aquí está a qué valor de la paleta apunta cada uno.
 | — | `#232323` | `bg-accent` | Hover sobre surface-1/2 |
 | hairline | `#262626` | `border-border`, `border-hairline` | Bordes estructurales, divisores de tabla |
 | hairline-soft | `#1a1a1a` | `border-hairline-soft` | Divisores sutiles (filas, FAQ, canto de tarjeta) |
-| — | `#333333` | `border-input` | Borde de control |
+| — | `#666666` | `border-input` | Borde de control (3:1 contra surface-1) |
 | ink / primary | `#ffffff` | `text-foreground`, `bg-primary-strong`, `bg-cta` | Titulares, cuerpo, relleno de la píldora primaria |
 | on-primary | `#000000` | `text-primary-foreground` | Tinta sobre la píldora blanca |
 | ink-muted | `#999999` | `text-muted-foreground` | Texto secundario, meta, pestañas no seleccionadas |
@@ -90,16 +92,60 @@ estado es señal, no relleno.
 
 | Clase | Ancla | Degradado (135°) |
 | --- | --- | --- |
-| `.spotlight-violet` / `bg-gradient-violet` | `#6a4cf5` | `#1e1450` → `#6a4cf5` 55% → `#b3a3fb` |
-| `.spotlight-magenta` / `bg-gradient-magenta` | `#d44df0` | `#3d0f47` → `#d44df0` 55% → `#eeaaf8` |
-| `.spotlight-orange` / `bg-gradient-orange` | `#ff7a3d` | `#4a1a06` → `#ff7a3d` 55% → `#ffc2a0` |
-| `.spotlight-coral` / `bg-gradient-coral` | `#ff5577` | `#4a0d1a` → `#ff5577` 55% → `#ffaabb` |
+| `.spotlight-violet` / `bg-gradient-violet` | `#6a4cf5` | `#1a1147` → `#4a33b8` 50% → `#6045df` |
+| `.spotlight-magenta` / `bg-gradient-magenta` | `#d44df0` | `#33103c` → `#7a2c8a` 50% → `#9435a7` |
+| `.spotlight-orange` / `bg-gradient-orange` | `#ff7a3d` | `#3a1505` → `#7a3a1c` 50% → `#9c4a25` |
+| `.spotlight-coral` / `bg-gradient-coral` | `#ff5577` | `#3d0b17` → `#862d40` 50% → `#a8374e` |
+
+El ancla puro con texto blanco no pasa AA (naranja 2.6:1, magenta 3.4:1), así
+que cada degradado termina en el ancla oscurecida justo hasta dar ≥4.5:1 con
+blanco al 80% en cualquier punto. Texto secundario encima: `text-white/80`,
+nunca menos. Iguales en modo claro y oscuro.
 
 `.spotlight` pone radio 30px, texto blanco y un velo oscuro en el tercio
-inferior izquierdo para que el texto se lea. Son TARJETAS dentro de la
+inferior izquierdo. Son TARJETAS dentro de la
 grilla, nunca fondo de sección. **Una o dos por pantalla.** Hoy: panel de
 marca del login, cifra del mes en Panorama, total de la cotización pública.
 Botones encima de un degradado: `variant="translucent"` o la píldora blanca.
+
+#### Modo claro (`.light`)
+
+El mismo póster invertido; mismos nombres de token, otros valores.
+
+| Token | Oscuro | Claro |
+| --- | --- | --- |
+| `background` / canvas | `#090909` | `#ffffff` |
+| `card` / surface-1 | `#141414` | `#f5f5f5` |
+| `secondary` / surface-2 | `#1c1c1c` | `#ebebeb` |
+| `popover` | `#1c1c1c` | `#ffffff` (+ sombra) |
+| `foreground` | `#ffffff` | `#0a0a0a` |
+| `muted-foreground` | `#999999` | `#616161` |
+| `primary-strong` / `cta` (píldora) | blanca, tinta negra | negra, tinta blanca |
+| `primary` / `ring` (azul) | `#0099ff` | `#0062c2` |
+| `legal-link` | `#33adff` | `#005db8` |
+| `input` (borde de control) | `#666666` | `#858585` |
+| `destructive` | `#ff4d4f` | `#bf1822` |
+| estados `*-foreground` | tintes claros | tonos oscuros sobre `*-subtle` claro |
+
+#### Contraste verificado (WCAG 2.2)
+
+Texto ≥4.5:1; componentes de UI (foco, borde de control, puntos) ≥3:1.
+
+| Par | Oscuro | Claro |
+| --- | --- | --- |
+| Texto / canvas · surface-1 · surface-2 | 19.9 · 18.4 · 17.0 | 19.8 · 18.1 · 16.5 |
+| Muted / canvas · surface-1 · surface-2 | 7.0 · 6.5 · 6.0 | 6.2 · 5.7 · 5.2 |
+| Muted / hover (`accent`) | 5.5 | 4.8 |
+| Placeholder / input | 6.5 | 5.7 |
+| Píldora primaria / hover | 21.0 / 16.0 | 19.8 / 12.6 |
+| Enlace / canvas · surface-1 · surface-2 | 8.2 · 7.6 · 7.0 | 5.9 · 5.4 · 4.9 |
+| Anillo de foco / canvas · surface-1 | 6.6 · 6.2 | 5.4 · 5.0 |
+| Borde de input / canvas · surface-1 | 3.5 · 3.2 | 3.7 · 3.4 |
+| Destructivo texto / canvas · surface-2 · sólido | 6.1 · 5.2 · 6.4 | 6.3 · 5.2 · 6.3 |
+| Insignias (destr./éxito/aviso/info/neutral/resalte) | 7.2/9.6/9.8/9.6/10.6/5.2 | 7.4/6.6/7.0/6.5/7.9/6.8 |
+| `text-success` / `text-warning` / `text-neutral` sobre canvas | 8.7 / 9.7 / 7.0 | 5.1 / 5.5 / 4.8 |
+| Puntos de estado sobre su insignia | ≥5.3 | ≥4.1 |
+| Blanco al 80% sobre spotlight (peor punto) | ≥4.5 | ≥4.5 |
 
 ### Tipografía
 
@@ -189,8 +235,9 @@ Mismo alto (`h-10`), radio y foco. Para error pasa `aria-invalid` y el borde roj
 sale solo. `Select` es un `<select>` nativo estilizado (sin Radix, sin dependencia
 nueva); `Checkbox` es un `<input type="checkbox">` con `accent-primary`.
 
-El borde en reposo de los cuatro es `border-input` (`#8a8a8a`, 3.45:1): son
-campos blancos sobre página blanca, así que el borde es el control. No lo
+El borde en reposo de los cuatro es `border-input` (≥3:1 contra canvas y
+surface-1 en ambos modos: `#666` oscuro, `#858585` claro): el relleno del campo
+casi no se distingue del fondo, así que el borde es el control. No lo
 cambies por `border-border` — ese es el separador estructural y vive en 1.35:1.
 La palomita y el punto del radio siguen en `accent-primary` a propósito: son
 objeto gráfico, les aplica 1.4.11 (3:1) y #ff3859 da 3.52:1.

@@ -387,7 +387,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
         aria-labelledby="quote-total"
         className="spotlight spotlight-violet p-6 text-center sm:p-[30px]"
       >
-        <h2 id="quote-total" className="text-caption text-white/75">
+        <h2 id="quote-total" className="text-caption text-white/80">
           Total de la cotización
         </h2>
         <Money
@@ -398,7 +398,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
         />
         <p
           className={`mt-3 flex items-center justify-center gap-1.5 text-xs ${
-            expiringSoon ? "font-medium text-white" : "text-white/75"
+            expiringSoon ? "font-medium text-white" : "text-white/80"
           }`}
         >
           {expiringSoon ? <Clock aria-hidden className="h-3.5 w-3.5" /> : null}

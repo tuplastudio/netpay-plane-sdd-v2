@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { themeScript } from "@/components/theme-provider";
 import { PwaRegister } from "@/components/app/pwa-register";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
@@ -39,17 +40,27 @@ export const viewport: Viewport = {
   // indicator en iOS; el padding para no chocar con esas zonas lo ponen los
   // componentes con `env(safe-area-inset-*)` donde haga falta.
   viewportFit: "cover",
-  themeColor: "#090909",
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#090909" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // Solo modo oscuro: la clase y el color-scheme van fijos desde el server.
     <html
       lang="es"
-      className={`dark ${inter.variable} ${geist.variable}`}
-      style={{ colorScheme: "dark" }}
+      // suppressHydrationWarning: el <head> tiene un script que muta
+      // documentElement.className y .style.colorScheme ANTES del primer
+      // render. React no debería quejarse por esa mutación de pre-hidratación.
+      suppressHydrationWarning
+      className={`${inter.variable} ${geist.variable}`}
     >
+      <head>
+        {/* Anti-flash: aplica la clase light/dark a <html> antes del primer
+            paint. Ver theme-provider.tsx para el detalle. */}
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         <PwaRegister />
         <Providers>{children}</Providers>

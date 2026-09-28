@@ -14,6 +14,7 @@ import {
 import { Brand, EnvBadge, EnvFooter, SidebarNav } from "./sidebar-nav";
 import { GlobalSearch } from "./global-search";
 import { TenantSwitcher } from "./tenant-switcher";
+import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
 
 export function Topbar() {
@@ -67,6 +68,7 @@ export function Topbar() {
         <GlobalSearch />
         <EnvBadge compact className="hidden sm:inline-flex" />
         <TenantSwitcher />
+        <ThemeToggle />
         <UserMenu />
       </div>
     </header>

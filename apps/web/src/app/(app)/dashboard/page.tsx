@@ -89,13 +89,13 @@ export default function HomePage() {
         <section aria-labelledby="mes-titulo" className="spotlight spotlight-violet p-6 sm:p-[30px]">
           <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0 space-y-2">
-              <p id="mes-titulo" className="text-caption text-white/75">
+              <p id="mes-titulo" className="text-caption text-white/80">
                 Ventas cobradas este mes
               </p>
               <p className="font-display text-display-lg tabular-nums text-white">
                 {loading ? "…" : formatMoney(unified.data?.kpis.revenue.mtd)}
               </p>
-              <p className="text-body text-white/75">
+              <p className="text-body text-white/80">
                 {unified.data
                   ? `${unified.data.kpis.orders.mtd} pedidos en el mes · ${formatMoney(unified.data.kpis.revenue.today)} hoy`
                   : "Cargando cifras del mes…"}

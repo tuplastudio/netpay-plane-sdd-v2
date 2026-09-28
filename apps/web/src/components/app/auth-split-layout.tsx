@@ -58,12 +58,12 @@ export function AuthSplitLayout({
               <p className="font-display text-display-lg">
                 Cotiza, conversa y cobra desde un mismo chat.
               </p>
-              <p className="max-w-md text-lg leading-[1.3] tracking-[-0.01em] text-white/75">
+              <p className="max-w-md text-lg leading-[1.3] tracking-[-0.01em] text-white/80">
                 El cliente escribe por WhatsApp, el agente responde y tú cierras
                 la venta.
               </p>
             </div>
-            <p className="text-xs text-white/50">Modo de pruebas · sin dinero real · v2</p>
+            <p className="text-xs text-white/80">Modo de pruebas · sin dinero real · v2</p>
           </div>
         </div>
       </div>

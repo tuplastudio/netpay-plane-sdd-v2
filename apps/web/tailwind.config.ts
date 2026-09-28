@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: ["class"], // solo oscuro: <html class="dark"> fijo en layout.tsx
+  darkMode: ["class"], // <html class="dark"> o "light", lo pone theme-provider antes del primer paint
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     container: {
