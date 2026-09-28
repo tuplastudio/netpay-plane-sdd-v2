@@ -1,0 +1,40 @@
+name: One-off - prender Presidio y NeMo Guardrails en agent-v2 (.env.prod)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-enable-agent-guards.yml"
+
+jobs:
+  enable:
+    name: Agregar las dos flags a .env.prod (idempotente)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable flags
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+
+            add_flag() {
+              local key="$1" value="$2"
+              if grep -qE "^${key}=" .env.prod; then
+                sed -i "s/^${key}=.*/${key}=${value}/" .env.prod
+                echo "actualizado: ${key}=${value}"
+              else
+                printf '\n%s=%s\n' "$key" "$value" >> .env.prod
+                echo "agregado: ${key}=${value}"
+              fi
+            }
+
+            add_flag AGENT_PRESIDIO_ENABLED 1
+            add_flag AGENT_NEMO_GUARDRAILS_ENABLED 1
+
+            echo "=== .env.prod (solo estas dos lineas) ==="
+            grep -E "^(AGENT_PRESIDIO_ENABLED|AGENT_NEMO_GUARDRAILS_ENABLED)=" .env.prod
