@@ -246,6 +246,54 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---- Flagsmith (self-hosteado): feature flags / hiperparámetros
+  # dinámicos para agent-v2 (ver app/remote_config.py). Solo red interna
+  # por ahora — este droplet tiene poco margen de RAM (2 vCPU / 3.8 GiB,
+  # ~2 GiB libres); el stack "completo" de Langfuse (ClickHouse+Redis+
+  # MinIO+web+worker) NO se instaló aquí por eso — se usa Langfuse Cloud
+  # en su lugar. Flagsmith es mucho más liviano (Postgres + un solo
+  # contenedor todo-en-uno), sí cabe.
+  flagsmith-db:
+    image: postgres:16-alpine
+    container_name: netpay_flagsmith_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: flagsmith
+      POSTGRES_USER: flagsmith
+      POSTGRES_PASSWORD: ${FLAGSMITH_DB_PASSWORD:?Set FLAGSMITH_DB_PASSWORD}
+    volumes:
+      - flagsmith_db_prod:/var/lib/postgresql/data
+    networks: [netpay_internal]
+    expose: ["5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flagsmith"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  flagsmith:
+    image: flagsmith/flagsmith:latest
+    container_name: netpay_flagsmith
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://flagsmith:${FLAGSMITH_DB_PASSWORD:?Set FLAGSMITH_DB_PASSWORD}@flagsmith-db:5432/flagsmith
+      DJANGO_ALLOWED_HOSTS: "*"
+      ENABLE_TELEMETRY: "false"
+    depends_on:
+      flagsmith-db:
+        condition: service_healthy
+    networks: [netpay_internal]
+    # Sin `ports:` a propósito (igual que agent-v2): solo agent-v2 y quien
+    # entre por túnel SSH lo alcanzan, nunca expuesto directo a internet
+    # sin decidirlo aparte.
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
 networks:
   netpay_internal:
     driver: bridge
@@ -253,3 +301,4 @@ networks:
 volumes:
   agent_data_prod:
   uploads_prod:
+  flagsmith_db_prod:
