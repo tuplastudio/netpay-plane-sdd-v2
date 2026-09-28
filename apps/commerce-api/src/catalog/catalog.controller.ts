@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
   NotFoundException,
   Param,
   Patch,
@@ -28,6 +29,8 @@ import {
 @Controller("catalog")
 @UseGuards(RoleGuard)
 export class CatalogController {
+  private readonly logger = new Logger(CatalogController.name);
+
   constructor(private readonly catalog: CatalogService) {}
 
   @Get("products")
@@ -60,7 +63,18 @@ export class CatalogController {
   @RequireScopes("catalog.write")
   async create(@Body() body: CreateProductDto) {
     const tenantId = this.requireTenant();
-    const product = await this.catalog.createProduct(tenantId, RequestContext.userId ?? null, body);
+    const userId = RequestContext.userId ?? null;
+    const product = await this.catalog.createProduct(tenantId, userId, body);
+    if (!userId) {
+      // Sin usuario humano (API key / servicio) `createdById` queda NULL y
+      // catalog.service no escribe AuditLog para altas: se deja rastro con el
+      // apiKeyId para que la creación siga siendo atribuible.
+      const p = RequestContext.principal;
+      this.logger.log(
+        `product.created sin usuario tenant=${tenantId} product=${product.id} ` +
+          `principal=${p.type} apiKeyId=${p.apiKeyId ?? "-"} requestId=${RequestContext.requestId}`,
+      );
+    }
     return { data: product, requestId: RequestContext.requestId };
   }
 

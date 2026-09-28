@@ -14,9 +14,17 @@ export interface RateRule {
   windowMs: number;
 }
 
-function clientIp(req: Request): string {
-  const forwarded = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim();
-  return forwarded || req.ip || req.socket.remoteAddress || "unknown";
+/**
+ * IP del cliente para la llave del rate limit.
+ *
+ * Antes se tomaba el PRIMER valor de X-Forwarded-For tal cual: cualquiera que
+ * llegara directo al API mandaba un XFF distinto en cada petición y nunca
+ * llegaba al límite. Ahora se usa `req.ip`, que Express calcula con
+ * `trust proxy` (main.ts, TRUST_PROXY_HOPS): solo confía en los últimos N
+ * saltos de XFF, que añaden nuestros propios proxies, no el cliente.
+ */
+export function clientIp(req: Request): string {
+  return req.ip || req.socket?.remoteAddress || "unknown";
 }
 
 /**

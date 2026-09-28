@@ -23,6 +23,17 @@ async function bootstrap() {
     logger: ["error", "warn", "log"],
   });
 
+  // Proxy de confianza: `req.ip` sale del salto N desde el final de
+  // X-Forwarded-For (N = TRUST_PROXY_HOPS). Default 2: el tráfico del portal
+  // llega navegador → middleware de Next (pone XFF = IP del cliente) → nginx
+  // de CapRover (agrega la IP de salida del portal) → API. Con 1 salto todo el
+  // portal compartiría la IP de salida de Vercel y 20 logins fallidos de
+  // cualquiera bloquearían a TODOS los usuarios. Si el portal entra directo a
+  // :14000 (sin nginx), XFF trae un solo valor y con 2 igual resuelve al cliente.
+  const trustHopsRaw = Number.parseInt(process.env.TRUST_PROXY_HOPS ?? "2", 10);
+  const trustHops = Number.isFinite(trustHopsRaw) && trustHopsRaw >= 0 ? trustHopsRaw : 2;
+  app.set("trust proxy", trustHops);
+
   app.use(helmet());
   app.use(cookieParser());
 

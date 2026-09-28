@@ -6,6 +6,7 @@
  * proyecto): no rompe el flujo, solo no manda el correo de verdad.
  */
 import { Injectable, Logger } from "@nestjs/common";
+import { maskEmail } from "../common/pii-mask.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Handlebars from "handlebars";
@@ -54,7 +55,9 @@ export class EmailService {
     const html = this.compile(input.template)(input.vars);
 
     if (!this.apiKey) {
-      this.logger.log(`[simulado, sin RESEND_API_KEY] correo a ${input.to}: ${input.subject}`);
+      this.logger.log(
+        `[simulado, sin RESEND_API_KEY] correo a ${maskEmail(input.to)} template=${input.template}`,
+      );
       return { sent: false };
     }
 
@@ -79,3 +82,4 @@ export class EmailService {
     return { sent: true, id: data.id };
   }
 }
+

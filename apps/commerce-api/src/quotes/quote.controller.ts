@@ -118,6 +118,11 @@ export class QuoteController {
     if (!quote) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido o expirado" });
     }
+    // Lista blanca explícita: este endpoint es público (cualquiera con el link).
+    // No se expone el email del cliente ni ids internos de línea (variantId,
+    // quoteId, claves SAT). `notes` es la nota que la empresa escribe PARA el
+    // cliente (el mismo texto sale impreso en el PDF); no hay campo de notas
+    // internas en Quote.
     return {
       data: {
         id: quote.id,
@@ -129,11 +134,19 @@ export class QuoteController {
         shipping: quote.shipping,
         total: quote.total,
         expiresAt: quote.expiresAt,
-        notes: quote.notes,
-        customer: { fullName: quote.customer.fullName, email: quote.customer.email },
+        notes: quote.notes ?? null,
+        customer: { fullName: quote.customer.fullName, email: null },
         // Quién emite: nombre y logo de la empresa para el encabezado público.
         merchant: { name: quote.tenant.name, logoUrl: quote.tenant.logoUrl ?? null },
-        lines: quote.lines,
+        lines: quote.lines.map((l) => ({
+          id: l.id,
+          sku: l.sku,
+          title: l.title,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          discountPct: l.discountPct,
+          lineSubtotal: l.lineSubtotal,
+        })),
         // Estado de cobro para que el cliente pueda pagar desde este mismo
         // link: `order` dice si ya se pagó; `checkoutToken` es el link de
         // pago vigente (o null: se pide con POST /orders/public/quote/:token/checkout).

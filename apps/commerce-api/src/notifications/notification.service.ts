@@ -9,6 +9,7 @@
  */
 
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { maskRecipient } from "../common/pii-mask.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { WhatsAppService } from "../whatsapp/whatsapp.service.js";
 import { EmailService } from "../email/email.service.js";
@@ -172,7 +173,11 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
           });
         } else {
           // Simulado: SMS/PUSH no tienen proveedor configurado en V2.
-          this.logger.log(`[simulado] ${n.channel} a ${payload.to ?? "?"}: ${payload.body ?? ""}`);
+          // Sin destinatario completo ni cuerpo: el cuerpo lleva links portadores
+          // (cotización/checkout) que dan acceso a quien lea los logs.
+          this.logger.log(
+            `[simulado] ${n.channel} notification=${n.id} a ${maskRecipient(payload.to)}`,
+          );
         }
         await this.markSent(n.id);
         await this.recordTimeline({
@@ -387,3 +392,4 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     });
   }
 }
+

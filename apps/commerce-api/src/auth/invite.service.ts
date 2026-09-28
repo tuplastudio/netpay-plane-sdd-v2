@@ -5,12 +5,12 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
+import { maskEmail } from "../common/pii-mask.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PasswordService } from "./password.service.js";
 import { TokenService } from "./token.service.js";
 import { RateLimitService } from "./rate-limit.service.js";
 import { PasswordResetMailer } from "./password-reset-mailer.service.js";
-
 
 /**
  * Invitaciones, recuperación de contraseña y MFA challenge.
@@ -139,7 +139,7 @@ export class InviteService {
     );
     if (!allowed) {
       // Silencioso: misma respuesta uniforme. Log para observabilidad interna.
-      this.logger.warn(`forgot-password throttled para ${normalized}`);
+      this.logger.warn(`forgot-password throttled para ${maskEmail(normalized)}`);
       return { throttled: true };
     }
 
@@ -287,3 +287,4 @@ export class InviteService {
     return { ok: true };
   }
 }
+

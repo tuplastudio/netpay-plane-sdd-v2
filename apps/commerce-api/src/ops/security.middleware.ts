@@ -96,8 +96,15 @@ export function validateStartupConfig(): void {
   // Sin esto, PaymentService cae al literal "dev-webhook-secret" que está en
   // el repo y cualquiera puede firmar un webhook de pago de cualquier empresa.
   // En local se tolera para no trabar el arranque del entorno de desarrollo.
+  // "No local" = APP_ENV definido y distinto de "local"; si APP_ENV NO está
+  // definido, manda NODE_ENV=production (antes APP_ENV ausente = local, así
+  // que un prod sin APP_ENV arrancaba con el secreto del repo). Un
+  // APP_ENV=local explícito sigue siendo local (compose de dev usa la imagen
+  // con NODE_ENV=production).
+  const appEnv = process.env.APP_ENV?.trim();
+  const isNonLocal = appEnv ? appEnv !== "local" : process.env.NODE_ENV === "production";
   if (
-    (process.env.APP_ENV ?? "local") !== "local" &&
+    isNonLocal &&
     !process.env.DUMMY_WEBHOOK_SECRET_REF &&
     !process.env.DUMMY_WEBHOOK_SECRET
   ) {

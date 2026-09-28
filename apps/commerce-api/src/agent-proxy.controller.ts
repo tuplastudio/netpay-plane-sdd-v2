@@ -120,6 +120,9 @@ export class AgentProxyController {
       cookie: req.headers["cookie"] ?? "",
     };
     if (this.agentKey()) headers["x-internal-key"] = this.agentKey();
+    // agent-v2 solo honra `redact=false` con este header (defensa en
+    // profundidad): únicamente super-admin lo recibe.
+    if (superAdmin) headers["x-agent-debug"] = "1";
     // Pasar el content-length y content-type del cliente cuando vienen —
     // undici los respeta y los reenvía al upstream tal cual. Sin esto,
     // FastAPI devuelve 422 al no poder parsear el body.

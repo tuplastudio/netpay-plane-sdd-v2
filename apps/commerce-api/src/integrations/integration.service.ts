@@ -12,10 +12,34 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { encryptSecret, decryptSecret } from "../common/crypto/secret-cipher.js";
+import { assertPublicHttpUrl } from "./url-guard.js";
+
+/**
+ * Columnas que se devuelven al cliente. `secretHash` (el secreto cifrado) NO
+ * sale nunca por el API: no hace falta para operar y filtrarlo expone material
+ * cifrado a cualquiera con `integrations.read`.
+ */
+const INTEGRATION_PUBLIC_SELECT = {
+  id: true,
+  tenantId: true,
+  name: true,
+  provider: true,
+  direction: true,
+  status: true,
+  endpoint: true,
+  webhookUrl: true,
+  scopesKey: true,
+  metadata: true,
+  createdAt: true,
+  updatedAt: true,
+  lastSyncAt: true,
+  version: true,
+} as const;
 
 export interface InboundEvent {
   tenantId: string;
@@ -38,6 +62,7 @@ export class IntegrationService {
       where: { tenantId },
       orderBy: { createdAt: "desc" },
       take: 50,
+      select: INTEGRATION_PUBLIC_SELECT,
     });
   }
 
@@ -48,6 +73,9 @@ export class IntegrationService {
     endpoint?: string;
     secret?: string;
   }) {
+    // Anti-SSRF: el endpoint OUTBOUND debe ser un dominio público (se vuelve
+    // a validar, con DNS, antes de cada envío en publishOutbound).
+    if (input.endpoint) await assertPublicHttpUrl(input.endpoint);
     let secretHash: string | undefined;
     let webhookUrl: string | undefined;
     if (input.direction === "INBOUND" || input.direction === "BIDIRECTIONAL") {
@@ -67,6 +95,7 @@ export class IntegrationService {
         webhookUrl,
         status: input.secret || input.direction !== "INBOUND" ? "ACTIVE" : "PENDING",
       },
+      select: INTEGRATION_PUBLIC_SELECT,
     });
   }
 
@@ -79,7 +108,9 @@ export class IntegrationService {
 
   /**
    * T-INT-03/04: webhook entrante.
-   * Verifica firma HMAC (si la integración tiene secret), persiste y devuelve id.
+   * Exige firma HMAC válida: sin secret configurado o con firma ausente/
+   * inválida responde 401 y NO persiste nada (antes: sin secret se aceptaba
+   * todo, y con firma inválida el evento quedaba igual como PROCESSED).
    */
   async ingestInbound(input: InboundEvent): Promise<{ id: string; valid: boolean }> {
     const integration = await this.prisma.integration.findFirst({
@@ -95,18 +126,23 @@ export class IntegrationService {
       });
     }
 
+    if (!integration.secretHash) {
+      throw new UnauthorizedException({
+        code: "UNAUTHORIZED",
+        message: "La integración no tiene secreto configurado para verificar webhooks",
+      });
+    }
+    const secret = decryptSecret(integration.secretHash);
     let signatureValid = false;
-    if (integration.secretHash) {
-      const secret = decryptSecret(integration.secretHash);
-      if (secret && input.signature) {
-        const expected = createHmac("sha256", secret).update(input.rawBody).digest("hex");
-        const expBuf = Buffer.from(expected, "hex");
-        const sigBuf = Buffer.from(input.signature, "hex");
-        signatureValid = sigBuf.length === expBuf.length && timingSafeEqual(sigBuf, expBuf);
-      }
-    } else {
-      // Sin secret configurado no hay nada que verificar.
-      signatureValid = true;
+    if (secret && input.signature && /^[0-9a-f]+$/i.test(input.signature)) {
+      const expected = createHmac("sha256", secret).update(input.rawBody).digest("hex");
+      const expBuf = Buffer.from(expected, "hex");
+      const sigBuf = Buffer.from(input.signature, "hex");
+      signatureValid = sigBuf.length === expBuf.length && timingSafeEqual(sigBuf, expBuf);
+    }
+    if (!signatureValid) {
+      this.logger.warn(`Webhook con firma inválida integration=${input.integrationId}`);
+      throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Firma inválida" });
     }
 
     const event = await this.prisma.integrationEvent.create({
@@ -167,6 +203,14 @@ export class IntegrationService {
         message: "Integración inactiva",
       });
     }
+    if (!integration.endpoint) {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La integración no tiene endpoint configurado",
+      });
+    }
+    // Anti-SSRF: validar (con DNS) justo antes de salir, no solo al crear.
+    const target = await assertPublicHttpUrl(integration.endpoint);
     const body = JSON.stringify({
       eventName: input.eventName,
       eventId: randomBytes(16).toString("hex"),
@@ -188,7 +232,7 @@ export class IntegrationService {
     });
 
     try {
-      const res = await fetch(integration.endpoint ?? "", {
+      const res = await fetch(target, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -196,6 +240,8 @@ export class IntegrationService {
           "x-netpay-event": input.eventName,
         },
         body,
+        // Sin seguir redirecciones: un 30x podría llevar a una IP interna.
+        redirect: "manual",
         // 5s timeout via AbortController
         signal: AbortSignal.timeout(5000),
       });
