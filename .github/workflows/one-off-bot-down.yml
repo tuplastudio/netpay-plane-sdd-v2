@@ -1,0 +1,70 @@
+name: One-off - diagnostico bot no contesta (solo lectura)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-bot-down.yml"
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    name: logs recientes + conversaciones activas
+    runs-on: ubuntu-latest
+    steps:
+      - name: Diag
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+
+            echo "=== errores recientes commerce-api (ultimos 15 min) ==="
+            $DC logs --since 15m commerce-api 2>&1 | grep -iE "error|fail|exception|denied|forbidden|not.?found" | grep -v "GET /api/v1/healthz" | tail -60
+
+            echo ""
+            echo "=== errores recientes agent-v2 (ultimos 15 min) ==="
+            $DC logs --since 15m agent-v2 2>&1 | grep -iE "error|traceback|exception" | tail -60
+
+            echo ""
+            echo "=== conversaciones con actividad reciente (24h) ==="
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const convs = await p.\$queryRawUnsafe(\"select id, \\\"tenantId\\\", \\\"externalPhone\\\", status, \\\"handoffToHuman\\\", \\\"lastMessageAt\\\" from \\\"WhatsAppConversation\\\" where \\\"lastMessageAt\\\" > now() - interval '24 hours' order by \\\"lastMessageAt\\\" desc limit 6\");
+              for (const c of convs) {
+                console.log('--- conv', c.id, 'tenant', c.tenantId, 'status', c.status, 'handoffToHuman', c.handoffToHuman, 'last', c.lastMessageAt);
+                const msgs = await p.\$queryRawUnsafe(\"select direction, \\\"messageType\\\", status, \\\"errorMessage\\\", \\\"createdAt\\\" from \\\"WhatsAppMessage\\\" where \\\"conversationId\\\" = '\" + c.id + \"' order by \\\"createdAt\\\" desc limit 10\");
+                for (const m of msgs.reverse()) {
+                  console.log('   ', m.createdAt.toISOString(), m.direction, m.messageType, m.status, m.errorMessage || '');
+                }
+              }
+              await p.\$disconnect();
+            })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
+            "
+
+            echo ""
+            echo "=== conexiones WhatsApp activas ==="
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node -e "
+            const { PrismaClient } = require('@prisma/client');
+            const p = new PrismaClient();
+            (async () => {
+              const conns = await p.\$queryRawUnsafe(\"select \\\"tenantId\\\", provider, status, \\\"phoneNumber\\\", credentials from \\\"WhatsAppConnection\\\" where status = 'ACTIVE'\");
+              for (const c of conns) {
+                const cr = c.credentials || {};
+                const safe = { source: cr.source, instance: cr.instance, hasApiKey: !!(cr.apiKey || cr.apiKeyEnc), hasToken: !!(cr.token || cr.tokenEnc), baseUrl: cr.baseUrl ? '[set]' : null };
+                console.log(c.tenantId, c.provider, c.status, c.phoneNumber, JSON.stringify(safe));
+              }
+              await p.\$disconnect();
+            })().catch((e) => { console.error('ERR', e.message); process.exit(1); });
+            "
+
+            echo ""
+            echo "=== healthz agent-v2 y diagnostics ==="
+            $DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/healthz', timeout=5).json())"
