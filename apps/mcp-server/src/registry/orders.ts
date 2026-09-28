@@ -89,15 +89,24 @@ export const orderRoutes: RouteDef[] = [
     name: "orders_request_invoice",
     method: "PATCH",
     path: "/orders/:id/invoice-request",
-    description: "Registra los datos fiscales (RFC, razón social, CP, uso de CFDI) para facturar el pedido.",
+    description:
+      "Registra los datos fiscales para facturar el pedido. rfc/legalName/postalCode/regimenFiscal son " +
+      "OPCIONALES si mandas constanciaUrl (un link público a la constancia de situación fiscal en PDF del " +
+      "cliente): el backend la descarga y lee esos 4 datos de ahí — no hace falta que el cliente los dicte. " +
+      "Solo cfdiUse es siempre obligatorio (el documento no lo trae). Si la constancia no se pudo leer bien, " +
+      "la respuesta trae parseWarnings con lo que faltó.",
     scopes: ["orders.write"],
     pathParams: { id: { type: "string" } },
     body: {
-      rfc: { type: "string", required: true },
-      legalName: { type: "string", required: true },
-      postalCode: { type: "string", required: true, description: "5 dígitos." },
       cfdiUse: { type: "string", required: true, description: "p. ej. G03, P01." },
-      constanciaUrl: { type: "string" },
+      rfc: { type: "string" },
+      legalName: { type: "string" },
+      postalCode: { type: "string", description: "5 dígitos." },
+      regimenFiscal: { type: "string", description: "Clave c_RegimenFiscal del SAT, 3 dígitos (ej. 626)." },
+      constanciaUrl: {
+        type: "string",
+        description: "Link público a la constancia de situación fiscal (PDF); llena los datos que falten arriba.",
+      },
       notes: { type: "string" },
     },
   },

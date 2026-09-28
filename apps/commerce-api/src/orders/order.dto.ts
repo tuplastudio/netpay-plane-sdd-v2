@@ -36,28 +36,44 @@ import {
  */
 export const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9_.:-]{8,128}$/;
 
-const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
-const CFDI_USE_RE = /^[A-Z][0-9]{2}$/;
-const POSTAL_CODE_RE = /^\d{5}$/;
+export const RFC_RE = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
+export const CFDI_USE_RE = /^[A-Z][0-9]{2}$/;
+export const POSTAL_CODE_RE = /^\d{5}$/;
+export const REGIMEN_FISCAL_RE = /^\d{3}$/;
 
 /**
- * Datos fiscales para pedir factura de un pedido (CFDI). El bot los junta en
- * la conversación con el cliente, siempre con confirmación explícita antes de
- * llamar esto (ver `apps/agent-v2/app/tools.py#solicitar_factura`).
+ * Datos fiscales para pedir factura de un pedido (CFDI).
+ *
+ * `rfc`/`legalName`/`postalCode`/`regimenFiscal` son OPCIONALES en el DTO:
+ * si falta alguno pero `constanciaUrl` viene puesto, el servicio la
+ * descarga y la lee antes de validar (ver
+ * `order.service.ts#applyInvoiceRequest`) — subir la constancia de
+ * situación fiscal basta, no hace falta dictarlos. Solo `cfdiUse` es
+ * siempre obligatorio: el documento del SAT no lo trae, lo elige quien
+ * factura. El bot junta esto en la conversación con confirmación explícita
+ * antes de llamar (ver `apps/agent-v2/app/tools.py#solicitar_factura`).
  */
 export class RequestInvoiceDto {
+  @IsOptional()
   @IsString()
   @Matches(RFC_RE, { message: "rfc inválido (persona física: 13 caracteres, moral: 12)" })
-  rfc!: string;
+  rfc?: string;
 
+  @IsOptional()
   @IsString()
   @MinLength(2)
   @MaxLength(200)
-  legalName!: string;
+  legalName?: string;
 
+  @IsOptional()
   @IsString()
   @Matches(POSTAL_CODE_RE, { message: "postalCode debe ser 5 dígitos" })
-  postalCode!: string;
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(REGIMEN_FISCAL_RE, { message: "regimenFiscal debe ser la clave de 3 dígitos (ej. 626)" })
+  regimenFiscal?: string;
 
   @IsString()
   @Matches(CFDI_USE_RE, { message: "cfdiUse inválido (ej. G03, P01)" })

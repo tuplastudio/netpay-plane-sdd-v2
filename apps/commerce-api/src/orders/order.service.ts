@@ -16,7 +16,15 @@ import { CustomerService } from "../customers/customer.service.js";
 import { QuoteService } from "../quotes/quote.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
+import { assertPublicHttpUrl } from "../integrations/url-guard.js";
+import { extractPdfText } from "../common/pdf-text.js";
+import { parseConstancia } from "./constancia-parser.js";
+import { writeObject } from "../tenants/logo-storage.js";
+import { publicUrlForKey } from "../tenants/logo-storage.js";
+import { RFC_RE, POSTAL_CODE_RE, REGIMEN_FISCAL_RE, CFDI_USE_RE } from "./order.dto.js";
+
+const MAX_CONSTANCIA_BYTES = 8 * 1024 * 1024; // 8 MB, de sobra para un PDF de 1-2 páginas.
 
 /**
  * Formato aceptado para `amountTotal` en el cable: decimal simple, sin signo,
@@ -164,18 +172,25 @@ export class OrderService {
   }
 
   /**
-   * Pide factura para un pedido: guarda un snapshot fiscal en el pedido
-   * (independiente de si el cliente cambia sus datos después) y actualiza
-   * el "último dato fiscal conocido" del cliente, para que la próxima vez
-   * el bot pueda ofrecer reusarlo en vez de volver a preguntar todo.
+   * Pide factura para un pedido con lo que ya se tenga a mano: si falta
+   * RFC, razón social, código postal o régimen y viene `constanciaUrl`, la
+   * descarga y la lee (`constancia-parser.ts`) para llenar los huecos antes
+   * de exigir el dato a mano — subir la constancia de situación fiscal
+   * basta, no hace falta dictar cada campo. `cfdiUse` siempre lo elige
+   * quien factura (el documento del SAT no lo trae).
+   *
+   * Guarda un snapshot fiscal en el pedido (independiente de si el cliente
+   * cambia sus datos después) y actualiza el "último dato fiscal conocido"
+   * del cliente, para que la próxima vez el bot pueda ofrecer reusarlo.
    */
   async requestInvoice(
     tenantId: string,
     orderId: string,
     input: {
-      rfc: string;
-      legalName: string;
-      postalCode: string;
+      rfc?: string;
+      legalName?: string;
+      postalCode?: string;
+      regimenFiscal?: string;
       cfdiUse: string;
       constanciaUrl?: string;
       notes?: string;
@@ -186,17 +201,157 @@ export class OrderService {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Pedido no accesible" });
     }
 
-    const rfc = input.rfc.toUpperCase();
+    let { rfc, legalName, postalCode, regimenFiscal } = input;
+    let parseWarnings: string[] = [];
+    if (input.constanciaUrl && (!rfc || !legalName || !postalCode || !regimenFiscal)) {
+      const parsed = await this.tryParseConstanciaUrl(input.constanciaUrl);
+      rfc ??= parsed?.rfc ?? undefined;
+      legalName ??= parsed?.legalName ?? undefined;
+      postalCode ??= parsed?.postalCode ?? undefined;
+      regimenFiscal ??= parsed?.regimenFiscal ?? undefined;
+      parseWarnings = parsed?.warnings ?? ["No se pudo leer la constancia adjunta"];
+    }
+
+    return this.applyInvoiceRequest(tenantId, order, {
+      rfc,
+      legalName,
+      postalCode,
+      regimenFiscal,
+      cfdiUse: input.cfdiUse,
+      constanciaUrl: input.constanciaUrl,
+      notes: input.notes,
+      parseWarnings,
+    });
+  }
+
+  /**
+   * Variante para SUBIR el PDF directo (checkout público, sin sesión): lee
+   * el archivo, lo guarda (mismo storage que el logo del tenant — ver
+   * `tenants/logo-storage.ts`), y aplica lo mismo que `requestInvoice`. Los
+   * overrides (si el parser se equivocó en algo) ganan sobre lo leído.
+   */
+  async requestInvoiceFromFile(
+    tenantId: string,
+    orderId: string,
+    file: { buffer: Buffer; mimetype?: string },
+    overrides: {
+      rfc?: string;
+      legalName?: string;
+      postalCode?: string;
+      regimenFiscal?: string;
+      cfdiUse: string;
+      notes?: string;
+    },
+  ) {
+    if (file.mimetype && file.mimetype !== "application/pdf") {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "La constancia debe ser un PDF",
+      });
+    }
+    if (file.buffer.length > MAX_CONSTANCIA_BYTES) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "El PDF pesa más de 8 MB",
+      });
+    }
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
+    if (!order) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Pedido no accesible" });
+    }
+
+    const text = await extractPdfText(file.buffer);
+    const parsed = text ? parseConstancia(text) : null;
+    const warnings = parsed?.warnings ?? ["No se pudo leer el texto del PDF (¿es una foto/escaneo?)"];
+
+    const hash = createHash("sha256").update(file.buffer).digest("hex").slice(0, 16);
+    const key = `orders/${tenantId}/${orderId}/constancia-${hash}.pdf`;
+    await writeObject(key, file.buffer);
+    const constanciaUrl = publicUrlForKey(key);
+
+    return this.applyInvoiceRequest(tenantId, order, {
+      rfc: overrides.rfc ?? parsed?.rfc ?? undefined,
+      legalName: overrides.legalName ?? parsed?.legalName ?? undefined,
+      postalCode: overrides.postalCode ?? parsed?.postalCode ?? undefined,
+      regimenFiscal: overrides.regimenFiscal ?? parsed?.regimenFiscal ?? undefined,
+      cfdiUse: overrides.cfdiUse,
+      constanciaUrl,
+      notes: overrides.notes,
+      parseWarnings: warnings,
+    });
+  }
+
+  /** Descarga y lee una constancia por URL; `null` si falla cualquier paso
+   * (URL privada, no responde, PDF ilegible) — nunca lanza. */
+  private async tryParseConstanciaUrl(
+    url: string,
+  ): Promise<ReturnType<typeof parseConstancia> | null> {
+    try {
+      const safe = await assertPublicHttpUrl(url);
+      const res = await fetch(safe, { redirect: "manual", signal: AbortSignal.timeout(8_000) });
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > MAX_CONSTANCIA_BYTES) return null;
+      const text = await extractPdfText(buf);
+      return text ? parseConstancia(text) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Núcleo compartido por `requestInvoice` y `requestInvoiceFromFile`:
+   * valida lo que haya quedado tras leer la constancia (si aplicó) y
+   * persiste. Si algo sigue faltando, el mensaje de error dice EXACTAMENTE
+   * qué falta y si viene de una constancia que no se pudo leer bien.
+   */
+  private async applyInvoiceRequest(
+    tenantId: string,
+    order: { id: string; customerId: string },
+    input: {
+      rfc?: string;
+      legalName?: string;
+      postalCode?: string;
+      regimenFiscal?: string;
+      cfdiUse: string;
+      constanciaUrl?: string;
+      notes?: string;
+      parseWarnings: string[];
+    },
+  ) {
+    const missing: string[] = [];
+    if (!input.rfc || !RFC_RE.test(input.rfc)) missing.push("RFC");
+    if (!input.legalName || input.legalName.trim().length < 2) missing.push("razón social");
+    if (!input.postalCode || !POSTAL_CODE_RE.test(input.postalCode)) missing.push("código postal");
+    if (input.regimenFiscal && !REGIMEN_FISCAL_RE.test(input.regimenFiscal)) missing.push("régimen fiscal");
+    if (!CFDI_USE_RE.test(input.cfdiUse)) missing.push("uso de CFDI");
+    if (missing.length > 0) {
+      const fromConstancia = input.constanciaUrl
+        ? ` La constancia no trajo todo (${input.parseWarnings.join("; ") || "sin detalle"}).`
+        : "";
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `Falta(n): ${missing.join(", ")}.${fromConstancia} Sube una constancia legible o captúralo(s) a mano.`,
+      });
+    }
+
+    const rfc = input.rfc!.toUpperCase();
+    const legalName = input.legalName!.trim();
+    const postalCode = input.postalCode!;
+    const regimenFiscal = input.regimenFiscal ?? null;
+    const cfdiUse = input.cfdiUse.toUpperCase();
+
     const [updated] = await this.prisma.$transaction([
       this.prisma.order.update({
-        where: { id: orderId },
+        where: { id: order.id },
         data: {
           requiresInvoice: true,
           invoiceStatus: "DATA_COMPLETE",
           invoiceRfc: rfc,
-          invoiceLegalName: input.legalName,
-          invoicePostalCode: input.postalCode,
-          invoiceCfdiUse: input.cfdiUse.toUpperCase(),
+          invoiceLegalName: legalName,
+          invoicePostalCode: postalCode,
+          invoiceRegimenFiscal: regimenFiscal,
+          invoiceCfdiUse: cfdiUse,
           invoiceConstanciaUrl: input.constanciaUrl,
           invoiceNotes: input.notes,
           invoiceRequestedAt: new Date(),
@@ -206,9 +361,10 @@ export class OrderService {
         where: { id: order.customerId },
         data: {
           taxId: rfc,
-          legalName: input.legalName,
-          fiscalPostalCode: input.postalCode,
-          fiscalCfdiUse: input.cfdiUse.toUpperCase(),
+          legalName,
+          fiscalPostalCode: postalCode,
+          fiscalRegimenFiscal: regimenFiscal,
+          fiscalCfdiUse: cfdiUse,
         },
       }),
       this.prisma.auditLog.create({
@@ -217,12 +373,12 @@ export class OrderService {
           actorId: null,
           action: "order.invoice_requested",
           targetType: "Order",
-          targetId: orderId,
-          metadata: { rfc, cfdiUse: input.cfdiUse.toUpperCase() },
+          targetId: order.id,
+          metadata: { rfc, cfdiUse, fromConstancia: Boolean(input.constanciaUrl) },
         },
       }),
     ]);
-    return updated;
+    return { ...updated, parseWarnings: input.parseWarnings };
   }
 
   async createDirect(

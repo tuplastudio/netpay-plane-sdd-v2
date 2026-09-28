@@ -11,10 +11,13 @@ import {
   Post,
   Query,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { Response } from "express";
 import { OrderService, SETTLED_ORDER_STATUSES } from "./order.service.js";
+import { ConstanciaUploadInterceptor } from "./constancia-upload.interceptor.js";
 import {
   CancelOrderDto,
   CreateOrderDto,
@@ -509,6 +512,45 @@ export class OrderController {
       },
       requestId: RequestContext.requestId,
     };
+  }
+
+  /**
+   * Pide factura desde el checkout público, sin sesión: sube la constancia
+   * de situación fiscal (PDF, campo `file`) y con eso basta — RFC, razón
+   * social, código postal y régimen se leen de ahí. `cfdiUse` es el único
+   * campo que SIEMPRE hay que mandar (el documento no lo trae). `file` es
+   * opcional: sin él, hay que mandar `rfc`/`legalName`/`postalCode` a mano
+   * (mismo mensaje de error que dice qué falta).
+   */
+  @Public()
+  @Post("public/:token/invoice")
+  @UseInterceptors(ConstanciaUploadInterceptor)
+  async publicRequestInvoice(
+    @Param("token") token: string,
+    @Body() body: Record<string, string | undefined>,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    const resolved = await this.orders.resolvePublicToken(token);
+    if (!resolved) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido o expirado" });
+    }
+    const cfdiUse = (body.cfdiUse ?? "").trim();
+    if (!cfdiUse) {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Falta uso de CFDI" });
+    }
+    const overrides = {
+      rfc: body.rfc?.trim() || undefined,
+      legalName: body.legalName?.trim() || undefined,
+      postalCode: body.postalCode?.trim() || undefined,
+      regimenFiscal: body.regimenFiscal?.trim() || undefined,
+      cfdiUse,
+      notes: body.notes?.trim() || undefined,
+    };
+    const { order } = resolved;
+    const data = file
+      ? await this.orders.requestInvoiceFromFile(order.tenantId, order.id, file, overrides)
+      : await this.orders.requestInvoice(order.tenantId, order.id, overrides);
+    return { data, requestId: RequestContext.requestId };
   }
 
   private requireTenant(): string {
