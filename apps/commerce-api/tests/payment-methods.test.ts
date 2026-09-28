@@ -73,6 +73,7 @@ function fakePrismaForCreate() {
   const order = {
     id: "order-1",
     tenantId: "t1",
+    status: "CHECKOUT_OPEN",
     version: 3,
     currentRevisionId: "rev-1",
     description: null,
@@ -92,9 +93,11 @@ function fakePrismaForCreate() {
     order: {
       findFirst: async () => order,
       update: async () => order,
+      updateMany: async () => ({ count: 1 }),
     },
     orderRevision: { findUnique: async () => null },
     productVariant: { findMany: async () => [] },
+    quoteLine: { findMany: async () => [] },
     checkoutAccessToken: { findFirst: async () => ({ token: "tok123" }) },
     checkoutSession: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
@@ -102,6 +105,7 @@ function fakePrismaForCreate() {
         sessions.push(row);
         return row;
       },
+      updateMany: async () => ({ count: 0 }),
     },
   };
 }
@@ -182,6 +186,7 @@ function fakePrismaForWebhook() {
     id: "sess-1",
     tenantId: "t1",
     orderId: "order-1",
+    externalId: "deadbeef",
     status: "PENDING",
     amount: new Prisma.Decimal("116.00"),
     refundedTotal: new Prisma.Decimal("0.00"),
@@ -191,11 +196,20 @@ function fakePrismaForWebhook() {
     ledger: [],
     order: [],
   };
+  const writeSession = async ({ data }: { data: Record<string, unknown> }) => {
+    writes.session.push(data);
+    return { ...session, ...data };
+  };
+  const writeOrder = async ({ data }: { data: Record<string, unknown> }) => {
+    writes.order.push(data);
+    return { ...order, ...data };
+  };
   const tx = {
     checkoutSession: {
-      update: async ({ data }: { data: Record<string, unknown> }) => {
-        writes.session.push(data);
-        return { ...session, ...data };
+      update: writeSession,
+      updateMany: async (args: { data: Record<string, unknown> }) => {
+        await writeSession(args);
+        return { count: 1 };
       },
     },
     ledgerEntry: {
@@ -205,11 +219,14 @@ function fakePrismaForWebhook() {
       },
     },
     order: {
-      update: async ({ data }: { data: Record<string, unknown> }) => {
-        writes.order.push(data);
-        return { ...order, ...data };
+      update: writeOrder,
+      updateMany: async (args: { data: Record<string, unknown> }) => {
+        await writeOrder(args);
+        return { count: 1 };
       },
+      findFirst: async () => order,
     },
+    auditLog: { create: async () => ({}) },
   };
   const prisma = {
     writes,
@@ -218,10 +235,13 @@ function fakePrismaForWebhook() {
       findUnique: async () => order,
     },
     checkoutSession: {
-      findFirst: async ({ where }: { where: { status?: string } }) =>
-        where.status === "PENDING" ? session : null,
+      // Lookup por externalId (el sessionId del gateway) o el fallback legado.
+      findFirst: async ({ where }: { where: { status?: string; externalId?: string } }) =>
+        where.externalId === "deadbeef" || where.status === "PENDING" ? session : null,
       update: tx.checkoutSession.update,
+      updateMany: tx.checkoutSession.updateMany,
     },
+    auditLog: tx.auditLog,
     $transaction: async (fn: (t: typeof tx) => Promise<void>) => fn(tx),
   };
   return prisma;

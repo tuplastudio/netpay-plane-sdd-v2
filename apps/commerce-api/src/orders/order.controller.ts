@@ -14,7 +14,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { Response } from "express";
-import { OrderService } from "./order.service.js";
+import { OrderService, SETTLED_ORDER_STATUSES } from "./order.service.js";
 import {
   CancelOrderDto,
   CreateOrderDto,
@@ -158,14 +158,20 @@ export class OrderController {
       });
       if (!quote || quote.lines.length === 0) return null;
 
-      const order = await this.orders.startCheckout(tenantId, orderId, {
-        lines: quote.lines.map((l) => ({
-          variantId: l.variantId,
-          quantity: l.quantity.toString(),
-          discountPct: Number(l.discountPct),
-        })),
-        deliveryMode: "PICKUP",
-      });
+      // Totales de la cotización, no repreciados: se cobra lo cotizado.
+      const order = await this.orders.startCheckout(
+        tenantId,
+        orderId,
+        {
+          lines: quote.lines.map((l) => ({
+            variantId: l.variantId,
+            quantity: l.quantity.toString(),
+            discountPct: Number(l.discountPct),
+          })),
+          deliveryMode: "PICKUP",
+        },
+        { quotedTotals: quote },
+      );
       // `include: { revisions: true }` no garantiza orden: se toma la revisión
     // que startCheckout acaba de dejar como vigente, no la última del array.
     const currentRev =
@@ -339,7 +345,19 @@ export class OrderController {
     if (!resolved) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido o expirado" });
     }
-    const { order, lines, revisionExpiresAt } = resolved;
+    const { order, lines, revisionExpiresAt, readOnly } = resolved;
+    const settled = (SETTLED_ORDER_STATUSES as readonly string[]).includes(order.status);
+    const [lastPaymentStatus, whatsappNumber, trackingToken] = await Promise.all([
+      this.payments.lastPaymentStatus(order.id),
+      this.merchantWhatsappNumber(order.tenantId),
+      settled
+        ? this.orders.getOrCreateTrackingToken(order.tenantId, order.id).catch((err) => {
+            this.logger.warn(`tracking token no disponible para ${order.id}: ${err}`);
+            return null;
+          })
+        : Promise.resolve(null),
+    ]);
+    const email: string | null = order.customer.email ?? null;
     return {
       data: {
         id: order.id,
@@ -355,9 +373,45 @@ export class OrderController {
         merchant: order.tenant.name,
         customer: { fullName: order.customer.fullName },
         lines,
+        /** Link vencido de un pedido ya cobrado: se muestra, no se paga. */
+        readOnly,
+        /** Resultado del último intento de pago: "PENDING" | "CAPTURED" | "FAILED" | null. */
+        lastPaymentStatus,
+        /** WhatsApp del negocio (solo dígitos) para "Volver a WhatsApp"; null si no hay conexión activa. */
+        whatsappNumber,
+        hasCustomerEmail: Boolean(email && !email.endsWith("@quickcharge.local")),
+        trackingToken,
+        trackingUrl: trackingToken ? this.trackingUrl(trackingToken) : null,
       },
       requestId: RequestContext.requestId,
     };
+  }
+
+  private trackingUrl(token: string): string {
+    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+    return `${base}/orders/public/track/${token}`;
+  }
+
+  /**
+   * Número de WhatsApp del negocio (conexión ACTIVE con número conocido),
+   * normalizado a dígitos para armar `https://wa.me/<n>`. Best-effort: sin
+   * conexión o ante cualquier error devuelve null.
+   */
+  private async merchantWhatsappNumber(tenantId: string): Promise<string | null> {
+    try {
+      const conn = await this.prisma.whatsAppConnection.findFirst({
+        where: { tenantId, status: "ACTIVE", phoneNumber: { not: null } },
+        orderBy: { connectedAt: "desc" },
+        select: { phoneNumber: true },
+      });
+      // Evolution puede guardar un JID ("5215512345678@s.whatsapp.net"):
+      // solo la parte antes de "@" / ":".
+      const digits = (conn?.phoneNumber ?? "").split(/[@:]/)[0]!.replace(/\D/g, "");
+      return digits.length >= 8 ? digits : null;
+    } catch (err) {
+      this.logger.warn(`whatsapp del negocio no disponible para ${tenantId}: ${err}`);
+      return null;
+    }
   }
 
   @Public()
@@ -370,20 +424,22 @@ export class OrderController {
     if (!resolved) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido o expirado" });
     }
-    const { order } = resolved;
-    if (order.status !== "CHECKOUT_OPEN" && order.status !== "AWAITING_PAYMENT") {
+    const { order, readOnly } = resolved;
+    if (readOnly || (order.status !== "CHECKOUT_OPEN" && order.status !== "AWAITING_PAYMENT")) {
       throw new BadRequestException({
         code: "RULE_VIOLATION",
         message: `Pedido ${order.status} no aceptable`,
       });
     }
-    // Para el endpoint público, no tenemos expectedVersion; usamos 0 y
-    // confiamos en el state machine (CHECKOUT_OPEN/AWAITING_PAYMENT).
-    const session = await this.payments.createCheckout({
+    // Reusa la sesión PENDING vigente del pedido (mismo link de la pasarela)
+    // en vez de abrir otra por cada clic en "Pagar ahora"; si hay que crear
+    // una, `createCheckout` cancela las anteriores. La versión es la que se
+    // acaba de leer: si el pedido cambió entre medio, 409.
+    const session = await this.payments.getOrCreateCheckout({
       tenantId: order.tenantId,
       orderId: order.id,
-      expectedOrderVersion: 0,
-      amount: order.total.toString(),
+      expectedOrderVersion: order.version,
+      amount: order.total.toFixed(2),
       metadata: { source: "public_checkout" },
     });
     // Sin `Location`: el navegador sigue el JSON (`checkoutUrl`), y un 201
@@ -434,16 +490,19 @@ export class OrderController {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido o expirado" });
     }
     const { order } = resolved;
+    // FULFILLED es un pedido pagado (y entregado); REFUNDED se informa tal
+    // cual. Antes ambos caían en "PENDING" y la página invitaba a pagar de nuevo.
+    const status: "PAID" | "FULFILLED" | "REFUNDED" | "EXPIRED" | "CANCELLED" | "PENDING" =
+      order.status === "PAID" ||
+      order.status === "FULFILLED" ||
+      order.status === "REFUNDED" ||
+      order.status === "EXPIRED" ||
+      order.status === "CANCELLED"
+        ? order.status
+        : "PENDING";
     return {
       data: {
-        status:
-          order.status === "PAID"
-            ? "PAID"
-            : order.status === "EXPIRED"
-              ? "EXPIRED"
-              : order.status === "CANCELLED"
-                ? "CANCELLED"
-                : "PENDING",
+        status,
         orderId: order.id,
         total: order.total.toString(),
         livemode: false,

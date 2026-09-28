@@ -56,6 +56,30 @@ export function parseAmountTotal(raw: unknown): number {
   return value;
 }
 
+/** Totales pactados en una cotización (columnas Decimal de `Quote`). */
+export interface QuotedTotals {
+  subtotal: { toFixed(dp: number): string };
+  discount: { toFixed(dp: number): string };
+  taxBase: { toFixed(dp: number): string };
+  tax: { toFixed(dp: number): string };
+  shipping: { toFixed(dp: number): string };
+  total: { toFixed(dp: number): string };
+}
+
+function quotedTotalsToStrings(q: QuotedTotals) {
+  return {
+    subtotal: q.subtotal.toFixed(2),
+    discount: q.discount.toFixed(2),
+    taxBase: q.taxBase.toFixed(2),
+    tax: q.tax.toFixed(2),
+    shipping: q.shipping.toFixed(2),
+    total: q.total.toFixed(2),
+  };
+}
+
+/** Estados en los que el pedido ya se cobró: su link se sigue viendo (solo lectura) tras vencer. */
+export const SETTLED_ORDER_STATUSES = ["PAID", "FULFILLED", "REFUNDED"] as const;
+
 @Injectable()
 export class OrderService {
   constructor(
@@ -499,15 +523,25 @@ export class OrderService {
     }
 
     const order = existing ?? (await this.createFromQuote(tenantId, q.id, null));
-    const opened = await this.startCheckout(tenantId, order.id, {
-      lines: q.lines.map((l) => ({
-        variantId: l.variantId,
-        quantity: l.quantity.toFixed(3),
-        discountPct: Number(l.discountPct),
-      })),
-      deliveryMode: "PICKUP",
-    });
-    const revision = opened.revisions[opened.revisions.length - 1];
+    // Se cobra lo cotizado: las líneas reservan stock, pero los totales son
+    // los de la cotización (antes se repreciaba con el catálogo vigente y el
+    // cliente pagaba un total distinto del que aceptó).
+    const opened = await this.startCheckout(
+      tenantId,
+      order.id,
+      {
+        lines: q.lines.map((l) => ({
+          variantId: l.variantId,
+          quantity: l.quantity.toFixed(3),
+          discountPct: Number(l.discountPct),
+        })),
+        deliveryMode: "PICKUP",
+      },
+      { quotedTotals: q },
+    );
+    const revision =
+      opened.revisions.find((r) => r.id === opened.currentRevisionId) ??
+      opened.revisions[opened.revisions.length - 1];
     if (!revision) {
       throw new BadRequestException({ code: "RULE_VIOLATION", message: "Pedido sin revisión" });
     }
@@ -520,17 +554,45 @@ export class OrderService {
   }
 
   /**
+   * Totales de la cotización de origen si sigue vigente y el pedido lleva
+   * exactamente sus mismas líneas (variante, cantidad, descuento); si no, null.
+   */
+  private async matchingQuotedTotals(
+    tenantId: string,
+    quoteId: string | null | undefined,
+    lines: Array<{ variantId: string; quantity: string; discountPct?: number }>,
+  ): Promise<QuotedTotals | null> {
+    if (!quoteId) return null;
+    const q = await this.prisma.quote.findFirst({
+      where: { id: quoteId, tenantId },
+      include: { lines: true },
+    });
+    if (!q || q.expiresAt.getTime() < Date.now()) return null;
+    const key = (variantId: string, qty: string | number, disc: string | number) =>
+      `${variantId}|${Number(qty).toFixed(3)}|${Number(disc ?? 0).toFixed(2)}`;
+    const want = q.lines.map((l) => key(l.variantId, l.quantity.toString(), l.discountPct.toString())).sort();
+    const got = lines.map((l) => key(l.variantId, l.quantity, l.discountPct ?? 0)).sort();
+    if (want.length !== got.length || want.some((k, i) => k !== got[i])) return null;
+    return q;
+  }
+
+  /**
    * Inicia checkout: reserva stock, crea OrderRevision si hay cambios,
    * transiciona a CHECKOUT_OPEN.
+   *
+   * `opts.quotedTotals`: pedido que viene de una cotización aceptada. Los
+   * totales se toman tal cual de la cotización (precio pactado) en vez de
+   * repreciar con el catálogo actual; las líneas solo reservan stock.
    */
   async startCheckout(
     tenantId: string,
     orderId: string,
     input: {
-      lines: Array<{ variantId: string; quantity: string }>;
+      lines: Array<{ variantId: string; quantity: string; discountPct?: number }>;
       deliveryMode: "PICKUP" | "LOCAL_DELIVERY";
       addressId?: string;
     },
+    opts: { quotedTotals?: QuotedTotals } = {},
   ) {
     const o = await this.get(tenantId, orderId);
     if (o.status !== "DRAFT" && o.status !== "CHECKOUT_OPEN") {
@@ -544,7 +606,18 @@ export class OrderService {
     if (o.currentRevisionId) {
       await this.releaseRevisionStock(tenantId, o.currentRevisionId);
     }
-    const priced = await this.pricing.price(tenantId, input.lines);
+    // Cualquier caller (panel, agente vía POST /orders/:id/checkout, link
+    // público) cobra lo cotizado si el pedido viene de una cotización vigente
+    // y las líneas son las mismas: la regla no puede depender de que cada
+    // caller se acuerde de pasar `quotedTotals`. Si cambió el carrito o la
+    // cotización venció, se reprecia (es otra venta).
+    const quoted = opts.quotedTotals ?? (await this.matchingQuotedTotals(tenantId, o.quoteId, input.lines));
+    const totals = quoted
+      ? quotedTotalsToStrings(quoted)
+      : (await this.pricing.price(tenantId, input.lines)).totals;
+    if (quoted && input.lines.length === 0) {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Al menos una línea" });
+    }
     const reserveResult = await this.pricing.reserveStock(tenantId, input.lines);
     if ("conflict" in reserveResult) {
       throw new ConflictException({
@@ -571,7 +644,7 @@ export class OrderService {
           orderId: o.id,
           revisionNumber: nextNumber,
           status: "OPEN",
-          total: priced.totals.total,
+          total: totals.total,
           deliveryMode: input.deliveryMode,
           addressId: input.addressId,
           expiresAt: new Date(
@@ -591,12 +664,12 @@ export class OrderService {
           status: "CHECKOUT_OPEN",
           checkoutRevision: nextNumber,
           currentRevisionId: newRev.id,
-          subtotal: priced.totals.subtotal,
-          discount: priced.totals.discount,
-          taxBase: priced.totals.taxBase,
-          tax: priced.totals.tax,
-          shipping: priced.totals.shipping,
-          total: priced.totals.total,
+          subtotal: totals.subtotal,
+          discount: totals.discount,
+          taxBase: totals.taxBase,
+          tax: totals.tax,
+          shipping: totals.shipping,
+          total: totals.total,
           expiresAt: newRev.expiresAt,
           version: { increment: 1 },
         },
@@ -739,8 +812,23 @@ export class OrderService {
       },
     });
     if (!t) return null;
-    if (t.expiresAt.getTime() <= Date.now()) return null;
-    if (t.usedAt) return null;
+    // Un pedido ya cobrado se sigue mostrando (solo lectura) aunque el link
+    // haya vencido: antes el cliente que ya pagó veía "este enlace ya no
+    // sirve". Para uno sin pagar, vencido/usado sigue siendo 404.
+    const settled = (SETTLED_ORDER_STATUSES as readonly string[]).includes(t.revision.order.status);
+    const expired = t.expiresAt.getTime() <= Date.now() || Boolean(t.usedAt);
+    if (expired && !settled) return null;
+
+    // Pedido de cotización: se muestra el precio pactado de cada línea (lo
+    // que efectivamente se cobra), no el del catálogo de hoy.
+    const quoteLines: Array<{ variantId: string; unitPrice: { toFixed(dp: number): string }; lineSubtotal: { toFixed(dp: number): string } }> =
+      t.revision.order.quoteId
+        ? await this.prisma.quoteLine.findMany({
+            where: { quoteId: t.revision.order.quoteId },
+            select: { variantId: true, unitPrice: true, lineSubtotal: true },
+          })
+        : [];
+    const quotedByVariant = new Map(quoteLines.map((ql) => [ql.variantId, ql]));
 
     const variantIds = t.revision.lines.map((l: { variantId: string }) => l.variantId);
     // Precio y producto padre: el checkout público muestra el detalle de lo
@@ -771,6 +859,7 @@ export class OrderService {
       : [];
     const lines = t.revision.lines.map((l: { variantId: string; quantity: { toString(): string } }) => {
       const v = variants.find((x) => x.id === l.variantId);
+      const quoted = quotedByVariant.get(l.variantId);
       const qty = Number(l.quantity.toString());
       const unitPrice = v ? Number(v.price) : null;
       return {
@@ -778,9 +867,12 @@ export class OrderService {
         sku: v?.sku ?? l.variantId.slice(0, 8),
         title: v?.title ?? "Producto",
         quantity: l.quantity.toString(),
-        unitPrice: unitPrice != null ? unitPrice.toFixed(2) : null,
-        lineTotal:
-          unitPrice != null && Number.isFinite(qty) ? (unitPrice * qty).toFixed(2) : null,
+        unitPrice: quoted ? quoted.unitPrice.toFixed(2) : unitPrice != null ? unitPrice.toFixed(2) : null,
+        lineTotal: quoted
+          ? quoted.lineSubtotal.toFixed(2)
+          : unitPrice != null && Number.isFinite(qty)
+            ? (unitPrice * qty).toFixed(2)
+            : null,
         product: v
           ? {
               id: v.product.id,
@@ -799,7 +891,13 @@ export class OrderService {
       };
     });
 
-    return { order: t.revision.order, lines, revisionExpiresAt: t.revision.expiresAt };
+    return {
+      order: t.revision.order,
+      lines,
+      revisionExpiresAt: t.revision.expiresAt,
+      /** true = link vencido de un pedido ya cobrado: solo lectura, no se puede volver a pagar. */
+      readOnly: expired,
+    };
   }
 
   /**

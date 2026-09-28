@@ -698,6 +698,14 @@ model CheckoutSession {
   // Método con el que el cliente pagó (CARD | SPEI | OXXO). Lo reporta el
   // gateway en el webhook; NULL mientras la sesión sigue PENDING.
   paymentMethod String?
+  // Id de la sesión en la pasarela (el `sessionId` que llega en el webhook).
+  // Único global: los ids del gateway son aleatorios y el webhook no trae
+  // tenant, así que la búsqueda es solo por este valor. NULL en sesiones
+  // anteriores a 0020 (el webhook cae entonces al fallback orderId+PENDING).
+  externalId  String?       @unique
+  // Ruta relativa de la página hosted en la pasarela ("/checkout/<id>/hosted"),
+  // para reusar una sesión PENDING vigente en vez de abrir otra.
+  hostedPath  String?
   version     Int           @default(1)
 
   tenant    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -706,6 +714,7 @@ model CheckoutSession {
 
   @@index([tenantId, status])
   @@index([orderId])
+  @@index([orderId, status])
 }
 
 enum PaymentStatus {
@@ -1019,7 +1028,10 @@ model WhatsAppMessage {
   conversationId  String   @db.Uuid
   direction       MessageDirection
   messageType     MessageType @default(TEXT)
-  externalId      String?  @unique // id del mensaje en WhatsApp
+  /// Id del mensaje en WhatsApp. Único POR TENANT, no global: si dos negocios
+  /// de la plataforma se escriben entre sí, el mismo id aparece como saliente
+  /// en uno y entrante en el otro (ver migración 0021).
+  externalId      String?
   body            String
   mediaUrl        String?
   /// Coordenadas para mensajes LOCATION (WhatsApp: lat/lng que el cliente
@@ -1039,6 +1051,7 @@ model WhatsAppMessage {
   conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   notes        MessageNote[]
 
+  @@unique([tenantId, externalId])
   @@index([tenantId, conversationId])
   @@index([conversationId, createdAt])
 }

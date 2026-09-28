@@ -36,13 +36,56 @@ import { decideRefund, parseMoney, remainingRefundable, ZERO } from "./refund-ma
  * literal "dev-webhook-secret" que está commiteado: cualquiera podía firmar un
  * webhook válido y marcar como PAGADA la orden de cualquier empresa.
  * `validateStartupConfig()` ahora exige el secreto fuera de local.
+ *
+ * Con NODE_ENV=production el literal de desarrollo NUNCA se usa: sin secreto
+ * configurado se lanza en el primer uso (crear checkout o verificar webhook),
+ * con un mensaje que dice qué variable falta.
  */
-function dummyWebhookSecret(): string {
-  return (
-    process.env.DUMMY_WEBHOOK_SECRET_REF ??
-    process.env.DUMMY_WEBHOOK_SECRET ??
-    "dev-webhook-secret"
-  );
+export function dummyWebhookSecret(): string {
+  const configured = process.env.DUMMY_WEBHOOK_SECRET_REF || process.env.DUMMY_WEBHOOK_SECRET;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "DUMMY_WEBHOOK_SECRET_REF no está configurado: en producción no se usa el secreto de desarrollo " +
+        "(los webhooks de pago podrían firmarse con un valor público).",
+    );
+  }
+  return "dev-webhook-secret";
+}
+
+/** Estados de pedido desde los que un cobro puede llevarlo a PAID. */
+export const PAYABLE_ORDER_STATUSES = ["CHECKOUT_OPEN", "AWAITING_PAYMENT"] as const;
+
+/**
+ * Estados de sesión desde los que se acepta una captura. CANCELLED entra
+ * porque una sesión reemplazada por un "Pagar ahora" posterior puede seguir
+ * abierta en otra pestaña del cliente: si la pasarela la cobra, ese dinero
+ * existe y tiene que quedar registrado (si el pedido ya estaba pagado por la
+ * otra sesión, queda como captura huérfana para reembolso).
+ */
+const CAPTURABLE_SESSION_STATUSES = ["PENDING", "CANCELLED"] as const;
+
+/** Estado resumido del último intento de pago, para la página pública. */
+export type LastPaymentStatus = "PENDING" | "CAPTURED" | "FAILED" | null;
+
+export function summarizePaymentStatus(
+  session: { status: string; expiresAt: Date } | null | undefined,
+  now = Date.now(),
+): LastPaymentStatus {
+  if (!session) return null;
+  switch (session.status) {
+    case "PENDING":
+      return session.expiresAt.getTime() > now ? "PENDING" : null;
+    case "AUTHORIZED":
+    case "CAPTURED":
+    case "PARTIALLY_REFUNDED":
+    case "REFUNDED":
+      return "CAPTURED";
+    case "FAILED":
+      return "FAILED";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -212,6 +255,15 @@ export class PaymentService {
     if (!order) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Pedido no accesible" });
     }
+    // Solo un checkout abierto puede pasar a esperar pago: antes se forzaba
+    // AWAITING_PAYMENT sobre cualquier estado (un pedido PAID/CANCELLED
+    // volvía a quedar cobrable).
+    if (!(PAYABLE_ORDER_STATUSES as readonly string[]).includes(order.status)) {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: `Pedido ${order.status} no acepta pago`,
+      });
+    }
     if (input.expectedOrderVersion !== 0 && order.version !== input.expectedOrderVersion) {
       throw new ConflictException({
         code: "CONFLICT",
@@ -274,7 +326,8 @@ export class PaymentService {
     const body = (await res.json()) as { data: { id: string; hostedUrl: string; expiresAt: string } };
     const expiresAt = new Date(body.data.expiresAt);
 
-    // Persistir CheckoutSession con referencia al dummy.
+    // Persistir CheckoutSession con referencia al dummy: `externalId` es el
+    // `sessionId` que traerá el webhook, y es por él que se busca la sesión.
     const session = await this.prisma.checkoutSession.create({
       data: {
         tenantId: input.tenantId,
@@ -283,12 +336,35 @@ export class PaymentService {
         status: "PENDING",
         expiresAt,
         capturedAt: null,
+        externalId: body.data.id,
+        hostedPath: body.data.hostedUrl,
       },
     });
 
-    await this.prisma.order.update({
-      where: { id: input.orderId },
-      data: { status: "AWAITING_PAYMENT" },
+    // Transición condicionada al estado: si entre la lectura y aquí el
+    // pedido se pagó/canceló/venció, no se reabre. La sesión recién creada
+    // se cancela para que no quede un cobro posible sobre un pedido cerrado.
+    const moved = await this.prisma.order.updateMany({
+      where: { id: input.orderId, tenantId: input.tenantId, status: { in: [...PAYABLE_ORDER_STATUSES] } },
+      data: { status: "AWAITING_PAYMENT", version: { increment: 1 } },
+    });
+    if (moved.count === 0) {
+      await this.prisma.checkoutSession.updateMany({
+        where: { id: session.id, status: "PENDING" },
+        data: { status: "CANCELLED", version: { increment: 1 } },
+      });
+      throw new ConflictException({
+        code: "CONFLICT",
+        message: "El pedido cambió de estado y ya no acepta pago",
+      });
+    }
+
+    // Una sola sesión PENDING por pedido: las anteriores quedan CANCELLED
+    // (si el cliente igual paga una de ellas en otra pestaña, applyStatus la
+    // registra y, si el pedido ya estaba pagado, la marca como huérfana).
+    await this.prisma.checkoutSession.updateMany({
+      where: { orderId: input.orderId, status: "PENDING", id: { not: session.id } },
+      data: { status: "CANCELLED", version: { increment: 1 } },
     });
 
     return {
@@ -297,6 +373,74 @@ export class PaymentService {
       expiresAt,
       paymentMethods,
     };
+  }
+
+  /**
+   * "Pagar ahora" idempotente: si el pedido ya tiene una sesión PENDING
+   * vigente, por el mismo importe y que la pasarela sigue reconociendo como
+   * PENDING, se devuelve esa misma URL en lugar de abrir otra sesión (cada
+   * sesión extra era un cobro posible más sobre el mismo pedido). Si no, se
+   * crea una nueva con `createCheckout` (que cancela las anteriores).
+   */
+  async getOrCreateCheckout(input: CreateCheckoutInput): Promise<CheckoutSessionResult> {
+    const reusable = await this.findReusableSession(input.orderId, input.amount);
+    if (reusable) return reusable;
+    return this.createCheckout(input);
+  }
+
+  private async findReusableSession(orderId: string, amount: string): Promise<CheckoutSessionResult | null> {
+    // Margen de un minuto: no se entrega un link que vence mientras el
+    // cliente todavía está cargando la página hosted.
+    const minExpiry = new Date(Date.now() + 60_000);
+    const pending = await this.prisma.checkoutSession.findFirst({
+      where: {
+        orderId,
+        status: "PENDING",
+        externalId: { not: null },
+        hostedPath: { not: null },
+        expiresAt: { gt: minExpiry },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const wanted = parseMoney(amount);
+    if (!pending || !pending.externalId || !pending.hostedPath || !wanted || !pending.amount.equals(wanted)) {
+      return null;
+    }
+    const baseUrl = (process.env.DUMMY_BASE_URL ?? "http://localhost:4100").replace(/\/$/, "");
+    const publicBaseUrl = (process.env.DUMMY_PUBLIC_URL ?? baseUrl).replace(/\/$/, "");
+    // La pasarela guarda sus sesiones en memoria: tras un reinicio la sesión
+    // ya no existe allá aunque aquí siga PENDING. Se confirma antes de reusar.
+    try {
+      const res = await fetch(`${baseUrl}/checkout/sessions/${encodeURIComponent(pending.externalId)}`, {
+        headers: { authorization: `Bearer ${dummyServiceKey()}` },
+        // Corre en cada "Pagar ahora" antes de cualquier alternativa: si la
+        // pasarela está colgada se cae a crear sesión nueva, no se cuelga.
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { data?: { status?: string } };
+      if (body.data?.status !== "PENDING") return null;
+    } catch (err) {
+      this.logger.warn(`no se pudo verificar la sesión ${pending.id} en la pasarela: ${err}`);
+      return null;
+    }
+    return {
+      sessionId: pending.id,
+      checkoutUrl: `${publicBaseUrl}${pending.hostedPath}`,
+      expiresAt: pending.expiresAt,
+      paymentMethods: enabledPaymentMethods(),
+    };
+  }
+
+  /** Estado resumido del último intento de pago del pedido (página pública). */
+  async lastPaymentStatus(orderId: string): Promise<LastPaymentStatus> {
+    const last = await this.prisma.checkoutSession.findFirst({
+      // CANCELLED = sesión reemplazada por otra; no dice nada del resultado.
+      where: { orderId, status: { not: "CANCELLED" } },
+      orderBy: { createdAt: "desc" },
+      select: { status: true, expiresAt: true },
+    });
+    return summarizePaymentStatus(last);
   }
 
   /**
@@ -309,6 +453,7 @@ export class PaymentService {
     id: string;
     tenantId: string;
     currentRevisionId: string | null;
+    quoteId: string | null;
     description: string | null;
     requiresInvoice: boolean;
     subtotal: Prisma.Decimal;
@@ -341,13 +486,22 @@ export class PaymentService {
         })
       : [];
     const byVariant = new Map(variants.map((v) => [v.id, v]));
+    // Pedido de cotización: el precio unitario mostrado es el pactado, que es
+    // el que suman los totales cobrados (no el del catálogo actual).
+    const quoted = order.quoteId
+      ? await this.prisma.quoteLine.findMany({
+          where: { quoteId: order.quoteId },
+          select: { variantId: true, unitPrice: true },
+        })
+      : [];
+    const quotedByVariant = new Map(quoted.map((q) => [q.variantId, q]));
 
     let lineItems = (current?.lines ?? []).map((l) => {
       const v = byVariant.get(l.variantId);
       return {
         title: v?.title ?? v?.product.title ?? "Producto",
         quantity: l.quantity.toString(),
-        unitPrice: v?.price.toFixed(2) ?? null,
+        unitPrice: quotedByVariant.get(l.variantId)?.unitPrice.toFixed(2) ?? v?.price.toFixed(2) ?? null,
       };
     });
     if (lineItems.length === 0 && order.description) {
@@ -505,9 +659,9 @@ export class PaymentService {
     },
     billing: WebhookBilling | undefined,
     dummySessionId: string,
-  ): Prisma.OrderUpdateInput {
+  ): Prisma.OrderUpdateManyMutationInput {
     if (!billing) return {};
-    const data: Prisma.OrderUpdateInput = {};
+    const data: Prisma.OrderUpdateManyMutationInput = {};
 
     if (order.requiresInvoice) {
       if (!order.invoiceRfc && billing.rfc) data.invoiceRfc = billing.rfc;
@@ -551,9 +705,8 @@ export class PaymentService {
     this.logger.log(
       `applyStatus called dummy=${dummySessionId} order=${orderId} status=${rawStatus}`,
     );
-    // dummySessionId es el id del gateway (32 hex). En nuestra BD
-    // guardamos por orderId + amount (más fácil porque el cliente
-    // no recibe el id externo; lo gestiona internamente).
+    // dummySessionId es el id del gateway; se guarda en
+    // CheckoutSession.externalId al crear la sesión y es la llave del webhook.
     const order = await this.prisma.order.findFirst({ where: { id: orderId } });
     if (!order) {
       this.logger.warn(`Webhook para order ${orderId} no encontrada`);
@@ -561,6 +714,15 @@ export class PaymentService {
     }
 
     const upper = rawStatus.toUpperCase();
+    const byExternal = await this.prisma.checkoutSession.findFirst({
+      where: { externalId: dummySessionId },
+    });
+    if (byExternal && byExternal.orderId !== orderId) {
+      this.logger.error(
+        `Webhook incoherente: sesión ${byExternal.id} (dummy ${dummySessionId}) es del pedido ${byExternal.orderId}, no de ${orderId}`,
+      );
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Sesión y pedido no coinciden" });
+    }
 
     // Un reembolso del gateway no llega nunca sobre una sesión PENDING: cae
     // sobre la que ya se cobró. Antes se buscaba igualmente por PENDING, así
@@ -568,10 +730,14 @@ export class PaymentService {
     // la misma máquina de estados que `refund()` y por tanto sí puede dejar
     // la sesión en PARTIALLY_REFUNDED.
     if (upper === "REFUNDED") {
-      const captured = await this.prisma.checkoutSession.findFirst({
-        where: { orderId, status: { in: ["CAPTURED", "PARTIALLY_REFUNDED"] } },
-        orderBy: { createdAt: "desc" },
-      });
+      const captured = byExternal
+        ? ["CAPTURED", "PARTIALLY_REFUNDED"].includes(byExternal.status)
+          ? byExternal
+          : null
+        : await this.prisma.checkoutSession.findFirst({
+            where: { orderId, externalId: null, status: { in: ["CAPTURED", "PARTIALLY_REFUNDED"] } },
+            orderBy: { createdAt: "desc" },
+          });
       if (!captured) {
         this.logger.warn(`Webhook de reembolso sin sesión cobrada para order ${orderId}`);
         return;
@@ -592,20 +758,55 @@ export class PaymentService {
       return;
     }
 
-    const session = await this.prisma.checkoutSession.findFirst({
-      where: { orderId, status: "PENDING" },
-      orderBy: { createdAt: "desc" },
-    });
+    // Sesión por id de la pasarela. Fallback SOLO para sesiones anteriores a
+    // la migración 0020 (sin externalId): la PENDING más reciente del pedido.
+    // Un webhook con un sessionId desconocido ya no puede "adueñarse" de la
+    // sesión de otro intento.
+    const session =
+      byExternal ??
+      (await this.prisma.checkoutSession.findFirst({
+        where: { orderId, status: "PENDING", externalId: null },
+        orderBy: { createdAt: "desc" },
+      }));
     if (!session) {
-      this.logger.warn(`Webhook sin sesión pendiente para order ${orderId}`);
+      this.logger.warn(`Webhook sin sesión para order ${orderId} (dummy ${dummySessionId})`);
       return;
     }
     this.logger.log(`applyStatus found session=${session.id}`);
 
+    // El importe del webhook tiene que ser exactamente el de la sesión
+    // (comparado como Decimal, nunca como float). Lo que se asienta en el
+    // ledger es siempre `session.amount`.
+    if (amount !== undefined && amount !== null) {
+      const reported = parseMoney(amount);
+      if (!reported || !reported.equals(session.amount)) {
+        this.logger.error(
+          `Webhook con importe distinto: sesión ${session.id} amount=${session.amount.toFixed(2)} webhook=${String(amount)}`,
+        );
+        await this.prisma.auditLog
+          .create({
+            data: {
+              tenantId: session.tenantId,
+              actorId: null,
+              action: "payments.webhook_amount_mismatch",
+              targetType: "CheckoutSession",
+              targetId: session.id,
+              metadata: { orderId, externalId: dummySessionId, expected: session.amount.toFixed(2), received: String(amount), status: upper },
+            },
+          })
+          .catch((err: unknown) => this.logger.warn(`auditLog amount_mismatch falló: ${err}`));
+        throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Importe no coincide con la sesión" });
+      }
+    }
+    const sessionAmount = session.amount.toFixed(2);
+
     if (upper === "CAPTURED" || upper === "AUTHORIZED") {
-      await this.prisma.$transaction(async (tx) => {
-        await tx.checkoutSession.update({
-          where: { id: session.id },
+      const outcome = await this.prisma.$transaction(async (tx) => {
+        // Idempotencia: solo una entrega del webhook gana la transición. Un
+        // reintento (o un segundo webhook de la misma sesión) no encuentra
+        // fila y termina sin segundo CHARGE ni segundo aviso.
+        const moved = await tx.checkoutSession.updateMany({
+          where: { id: session.id, status: { in: [...CAPTURABLE_SESSION_STATUSES] } },
           data: {
             status: "CAPTURED",
             capturedAt: new Date(),
@@ -613,18 +814,25 @@ export class PaymentService {
             ...(extras.paymentMethod ? { paymentMethod: extras.paymentMethod } : {}),
           },
         });
+        if (moved.count === 0) return "DUPLICATE" as const;
+
         await tx.ledgerEntry.create({
           data: {
             tenantId: session.tenantId,
             sessionId: session.id,
             entryType: "CHARGE",
-            amount: amount ?? session.amount.toString(),
-            balanceAfter: amount ?? session.amount.toString(),
+            amount: sessionAmount,
+            balanceAfter: sessionAmount,
             description: `Pago simulado: dummy session ${dummySessionId}${this.describeMethod(extras)}`,
           },
         });
-        await tx.order.update({
-          where: { id: orderId },
+
+        // El pedido solo pasa a PAID desde un checkout abierto. Si ya estaba
+        // pagado (otra sesión), cancelado o vencido, el cobro existe pero no
+        // tiene pedido que saldar: queda registrado como huérfano para que el
+        // negocio lo reembolse.
+        const paid = await tx.order.updateMany({
+          where: { id: orderId, tenantId: session.tenantId, status: { in: [...PAYABLE_ORDER_STATUSES] } },
           data: {
             status: "PAID",
             paidAt: new Date(),
@@ -632,17 +840,44 @@ export class PaymentService {
             ...this.billingOrderData(order, extras.billing, dummySessionId),
           },
         });
+        if (paid.count === 0) {
+          const current = await tx.order.findFirst({ where: { id: orderId }, select: { status: true } });
+          await tx.auditLog.create({
+            data: {
+              tenantId: session.tenantId,
+              actorId: null,
+              action: "payments.orphan_capture",
+              targetType: "CheckoutSession",
+              targetId: session.id,
+              metadata: {
+                orderId,
+                orderStatus: current?.status ?? null,
+                externalId: dummySessionId,
+                amount: sessionAmount,
+                reason: "El pedido no estaba en un estado cobrable; reembolsar este cobro",
+              },
+            },
+          });
+          return "ORPHAN" as const;
+        }
+        return "PAID" as const;
       });
+
+      if (outcome === "DUPLICATE") {
+        this.logger.log(`Webhook duplicado ignorado: sesión ${session.id} ya no estaba pendiente`);
+        return;
+      }
+      if (outcome === "ORPHAN") {
+        this.logger.warn(
+          `Captura huérfana: orderId=${orderId} sessionId=${session.id} dummy=${dummySessionId} amount=${sessionAmount} — pedido no cobrable, requiere reembolso`,
+        );
+        return;
+      }
       this.logger.log(`Order ${orderId} PAID via dummy ${dummySessionId}`);
-      await this.notifyPaymentResult(
-        orderId,
-        session.tenantId,
-        "PAYMENT_SIMULATED_SUCCESS",
-        amount ?? session.amount.toString(),
-      );
+      await this.notifyPaymentResult(orderId, session.tenantId, "PAYMENT_SIMULATED_SUCCESS", sessionAmount);
     } else if (upper === "FAILED") {
-      await this.prisma.checkoutSession.update({
-        where: { id: session.id },
+      const moved = await this.prisma.checkoutSession.updateMany({
+        where: { id: session.id, status: "PENDING" },
         data: {
           status: "FAILED",
           failedAt: new Date(),
@@ -650,12 +885,11 @@ export class PaymentService {
           ...(extras.paymentMethod ? { paymentMethod: extras.paymentMethod } : {}),
         },
       });
-      await this.notifyPaymentResult(
-        orderId,
-        session.tenantId,
-        "PAYMENT_SIMULATED_FAILED",
-        amount ?? session.amount.toString(),
-      );
+      if (moved.count === 0) {
+        this.logger.log(`Webhook FAILED ignorado: sesión ${session.id} ya no estaba pendiente`);
+        return;
+      }
+      await this.notifyPaymentResult(orderId, session.tenantId, "PAYMENT_SIMULATED_FAILED", sessionAmount);
     }
   }
 

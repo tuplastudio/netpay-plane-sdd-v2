@@ -87,6 +87,10 @@ export class PaymentController {
       await this.payments.handleWebhook(rawBody, signature);
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
+      // Payload que no es JSON: 400 (reintentar no lo arregla). Cualquier otro
+      // error (BD caída, timeout) sube como 5xx para que la pasarela reintente;
+      // la captura es idempotente, así que un reintento no cobra dos veces.
+      if (!(err instanceof SyntaxError)) throw err;
       throw new BadRequestException({
         code: "VALIDATION_FAILED",
         message: "Webhook inválido",

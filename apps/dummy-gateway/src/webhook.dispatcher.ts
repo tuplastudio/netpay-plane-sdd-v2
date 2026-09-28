@@ -62,21 +62,72 @@ export class WebhookDispatcher {
     });
     const signature = createHmac("sha256", secret).update(payload).digest("hex");
 
-    try {
-      const res = await fetch(targetUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-dummy-signature": signature,
-          "x-dummy-event": "payment.status_changed",
-        },
-        body: payload,
-      });
-      if (!res.ok) {
-        this.logger.warn(`Webhook ${targetUrl} responded ${res.status}`);
+    const maxAttempts = webhookMaxAttempts();
+    const baseDelayMs = webhookRetryBaseMs();
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let retryable: boolean;
+      let reason: string;
+      try {
+        const res = await fetch(targetUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-dummy-signature": signature,
+            "x-dummy-event": "payment.status_changed",
+          },
+          body: payload,
+          // Sin tope, un receptor colgado bloquea el "Pagar" del cliente y un
+          // intento colgado nunca llega a los reintentos.
+          signal: AbortSignal.timeout(webhookAttemptTimeoutMs()),
+        });
+        if (res.ok) {
+          if (attempt > 1) {
+            this.logger.log(`Webhook ${targetUrl} entregado en el intento ${attempt}/${maxAttempts}`);
+          }
+          return;
+        }
+        // 4xx = el receptor rechazó el evento (firma, importe, payload):
+        // reintentar no lo arregla. Solo 5xx (o 408/429) se reintentan.
+        retryable = res.status >= 500 || res.status === 408 || res.status === 429;
+        reason = `HTTP ${res.status}`;
+      } catch (err) {
+        retryable = true;
+        reason = String(err);
       }
-    } catch (err) {
-      this.logger.error(`Webhook delivery failed: ${String(err)}`);
+      if (!retryable || attempt === maxAttempts) {
+        this.logger.error(
+          `Webhook ${targetUrl} sesión ${session.id} falló (intento ${attempt}/${maxAttempts}): ${reason}` +
+            (retryable ? " — sin más reintentos" : " — no reintentable"),
+        );
+        return;
+      }
+      const delay = baseDelayMs * 2 ** (attempt - 1);
+      this.logger.warn(
+        `Webhook ${targetUrl} sesión ${session.id} falló (intento ${attempt}/${maxAttempts}): ${reason}; reintento en ${delay} ms`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
+}
+
+/** Intentos totales de entrega (1 + reintentos). `WEBHOOK_MAX_ATTEMPTS`, 1..10, default 4. */
+function webhookMaxAttempts(): number {
+  const n = Number(process.env.WEBHOOK_MAX_ATTEMPTS);
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : 4;
+}
+
+/**
+ * Espera antes del primer reintento; se duplica en cada uno (250, 500, 1000 ms
+ * con el default). `WEBHOOK_RETRY_BASE_MS`, 0..30000. Corto a propósito: la
+ * entrega se espera dentro de la petición de la página hosted.
+ */
+/** Tope por intento de entrega del webhook (WEBHOOK_ATTEMPT_TIMEOUT_MS, default 8 s). */
+function webhookAttemptTimeoutMs(): number {
+  const raw = Number.parseInt(process.env.WEBHOOK_ATTEMPT_TIMEOUT_MS ?? "8000", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 8000;
+}
+
+function webhookRetryBaseMs(): number {
+  const n = Number(process.env.WEBHOOK_RETRY_BASE_MS);
+  return Number.isFinite(n) && n >= 0 && n <= 30_000 ? n : 250;
 }
