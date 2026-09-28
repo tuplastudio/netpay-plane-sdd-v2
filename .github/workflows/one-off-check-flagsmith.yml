@@ -1,0 +1,39 @@
+name: One-off - estado de los contenedores de Flagsmith
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-check-flagsmith.yml"
+
+jobs:
+  check:
+    name: docker ps + curl interno (solo lectura)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            DC="docker compose -f compose.prod.yaml --env-file .env.prod"
+
+            echo "=== estado de los contenedores ==="
+            docker ps --filter "name=flagsmith" --format "table {{.Names}}\t{{.Status}}"
+
+            echo ""
+            echo "=== logs flagsmith-db (ultimas 20) ==="
+            $DC logs --tail 20 flagsmith-db 2>&1 || true
+
+            echo ""
+            echo "=== logs flagsmith (ultimas 40) ==="
+            $DC logs --tail 40 flagsmith 2>&1 || true
+
+            echo ""
+            echo "=== curl interno a /health ==="
+            $DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://flagsmith:8000/health', timeout=10).text)" 2>&1 || echo "fallo el curl interno"
