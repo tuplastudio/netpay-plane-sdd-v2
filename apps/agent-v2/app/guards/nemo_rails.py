@@ -71,6 +71,9 @@ def _config_yaml(model: str, base_url: str) -> str:
         f"    model: {model}\n"
         "    parameters:\n"
         f"      openai_api_base: {base_url}\n"
+        # Yes/no basta de sobra; sin tope, algún modelo puede seguir
+        # generando de más en la respuesta del self-check.
+        "      max_tokens: 10\n"
         "rails:\n"
         "  input:\n"
         "    flows:\n"
@@ -99,7 +102,13 @@ def _get_rails() -> Any:
         from nemoguardrails import LLMRails, RailsConfig
 
         config = RailsConfig.from_content(
-            yaml_content=_config_yaml(settings.model, settings.openrouter_base_url),
+            # Modelo barato del clasificador de tema (temp 0, sin tono de
+            # venta que cuidar), no el modelo conversacional completo que
+            # paga el tenant — un self-check de sí/no no necesita el modelo
+            # caro.
+            yaml_content=_config_yaml(
+                settings.scope_guard_model or settings.model, settings.openrouter_base_url
+            ),
             colang_content=_COLANG_CONTENT,
         )
         _rails = LLMRails(config)

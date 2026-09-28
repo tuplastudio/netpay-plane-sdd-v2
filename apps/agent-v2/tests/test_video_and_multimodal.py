@@ -12,7 +12,8 @@ Cubre:
 
 from __future__ import annotations
 
-from unittest import TestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
+from unittest.mock import AsyncMock, patch
 
 from app.agent import model_capabilities
 from app.config import Settings, SettingsError
@@ -326,3 +327,137 @@ class DiagnosticsTenantAwareTests(TestCase):
                 self.assertFalse(diag["llm"]["tenantKeySet"])
             # Sanity: el diagnostics sigue trayendo budgets aunque el LLM esté vivo.
             self.assertIn("maxVideoBytes", diag["budgets"])
+
+
+class VideoDegradesForTextOnlyModelTests(IsolatedAsyncioTestCase):
+    """Un tenant con `text_model` sin soporte de video no debe mandar el
+    video al proveedor (gasta una llamada que el proveedor rechaza sin
+    pista de la causa) — se degrada a texto con un aviso."""
+
+    async def test_video_dropped_when_model_lacks_support(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from app import main
+        from app.agent_settings import get_settings_store
+        from app.contracts import ChatRequest
+        from app.pipeline.trace import TurnTrace
+        from app.pipeline.turn import PipelineContext
+
+        store = get_settings_store()
+        store.update("t-video-degrade", {"text_model": "openai/gpt-4o-mini"})
+        with TestClient(main.app):
+            pipeline = main.runtime.pipeline
+            assert pipeline is not None
+            ctx = PipelineContext(
+                req=ChatRequest(
+                    tenantId="t-video-degrade",
+                    conversationId="s1",
+                    text="qué es esto?",
+                    videoUrl="https://example.com/clip.mp4",
+                    channel="web",
+                ),
+                rt=main.runtime,
+                settings=pipeline.settings,
+                trace=TurnTrace(),
+            )
+            await pipeline._prepare(ctx)
+            self.assertEqual(ctx.content, ctx.text)
+            self.assertIn("no puede verlo", ctx.text)
+
+    async def test_video_kept_when_model_supports_it(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from app import main
+        from app.agent_settings import get_settings_store
+        from app.contracts import ChatRequest
+        from app.pipeline.trace import TurnTrace
+        from app.pipeline.turn import PipelineContext
+
+        store = get_settings_store()
+        store.update("t-video-ok", {"text_model": "google/gemini-2.0-flash-001"})
+        with TestClient(main.app):
+            pipeline = main.runtime.pipeline
+            assert pipeline is not None
+            ctx = PipelineContext(
+                req=ChatRequest(
+                    tenantId="t-video-ok",
+                    conversationId="s1",
+                    text="qué es esto?",
+                    videoUrl="https://example.com/clip.mp4",
+                    channel="web",
+                ),
+                rt=main.runtime,
+                settings=pipeline.settings,
+                trace=TurnTrace(),
+            )
+            await pipeline._prepare(ctx)
+            assert isinstance(ctx.content, list)
+            self.assertTrue(any(b.get("image_url", {}).get("url") == "https://example.com/clip.mp4" for b in ctx.content))
+
+
+class AudioTranscriptionFallbackTests(IsolatedAsyncioTestCase):
+    """Defensa en profundidad: `audioBase64` sin `text` se transcribe en
+    `_prepare` en vez de rebotar con 400 (ver `pipeline/turn.py`)."""
+
+    def setUp(self) -> None:
+        from fastapi.testclient import TestClient
+
+        from app import main
+
+        self._client_cm = TestClient(main.app)
+        self._client_cm.__enter__()
+        self._main = main
+
+    def tearDown(self) -> None:
+        self._client_cm.__exit__(None, None, None)
+
+    async def _ctx(self, **req_kwargs):
+        from app.contracts import ChatRequest
+        from app.pipeline.trace import TurnTrace
+        from app.pipeline.turn import PipelineContext
+
+        main = self._main
+        pipeline = main.runtime.pipeline
+        assert pipeline is not None
+        ctx = PipelineContext(
+            req=ChatRequest(tenantId="t-audio", conversationId="s1", channel="web", **req_kwargs),
+            rt=main.runtime,
+            settings=pipeline.settings,
+            trace=TurnTrace(),
+        )
+        return pipeline, ctx
+
+    async def test_transcribes_when_no_text(self) -> None:
+        import base64
+
+        pipeline, ctx = await self._ctx(audioBase64=base64.b64encode(b"audio").decode())
+        with patch("app.pipeline.turn.transcribe", new=AsyncMock(return_value={"text": "quiero pintura blanca"})):
+            await pipeline._prepare(ctx)
+        self.assertEqual(ctx.text, "quiero pintura blanca")
+
+    async def test_rejects_when_transcription_empty(self) -> None:
+        import base64
+
+        from app.pipeline.turn import TurnRejected
+
+        pipeline, ctx = await self._ctx(audioBase64=base64.b64encode(b"audio").decode())
+        with patch("app.pipeline.turn.transcribe", new=AsyncMock(return_value={"text": ""})):
+            with self.assertRaises(TurnRejected) as cm:
+                await pipeline._prepare(ctx)
+        self.assertEqual(cm.exception.status, 400)
+
+    async def test_maps_audio_unavailable_to_503(self) -> None:
+        from app.audio import AudioUnavailable
+        from app.pipeline.turn import TurnRejected
+
+        pipeline, ctx = await self._ctx(audioBase64="YQ==")
+        with patch("app.pipeline.turn.transcribe", new=AsyncMock(side_effect=AudioUnavailable("caído"))):
+            with self.assertRaises(TurnRejected) as cm:
+                await pipeline._prepare(ctx)
+        self.assertEqual(cm.exception.status, 503)
+
+    async def test_text_wins_over_audio_when_both_present(self) -> None:
+        pipeline, ctx = await self._ctx(text="hola", audioBase64="YQ==")
+        with patch("app.pipeline.turn.transcribe", new=AsyncMock(side_effect=AssertionError("no debió llamarse"))):
+            await pipeline._prepare(ctx)
+        self.assertEqual(ctx.text, "hola")

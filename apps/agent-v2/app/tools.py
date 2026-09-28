@@ -253,7 +253,15 @@ async def buscar_productos(consulta: str, runtime: ToolRuntime) -> str:
     # usarlo, aunque aquí solo se compare en memoria (nunca se manda tal
     # cual al backend ni al modelo).
     consulta = clamp_text(consulta, get_settings().max_tool_arg_chars, collapse_newlines=True)
-    variants, error = await _safe(_client(runtime).search_products(None, limit=100))
+    # Caché de tenant (120 s, `tenant_context.load_variants`), igual que el
+    # resto de las tools: antes pegaba directo a commerce-api en cada
+    # llamada, duplicando lo que el prompt ya trae vía `load_catalog` — y
+    # esta es justo la tool que el prompt manda usar en casi cada turno con
+    # intención de compra.
+    tenant_id = _ctx(runtime).get("tenant_id", "")
+    variants, error = await _safe(
+        load_variants(tenant_id, lambda: _client(runtime).search_products(None, limit=100))
+    )
     if error:
         return _fail(error)
 
@@ -1363,31 +1371,41 @@ async def historial_del_cliente(runtime: ToolRuntime) -> str:
 @tool
 async def solicitar_factura(
     orderId: str,
-    rfc: str,
-    razonSocial: str,
-    codigoPostal: str,
     usoCfdi: str,
     runtime: ToolRuntime,
+    rfc: str = "",
+    razonSocial: str = "",
+    codigoPostal: str = "",
     constanciaUrl: str = "",
     carritoId: str = "",
 ) -> str:
     """Pide factura (CFDI) para un pedido ya identificado.
 
-    SOLO llama esto después de que el cliente diga explícitamente que sí a
-    TODOS estos datos exactos que le vas a leer de vuelta: RFC, razón social,
-    código postal fiscal y uso de CFDI (ej. G03, P01). Si `historial_del_cliente`
-    ya mostró datos fiscales guardados de una compra anterior, léeselos primero
-    y pregunta si son los mismos antes de asumir nada — nunca los reuses en
-    silencio. Si el cliente tiene su constancia de situación fiscal y te pasa
-    un enlace o la sube por otro medio, pon esa URL en `constanciaUrl`; si no
-    la tiene a la mano, déjalo vacío y avisa que puede mandarla después.
+    Dos caminos para los datos fiscales (RFC, razón social, código postal,
+    régimen) — NUNCA los inventes por tu cuenta:
+
+    1. **Constancia (preferido).** Si el cliente tiene su constancia de
+       situación fiscal y te pasa un enlace público a ella (o la subió por
+       el link de pago y te comparte esa URL), ponla en `constanciaUrl` y
+       deja `rfc`/`razonSocial`/`codigoPostal` vacíos — el backend la lee y
+       llena esos datos solo. Dile al cliente que puede subirla en el link
+       de pago si no tiene un enlace a la mano; es más rápido que dictarlos.
+    2. **Dictado.** Si no la tiene, pide los 4 datos y SOLO llama esto
+       después de que el cliente confirme explícitamente que sí a lo que le
+       leíste de vuelta. Si `historial_del_cliente` ya mostró datos fiscales
+       guardados de una compra anterior, léeselos primero y pregunta si son
+       los mismos — nunca los reuses en silencio.
+
+    `usoCfdi` (ej. G03, P01) SIEMPRE hay que pedirlo: ningún documento lo
+    trae, lo decide el cliente en cada compra.
 
     Si el cliente lleva varios pedidos a la vez, pasa `orderId` (o
     `carritoId`) para facturar el que corresponde; nunca adivines cuál si
     hay más de uno y no lo dijo.
 
-    No inventes ni corrijas el RFC o la razón social por tu cuenta: si algo
-    suena raro, pregunta de nuevo en vez de adivinar.
+    La respuesta puede traer un aviso de que la constancia no se pudo leer
+    del todo (`parseWarnings`) — si pasa, pide al cliente los datos que
+    falten a mano en vez de dejarlos vacíos.
     """
     if denied := _require_scope(runtime, "solicitar_factura"):
         return _fail(denied)
@@ -1396,15 +1414,22 @@ async def solicitar_factura(
     if not order_id:
         return _fail("No tengo número de pedido; pídeselo al cliente o usa historial_del_cliente.")
 
-    rfc_clean = clamp_text(rfc, 20, collapse_newlines=True).upper().strip()
-    if not re.fullmatch(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", rfc_clean):
-        return _fail("Ese RFC no tiene un formato válido; pídeselo de nuevo al cliente.")
     cfdi_clean = clamp_text(usoCfdi, 10, collapse_newlines=True).upper().strip()
     if not re.fullmatch(r"[A-Z]\d{2}", cfdi_clean):
         return _fail("Uso de CFDI inválido (ej. G03, P01); confírmalo con el cliente.")
+    constancia_clean = clamp_text(constanciaUrl, 2000, collapse_newlines=True).strip()
+
+    rfc_clean = clamp_text(rfc, 20, collapse_newlines=True).upper().strip()
+    if rfc_clean and not re.fullmatch(r"[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}", rfc_clean):
+        return _fail("Ese RFC no tiene un formato válido; pídeselo de nuevo al cliente.")
     cp_clean = clamp_text(codigoPostal, 10, collapse_newlines=True).strip()
-    if not re.fullmatch(r"\d{5}", cp_clean):
+    if cp_clean and not re.fullmatch(r"\d{5}", cp_clean):
         return _fail("El código postal debe ser de 5 dígitos.")
+    razon_clean = clamp_text(razonSocial, 200, collapse_newlines=True).strip()
+    if not constancia_clean and not (rfc_clean and razon_clean and cp_clean):
+        return _fail(
+            "Faltan datos fiscales: pide RFC, razón social y código postal, o la constancia de situación fiscal."
+        )
 
     # Mismo criterio que estado_del_pedido: no se factura (ni se escribe el
     # RFC) sobre el pedido de otro cliente del negocio.
@@ -1420,20 +1445,34 @@ async def solicitar_factura(
     invoice, error = await _safe(
         client.request_invoice(
             order_id,
-            rfc=rfc_clean,
-            legal_name=clamp_text(razonSocial, 200, collapse_newlines=True),
-            postal_code=cp_clean,
             cfdi_use=cfdi_clean,
-            constancia_url=clamp_text(constanciaUrl, 2000, collapse_newlines=True) or None,
+            rfc=rfc_clean or None,
+            legal_name=razon_clean or None,
+            postal_code=cp_clean or None,
+            constancia_url=constancia_clean or None,
         )
     )
     if error:
         return _fail(error)
-    tiene_constancia = bool((invoice or {}).get("invoiceConstanciaUrl"))
+    invoice = invoice or {}
+    # Los 3 datos que de verdad importan salen de lo que el backend GUARDÓ
+    # (invoiceRfc/...), no de lo que este turno mandó: con constancia,
+    # `rfc_clean`/`razon_clean`/`cp_clean` locales pueden venir vacíos.
+    saved_rfc = invoice.get("invoiceRfc") or rfc_clean or "?"
+    saved_razon = invoice.get("invoiceLegalName") or razon_clean or "?"
+    saved_cp = invoice.get("invoicePostalCode") or cp_clean or "?"
+    tiene_constancia = bool(invoice.get("invoiceConstanciaUrl"))
+    warnings = invoice.get("parseWarnings") or []
+    aviso = ""
+    if warnings:
+        # No fatal — la solicitud SÍ se guardó (si no, hubiera regresado
+        # error arriba); esto es solo lo que la constancia no trajo.
+        aviso = " La constancia no trajo todo: " + "; ".join(warnings) + "."
     return (
         f"Factura solicitada para el pedido {order_id}. "
-        f"RFC {rfc_clean}, razón social {razonSocial}, CP {cp_clean}, uso CFDI {cfdi_clean}. "
-        + ("Constancia recibida." if tiene_constancia else "Falta la constancia de situación fiscal; pídesela cuando pueda mandarla.")
+        f"RFC {saved_rfc}, razón social {saved_razon}, CP {saved_cp}, uso CFDI {cfdi_clean}."
+        + (" Constancia recibida." if tiene_constancia else " Sin constancia adjunta.")
+        + aviso
     )
 
 

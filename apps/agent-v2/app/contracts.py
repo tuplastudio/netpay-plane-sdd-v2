@@ -20,6 +20,12 @@ class ChatRequest(BaseModel):
     messageId: str | None = None
     text: str | None = None
     imageBase64: str | None = None
+    # Nota de voz del chat web (el puente de WhatsApp llega con `text` ya
+    # transcrito por commerce-api antes de llamar aquí — ver
+    # whatsapp.controller.ts). Sin `text` ni imagen, se transcribe aquí
+    # mismo (ver `pipeline/turn.py._prepare`); si viene junto con `text`,
+    # gana el texto y el audio se ignora.
+    audioBase64: str | None = None
     # Video: o base64 (cuando el canal lo manda embebido, p. ej. WhatsApp) o
     # URL pública (más eficiente: Gemini la baja él mismo; OpenRouter la
     # proxy). Si vienen los dos, gana el base64.

@@ -213,6 +213,27 @@ además viaja a Langfuse como una traza (`app/observability.py`) — un
 dashboard filtrable por tenant en vez de grep. Apagado de fábrica y
 fail-open: ver la tabla de "Capas opcionales" más abajo.
 
+### Audio, imagen y video
+
+- **Audio.** El camino correcto es transcribir ANTES de `POST /chat`
+  (`POST /audio/stt`, mismo endpoint) — así lo hace WhatsApp
+  (`whatsapp.controller.ts` transcribe antes de llamar al puente) y desde
+  esta sesión también el chat web (`apps/web/.../chat/page.tsx`). `text`
+  llega ya transcrito; `audioBase64` en `ChatRequest` es solo una defensa
+  en profundidad: si algún caller manda audio crudo sin texto, `_prepare`
+  lo transcribe ahí mismo (`pipeline/turn.py._transcribe_audio`) en vez de
+  rechazar con 400.
+- **Imagen y video.** Van como bloque `image_url` con `data:<mime>;base64,…`
+  o una URL pública (`pipeline/turn.py._prepare`). El video pesa: antes de
+  armar el bloque se resuelve el modelo EFECTIVO del tenant
+  (`agent_settings.effective_model`, el que fijó en el panel o el default
+  del proceso) contra `agent.model_capabilities()`; si ese modelo no
+  soporta video (p. ej. `openai/gpt-4o-mini`, texto/imagen only — ver
+  `_SUPPORTED_MODELS` en `api/settings.py`), el video se descarta y el
+  texto lleva un aviso ("no puede verlo, pídele que lo describa") en vez de
+  mandarlo igual y gastar una llamada que el proveedor rechaza sin pista de
+  la causa real.
+
 ## Conocimiento por tenant
 
 `KNOWLEDGE_DIR` (en compose: `/data/agent-v2/knowledge`, volumen

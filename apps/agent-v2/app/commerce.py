@@ -398,13 +398,19 @@ class CommerceClient:
         self,
         order_id: str,
         *,
-        rfc: str,
-        legal_name: str,
-        postal_code: str,
         cfdi_use: str,
+        rfc: str | None = None,
+        legal_name: str | None = None,
+        postal_code: str | None = None,
+        regimen_fiscal: str | None = None,
         constancia_url: str | None = None,
         notes: str | None = None,
     ) -> dict[str, Any]:
+        """`rfc`/`legal_name`/`postal_code`/`regimen_fiscal` son opcionales
+        si `constancia_url` viene puesto: el backend descarga esa constancia
+        de situación fiscal y lee de ahí lo que falte (ver
+        `commerce-api/src/orders/constancia-parser.ts`). Solo `cfdi_use`
+        siempre hay que mandarlo."""
         return await self._request(
             "PATCH",
             f"/orders/{order_id}/invoice-request",
@@ -412,6 +418,7 @@ class CommerceClient:
                 "rfc": rfc,
                 "legalName": legal_name,
                 "postalCode": postal_code,
+                "regimenFiscal": regimen_fiscal,
                 "cfdiUse": cfdi_use,
                 "constanciaUrl": constancia_url,
                 "notes": notes,

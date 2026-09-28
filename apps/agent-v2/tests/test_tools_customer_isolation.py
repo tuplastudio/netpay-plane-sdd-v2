@@ -38,6 +38,8 @@ class FakeCommerce:
         self.queries: list[str] = []
         self.ensure_calls: list[dict[str, Any]] = []
         self.invoices: list[str] = []
+        self.invoice_calls: list[dict[str, Any]] = []
+        self.invoice_response: dict[str, Any] = {}
         self.quotes = {
             "Q-MINE": {"id": "Q-MINE", "customerId": "c-me", "customer": ME, "status": "ISSUED",
                        "total": "10.00", "expiresAt": "x", "lines": []},
@@ -93,6 +95,9 @@ class FakeCommerce:
 
     async def request_invoice(self, order_id: str, **_k: Any) -> dict[str, Any]:
         self.invoices.append(order_id)
+        self.invoice_calls.append(_k)
+        if self.invoice_response:
+            return self.invoice_response
         return {}
 
 
@@ -240,3 +245,37 @@ async def test_solicitar_factura_refuses_foreign_order(fake: FakeCommerce) -> No
     )
     assert out == "No encontré ese pedido en esta conversación."
     assert fake.invoices == []
+
+
+@pytest.mark.asyncio
+async def test_solicitar_factura_needs_constancia_or_full_manual_data(fake: FakeCommerce) -> None:
+    """Sin constancia, no basta con dictar solo parte de los datos."""
+    out = await tools.solicitar_factura.coroutine(
+        orderId="O-MINE", rfc="AAAA800101AB1", usoCfdi="G03", runtime=_runtime(),
+    )
+    assert "Faltan datos fiscales" in out
+    assert fake.invoices == []
+
+
+@pytest.mark.asyncio
+async def test_solicitar_factura_constancia_only_is_enough(fake: FakeCommerce) -> None:
+    """`constanciaUrl` sola (sin rfc/razonSocial/codigoPostal) basta: el
+    backend los llena. El mensaje final usa lo que el backend guardó."""
+    fake.invoice_response = {
+        "invoiceRfc": "XAXX010101000",
+        "invoiceLegalName": "Empresa de la Constancia SA de CV",
+        "invoicePostalCode": "64000",
+        "invoiceConstanciaUrl": "https://example.com/constancia.pdf",
+    }
+    out = await tools.solicitar_factura.coroutine(
+        orderId="O-MINE",
+        usoCfdi="G03",
+        constanciaUrl="https://example.com/constancia.pdf",
+        runtime=_runtime(),
+    )
+    assert fake.invoices == ["O-MINE"]
+    call = fake.invoice_calls[-1]
+    assert call["rfc"] is None and call["legal_name"] is None and call["postal_code"] is None
+    assert call["constancia_url"] == "https://example.com/constancia.pdf"
+    assert "XAXX010101000" in out
+    assert "Empresa de la Constancia SA de CV" in out

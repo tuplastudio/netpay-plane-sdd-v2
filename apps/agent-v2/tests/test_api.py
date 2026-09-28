@@ -397,7 +397,7 @@ def test_malformed_tenant_id_is_rejected_with_400(client: TestClient) -> None:
 # ---------------- arquitectura: stages, runtime, context ----------------
 
 
-def test_turn_pipeline_stages_are_callable_independently(client: TestClient) -> None:
+async def test_turn_pipeline_stages_are_callable_independently(client: TestClient) -> None:
     """Cada etapa del pipeline es un método separado y se puede probar de a una.
 
     No requiere levantar el grafo: el doble ya está cableado por el fixture.
@@ -414,12 +414,12 @@ def test_turn_pipeline_stages_are_callable_independently(client: TestClient) -> 
         settings=pipeline.settings,
         trace=TurnTrace(),
     )
-    pipeline._prepare(ctx)
+    await pipeline._prepare(ctx)
     assert ctx.thread_id == "t1:s1" and ctx.conversation_id == "s1"
     assert ctx.content == "hola"
 
 
-def test_pipeline_context_redirect_returns_response(client: TestClient) -> None:
+async def test_pipeline_context_redirect_returns_response(client: TestClient) -> None:
     """`PipelineContext.redirect()` arma un `ChatResponse` listo y registra métricas."""
     from app.contracts import ChatRequest
     from app.pipeline.trace import TurnTrace
@@ -433,7 +433,7 @@ def test_pipeline_context_redirect_returns_response(client: TestClient) -> None:
         settings=pipeline.settings,
         trace=TurnTrace(),
     )
-    pipeline._prepare(ctx)
+    await pipeline._prepare(ctx)
     before = main.runtime.metrics.counters.get("turn.redirect.inyeccion", 0)
     response = ctx.redirect(
         intent="INYECCION",

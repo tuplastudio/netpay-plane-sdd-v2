@@ -29,6 +29,8 @@ pipeline se prueba con un doble del grafo y sin servidor.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import logging
 import re
@@ -37,7 +39,9 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from ..agent_settings import get_settings_store
+from ..agent import model_capabilities
+from ..agent_settings import get_agent_settings, get_settings_store
+from ..audio import AudioTooLarge, AudioUnavailable, transcribe
 from ..config import Settings
 from ..contracts import ChatRequest, ChatResponse
 from ..guards import (
@@ -255,7 +259,7 @@ class TurnPipeline:
     async def _run(self, ctx: PipelineContext, trace: TurnTrace) -> ChatResponse:
         req = ctx.req
         rt = ctx.rt
-        self._prepare(ctx)  # puede lanzar TurnRejected (400/413/503)
+        await self._prepare(ctx)  # puede lanzar TurnRejected (400/413/503)
 
         # Idempotencia ANTES de la ráfaga: un reintento de webhook con el
         # mismo messageId no debe pegarse a un turno nuevo como texto
@@ -316,12 +320,18 @@ class TurnPipeline:
 
     # ------------------------------------------------------------ etapas
 
-    def _prepare(self, ctx: PipelineContext) -> None:
+    async def _prepare(self, ctx: PipelineContext) -> None:
         """Sanea texto, valida imagen, resuelve ids. Si algo no pasa, lanza
         `TurnRejected` con el status HTTP correcto (400/413/503)."""
         s = ctx.settings
         req = ctx.req
         ctx.text = neutralize((req.text or "").strip()[: s.max_input_chars])
+        # Defensa en profundidad: el chat web debería transcribir ANTES de
+        # llamar /chat (mismo POST /audio/stt que ya usa WhatsApp), pero si
+        # algún caller manda audioBase64 crudo sin texto, no lo tiramos con
+        # un 400 — se transcribe aquí.
+        if not ctx.text and req.audioBase64:
+            ctx.text = await self._transcribe_audio(req.audioBase64)
         if not ctx.text and req.imageBase64:
             ctx.text = "[el cliente envió una imagen]"
         if not ctx.text:
@@ -348,7 +358,17 @@ class TurnPipeline:
             "customer_email": req.customerEmail,
         }
 
-        if req.imageBase64 or req.videoBase64 or req.videoUrl:
+        has_video = bool(req.videoBase64 or req.videoUrl)
+        if has_video and not self._model_supports_video(req.tenantId):
+            # El tenant puede fijar un modelo texto-only (gpt-4o-mini está en
+            # la lista de `_SUPPORTED_MODELS` sin soporte de video — ver
+            # api/settings.py). Mandar el video igual solo gasta una llamada
+            # que el proveedor rechaza, sin pista de la causa real para el
+            # cliente. Se degrada a texto con un aviso, igual que "sin
+            # imagen" más abajo.
+            has_video = False
+            ctx.text = f"{ctx.text}\n[el cliente envió un video; este negocio no puede verlo, pídele que lo describa o mande una foto]".strip()
+        if req.imageBase64 or has_video:
             # Bloques multimodales: LangChain y OpenRouter aceptan image_url
             # con `data:video/<mime>;base64,…` o con una URL pública (Gemini
             # la descarga él mismo). El tipo sigue siendo `image_url` porque
@@ -364,7 +384,7 @@ class TurnPipeline:
                         },
                     }
                 )
-            if req.videoBase64:
+            if has_video and req.videoBase64:
                 mime = req.videoMimeType or "video/mp4"
                 ctx.content.append(
                     {
@@ -374,7 +394,7 @@ class TurnPipeline:
                         },
                     }
                 )
-            elif req.videoUrl:
+            elif has_video and req.videoUrl:
                 ctx.content.append(
                     {
                         "type": "image_url",
@@ -383,6 +403,33 @@ class TurnPipeline:
                 )
         else:
             ctx.content = ctx.text
+
+    async def _transcribe_audio(self, audio_b64: str) -> str:
+        """Audio -> texto (STT), para el camino de defensa en profundidad de
+        `_prepare`. Nunca deja el turno sin texto en silencio: cualquier
+        fallo se convierte en un `TurnRejected` claro."""
+        try:
+            raw = base64.b64decode(audio_b64, validate=False)
+        except (binascii.Error, ValueError) as exc:
+            raise TurnRejected(400, "audioBase64 inválido") from exc
+        try:
+            result = await transcribe(raw, settings=self.settings)
+        except AudioTooLarge as exc:
+            raise TurnRejected(413, str(exc)) from exc
+        except AudioUnavailable as exc:
+            raise TurnRejected(503, "No se pudo transcribir el audio; intenta escribiendo tu mensaje") from exc
+        text = (result.get("text") or "").strip()
+        if not text:
+            raise TurnRejected(400, "No se entendió el audio; intenta escribiendo tu mensaje")
+        return text
+
+    def _model_supports_video(self, tenant_id: str) -> bool:
+        """El modelo EFECTIVO de este tenant (el que fijó en el panel, o el
+        default del proceso) soporta video — mismo criterio que usa
+        `agent.py._override` para elegir el modelo real de la llamada."""
+        overrides = get_agent_settings(tenant_id)
+        model = overrides.effective_model(self.settings.model) if overrides else self.settings.model
+        return model_capabilities(model).get("video", False)
 
     async def _stage_coalesce(self, ctx: PipelineContext) -> ChatResponse | None:
         """Varios mensajes seguidos del mismo cliente por WhatsApp se
