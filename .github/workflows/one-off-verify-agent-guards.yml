@@ -28,10 +28,10 @@ jobs:
 
             echo ""
             echo "=== guards + observability en /diagnostics ==="
-            $DC exec -T agent-v2 python -c "
-import os, httpx, json
-key = os.environ['AGENT_INTERNAL_KEY']
-r = httpx.get('http://localhost:8010/diagnostics', headers={'x-internal-key': key}, timeout=15)
-data = r.json()
-print(json.dumps({'guards': data.get('guards'), 'observability': data.get('observability')}, indent=2, ensure_ascii=False))
-"
+            $DC exec -T agent-v2 python - <<'PY'
+            import os, httpx, json
+            key = os.environ["AGENT_INTERNAL_KEY"]
+            r = httpx.get("http://localhost:8010/diagnostics", headers={"x-internal-key": key}, timeout=15)
+            data = r.json()
+            print(json.dumps({"guards": data.get("guards"), "observability": data.get("observability")}, indent=2, ensure_ascii=False))
+            PY
