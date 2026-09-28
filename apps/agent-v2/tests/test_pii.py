@@ -1,5 +1,7 @@
 import logging
+from types import SimpleNamespace
 from unittest import TestCase
+from unittest.mock import patch
 
 from app.guards import pii
 
@@ -45,6 +47,82 @@ class DetectRedactTests(TestCase):
     def test_empty(self) -> None:
         self.assertEqual(pii.redact(""), "")
         self.assertEqual(pii.detect(""), [])
+
+
+class RedactNamesTests(TestCase):
+    """`redact_names` (Presidio) es opt-in y nunca debe reventar el turno."""
+
+    def setUp(self) -> None:
+        # Aislar el caché de proceso del analizador entre pruebas.
+        self._analyzer = pii._presidio_analyzer
+        self._broken = pii._presidio_broken
+        pii._presidio_analyzer = None
+        pii._presidio_broken = False
+
+    def tearDown(self) -> None:
+        pii._presidio_analyzer = self._analyzer
+        pii._presidio_broken = self._broken
+
+    def test_disabled_by_default_is_noop(self) -> None:
+        with patch.object(pii, "get_settings", return_value=SimpleNamespace(presidio_enabled=False)):
+            self.assertEqual(pii.redact_names("Juan Pérez vive en Culiacán"), "Juan Pérez vive en Culiacán")
+
+    def test_empty_text_is_noop(self) -> None:
+        with patch.object(pii, "get_settings", return_value=SimpleNamespace(presidio_enabled=True)):
+            self.assertEqual(pii.redact_names(""), "")
+
+    def test_missing_dependency_degrades_to_original_text(self) -> None:
+        # presidio-analyzer/spacy no están instalados en este entorno de
+        # pruebas: exactamente el caso que debe degradar sin romper nada.
+        with patch.object(pii, "get_settings", return_value=SimpleNamespace(presidio_enabled=True)):
+            text = "Juan Pérez vive en Culiacán"
+            self.assertEqual(pii.redact_names(text), text)
+        self.assertTrue(pii._presidio_broken)
+
+    def test_analyzer_failure_returns_original_text(self) -> None:
+        class BoomAnalyzer:
+            def analyze(self, **kwargs):
+                raise RuntimeError("boom")
+
+        pii._presidio_analyzer = BoomAnalyzer()
+        with patch.object(pii, "get_settings", return_value=SimpleNamespace(presidio_enabled=True)):
+            text = "Juan Pérez vive en Culiacán"
+            self.assertEqual(pii.redact_names(text), text)
+
+    def test_masks_detected_entities(self) -> None:
+        class FakeResult:
+            def __init__(self, entity_type: str, start: int, end: int) -> None:
+                self.entity_type = entity_type
+                self.start = start
+                self.end = end
+
+        class FakeAnalyzer:
+            def analyze(self, *, text: str, language: str, entities: list[str]):
+                idx = text.index("Juan Pérez")
+                return [FakeResult("PERSON", idx, idx + len("Juan Pérez"))]
+
+        pii._presidio_analyzer = FakeAnalyzer()
+        with patch.object(pii, "get_settings", return_value=SimpleNamespace(presidio_enabled=True)):
+            self.assertEqual(
+                pii.redact_names("Juan Pérez vive en Culiacán"), "[nombre] vive en Culiacán"
+            )
+
+    def test_composes_after_regex_redact(self) -> None:
+        class FakeResult:
+            def __init__(self, entity_type: str, start: int, end: int) -> None:
+                self.entity_type = entity_type
+                self.start = start
+                self.end = end
+
+        class FakeAnalyzer:
+            def analyze(self, *, text: str, language: str, entities: list[str]):
+                idx = text.index("Juan")
+                return [FakeResult("PERSON", idx, idx + len("Juan"))]
+
+        pii._presidio_analyzer = FakeAnalyzer()
+        with patch.object(pii, "get_settings", return_value=SimpleNamespace(presidio_enabled=True)):
+            combined = pii.redact_names(pii.redact("Juan, escríbeme a juan@example.com"))
+            self.assertEqual(combined, "[nombre], escríbeme a [correo]")
 
 
 class LoggingFilterTests(TestCase):

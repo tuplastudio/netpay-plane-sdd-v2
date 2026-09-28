@@ -38,6 +38,7 @@ from langgraph.errors import GraphBubbleUp
 from .agent_settings import get_agent_settings
 from .config import Settings, get_settings
 from .prompts import assemble_prompt
+from .remote_config import get_float as remote_float
 from .state import SalesState, TurnContext, working_memory_block
 from .tenant_context import load_company_context, resolve_tenant_bundle, warm_catalog
 from .tools import SALES_TOOLS
@@ -273,10 +274,14 @@ def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
         overrides = get_agent_settings(tenant_id) if tenant_id else None
 
         model_name = overrides.effective_model(settings.model) if overrides else settings.model
+        # Orden: el tenant que fijó su propia temperatura en el panel siempre
+        # gana; si no fijó nada, un flag remoto (Flagsmith, ver
+        # `remote_config.py`) puede subir/bajar el default del proceso para
+        # TODOS los tenants sin redeploy; si tampoco hay flag, el de siempre.
         temperature = (
             overrides.temperature
             if overrides and overrides.temperature is not None
-            else settings.temperature
+            else remote_float("agent_temperature", settings.temperature)
         )
         max_tokens = (
             overrides.max_tokens if overrides and overrides.max_tokens else settings.max_tokens

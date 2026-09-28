@@ -63,6 +63,11 @@ services:
       PAYMENT_PROVIDER: DUMMY
       SESSION_SECRET_REF: ${SESSION_SECRET_REF:?Set SESSION_SECRET_REF (>=64 chars)}
       TOKEN_ENCRYPTION_KEY_REF: ${TOKEN_ENCRYPTION_KEY_REF:?Set TOKEN_ENCRYPTION_KEY_REF (>=32 chars)}
+      # De momento apagado: ningún hilo se cierra ni pierde contexto por
+      # inactividad, sin importar lo que un tenant tenga configurado en el
+      # panel (`auto_close_enabled`). Reversible: quitar esta línea (o poner
+      # "true") reactiva el job (ver conversation-auto-close.service.ts).
+      WHATSAPP_AUTO_CLOSE_JOB: ${WHATSAPP_AUTO_CLOSE_JOB:-false}
     depends_on:
       dummy-gateway:
         condition: service_healthy

@@ -14,9 +14,22 @@ Dónde se usa:
 
 Patrones cubiertos: correo, teléfono (10 a 13 dígitos con o sin +52),
 tarjeta bancaria (13-19 dígitos con Luhn válido), CLABE (18 dígitos), RFC,
-CURP, y en modo agresivo cualquier secuencia de 6+ dígitos. No pretende ser
-un detector NER de nombres: los nombres se tratan aparte (por ejemplo, la
-memoria episódica elimina el nombre conocido del cliente y del negocio).
+CURP, y en modo agresivo cualquier secuencia de 6+ dígitos. `redact()` es
+puro regex a propósito (la usa el filtro de logs en cada línea; no puede
+cargar un modelo de NLP).
+
+**Nombres y lugares** (`redact_names`, opcional): regex no detecta "Juan
+Pérez" ni "Culiacán" como dato personal — para eso hace falta NER, no
+patrones. Cuando `AGENT_PRESIDIO_ENABLED=1` y las dependencias están
+instaladas (`presidio-analyzer`, `spacy` + el modelo `es_core_news_sm`),
+`redact_names` corre Microsoft Presidio (entidades PERSON/LOCATION) sobre
+texto YA pasado por `redact()`. Apagado de fábrica: el modelo de spaCy pesa
+~15 MB y analizar cuesta más que un regex, así que solo vale la pena en los
+puntos de más riesgo (memoria episódica, perfil de cliente), nunca en cada
+línea de log. Si la librería falta, el modelo no está descargado, o el
+análisis falla, se degrada a devolver el texto tal cual (nunca revienta el
+turno ni deja de redactar lo que sí cubre el regex) — mismo principio de
+"falla hacia el cliente" que el resto de las capas.
 """
 
 from __future__ import annotations
@@ -24,6 +37,10 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from typing import Any
+
+from ..config import get_settings
+from ..remote_config import get_bool as remote_bool
 
 # Orden importa: lo más específico primero (tarjeta/CLABE antes que teléfono,
 # CURP antes que RFC porque un CURP contiene un patrón parecido al RFC).
@@ -137,6 +154,85 @@ def contains_pii(text: str, *, kinds: tuple[str, ...] | None = None) -> bool:
 
 SENSITIVE_KINDS: tuple[str, ...] = ("card", "clabe", "curp")
 """Datos que el agente jamás debe pedir ni repetir (ver prompt v1.1.0)."""
+
+
+_logger = logging.getLogger(__name__)
+
+_PRESIDIO_ENTITIES: dict[str, str] = {"PERSON": "[nombre]", "LOCATION": "[lugar]"}
+_PRESIDIO_LANGUAGE = "es"
+_PRESIDIO_MODEL = "es_core_news_sm"
+
+# Estado del analizador, cacheado a nivel de proceso: cargar el modelo de
+# spaCy toma un segundo largo, así que se hace una sola vez (al primer uso
+# real, no al importar el módulo) y se reusa. `_presidio_broken=True` es
+# permanente para el proceso: si falló una vez (librería ausente, modelo sin
+# descargar), reintentar en cada turno no lo va a arreglar y solo agrega
+# latencia — el próximo despliegue con las dependencias correctas sí lo toma.
+_presidio_analyzer: Any = None
+_presidio_broken = False
+
+
+def _get_presidio_analyzer() -> Any:
+    global _presidio_analyzer, _presidio_broken
+    if _presidio_analyzer is not None or _presidio_broken:
+        return _presidio_analyzer
+    try:
+        from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+
+        provider = NlpEngineProvider(
+            nlp_configuration={
+                "nlp_engine_name": "spacy",
+                "models": [{"lang_code": _PRESIDIO_LANGUAGE, "model_name": _PRESIDIO_MODEL}],
+            }
+        )
+        _presidio_analyzer = AnalyzerEngine(
+            nlp_engine=provider.create_engine(),
+            supported_languages=[_PRESIDIO_LANGUAGE],
+        )
+    except Exception:  # noqa: BLE001 - librería/modelo ausente no debe tumbar el turno
+        _logger.warning(
+            "Presidio no disponible (falta presidio-analyzer, spacy o el modelo %s); "
+            "redact_names() degrada a no-op",
+            _PRESIDIO_MODEL,
+            exc_info=True,
+        )
+        _presidio_broken = True
+        _presidio_analyzer = None
+    return _presidio_analyzer
+
+
+def redact_names(text: str) -> str:
+    """Enmascara nombres de persona y lugares detectados por NER (Presidio).
+
+    No-op si `AGENT_PRESIDIO_ENABLED` está apagado (default) o si Presidio no
+    está disponible. Pensado para encadenarse DESPUÉS de `redact()`, sobre
+    texto que ya no tiene correos/teléfonos/tarjetas, no como sustituto.
+    """
+    if not text or not remote_bool("presidio_enabled", get_settings().presidio_enabled):
+        return text or ""
+    analyzer = _get_presidio_analyzer()
+    if analyzer is None:
+        return text
+    try:
+        results = analyzer.analyze(
+            text=text, language=_PRESIDIO_LANGUAGE, entities=list(_PRESIDIO_ENTITIES)
+        )
+    except Exception:  # noqa: BLE001 - un fallo de análisis no debe perder el texto
+        _logger.warning("Presidio falló analizando texto; se deja sin redacción de nombres", exc_info=True)
+        return text
+    if not results:
+        return text
+    out: list[str] = []
+    cursor = 0
+    for match in sorted(results, key=lambda r: r.start):
+        if match.start < cursor:
+            continue  # solapa con una entidad ya enmascarada
+        out.append(text[cursor : match.start])
+        out.append(_PRESIDIO_ENTITIES.get(match.entity_type, "[dato]"))
+        cursor = match.end
+    out.append(text[cursor:])
+    return "".join(out)
 
 
 class RedactingFilter(logging.Filter):

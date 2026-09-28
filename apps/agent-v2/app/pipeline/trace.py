@@ -16,14 +16,30 @@ Prometheus, sino responder "¿está sano el agente?" sin infraestructura.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections import Counter, deque
 from typing import Any
 
+from ..observability import report_turn
+
 
 def new_turn_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def log_turn_done(log: logging.Logger, trace: TurnTrace, tenant_id: str | None = None) -> None:
+    """Cierra el turno: UNA línea `turn.done` en el log + traza a Langfuse.
+
+    `tenant_id` solo viaja a Langfuse (identifica al negocio, no a una
+    persona); el log del proceso no lo necesita porque ya va en el
+    `thread_id` que otros logs de la misma línea de ejecución llevan
+    (`bind_turn_id`). `report_turn` es no-op si Langfuse está apagado.
+    """
+    payload = trace.to_dict()
+    log.info("turn.done %s", payload)
+    report_turn(payload, tenant_id=tenant_id)
 
 
 class TurnTrace:

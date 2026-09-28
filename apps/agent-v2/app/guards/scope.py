@@ -29,6 +29,7 @@ import re
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..config import Settings
+from ..remote_config import get_bool as remote_bool
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ async def is_off_topic(
     ``guards/injection.py`` corren antes y cubren los casos obvios, así que
     aquí el fallo abierto sigue siendo el default razonable.
     """
-    if not settings.scope_guard_enabled or not text.strip():
+    if not remote_bool("scope_guard_enabled", settings.scope_guard_enabled) or not text.strip():
         return False
     closed = settings.scope_guard_fail_closed if fail_closed is None else fail_closed
     try:

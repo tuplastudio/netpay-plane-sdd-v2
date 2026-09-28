@@ -4,7 +4,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    # Modelo de spaCy para Presidio (guards/pii.py:redact_names). Se descarga
+    # siempre —pesa ~15 MB— aunque AGENT_PRESIDIO_ENABLED esté apagado, para
+    # poder prenderlo por env sin reconstruir la imagen.
+    && python -m spacy download es_core_news_sm
 
 COPY app ./app
 COPY knowledge ./knowledge

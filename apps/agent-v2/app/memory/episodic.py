@@ -53,7 +53,7 @@ from typing import Any, Iterable, Sequence
 import aiosqlite
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from ..guards.pii import redact
+from ..guards.pii import redact, redact_names
 from .context import SUMMARY_PREFIX
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,7 @@ def conversation_key(tenant_id: str, conversation_id: str) -> str:
 
 def scrub_text(text: str, forbidden_terms: Iterable[str] = ()) -> str:
     """Texto libre apto para el episodio, o "" si no se puede limpiar con certeza."""
-    cleaned = redact(str(text or ""), aggressive=True)
+    cleaned = redact_names(redact(str(text or ""), aggressive=True))
     for term in forbidden_terms:
         term = (term or "").strip()
         if len(term) >= 3:
@@ -360,7 +360,7 @@ def redacted_transcript(messages: Sequence[BaseMessage], forbidden_terms: Iterab
             continue
         else:
             continue
-        text = redact(_text_of(message), aggressive=True)
+        text = redact_names(redact(_text_of(message), aggressive=True))
         for term in terms:
             if len(term) >= 3:
                 text = re.sub(re.escape(term), "[…]", text, flags=re.IGNORECASE)

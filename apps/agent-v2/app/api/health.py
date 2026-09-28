@@ -162,6 +162,12 @@ async def diagnostics(tenantId: str | None = Query(default=None)) -> dict[str, A
             "scopeGuard": settings.scope_guard_enabled,
             "scopeGuardFailClosed": settings.scope_guard_fail_closed,
             "outputGuard": settings.output_guard_enabled,
+            "presidio": settings.presidio_enabled,
+            "nemoGuardrails": settings.nemo_guardrails_enabled,
+        },
+        "observability": {
+            "langfuse": settings.langfuse_enabled,
+            "remoteConfig": settings.remote_config_enabled,
         },
         "coalesce": {
             "windowMs": settings.coalesce_window_ms,

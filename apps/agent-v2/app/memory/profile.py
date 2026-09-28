@@ -55,7 +55,7 @@ from typing import Any
 
 import aiosqlite
 
-from ..guards.pii import redact
+from ..guards.pii import redact, redact_names
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ def _clean(text: Any, limit: int, *, strip_pii: bool = True) -> str:
     """
     value = str(text or "")
     if strip_pii:
-        value = redact(value)
+        value = redact_names(redact(value))
     return " ".join(value.split())[:limit]
 
 

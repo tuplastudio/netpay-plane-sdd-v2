@@ -43,6 +43,7 @@ from ..contracts import ChatRequest, ChatResponse
 from ..guards import (
     detect_injection,
     is_off_topic,
+    nemo_check_input,
     neutralize,
     off_scope_category,
     redirect_reply,
@@ -52,6 +53,7 @@ from ..knowledge import load_profile
 from ..log_context import bind_turn_id, reset_turn_id
 from ..memory import build_llm_summarizer, compact_thread, history_chars
 from ..memory.profile import get_profile_store
+from ..remote_config import get_bool as remote_bool
 from ..security import media_size_error
 from ..state import TurnContext
 from ..tenant_context import TenantBundle, resolve_tenant_bundle
@@ -60,7 +62,7 @@ from .failures import FailureKind, classify_failure, decide_failure
 from .post_turn import record_learning, schedule_episode
 from .replies import fallback_reply, final_reply, last_assistant_reply
 from .responses import response_from_values
-from .trace import TurnTrace
+from .trace import TurnTrace, log_turn_done
 
 if TYPE_CHECKING:
     from ..runtime import Runtime
@@ -148,7 +150,7 @@ class PipelineContext:
         formatted = format_for_whatsapp(reply) if self.req.channel == "whatsapp" else reply
         self.rt.metrics.incr(metric) if metric else None
         self.trace.note(engine=engine, intent=intent)
-        log.info("turn.done %s", self.trace.to_dict())
+        log_turn_done(log, self.trace, tenant_id=self.req.tenantId)
         return response_from_values(
             self.conversation_id,
             self.state_values,
@@ -276,8 +278,13 @@ class TurnPipeline:
             if handoff_response := await self._stage_active_handoff(ctx):
                 return await self._remember(ctx.thread_id, req.messageId, handoff_response)
 
-            # Capas de entrada: heurísticas + clasificador de tema.
-            for stage in (self._stage_input_heuristics, self._stage_scope_guard):
+            # Capas de entrada: heurísticas + clasificador de tema + NeMo
+            # Guardrails (opcional, apagado de fábrica — ver guards/nemo_rails.py).
+            for stage in (
+                self._stage_input_heuristics,
+                self._stage_scope_guard,
+                self._stage_nemo_guardrails,
+            ):
                 if response := await stage(ctx):
                     return await self._remember(ctx.thread_id, req.messageId, response)
 
@@ -470,7 +477,7 @@ class TurnPipeline:
 
     async def _stage_input_heuristics(self, ctx: PipelineContext) -> ChatResponse | None:
         """Capa 1 (determinista, sin tokens): inyección y fuera de tema obvio."""
-        if not ctx.settings.input_heuristics_enabled:
+        if not remote_bool("input_heuristics_enabled", ctx.settings.input_heuristics_enabled):
             ctx.trace.mark("input_heuristics")
             return None
         req = ctx.req
@@ -520,6 +527,29 @@ class TurnPipeline:
                 metric="turn.redirect.fuera_de_tema",
             )
         ctx.trace.mark("scope_guard")
+        return None
+
+    async def _stage_nemo_guardrails(self, ctx: PipelineContext) -> ChatResponse | None:
+        """Capa 3, opcional (NeMo Guardrails): solo corre si está prendida
+        (por env o flag remoto) y solo sobre texto (igual que el
+        clasificador de tema)."""
+        if (
+            not remote_bool("nemo_guardrails_enabled", ctx.settings.nemo_guardrails_enabled)
+            or ctx.req.imageBase64
+        ):
+            ctx.trace.mark("nemo_guardrails")
+            return None
+        req = ctx.req
+        business = ctx.ensure_business_name()
+        if not await nemo_check_input(ctx.text):
+            log.info("mensaje bloqueado por NeMo Guardrails en tenant %s", req.tenantId)
+            return ctx.redirect(
+                intent="INYECCION",
+                engine="nemo-guardrails",
+                reply=redirect_reply(business, ctx.text),
+                metric="turn.redirect.nemo_guardrails",
+            )
+        ctx.trace.mark("nemo_guardrails")
         return None
 
     async def _stage_auto_compact(self, ctx: PipelineContext) -> None:
@@ -665,7 +695,7 @@ class TurnPipeline:
         trace.mark("post_turn")
         rt.metrics.incr("turn.ok")
         rt.metrics.observe_latency(ctx.latency_ms)
-        log.info("turn.done %s", trace.to_dict())
+        log_turn_done(log, trace, tenant_id=req.tenantId)
 
         return response_from_values(
             ctx.conversation_id,
@@ -727,7 +757,7 @@ class TurnPipeline:
 
         trace.note(engine=decision.engine, intent=decision.intent, streak=decision.streak)
         trace.mark("failure")
-        log.info("turn.done %s", trace.to_dict())
+        log_turn_done(log, trace, tenant_id=req.tenantId)
         response = response_from_values(
             conversation_id,
             state_values,

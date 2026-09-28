@@ -59,6 +59,8 @@ app/
                        + versión de prompt + lecciones, cacheado por tenant
   config.py            Settings por env (sin secretos en código)
   agent_settings.py    Configuración por tenant desde el panel (JSON cifrado)
+  observability.py     Traza de turnos hacia Langfuse (opcional, ver abajo)
+  remote_config.py     Feature flags / hiperparámetros dinámicos vía Flagsmith (opcional)
   knowledge.py         Markdown del negocio por tenant, notas internas aparte
   learning.py          Señales que revisa el dueño (aprobación humana)
   security.py          Scopes de tools, saneo de texto, tamaño de imagen
@@ -73,6 +75,7 @@ app/
     injection.py       Heurísticas de inyección y fuera de alcance (sin LLM)
     scope.py           Clasificador LLM de tema (falla abierto por defecto)
     output.py          Guard de salida: fugas, código, URLs, datos sensibles
+    nemo_rails.py      Capa extra opcional (NVIDIA NeMo Guardrails) sobre inyección/jailbreak
   memory/              Memoria en cuatro niveles
     context.py         Compactar / vaciar el historial de un hilo
     episodic.py        Episodios de comportamiento por conversación + lecciones
@@ -117,7 +120,23 @@ Cada capa es independiente y apagable o ajustable por env
 (`AGENT_INPUT_HEURISTICS`, `AGENT_SCOPE_GUARD`, `AGENT_OUTPUT_GUARD`,
 `AGENT_COMPACT_AFTER_CHARS`, `AGENT_COALESCE_WINDOW_MS`,
 `AGENT_RETRY_TRANSIENT`, `AGENT_HANDOFF_AFTER_FAILURES`,
-`AGENT_EPISODIC_MEMORY`). `GET /diagnostics` muestra el estado de todas.
+`AGENT_EPISODIC_MEMORY`, `AGENT_PRESIDIO_ENABLED`,
+`AGENT_NEMO_GUARDRAILS_ENABLED`). `GET /diagnostics` muestra el estado de
+todas.
+
+### Capas opcionales: NeMo Guardrails, Presidio, Langfuse, Flagsmith
+
+Cuatro integraciones externas, todas apagadas de fábrica, todas
+fail-open (una librería ausente, una llave inválida o el servicio caído
+degradan a "esta capa no hace nada" en vez de tumbar o retrasar el turno —
+mismo principio que el resto de las capas):
+
+| Qué | Dónde | Se prende con | Para qué |
+|---|---|---|---|
+| **NVIDIA NeMo Guardrails** | `guards/nemo_rails.py` | `AGENT_NEMO_GUARDRAILS_ENABLED=1` | Capa EXTRA (no sustituye) de detección de jailbreak/inyección: un self-check con el mismo modelo del tenant, después de `guards/injection.py` y `guards/scope.py`. Cuesta una llamada más al LLM por turno — vale la pena solo si esas dos capas no bastan. Ver la nota de honestidad en el docstring del módulo: la integración se escribió sin poder instalar el paquete en este entorno (sin red), así que antes de confiar en ella en producción hay que correr un smoke test real. |
+| **Microsoft Presidio** | `guards/pii.py` (`redact_names`) | `AGENT_PRESIDIO_ENABLED=1` (+ el modelo `es_core_news_sm` de spaCy, que el `Dockerfile` ya descarga) | `guards/pii.redact()` es puro regex (correo, teléfono, tarjeta, CLABE, RFC, CURP) — no detecta nombres de persona ni lugares ("Juan Pérez", "Culiacán"). `redact_names()` corre Presidio (NER) sobre el texto que YA limpió el regex, solo en los dos puntos de más riesgo: memoria episódica (`memory/episodic.py`) y perfil de cliente (`memory/profile.py`). Nunca en el filtro de logs (demasiado caro por línea). |
+| **Langfuse** | `app/observability.py` | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | Manda el mismo resumen que ya loguea `turn.done` (`pipeline/trace.py`) — duración por etapa, motor, intent, reintento, nunca texto de cliente ni de respuesta — como una traza a Langfuse, para verlo en un dashboard filtrable por tenant en vez de grep sobre logs. |
+| **Flagsmith** | `app/remote_config.py` | `FLAGSMITH_ENVIRONMENT_KEY` (+ `FLAGSMITH_API_URL` si es self-hosteado) | Feature flags e hiperparámetros dinámicos: una TERCERA capa de configuración, encima del env (por proceso) y de `agent_settings.py` (por tenant, desde el panel). Deja que operación apague un guard o ajuste la temperatura por defecto para TODOS los tenants en caliente, sin redeploy y sin tocar el panel de cada negocio. Evaluación local (el SDK refresca en un hilo de fondo cada `FLAGSMITH_POLL_SECONDS`), así que cada lectura es en memoria, nunca una llamada de red por turno. Cubre a propósito solo un puñado de nombres de flag (`scope_guard_enabled`, `input_heuristics_enabled`, `nemo_guardrails_enabled`, `presidio_enabled`, `agent_temperature`) — no es un mecanismo general para mover cualquier valor de `config.py`. |
 
 ### Presupuesto de tiempo
 
@@ -189,6 +208,11 @@ si hubo reintento — nunca el texto del cliente ni de la respuesta.
 devuelve el transcript que ve el modelo (redactado por defecto) para
 responder "¿por qué contestó eso?" sin abrir el sqlite.
 
+Con `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` puestas, ese mismo resumen
+además viaja a Langfuse como una traza (`app/observability.py`) — un
+dashboard filtrable por tenant en vez de grep. Apagado de fábrica y
+fail-open: ver la tabla de "Capas opcionales" más abajo.
+
 ## Conocimiento por tenant
 
 `KNOWLEDGE_DIR` (en compose: `/data/agent-v2/knowledge`, volumen
@@ -226,7 +250,7 @@ Ver `prompts/README.md` para cómo publicar una versión nueva.
 | Uso fuera de alcance (clima, código, tareas, ilegal) | Heurística (sin tokens) + clasificador LLM + prompt + guard de salida (código) | `guards/injection.py`, `guards/scope.py`, `guards/output.py` |
 | Fuga del prompt / notas internas / secretos | Guard de salida compara líneas protegidas; sustituye reply y AIMessage | `guards/output.py`, `PromptVersion.protected_lines` |
 | URLs inventadas | Solo URLs de tools, del conocimiento o de `PUBLIC_BASE_URL` | `guards/output.py` |
-| PII en memoria episódica | Esquema cerrado + redacción antes y después del LLM + términos prohibidos | `memory/episodic.py` |
+| PII en memoria episódica | Esquema cerrado + redacción antes y después del LLM + términos prohibidos + nombres/lugares por NER (Presidio, opcional) | `memory/episodic.py`, `guards/pii.py` |
 | Teléfono en claro en la memoria del cliente | La llave es un HMAC con el `tenant_id` como sal: sirve para buscar, no para leer, y no correlaciona entre negocios | `memory/profile.py` |
 | Perfil de un cliente visible para otro negocio | Llave primaria `(tenant_id, phone_key)`; toda consulta lleva el tenant | `memory/profile.py` |
 | PII en señales del panel | Redacción antes de guardar | `pipeline/post_turn.py` (`record_learning`) |
@@ -350,6 +374,14 @@ sobre el ciclo de vida y le avisa al agente en cada transición
 | Cliente escribe a un hilo `CLOSED` (se reabre) | `release` (sin esperar) | Suelta cualquier handoff viejo. |
 | Puente recibe `{reply:"", handoff:true, intent:"HUMAN_ACTIVE"}` con la base en "bot atiende" | `release` + reintento único de `/chat` (mismo `messageId`) | Red de seguridad si algún aviso anterior falló. |
 
+El job de autocierre entero se puede apagar con `WHATSAPP_AUTO_CLOSE_JOB=false`
+en commerce-api (`conversation-auto-close.service.ts`), sin tocar el ajuste
+por tenant: útil para congelar cierres/pérdida de contexto para TODOS los
+negocios de golpe mientras se investiga algo, sin depender de que cada uno
+tenga `auto_close_enabled` en `false`. `infra/compose.prod.yaml` lo trae
+apagado por default desde 2026-09-27; quitar esa línea (o poner `true`)
+reactiva el job.
+
 Todo es best-effort: el agente caído nunca impide cerrar/reabrir en la base.
 El panel (`apps/web`) y commerce-api deben apuntar al MISMO agente
 (`AGENT_INTERNAL_URL` = `AGENT_URL`; `infra/compose.yaml` ya lo fuerza):
@@ -385,5 +417,10 @@ abierto/cerrado, la política de fallos (`test_failures.py`), las ráfagas
 (`test_coalesce.py`), la extracción/respaldo de respuesta
 (`test_replies.py`) y la API completa con un doble del grafo
 (`test_api.py`: reintento por reanudación, suave → handoff, respuesta
-vacía, bloques de contenido, ráfaga por WhatsApp, transcript, métricas).
+vacía, bloques de contenido, ráfaga por WhatsApp, transcript, métricas). Las
+cuatro capas opcionales (`test_pii.py::RedactNamesTests`,
+`test_observability.py`, `test_guards_nemo_rails.py`,
+`test_remote_config.py`) corren SIN las librerías externas instaladas —
+justamente prueban que, sin `presidio-analyzer`/`nemoguardrails`/`langfuse`/
+`flagsmith` disponibles, cada una degrada a no-op en vez de romper el turno.
 Los evals de `app/evals/` son aparte y cuestan dinero real.

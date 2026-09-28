@@ -249,6 +249,45 @@ class Settings:
     output_guard_enabled: bool = field(
         default_factory=lambda: _env_bool("AGENT_OUTPUT_GUARD", True)
     )
+    # Redacción de nombres/lugares vía NER (Microsoft Presidio + spaCy), sobre
+    # el texto que ya limpió `guards.pii.redact()` con regex. Apagado de
+    # fábrica: pesa más que el resto de los guards y solo se usa en los dos
+    # puntos de más riesgo (memoria episódica, perfil de cliente) — ver
+    # `guards/pii.py`.
+    presidio_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_PRESIDIO_ENABLED", False)
+    )
+    # Capa adicional (experimental) sobre NVIDIA NeMo Guardrails: un
+    # self-check de jailbreak/tema sobre el mismo modelo del tenant, ANTES
+    # de las heurísticas propias. Ver `guards/nemo_rails.py`. Apagado de
+    # fábrica: agrega una llamada más al LLM por turno.
+    nemo_guardrails_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_NEMO_GUARDRAILS_ENABLED", False)
+    )
+
+    # ---- Observabilidad externa (ver app/observability.py) ----
+    # `turn.done` (arriba) ya queda en el log del proceso; esto además manda
+    # el mismo resumen (sin texto de cliente ni de respuesta) a Langfuse como
+    # una traza por turno, para verlo en un dashboard en vez de grep. Se
+    # activa solo si hay llave — sin ella, `langfuse_enabled` es False y el
+    # módulo no intenta ni importar el SDK.
+    langfuse_public_key: str = field(default_factory=lambda: _env("LANGFUSE_PUBLIC_KEY"))
+    langfuse_secret_key: str = field(default_factory=lambda: _env("LANGFUSE_SECRET_KEY"))
+    langfuse_host: str = field(default_factory=lambda: _env("LANGFUSE_HOST", "https://cloud.langfuse.com"))
+
+    # ---- Feature flags / hiperparámetros dinámicos (ver app/remote_config.py) ----
+    # Una tercera capa de configuración, encima de esta (env, por proceso) y
+    # de `agent_settings.py` (por tenant, desde el panel): un valor que
+    # operación puede cambiar en caliente para TODOS los tenants sin
+    # redeploy. Apagado sin `FLAGSMITH_ENVIRONMENT_KEY` — el módulo entero
+    # se vuelve no-op, ni siquiera intenta importar el SDK.
+    flagsmith_environment_key: str = field(default_factory=lambda: _env("FLAGSMITH_ENVIRONMENT_KEY"))
+    # Vacío = SaaS de Flagsmith; con un Flagsmith self-hosteado (droplet
+    # propio, como el resto de este proyecto) apunta a su API.
+    flagsmith_api_url: str = field(default_factory=lambda: _env("FLAGSMITH_API_URL"))
+    flagsmith_poll_seconds: int = field(
+        default_factory=lambda: _env_int("FLAGSMITH_POLL_SECONDS", 30)
+    )
 
     # ---- Higiene de contexto (ver memory/context.py) ----
     # Cuando el historial persistido supera este tamaño en caracteres se
@@ -345,10 +384,20 @@ class Settings:
             raise SettingsError("AGENT_MAX_*_BYTES deben ser >= 1")
         if self.metrics_latency_samples < 1:
             raise SettingsError("AGENT_METRICS_LATENCY_SAMPLES debe ser >= 1")
+        if self.flagsmith_poll_seconds < 1:
+            raise SettingsError("FLAGSMITH_POLL_SECONDS debe ser >= 1")
 
     @property
     def llm_live(self) -> bool:
         return bool(self.openrouter_key)
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        return bool(self.langfuse_public_key and self.langfuse_secret_key)
+
+    @property
+    def remote_config_enabled(self) -> bool:
+        return bool(self.flagsmith_environment_key)
 
     @property
     def commerce_live(self) -> bool:
