@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/one-off-check-flagsmith.yml"
+  workflow_dispatch: {}
 
 jobs:
   check:
