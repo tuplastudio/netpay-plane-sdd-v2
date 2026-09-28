@@ -11,11 +11,23 @@ const config: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ["var(--font-inter)", "Circular", "-apple-system", "system-ui", "sans-serif"],
-        /* Solo para h1/h2 (PageHeader, Section, hero de auth). Cuerpo y
-           controles se quedan en `font-sans`: el salto de peso 700→400 es
-           la voz del sistema, no algo que se use en párrafos densos. */
+        sans: ["var(--font-inter)", "-apple-system", "system-ui", "sans-serif"],
+        /* Titulares (PageHeader, Section, hero de auth). Geist 500 con
+           tracking muy negativo: la jerarquía la da el tamaño + tracking, no
+           el peso. */
         display: ["var(--font-display)", "var(--font-inter)", "system-ui", "sans-serif"],
+      },
+      /* Escala display: el tracking negativo es proporcional al tamaño
+         (~5% en los más grandes, ~1% en cuerpo). Si hace falta achicar,
+         se baja el TAMAÑO, no el porcentaje. */
+      fontSize: {
+        "display-xl": ["clamp(2.5rem, 6vw, 5.3rem)", { lineHeight: "0.95", letterSpacing: "-0.05em", fontWeight: "500" }],
+        "display-lg": ["clamp(2rem, 4.5vw, 3.875rem)", { lineHeight: "1", letterSpacing: "-0.05em", fontWeight: "500" }],
+        "display-md": ["2rem", { lineHeight: "1.13", letterSpacing: "-0.031em", fontWeight: "500" }],
+        headline: ["1.375rem", { lineHeight: "1.2", letterSpacing: "-0.036em", fontWeight: "600" }],
+      },
+      letterSpacing: {
+        display: "-0.035em",
       },
       colors: {
         border: "hsl(var(--border))",
@@ -115,11 +127,13 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
         card: "var(--radius-card)",
+        spotlight: "var(--radius-spotlight)",
         pill: "var(--radius-pill)",
       },
       boxShadow: {
         airbnb: "var(--shadow-airbnb)",
         "airbnb-lg": "var(--shadow-airbnb-lg)",
+        selected: "var(--shadow-selected)",
       },
     },
   },

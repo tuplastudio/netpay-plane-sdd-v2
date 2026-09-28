@@ -15,7 +15,7 @@ function SellLogo({ className }: { className?: string }) {
       className={className}
       aria-hidden
     >
-      <rect width="36" height="36" rx="8" fill="currentColor" className="text-primary" />
+      <rect width="36" height="36" rx="8" fill="currentColor" className="text-primary-strong" />
       <path
         d="M9 12h2.5l2.3 9.5h11l2-6H13l-.5-2H10l-.5-2H9z"
         stroke="currentColor"

@@ -112,8 +112,9 @@ export function TabsTrigger({
       onFocus={() => ctx.setValue(value)}
       className={cn(
         "rounded-pill px-3 py-1.5 font-medium transition-colors",
+        // Seleccionado = subir de superficie (surface-2), no color.
         active
-          ? "bg-background text-foreground shadow-sm"
+          ? "bg-secondary text-foreground"
           : "text-muted-foreground hover:text-foreground",
         className,
       )}

@@ -3,16 +3,31 @@
 Referencia de la capa de primitivas. Todo lo de aquí ya existe y compila: no
 reimplementes nada, no copies clases de una pantalla a otra.
 
-- Identidad: **Arcade** — canvas indigo profundo (`canvas` `#0a091a`, sin light
-  mode), acorde de tres acentos de marca: `primary` indigo-violeta (dos
-  niveles: `#5d52e0` ornamento · `#776cef` texto/relleno), `cta` verde
-  eléctrico (`#44e499`, la acción de MAYOR intención — una por pantalla) y
-  `highlight` magenta (`#ee63bb` texto · `#dc1895` relleno, solo insignias y
-  resaltados, nunca botones). Tipografía display (Space Grotesk 600/700) en
-  h1/h2, `font-sans` (Inter) en todo lo demás. Radios 12px (controles) / 20px
-  (tarjetas). Fuente del tema: `src/app/globals.css` + `tailwind.config.ts` —
-  cada hex de ahí viene de una fórmula de contraste WCAG real, no a ojo; si
-  cambias un HSL, recalcula el contraste antes de subirlo.
+- Identidad: **Canvas** (desde 2026-09-28) — lienzo casi negro con dejo
+  cálido (`canvas` `#0b0a09`), todo monocromo: tinta blanca, gris secundario
+  `muted-foreground` `#999`, superficies por pasos `canvas` → `card`
+  (surface-1) → `secondary`/`popover` (surface-2). La jerarquía la dan el
+  contraste tinta/tinta-muted y la elevación por superficie, no el color.
+  - **Un solo acento**: azul `primary` `#0099ff` — enlaces (`text-legal-link`),
+    anillos de foco (`ring`, `shadow-selected`) y selección. Nunca relleno de
+    botón ni fondo.
+  - **CTA = píldora**: `Button` default/`cta` = píldora BLANCA con tinta
+    oscura; `secondary`/`outline` = píldora carbón. Sin botones con borde.
+    "Presionado" encoge (`active:scale`), no oscurece.
+  - **Tarjetas spotlight** (`.spotlight .spotlight-violet|magenta|orange|coral`,
+    radio 30px): degradados como TARJETA dentro de la grilla, nunca fondo de
+    sección; una o dos por pantalla (hoy: panel de marca del login).
+  - Tipografía: display `font-display` = Geist 500 con tracking negativo
+    proporcional al tamaño (`text-display-xl|lg|md`, `tracking-display`);
+    cuerpo Inter con variantes `cv01 cv05 cv09 cv11 ss03 ss07`.
+  - Radios: 10px controles (`rounded-lg`), 20px tarjetas (`rounded-card`),
+    30px spotlight (`rounded-spotlight`), píldora (`rounded-pill`).
+  - Estado (success/warning/info/destructive/neutral) se conserva: es función,
+    no marca.
+  Fuente del tema: `src/app/globals.css` + `tailwind.config.ts` (contrastes
+  documentados ahí). Las secciones de abajo que hablan de "indigo", "verde
+  cta" o Space Grotesk describen el sistema anterior "Arcade"; los nombres de
+  token siguen siendo los mismos, solo cambió su valor.
 - Idioma de UI: **es-MX**. Todo texto visible en español.
 - Dueño de esta capa: Design System Lead. Si te falta una prop, **pídela**; no
   hagas un fork del componente en tu pantalla.

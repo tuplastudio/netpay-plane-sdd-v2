@@ -25,7 +25,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         ref={ref}
         className={cn(
           "flex h-10 w-full appearance-none rounded-lg border border-input bg-background py-2 pl-3 pr-9 text-sm text-foreground",
-          "focus-visible:border-2 focus-visible:border-foreground focus-visible:outline-none",
+          "transition-shadow focus-visible:border-primary focus-visible:shadow-selected focus-visible:outline-none",
           "aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive",
           "disabled:cursor-not-allowed disabled:opacity-50",
           className,

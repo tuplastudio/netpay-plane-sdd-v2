@@ -5,40 +5,39 @@ import { cn } from "@/lib/utils";
 import { Spinner } from "./spinner";
 
 export const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  // Todo CTA es píldora. "Presionado" = encoger (scale), no oscurecer. Foco =
+  // anillo azul (único uso del acento junto con enlaces y selección).
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-pill text-sm font-medium tracking-[-0.01em] transition-[color,background-color,transform,box-shadow] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        // Rellenos sólidos, no `bg-primary/90`: el alfa sobre blanco aclara el
-        // fondo y hunde el contraste del texto blanco (el hover viejo medía
-        // 3.23:1). Los tres pasos son tonos propios, 5.20 → 6.34 → 7.83:1.
+        /** Píldora blanca (tinta oscura). La acción principal de la pantalla. */
         default:
           "bg-primary-strong text-primary-foreground hover:bg-primary-strong-hover active:bg-primary-strong-active",
+        /** Píldora carbón: acciones secundarias. */
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 active:bg-hairline-strong/40",
+          "bg-secondary text-secondary-foreground hover:bg-accent active:bg-accent",
+        /**
+         * Antes era un botón fantasma con borde. El sistema no usa botones con
+         * borde: se conserva la variante por compatibilidad y rinde igual que
+         * `secondary`.
+         */
         outline:
-          "border border-foreground bg-background text-foreground hover:bg-muted active:bg-secondary",
-        ghost: "text-foreground hover:bg-muted active:bg-secondary",
+          "bg-secondary text-secondary-foreground hover:bg-accent active:bg-accent",
+        ghost: "text-foreground hover:bg-secondary active:bg-accent",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive-active",
         warning:
           "border border-warning bg-warning-subtle text-warning-foreground hover:bg-warning/15 active:bg-warning/25",
-        link: "text-primary-strong underline-offset-4 hover:underline active:text-primary-strong-active",
-        /**
-         * Acento de MAYOR intención (verde eléctrico): la acción con la que de
-         * verdad se quiere que el usuario salga de la pantalla — emitir
-         * cotización, generar enlace de pago, entrar al portal. No es un
-         * segundo botón "primary": úsalo UNA vez por pantalla como máximo, para
-         * la acción que de verdad importa más que las demás. Para todo lo
-         * demás sigue mandando `default` (primary).
-         */
+        link: "rounded-none text-legal-link underline-offset-4 hover:underline active:scale-100",
+        /** Misma píldora blanca que `default`: un solo lenguaje de CTA. */
         cta: "bg-cta text-cta-foreground hover:bg-cta-hover active:bg-cta-active",
       },
       size: {
         default: "h-10 px-4 py-2",
-        sm: "h-9 px-3",
-        lg: "h-12 px-8",
-        icon: "h-10 w-10",
+        sm: "h-9 px-3.5",
+        lg: "h-12 px-7 text-[15px]",
+        icon: "h-10 w-10 rounded-full",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

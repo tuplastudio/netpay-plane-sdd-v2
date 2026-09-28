@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Geist, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { themeScript } from "@/components/theme-provider";
@@ -7,14 +7,13 @@ import { PwaRegister } from "@/components/app/pwa-register";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 /**
- * Fuente pesada para h1/h2 (`font-display`). Cuerpo, tablas y controles se
- * quedan en Inter: la densidad operativa del panel necesita una sans neutra,
- * no una display; el salto 700→400 entre título y cuerpo es la voz del
- * sistema (ver DESIGN-SYSTEM.md), no algo para usar en párrafos.
+ * Titulares (`font-display`): Geist 500/600 con tracking muy negativo —
+ * sustituto libre de una grotesca geométrica de display. Cuerpo, tablas y
+ * controles se quedan en Inter con sus variantes OpenType (ver globals.css).
  */
-const spaceGrotesk = Space_Grotesk({
+const geist = Geist({
   subsets: ["latin"],
-  weight: ["600", "700"],
+  weight: ["500", "600"],
   variable: "--font-display",
   display: "swap",
 });
@@ -45,7 +44,7 @@ export const viewport: Viewport = {
   // indicator en iOS; el padding para no chocar con esas zonas lo ponen los
   // componentes con `env(safe-area-inset-*)` donde haga falta.
   viewportFit: "cover",
-  themeColor: "#5d52e0",
+  themeColor: "#0b0a09",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -56,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       // documentElement.className y .style.colorScheme ANTES del primer
       // render. React no debería quejarse por esa mutación de pre-hidratación.
       suppressHydrationWarning
-      className={`${inter.variable} ${spaceGrotesk.variable}`}
+      className={`${inter.variable} ${geist.variable}`}
     >
       <head>
         {/* Anti-flash: aplica la clase light/dark a <html> antes del primer

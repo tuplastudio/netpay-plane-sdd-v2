@@ -19,7 +19,7 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
             );
           case "h3":
             return (
-              <h3 key={i} className="font-display text-sm font-semibold tracking-tight">
+              <h3 key={i} className="font-display text-[0.95rem] font-medium tracking-[-0.02em]">
                 {block.text}
               </h3>
             );

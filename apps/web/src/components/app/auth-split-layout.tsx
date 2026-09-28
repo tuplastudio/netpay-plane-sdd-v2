@@ -44,26 +44,27 @@ export function AuthSplitLayout({
         ) : null}
       </div>
 
-      {/* Mitad derecha: panel visual de marca. */}
-      <div className="relative hidden overflow-hidden bg-card lg:block">
-        <BrandBackdrop />
-        <div className="relative z-10 flex h-full flex-col justify-between p-12 text-foreground">
-          <div className="flex items-center gap-2 text-sm font-medium opacity-80">
-            <span className="h-2 w-2 rounded-full bg-cta" />
-            Portal operativo
+      {/* Mitad derecha: tarjeta spotlight (degradado violeta) montada sobre
+          el lienzo — el degradado es una TARJETA, nunca el fondo de la sección. */}
+      <div className="hidden bg-background p-4 lg:block">
+        <div className="spotlight spotlight-violet h-full">
+          <BrandBackdrop />
+          <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
+            <div className="flex w-fit items-center gap-2 rounded-pill bg-white/10 px-3 py-1.5 text-[13px] font-medium backdrop-blur">
+              <span className="h-1.5 w-1.5 rounded-full bg-white" />
+              Portal operativo
+            </div>
+            <div className="max-w-xl space-y-5">
+              <p className="font-display text-display-lg">
+                Cotiza, conversa y cobra desde un mismo chat.
+              </p>
+              <p className="max-w-md text-lg leading-[1.3] tracking-[-0.01em] text-white/75">
+                El cliente escribe por WhatsApp, el agente responde y tú cierras
+                la venta.
+              </p>
+            </div>
+            <p className="text-xs text-white/50">Modo de pruebas · sin dinero real · v2</p>
           </div>
-          <div className="max-w-md space-y-4">
-            <p className="font-display text-3xl font-semibold leading-tight">
-              Cotiza, conversa y cobra — todo desde un mismo chat.
-            </p>
-            <p className="text-sm text-foreground/70">
-              Atiende ya es el portal operativo de tu tienda: el cliente escribe
-              por WhatsApp, el agente responde y tú cierras la venta.
-            </p>
-          </div>
-          <p className="text-xs text-foreground/40">
-            Modo de pruebas · sin dinero real · v2
-          </p>
         </div>
       </div>
     </div>
@@ -102,7 +103,7 @@ function SellLogo({ className }: { className?: string }) {
       className={className}
       aria-hidden
     >
-      <rect width="36" height="36" rx="10" fill="currentColor" className="text-primary" />
+      <rect width="36" height="36" rx="10" fill="currentColor" className="text-primary-strong" />
       <path
         d="M9 12h2.5l2.3 9.5h11l2-6H13l-.5-2H10l-.5-2H9z"
         stroke="currentColor"
@@ -119,33 +120,21 @@ function SellLogo({ className }: { className?: string }) {
 }
 
 /**
- * Sello geométrico sutil que viste el panel de marca sin distraer del
- * formulario. Todo el color sale de tokens (`primary`, `cta`, `border`):
- * nada de hex crudo, regla 0.1 del sistema.
+ * Anillos finos sobre el degradado: textura, no ilustración. Blanco
+ * translúcido para que funcione sobre cualquiera de las cuatro variantes
+ * spotlight.
  */
 function BrandBackdrop() {
   return (
-    <>
-      {/* Sello geométrico: tres círculos concéntricos con corte radial. Las
-          líneas usan --border (ya pensado para vivir tenue sobre superficies
-          oscuras); los dos círculos rellenos son el acorde indigo + verde. */}
-      <svg
-        aria-hidden
-        viewBox="0 0 600 600"
-        className="absolute -right-32 -bottom-32 h-[640px] w-[640px] opacity-30"
-        fill="none"
-      >
-        <circle cx="300" cy="300" r="280" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <circle cx="300" cy="300" r="220" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <circle cx="300" cy="300" r="160" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <circle cx="300" cy="300" r="100" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <line x1="0" y1="300" x2="600" y2="300" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <line x1="300" y1="0" x2="300" y2="600" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <line x1="0" y1="0" x2="600" y2="600" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <line x1="600" y1="0" x2="0" y2="600" stroke="currentColor" strokeWidth="1" className="text-border" />
-        <circle cx="300" cy="300" r="48" fill="currentColor" className="text-primary" />
-        <circle cx="300" cy="300" r="32" fill="currentColor" className="text-cta" />
-      </svg>
-    </>
+    <svg
+      aria-hidden
+      viewBox="0 0 600 600"
+      className="pointer-events-none absolute -bottom-40 -right-40 h-[680px] w-[680px] text-white opacity-[0.14]"
+      fill="none"
+    >
+      {[280, 220, 160, 100].map((r) => (
+        <circle key={r} cx="300" cy="300" r={r} stroke="currentColor" strokeWidth="1" />
+      ))}
+    </svg>
   );
 }
