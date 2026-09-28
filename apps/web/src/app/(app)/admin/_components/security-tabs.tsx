@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { PasswordSection } from "./password-section";
 import { MfaSection } from "./mfa-section";
 import { AuditSection } from "./audit-section";
+import { usePermissions } from "@/components/app/use-permissions";
 
 /**
  * Sub-pestañas de la sección "Seguridad" (barra lateral de administración,
@@ -40,8 +41,13 @@ export function SecurityTabs() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const perms = usePermissions();
+  // "Actividad" es la bitácora de la empresa (`audit.read`).
+  const canAudit = perms.can("audit.read");
+  const tabs = SEC_TABS.filter((t) => t.value !== "activity" || canAudit);
   const requested = searchParams.get(SEC_PARAM);
-  const sec: SecTabValue = isSecTabValue(requested) ? requested : DEFAULT_SEC_TAB;
+  const sec: SecTabValue =
+    isSecTabValue(requested) && tabs.some((t) => t.value === requested) ? requested : DEFAULT_SEC_TAB;
 
   const setSec = useCallback(
     (next: string) => {
@@ -57,7 +63,7 @@ export function SecurityTabs() {
     <Tabs value={sec} defaultValue={sec} onValueChange={setSec} className="space-y-4">
       <div className="overflow-x-auto pb-1">
         <TabsList className="bg-muted/60">
-          {SEC_TABS.map(({ value, label, icon: Icon }) => (
+          {tabs.map(({ value, label, icon: Icon }) => (
             <TabsTrigger key={value} value={value} className="whitespace-nowrap text-xs">
               <span className="inline-flex items-center gap-1.5">
                 <Icon aria-hidden className="h-3.5 w-3.5" />
@@ -76,10 +82,12 @@ export function SecurityTabs() {
         <MfaSection />
       </TabsContent>
 
-      <TabsContent value="activity" className="space-y-4">
-        <ActivityIntro />
-        <AuditSection />
-      </TabsContent>
+      {canAudit ? (
+        <TabsContent value="activity" className="space-y-4">
+          <ActivityIntro />
+          <AuditSection />
+        </TabsContent>
+      ) : null}
     </Tabs>
   );
 }

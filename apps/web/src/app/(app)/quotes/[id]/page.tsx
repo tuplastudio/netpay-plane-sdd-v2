@@ -26,6 +26,7 @@ import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { QuoteLinesTable } from "./_components/quote-lines-table";
 import { EditQuoteSheet } from "./_components/edit-quote-sheet";
+import { usePermissions } from "@/components/app/use-permissions";
 
 interface QuoteDetail {
   id: string;
@@ -105,6 +106,13 @@ export default function QuoteDetailPage() {
     },
     enabled: !!orderId,
   });
+
+  const perms = usePermissions();
+  const canWrite = perms.can("quotes.write");
+  // Aprobar crea el pedido y su checkout: eso es `orders.write` (VENDOR cotiza
+  // pero no cobra).
+  const canApprove = perms.can("orders.write");
+  const canReadPayments = perms.can("payments.read");
 
   const issue = useMutation({
     mutationFn: async () => {
@@ -239,23 +247,23 @@ export default function QuoteDetailPage() {
         }
         actions={
           <>
-            {quote.editable && (
+            {canWrite && quote.editable && (
               <Button variant="outline" onClick={() => setEditOpen(true)}>
                 <Pencil className="h-4 w-4" />
                 Editar
               </Button>
             )}
-            {quote.status === "DRAFT" && (
+            {canWrite && quote.status === "DRAFT" && (
               <Button loading={issue.isPending} onClick={() => issue.mutate()}>
                 Emitir
               </Button>
             )}
-            {quote.status === "ISSUED" && (
+            {canApprove && quote.status === "ISSUED" && (
               <Button loading={approve.isPending} onClick={() => setApproveConfirmOpen(true)}>
                 Aprobar cotización
               </Button>
             )}
-            {(quote.status === "DRAFT" || quote.status === "ISSUED") && (
+            {canWrite && (quote.status === "DRAFT" || quote.status === "ISSUED") && (
               <>
                 <Button
                   variant="outline"
@@ -407,12 +415,16 @@ export default function QuoteDetailPage() {
                       {order.data.payments.map((p) => (
                         <TableRow key={p.id}>
                           <TableCell className="font-mono text-xs" title={p.id}>
-                            <Link
-                              href={`/payments/${p.id}`}
-                              className="text-primary-strong underline-offset-4 hover:underline"
-                            >
-                              {p.id.slice(0, 8)}…
-                            </Link>
+                            {canReadPayments ? (
+                              <Link
+                                href={`/payments/${p.id}`}
+                                className="text-primary-strong underline-offset-4 hover:underline"
+                              >
+                                {p.id.slice(0, 8)}…
+                              </Link>
+                            ) : (
+                              <>{p.id.slice(0, 8)}…</>
+                            )}
                           </TableCell>
                           <TableCell>
                             <StatusBadge status={p.status} domain="payment" withDot />

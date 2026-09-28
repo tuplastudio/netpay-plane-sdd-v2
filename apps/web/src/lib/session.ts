@@ -131,6 +131,11 @@ export function readSession(): SessionUser | null {
       ...(typeof candidate.isSuperAdmin === "boolean"
         ? { isSuperAdmin: candidate.isSuperAdmin }
         : {}),
+      // Antes se descartaban al leer: el sidebar nunca recibía scopes y
+      // mostraba todas las secciones a todos los roles.
+      ...(Array.isArray(candidate.scopes) && candidate.scopes.every((s) => typeof s === "string")
+        ? { scopes: candidate.scopes }
+        : {}),
     };
   } catch {
     return null;

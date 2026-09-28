@@ -24,6 +24,7 @@ import {
 } from "../_components/manual-checkout-card";
 import { RevisionsTable, type OrderRevision } from "./_components/revisions-table";
 import { PaymentsTable, type OrderPayment } from "./_components/payments-table";
+import { usePermissions } from "@/components/app/use-permissions";
 
 interface Variant { id: string; sku: string; title: string; price: string; stock: string | null; }
 interface Product { id: string; title: string; sku: string; variants: Variant[]; }
@@ -119,6 +120,11 @@ export default function OrderDetailPage() {
   });
 
   const order = orderQ.data;
+  const perms = usePermissions();
+  // Cobrar, entregar y abrir checkout: `orders.write`. Cancelar: VENDOR también
+  // (`orders.cancel_own`). FINANCE, SUPPORT y VIEWER solo consultan.
+  const canWrite = perms.can("orders.write");
+  const canCancelScope = perms.can("orders.cancel_own") || perms.can("orders.cancel_any");
   const isDraftFromQuote = order?.status === "DRAFT" && order.source === "QUOTE" && !!order.quoteId;
 
   const productsQ = useQuery({
@@ -127,7 +133,7 @@ export default function OrderDetailPage() {
       const res = await api.get<{ data: Product[] }>("/catalog/products");
       return res.data.data;
     },
-    enabled: order?.status === "DRAFT" && order.source !== "QUOTE",
+    enabled: canWrite && order?.status === "DRAFT" && order.source !== "QUOTE",
   });
 
   // Un pedido creado desde cotización ya trae sus líneas definidas ahí:
@@ -139,7 +145,7 @@ export default function OrderDetailPage() {
       const res = await api.get<{ data: { lines: QuoteLine[] } }>(`/quotes/${order!.quoteId}`);
       return res.data.data.lines;
     },
-    enabled: !!isDraftFromQuote,
+    enabled: canWrite && !!isDraftFromQuote,
   });
 
   const startCheckoutFromQuote = useMutation({
@@ -280,9 +286,10 @@ export default function OrderDetailPage() {
 
   const shortId = order.id.slice(0, 8);
   const canCancel =
-    order.status === "DRAFT" ||
+    canCancelScope &&
+    (order.status === "DRAFT" ||
     order.status === "CHECKOUT_OPEN" ||
-    order.status === "AWAITING_PAYMENT";
+    order.status === "AWAITING_PAYMENT");
 
   return (
     <div>
@@ -302,7 +309,7 @@ export default function OrderDetailPage() {
         }
         actions={
           <>
-            {order.status === "PAID" && (
+            {canWrite && order.status === "PAID" && (
               <Button
                 variant="outline"
                 loading={fulfillOrder.isPending}
@@ -361,7 +368,7 @@ export default function OrderDetailPage() {
 
         <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="space-y-6 md:col-span-2">
-            {(order.status === "CHECKOUT_OPEN" || order.status === "AWAITING_PAYMENT") && (
+            {canWrite && (order.status === "CHECKOUT_OPEN" || order.status === "AWAITING_PAYMENT") && (
               <Section
                 title="Esperando pago"
                 description="El pedido tiene un checkout abierto. Genera (o reenvía) el link de pago para cobrarlo en línea."
@@ -375,7 +382,7 @@ export default function OrderDetailPage() {
               </Section>
             )}
 
-            {isDraftFromQuote && (
+            {canWrite && isDraftFromQuote && (
               <Section
                 title="Iniciar checkout"
                 description="Este pedido viene de una cotización aceptada. Se cobra con las mismas líneas y descuentos."
@@ -390,7 +397,7 @@ export default function OrderDetailPage() {
               </Section>
             )}
 
-            {order.status === "DRAFT" && order.source !== "QUOTE" && (
+            {canWrite && order.status === "DRAFT" && order.source !== "QUOTE" && (
               <ManualCheckoutCard
                 products={productsQ.data}
                 pending={startCheckoutManual.isPending}

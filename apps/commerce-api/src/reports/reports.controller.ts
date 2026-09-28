@@ -2,6 +2,7 @@ import { Controller, Get, UseGuards } from "@nestjs/common";
 import { ReportsService } from "./reports.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
+import { effectiveScopesOf } from "../auth/policies.js";
 
 /**
  * Mismo patrón exacto que `PaymentController`: `PrincipalGuard` global resuelve
@@ -44,8 +45,16 @@ export class ReportsController {
   @RequireScopes("payments.read")
   async dashboard() {
     const tenantId = RequestContext.tenantId!;
+    const data = await this.reports.dashboard(tenantId);
+    // Un solo scope abre la pantalla, pero los hilos de WhatsApp y la
+    // bitácora solo se entregan a quien puede leerlos por su propia ruta.
+    const scopes = effectiveScopesOf(RequestContext.principal);
     return {
-      data: await this.reports.dashboard(tenantId),
+      data: {
+        ...data,
+        recentConversations: scopes.has("chat.read") ? data.recentConversations : [],
+        recentActivity: scopes.has("audit.read") ? data.recentActivity : [],
+      },
       requestId: RequestContext.requestId,
     };
   }

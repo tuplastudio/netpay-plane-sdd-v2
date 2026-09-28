@@ -16,11 +16,9 @@ import { api } from "@/lib/api";
  * ni ventana que revelar; los importes llegan ya como string decimal y van
  * directos a `<Money>`.
  *
- * "Actividad reciente" sigue siendo `/audit/events`: es una lista de los
- * últimos eventos, no un agregado, y su límite es intencional.
+ * "Actividad reciente" viaja dentro de `/reports/dashboard` (el API la vacía
+ * si el rol no tiene `audit.read`).
  */
-
-const RECENT_ACTIVITY_LIMIT = 8;
 
 /** Horizonte de vencimiento que aplica el backend en `quotesExpiringWithin7Days`. */
 export const NEAR_EXPIRY_DAYS = 7;
@@ -65,28 +63,21 @@ export interface AuditEvent {
  * Agregados del comercio. Clave de caché compartida con la pantalla de pagos,
  * que consume el mismo endpoint: navegar entre ambas no repite la petición.
  */
-export function useReportSummary() {
+export function useReportSummary(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["reports-summary"],
     queryFn: async () => {
       const res = await api.get<{ data: ReportSummary }>("/reports/summary");
       return res.data.data;
     },
+    enabled: options?.enabled ?? true,
   });
 }
 
-export function useDashboardData() {
-  const summary = useReportSummary();
-
-  const activity = useQuery({
-    queryKey: ["audit", { limit: RECENT_ACTIVITY_LIMIT }],
-    queryFn: async () => {
-      const res = await api.get<{ data: AuditEvent[] }>("/audit/events", {
-        params: { limit: RECENT_ACTIVITY_LIMIT },
-      });
-      return res.data.data;
-    },
-  });
+/** `enabled: false` para roles sin `payments.read`: la API respondería 403. */
+export function useDashboardData(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
+  const summary = useReportSummary({ enabled });
 
   const unified = useQuery({
     queryKey: ["reports-dashboard"],
@@ -95,9 +86,10 @@ export function useDashboardData() {
       return res.data.data;
     },
     refetchInterval: 60_000,
+    enabled,
   });
 
-  return { summary, activity, unified, NEAR_EXPIRY_DAYS };
+  return { summary, unified, NEAR_EXPIRY_DAYS };
 }
 
 /**

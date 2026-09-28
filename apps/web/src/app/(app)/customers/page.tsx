@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { usePermissions } from "@/components/app/use-permissions";
 
 interface Customer {
   id: string;
@@ -39,6 +40,7 @@ export default function CustomersPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const canWrite = usePermissions().can("customers.write");
 
   const list = useQuery({
     queryKey: ["customers"],
@@ -158,15 +160,17 @@ export default function CustomersPage() {
         title="Clientes"
         description="Contactos, identidad fiscal y consentimientos."
         actions={
-          <Button onClick={() => setShowForm((s) => !s)} aria-expanded={showForm}>
-            <UserPlus className="h-4 w-4" />
-            {showForm ? "Cancelar" : "Nuevo cliente"}
-          </Button>
+          canWrite ? (
+            <Button onClick={() => setShowForm((s) => !s)} aria-expanded={showForm}>
+              <UserPlus className="h-4 w-4" />
+              {showForm ? "Cancelar" : "Nuevo cliente"}
+            </Button>
+          ) : undefined
         }
       />
 
       <div className="space-y-6">
-        {showForm && (
+        {canWrite && showForm && (
           <Section
             title="Nuevo cliente"
             description="Solo el nombre es obligatorio; el resto se puede completar después."
@@ -259,14 +263,15 @@ export default function CustomersPage() {
             empty={{
               icon: <Users className="h-6 w-6" />,
               title: "Todavía no hay clientes",
-              description:
-                "Registra al primer contacto para poder cotizarle y cobrarle desde el portal.",
-              action: (
+              description: canWrite
+                ? "Registra al primer contacto para poder cotizarle y cobrarle desde el portal."
+                : "Los clientes aparecerán aquí cuando alguien del equipo los registre o escriban por WhatsApp.",
+              action: canWrite ? (
                 <Button onClick={() => setShowForm(true)}>
                   <UserPlus className="h-4 w-4" />
                   Nuevo cliente
                 </Button>
-              ),
+              ) : undefined,
             }}
           />
         </Section>

@@ -413,14 +413,22 @@ export const primerosPasos: HelpCategory = {
           type: "table",
           headers: ["Rol (en pantalla)", "Para quién es", "Puede"],
           rows: [
-            ["Propietario (OWNER)", "Dueño del negocio", "Todo, incluidos pagos, reembolsos, usuarios, API keys y configuración de la empresa."],
-            ["Administrador (ADMIN)", "Mano derecha del dueño", "Casi todo, pero no reembolsa ni exporta pagos, y no puede nombrar a otro Propietario."],
-            ["Vendedor (VENDOR)", "Ventas y atención", "Ve el catálogo, maneja clientes, cotizaciones y pedidos, cancela sus propios pedidos y contesta WhatsApp."],
-            ["Finanzas (FINANCE)", "Cuentas y cobranza", "Ve catálogo, clientes, cotizaciones y pedidos; ve, reembolsa y exporta pagos."],
+            ["Propietario (OWNER)", "Dueño del negocio", "Todo: ventas, cobros, reembolsos, conversaciones, canales de WhatsApp, agente, usuarios, API keys y los datos de la empresa (Empresa, Marca, Envío y plantillas)."],
+            ["Administrador (ADMIN)", "Mano derecha del dueño", "Lo mismo que el Propietario, menos reembolsar o exportar pagos y menos las secciones Empresa, Marca, Envío y plantillas de WhatsApp. No puede nombrar a otro Propietario."],
+            ["Vendedor (VENDOR)", "Ventas y atención", "Ve el catálogo y los pedidos, da de alta y edita clientes, crea, emite y comparte cotizaciones, cancela los pedidos que creó y contesta WhatsApp. No aprueba cotizaciones ni cobra: eso lo hace el Propietario o el Administrador."],
+            ["Finanzas (FINANCE)", "Cuentas y cobranza", "Ve catálogo, clientes, cotizaciones y pedidos, y el Panorama con las cifras de dinero; ve pagos y hace reembolsos. No ve conversaciones."],
             ["Catálogo (CATALOG)", "Encargado de productos", "Solo el catálogo, para ver y editar."],
-            ["Soporte (SUPPORT)", "Atención sin ventas", "Ve catálogo, clientes, cotizaciones y pedidos, y contesta WhatsApp. No toca pagos."],
+            ["Soporte (SUPPORT)", "Atención sin ventas", "Contesta WhatsApp, ve y corrige los datos de los clientes, y consulta catálogo, cotizaciones y pedidos. No cotiza ni toca pagos."],
             ["Lectura (VIEWER)", "Solo consulta", "Ve catálogo, clientes, cotizaciones, pedidos y notificaciones. No cambia nada."],
           ],
+        },
+        {
+          type: "p",
+          text:
+            "Lo que tu rol no permite no aparece: esas secciones no salen en el menú de la izquierda y los " +
+            "botones para cambiar cosas se ocultan. Si alguien abre directo el link de una sección que no le " +
+            "toca, ve el aviso \"No tienes permiso para ver esta sección\" y un botón para volver al inicio. " +
+            "Contraseña y verificación en dos pasos (Admin → Seguridad) las tiene todo el mundo.",
         },
         {
           type: "p",

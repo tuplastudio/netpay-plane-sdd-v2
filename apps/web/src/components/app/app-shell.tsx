@@ -10,6 +10,7 @@ import { Brand, EnvFooter, SidebarCollapseToggle, SidebarNav } from "./sidebar-n
 import { Topbar } from "./topbar";
 import { ImpersonationBanner } from "./impersonation-banner";
 import { hexToHsl, hslShift } from "@/lib/hex-to-hsl";
+import { RouteGuard } from "./use-permissions";
 
 /**
  * Alturas del chrome, para referencia:
@@ -285,7 +286,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 fullHeight && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col",
               )}
             >
-              {children}
+              <RouteGuard>{children}</RouteGuard>
             </main>
           </div>
         </div>

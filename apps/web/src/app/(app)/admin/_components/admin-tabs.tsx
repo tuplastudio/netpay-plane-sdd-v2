@@ -4,6 +4,11 @@ import { useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BellRing, Building2, KeyRound, Palette, ShieldCheck, Truck, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { Bot } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AGENT_MANAGE, type Scope } from "@/lib/permissions";
+import { usePermissions } from "@/components/app/use-permissions";
 import { BusinessSettingsSection } from "./business-settings-section";
 import { UsageSection } from "./usage-section";
 import { BrandingSection } from "./branding-section";
@@ -28,14 +33,15 @@ import { DeliveryZonesSection } from "./delivery-zones-section";
  * entradas: se usa `router.replace`.
  */
 const SECTIONS = [
-  { value: "empresa", label: "Empresa", icon: Building2 },
-  { value: "marca", label: "Marca", icon: Palette },
-  { value: "envio", label: "Envío a domicilio", icon: Truck },
-  { value: "usuarios", label: "Usuarios", icon: Users },
-  { value: "api-keys", label: "API keys", icon: KeyRound },
-  { value: "notificaciones", label: "Notificaciones", icon: BellRing },
-  { value: "seguridad", label: "Seguridad", icon: ShieldCheck },
-] as const;
+  { value: "empresa", label: "Empresa", icon: Building2, anyOf: ["tenant.admin"] },
+  { value: "marca", label: "Marca", icon: Palette, anyOf: ["tenant.admin"] },
+  { value: "envio", label: "Envío a domicilio", icon: Truck, anyOf: ["tenant.admin"] },
+  { value: "usuarios", label: "Usuarios", icon: Users, anyOf: ["users.manage"] },
+  { value: "api-keys", label: "API keys", icon: KeyRound, anyOf: ["apikeys.manage"] },
+  { value: "notificaciones", label: "Notificaciones", icon: BellRing, anyOf: ["notifications.read"] },
+  // Contraseña y verificación en dos pasos son de la propia cuenta: todos.
+  { value: "seguridad", label: "Seguridad", icon: ShieldCheck, anyOf: [] },
+] as const satisfies ReadonlyArray<{ value: string; label: string; icon: unknown; anyOf: readonly Scope[] }>;
 
 type SectionValue = (typeof SECTIONS)[number]["value"];
 
@@ -51,8 +57,16 @@ export function AdminTabs() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  const perms = usePermissions();
+  const visible = SECTIONS.filter((t) => perms.canAccess({ anyOf: t.anyOf }));
   const requested = searchParams.get(SECTION_PARAM);
-  const section: SectionValue = isSectionValue(requested) ? requested : DEFAULT_ADMIN_TAB;
+  // Si pidieron (o tocaba por defecto) una sección que el rol no ve, se abre
+  // la primera que sí; "Seguridad" siempre está.
+  const fallback: SectionValue = visible.some((t) => t.value === DEFAULT_ADMIN_TAB)
+    ? DEFAULT_ADMIN_TAB
+    : (visible[0]?.value ?? "seguridad");
+  const section: SectionValue =
+    isSectionValue(requested) && visible.some((t) => t.value === requested) ? requested : fallback;
 
   const setSection = useCallback(
     (next: SectionValue) => {
@@ -76,7 +90,7 @@ export function AdminTabs() {
             De `lg` en adelante es la barra lateral vertical. */}
         <div className="-mx-4 overflow-x-auto px-4 pb-1 lg:mx-0 lg:overflow-visible lg:px-0 lg:pb-0">
           <ul className="flex gap-1 lg:flex-col lg:gap-0.5">
-            {SECTIONS.map(({ value, label, icon: Icon }) => {
+            {visible.map(({ value, label, icon: Icon }) => {
               const isActive = value === section;
               return (
                 <li key={value} className="shrink-0 lg:shrink">
@@ -121,11 +135,26 @@ export function AdminTabs() {
         {section === "notificaciones" ? (
           <>
             <NotificationsSection />
-            <WhatsAppTemplatesSection />
+            {/* Las plantillas se guardan en los ajustes de la empresa. */}
+            {perms.can("tenant.admin") ? <WhatsAppTemplatesSection /> : null}
           </>
         ) : null}
         {section === "seguridad" ? <SecurityTabs /> : null}
       </div>
     </div>
+  );
+}
+
+/** Atajo a la consola del agente, solo para quien puede configurarlo. */
+export function AgentConsoleLink() {
+  const perms = usePermissions();
+  if (!perms.canAny(AGENT_MANAGE)) return null;
+  return (
+    <Button asChild variant="outline">
+      <Link href="/agent">
+        <Bot className="h-4 w-4" />
+        Consola del agente
+      </Link>
+    </Button>
   );
 }

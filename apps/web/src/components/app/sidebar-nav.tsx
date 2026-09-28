@@ -31,6 +31,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { useConnections } from "@/app/(app)/channels/_components/use-channels";
 import { useSession } from "./user-menu";
+import { usePermissions } from "./use-permissions";
+import { AGENT_READ, accessForPath } from "@/lib/permissions";
 import { PLATFORM_NAME, useTenantBranding, useTenantDocumentTitle } from "./use-tenant-branding";
 
 const AGENT_BASE = "/agent";
@@ -51,14 +53,6 @@ export interface NavItem {
    * P. ej. el detalle `/super-admin/{id}` pertenece a "Empresas".
    */
   activePattern?: RegExp;
-  /**
-   * Scope necesario para ver este item en el sidebar. Si el usuario activo
-   * no lo tiene, el item se oculta (no se muestra deshabilitado — pinchar un
-   * item oculto es mejor UX que pinchar uno que devuelve 403).
-   *
-   * Sin scope, el item se muestra siempre (comportamiento legacy).
-   */
-  requiresScope?: string;
 }
 
 export interface NavGroup {
@@ -75,21 +69,21 @@ const NAV: NavGroup[] = [
   {
     title: "Operación",
     items: [
-      { href: "/catalog", label: "Catálogo", icon: Package, description: "Productos y variantes", requiresScope: "catalog.read" },
-      { href: "/quotes", label: "Cotizaciones", icon: FileText, description: "Borradores y emitidas", requiresScope: "quotes.read" },
-      { href: "/quick-charge", label: "Cobro rápido", icon: Zap, description: "Cobra sin cotización", requiresScope: "orders.write" },
-      { href: "/orders", label: "Pedidos", icon: ShoppingCart, description: "Checkout y pagos de prueba", requiresScope: "orders.read" },
-      { href: "/payments", label: "Pagos", icon: Wallet, description: "Ledger y reembolsos", requiresScope: "payments.read" },
-      { href: "/customers", label: "Clientes", icon: Users, description: "Contactos e identidad", requiresScope: "customers.read" },
+      { href: "/catalog", label: "Catálogo", icon: Package, description: "Productos y variantes" },
+      { href: "/quotes", label: "Cotizaciones", icon: FileText, description: "Borradores y emitidas" },
+      { href: "/quick-charge", label: "Cobro rápido", icon: Zap, description: "Cobra sin cotización" },
+      { href: "/orders", label: "Pedidos", icon: ShoppingCart, description: "Checkout y pagos de prueba" },
+      { href: "/payments", label: "Pagos", icon: Wallet, description: "Ledger y reembolsos" },
+      { href: "/customers", label: "Clientes", icon: Users, description: "Contactos e identidad" },
     ],
   },
   {
     title: "Agente IA",
     items: [
-      { href: "/chat", label: "Chat con el agente", icon: MessageSquare, description: "Probar el bot", requiresScope: "chat.read" },
-      { href: "/agent", label: "Consola del agente", icon: Bot, description: "Conocimiento y herramientas", requiresScope: "chat.write" },
-      { href: "/channels", label: "Canales", icon: Radio, description: "Conexiones de WhatsApp", requiresScope: "chat.write" },
-      { href: "/conversations", label: "Conversaciones", icon: MessagesSquare, description: "Bandeja de WhatsApp y handoff", requiresScope: "chat.read" },
+      { href: "/chat", label: "Chat con el agente", icon: MessageSquare, description: "Probar el bot" },
+      { href: "/agent", label: "Consola del agente", icon: Bot, description: "Conocimiento y herramientas" },
+      { href: "/channels", label: "Canales", icon: Radio, description: "Conexiones de WhatsApp" },
+      { href: "/conversations", label: "Conversaciones", icon: MessagesSquare, description: "Bandeja de WhatsApp y handoff" },
     ],
   },
   {
@@ -163,7 +157,6 @@ function filterAgentGroup(
   opts: {
     chatVisible: boolean;
     conversationsVisible: boolean;
-    scopes: readonly string[] | null;
   },
 ): NavGroup[] {
   return groups.map((group) => {
@@ -180,22 +173,14 @@ function filterAgentGroup(
 }
 
 /**
- * Filtra items cuyo `requiresScope` no esté en los scopes del usuario.
- * Si los scopes no están hidratados todavía (login en curso, sesión vacía)
- * se muestran todos: evita parpadeo durante el render inicial y deja que
- * el backend haga la última palabra si alguien fuerza la URL.
+ * Oculta las secciones a las que el rol no tiene acceso (misma tabla que el
+ * guardia de páginas, `ROUTE_ACCESS`). Mientras la sesión no trae scopes se
+ * muestran todas para no parpadear; el guardia y el backend deciden al entrar.
  */
-function filterByScope(
-  groups: NavGroup[],
-  scopes: readonly string[] | undefined,
-): NavGroup[] {
-  if (!scopes || scopes.length === 0) return groups;
-  return groups.map((group) => ({
-    ...group,
-    items: group.items.filter(
-      (item) => !item.requiresScope || scopes.includes(item.requiresScope),
-    ),
-  }));
+function filterByAccess(groups: NavGroup[], allowed: (href: string) => boolean): NavGroup[] {
+  return groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => allowed(item.href)) }))
+    .filter((group) => group.items.length > 0);
 }
 
 interface SidebarNavProps {
@@ -241,6 +226,7 @@ export function SidebarNav({
   const pathname = usePathname();
   const groupId = React.useId();
   const session = useSession();
+  const perms = usePermissions();
 
   const isSuperAdmin = !!session?.isSuperAdmin;
   const impersonating = useImpersonation();
@@ -265,14 +251,15 @@ export function SidebarNav({
       if (!res.ok) throw new Error("agente no disponible");
       return res.json();
     },
-    enabled: showTenantNav && Boolean(tenantId),
+    // Sin permiso de lectura el proxy responde 403: ni se pregunta.
+    enabled: showTenantNav && Boolean(tenantId) && perms.canAny(AGENT_READ),
     staleTime: 30_000,
   });
   const chatVisible = agentSettingsQuery.data?.settings.openrouter_api_key_set === true;
 
   // Cualquier conexión cuenta, sin importar su estado: una PENDING o en ERROR
   // todavía significa "a medio configurar", no "sin configurar".
-  const connectionsQuery = useConnections({ enabled: showTenantNav });
+  const connectionsQuery = useConnections({ enabled: showTenantNav && perms.can("chat.read") });
   const conversationsVisible =
     connectionsQuery.isSuccess && (connectionsQuery.data?.length ?? 0) > 0;
 
@@ -288,15 +275,14 @@ export function SidebarNav({
         ? // Plataforma primero, luego la operación del tenant impersonado.
           [PLATFORM_NAV, ...NAV]
         : [PLATFORM_NAV];
-    return filterByScope(
+    return filterByAccess(
       filterAgentGroup([...base, HELP_NAV_GROUP], {
         chatVisible,
         conversationsVisible,
-        scopes: session?.scopes ?? null,
       }),
-      session?.scopes,
+      (href) => perms.canAccess(accessForPath(href)),
     );
-  }, [isSuperAdmin, impersonating, chatVisible, conversationsVisible, session?.scopes]);
+  }, [isSuperAdmin, impersonating, chatVisible, conversationsVisible, perms]);
 
   // Con Plataforma + operación son 16 entradas y 5 rótulos: a la densidad
   // normal (~36px por renglón, gap-6 entre grupos) la barra pasa de 800px y

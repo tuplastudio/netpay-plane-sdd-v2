@@ -38,6 +38,7 @@ import {
   type EntityTarget,
 } from "./entity-detail-sheet";
 import { QuickQuoteSheet } from "./quick-quote-sheet";
+import { usePermissions } from "@/components/app/use-permissions";
 
 /**
  * Panel de contexto de la conversación (columna derecha en lg+, `Sheet` en
@@ -76,12 +77,13 @@ import { QuickQuoteSheet } from "./quick-quote-sheet";
  */
 function CreateCustomerCard({ conversation }: { conversation: Conversation }) {
   const createAndLink = useCreateAndLinkCustomer(conversation.id);
+  const canCreate = usePermissions().can("customers.write");
   const [creating, setCreating] = useState(false);
   const [fullName, setFullName] = useState("");
 
   return (
     <Section title="Cliente" headerIcon={<UserRound className="h-4 w-4" />} density="compact">
-      {creating ? (
+      {canCreate && creating ? (
         <form
           className="space-y-2"
           onSubmit={(e) => {
@@ -127,10 +129,16 @@ function CreateCustomerCard({ conversation }: { conversation: Conversation }) {
             ficha de cliente. Sin nombre no hay historial, pagos ni cotizador: el agente de IA no
             puede emitir la cotización.
           </p>
-          <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
-            <UserPlus aria-hidden className="h-3.5 w-3.5" />
-            Crear cliente con su nombre
-          </Button>
+          {canCreate ? (
+            <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
+              <UserPlus aria-hidden className="h-3.5 w-3.5" />
+              Crear cliente con su nombre
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Tu rol no puede dar de alta clientes: pídeselo a alguien con ese permiso.
+            </p>
+          )}
         </div>
       )}
     </Section>
@@ -515,6 +523,7 @@ export function ConversationContextPanel({ conversation }: { conversation: Conve
   // hojas compitiendo por el foco.
   const [target, setTarget] = useState<EntityTarget | null>(null);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const perms = usePermissions();
 
   if (!conversation) {
     return (
@@ -553,6 +562,7 @@ export function ConversationContextPanel({ conversation }: { conversation: Conve
 
           {/* El cotizador es una hoja, no un bloque: desplegado aquí dentro
               empujaba notas y pestañas fuera de la columna. */}
+          {perms.can("quotes.write") ? (
           <Button
             size="sm"
             variant="outline"
@@ -568,6 +578,7 @@ export function ConversationContextPanel({ conversation }: { conversation: Conve
             <FileText aria-hidden className="h-3.5 w-3.5" />
             Cotizar rápido
           </Button>
+          ) : null}
 
           <NotesCard notes={context.data.notes} />
           <OpenWorkCard context={context.data} onOpen={setTarget} />
@@ -580,9 +591,11 @@ export function ConversationContextPanel({ conversation }: { conversation: Conve
                 <TabsTrigger value="purchases" className="flex-1">
                   Compras
                 </TabsTrigger>
-                <TabsTrigger value="payments" className="flex-1">
-                  Pagos
-                </TabsTrigger>
+                {perms.can("payments.read") ? (
+                  <TabsTrigger value="payments" className="flex-1">
+                    Pagos
+                  </TabsTrigger>
+                ) : null}
                 <TabsTrigger value="activity" className="flex-1">
                   Actividad
                 </TabsTrigger>
@@ -608,11 +621,13 @@ export function ConversationContextPanel({ conversation }: { conversation: Conve
           if (!open) setTarget(null);
         }}
       />
-      <QuickQuoteSheet
-        conversation={conversation}
-        open={quoteOpen}
-        onOpenChange={setQuoteOpen}
-      />
+      {perms.can("quotes.write") ? (
+        <QuickQuoteSheet
+          conversation={conversation}
+          open={quoteOpen}
+          onOpenChange={setQuoteOpen}
+        />
+      ) : null}
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { Money } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { NewQuoteForm } from "./_components/new-quote-form";
+import { usePermissions } from "@/components/app/use-permissions";
 
 interface Quote {
   id: string;
@@ -69,6 +70,7 @@ export default function QuotesPage() {
   // `PageHeader` y no se duplique el título "Cotizaciones" entre
   // encabezado, sección del cotizador y sección del listado.
   const [newQuoteOpen, setNewQuoteOpen] = useState(false);
+  const canWrite = usePermissions().can("quotes.write");
 
   return (
     <div>
@@ -76,10 +78,12 @@ export default function QuotesPage() {
         title="Cotizaciones"
         description="Cotiza varios productos y variantes en una sola cotización, emítela y comparte el link público."
         actions={
-          <Button onClick={() => setNewQuoteOpen(true)}>
-            <CirclePlus aria-hidden className="h-4 w-4" />
-            Nueva cotización
-          </Button>
+          canWrite ? (
+            <Button onClick={() => setNewQuoteOpen(true)}>
+              <CirclePlus aria-hidden className="h-4 w-4" />
+              Nueva cotización
+            </Button>
+          ) : undefined
         }
       />
 
@@ -99,13 +103,14 @@ export default function QuotesPage() {
           empty={{
             icon: <FileText className="h-6 w-6" />,
             title: "Sin cotizaciones",
-            description:
-              "Pulsa «Nueva cotización» arriba a la derecha para abrir el cotizador. Elige cliente, agrega variantes y emítela para compartir el link público.",
+            description: canWrite
+              ? "Pulsa «Nueva cotización» arriba a la derecha para abrir el cotizador. Elige cliente, agrega variantes y emítela para compartir el link público."
+              : "Cuando el equipo de ventas emita cotizaciones, aparecerán aquí.",
           }}
         />
       </Section>
 
-      <NewQuoteForm open={newQuoteOpen} onOpenChange={setNewQuoteOpen} />
+      {canWrite ? <NewQuoteForm open={newQuoteOpen} onOpenChange={setNewQuoteOpen} /> : null}
     </div>
   );
 }

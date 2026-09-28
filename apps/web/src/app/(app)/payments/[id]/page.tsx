@@ -32,6 +32,7 @@ import { StatTile } from "@/components/app/stat-tile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toCents } from "@/lib/decimal";
 import { LinesSheet } from "./_components/lines-sheet";
+import { usePermissions } from "@/components/app/use-permissions";
 
 interface SessionLine {
   variantId: string;
@@ -99,6 +100,7 @@ async function copyToClipboard(text: string, label: string) {
 }
 
 export default function PaymentDetailPage() {
+  const canRefund = usePermissions().can("payments.refund");
   const params = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [refundOpen, setRefundOpen] = useState(false);
@@ -177,7 +179,7 @@ export default function PaymentDetailPage() {
   }
 
   const s = sessionQ.data;
-  const refundable = s.status === "CAPTURED" || s.status === "PARTIALLY_REFUNDED";
+  const refundable = canRefund && (s.status === "CAPTURED" || s.status === "PARTIALLY_REFUNDED");
 
   return (
     <div>

@@ -43,6 +43,7 @@ import { NoScopeRequired } from "./auth/guards/role.guard.js";
 /** Rutas de agent-v2 que afectan a TODOS los tenants: solo super-admin. */
 const GLOBAL_ONLY = [/^prompts\/reload\/?$/, /^evals(\/|$)/, /^metrics\/?$/];
 /** Escrituras que un usuario sin `tenant.admin` sí puede hacer. */
+export const AGENT_READERS: Scope[] = ["chat.read", "integrations.read", "tenant.admin"];
 const MEMBER_WRITES: Array<{ pattern: RegExp; scope: Scope }> = [
   { pattern: /^chat\/?$/, scope: "chat.write" },
   { pattern: /^audio\//, scope: "chat.write" },
@@ -89,6 +90,12 @@ export class AgentProxyController {
 
     const effective = effectiveScopesOf(principal);
     const isRead = ["GET", "HEAD"].includes(req.method);
+    // Las lecturas incluyen transcripts de clientes y la configuración del
+    // bot: CATALOG, FINANCE y VIEWER no tienen nada que hacer aquí.
+    if (isRead && !superAdmin && !AGENT_READERS.some((s) => effective.has(s))) {
+      res.status(403).json({ code: "FORBIDDEN", message: `Falta el permiso ${AGENT_READERS.join(" o ")}` });
+      return;
+    }
     if (!isRead && !superAdmin) {
       const memberWrite = MEMBER_WRITES.find((w) => w.pattern.test(path));
       // Configurar el bot (ajustes, conocimiento, memoria, aprendizajes):

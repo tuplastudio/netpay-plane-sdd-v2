@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import { usePermissions } from "./use-permissions";
 
 /**
  * Búsqueda global de la Topbar.
@@ -112,6 +113,9 @@ export function GlobalSearch({ className }: { className?: string }) {
 
   const term = useDebounced(query.trim(), DEBOUNCE_MS);
   const enabled = term.length >= MIN_CHARS;
+  const perms = usePermissions();
+  const canProducts = perms.can("catalog.read");
+  const canCustomers = perms.can("customers.read");
 
   const baseId = React.useId();
   const listboxId = `${baseId}-listbox`;
@@ -120,7 +124,7 @@ export function GlobalSearch({ className }: { className?: string }) {
 
   const products = useQuery({
     queryKey: ["global-search", "products", term],
-    enabled,
+    enabled: enabled && canProducts,
     refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
       const res = await api.get<{ data: ProductHit[] }>("/catalog/products", {
@@ -133,7 +137,7 @@ export function GlobalSearch({ className }: { className?: string }) {
 
   const customers = useQuery({
     queryKey: ["global-search", "customers", term],
-    enabled,
+    enabled: enabled && canCustomers,
     refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
       const res = await api.get<{ data: CustomerHit[] }>("/customers", {
@@ -152,7 +156,7 @@ export function GlobalSearch({ className }: { className?: string }) {
   const groups: Group[] = React.useMemo(() => {
     const productRows = enabled ? (products.data ?? []) : [];
     const customerRows = enabled ? (customers.data ?? []) : [];
-    return [
+    const all = [
       {
         id: "catalog" as const,
         label: "Catálogo",
@@ -187,7 +191,11 @@ export function GlobalSearch({ className }: { className?: string }) {
         })),
       },
     ];
+    // Solo los grupos que el rol puede leer: el resto ni se consulta.
+    return all.filter((g) => (g.id === "catalog" ? canProducts : canCustomers));
   }, [
+    canProducts,
+    canCustomers,
     enabled,
     products.data,
     products.isError,

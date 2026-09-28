@@ -10,6 +10,7 @@ import { DateTime } from "@/components/app/date-time";
 import { Money } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
+import { usePermissions } from "@/components/app/use-permissions";
 
 interface Order {
   id: string;
@@ -63,6 +64,7 @@ const columns: Array<DataTableColumn<Order>> = [
 ];
 
 export default function OrdersPage() {
+  const canQuote = usePermissions().can("quotes.write");
   const q = useQuery({
     queryKey: ["orders"],
     queryFn: async () => {
@@ -94,11 +96,11 @@ export default function OrdersPage() {
               title: "Sin pedidos",
               description:
                 "Aquí verás cada venta desde que se abre el checkout hasta que se cobra. Empieza cotizando para generar el primer pedido.",
-              action: (
+              action: canQuote ? (
                 <Button asChild>
                   <Link href="/quotes">Nueva cotización</Link>
                 </Button>
-              ),
+              ) : undefined,
             }}
           />
         </Section>

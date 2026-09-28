@@ -48,6 +48,7 @@ import {
   type PaymentSessionDetail,
   type QuoteDetail,
 } from "./use-entity-details";
+import { NoPermission, usePermissions } from "@/components/app/use-permissions";
 
 /**
  * Detalle de un pedido / cotización / pago / evento SOBRE la conversación, en
@@ -235,6 +236,7 @@ function OrderBody({
 }) {
   const query = useOrderDetail(id);
   const resume = useResumeCheckout(id);
+  const canCharge = usePermissions().can("orders.write");
   const [paymentLink, setPaymentLink] = useState<string | null>(null);
 
   // Cambiar de pedido (pedido → pago → otro pedido) no debe arrastrar el link
@@ -242,7 +244,7 @@ function OrderBody({
   useEffect(() => setPaymentLink(null), [id]);
 
   const order = query.data;
-  const canPay = !!order && OPEN_CHECKOUT_STATUSES.has(order.status);
+  const canPay = canCharge && !!order && OPEN_CHECKOUT_STATUSES.has(order.status);
   const currentRevision = order?.revisions.find((r) => r.id === order.currentRevisionId);
 
   return (
@@ -468,6 +470,8 @@ function QuoteBody({
 }) {
   const query = useQuoteDetail(id);
   const share = useShareQuote();
+  // Compartir genera el link público: `quotes.write`.
+  const canShare = usePermissions().can("quotes.write");
   const reply = useReply(conversation.id);
   const sendQuote = useSendQuoteMessage(conversation.id);
   const [publicUrl, setPublicUrl] = useState<string | null>(null);
@@ -510,6 +514,8 @@ function QuoteBody({
       }
       actions={
         <>
+          {canShare ? (
+          <>
           <Button size="sm" loading={sending} onClick={() => void sendOverWhatsApp()}>
             <Send aria-hidden className="h-3.5 w-3.5" />
             Enviar por WhatsApp
@@ -531,6 +537,8 @@ function QuoteBody({
             <Share2 aria-hidden className="h-3.5 w-3.5" />
             Link público
           </Button>
+          </>
+          ) : null}
           <Button variant="outline" size="sm" asChild>
             <a href={`/api/v1/quotes/${id}/pdf`} target="_blank" rel="noreferrer">
               <Download aria-hidden className="h-3.5 w-3.5" />
@@ -656,8 +664,19 @@ function PaymentBody({
   onBack?: () => void;
   onOpen: (target: EntityTarget) => void;
 }) {
-  const query = usePaymentSessionDetail(id);
+  // SUPPORT y VENDOR ven que hubo un pago en la línea de tiempo, pero el
+  // detalle de la sesión es `payments.read`.
+  const canRead = usePermissions().can("payments.read");
+  const query = usePaymentSessionDetail(canRead ? id : null);
   const session = query.data;
+
+  if (!canRead) {
+    return (
+      <DetailShell title={`Pago ${shortId(id)}`} onBack={onBack}>
+        <NoPermission />
+      </DetailShell>
+    );
+  }
 
   return (
     <DetailShell

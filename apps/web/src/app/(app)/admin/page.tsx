@@ -1,10 +1,7 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import { Bot } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/app/page-header";
-import { AdminTabs } from "./_components/admin-tabs";
+import { AdminTabs, AgentConsoleLink } from "./_components/admin-tabs";
 
 /**
  * Administración del tenant. Solo composición: cada pestaña vive en
@@ -19,14 +16,7 @@ export default function AdminPage() {
       <PageHeader
         title="Administración"
         description="Empresa, marca, usuarios, API keys, notificaciones y seguridad del tenant."
-        actions={
-          <Button asChild variant="outline">
-            <Link href="/agent">
-              <Bot className="h-4 w-4" />
-              Consola del agente
-            </Link>
-          </Button>
-        }
+        actions={<AgentConsoleLink />}
       />
 
       <Suspense fallback={<SkeletonText lines={3} announce label="Cargando la administración…" />}>

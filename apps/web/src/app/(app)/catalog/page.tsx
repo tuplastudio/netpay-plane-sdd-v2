@@ -47,6 +47,7 @@ import { CreateProductSheet } from "./create-product-sheet";
 import { EditProductSheet } from "./edit-product-sheet";
 import { catalogStats, priceRange, isOutOfStock } from "./_components/product-helpers";
 import { useDebounced } from "./_components/use-debounced";
+import { usePermissions } from "@/components/app/use-permissions";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -223,6 +224,9 @@ export default function CatalogPage() {
   const [sort, setSort] = useState<SortKey>("updated");
   const [moreOpen, setMoreOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  // Solo lectura para quien no tiene `catalog.write` (VENDOR, FINANCE,
+  // SUPPORT, VIEWER): se ve el catálogo, sin botones que acabarían en 403.
+  const canWrite = usePermissions().can("catalog.write");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Product | null>(null);
 
@@ -343,10 +347,12 @@ export default function CatalogPage() {
         title="Catálogo"
         description="Productos, variantes, precios y claves SAT que el agente puede cotizar."
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus aria-hidden className="h-4 w-4" />
-            Nuevo producto
-          </Button>
+          canWrite ? (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus aria-hidden className="h-4 w-4" />
+              Nuevo producto
+            </Button>
+          ) : undefined
         }
       />
 
@@ -556,7 +562,7 @@ export default function CatalogPage() {
             ) : !visible || visible.length === 0 ? (
               <EmptyCatalog
                 isFiltered={isFiltered}
-                onCreate={() => setCreateOpen(true)}
+                onCreate={canWrite ? () => setCreateOpen(true) : undefined}
                 onClear={clearFilters}
                 searchTerm={q}
               />
@@ -579,6 +585,7 @@ export default function CatalogPage() {
                       }
                       onArchive={() => setArchiveTarget(p)}
                       activating={setProductStatus.isPending}
+                      canEdit={canWrite}
                     />
                   </li>
                 ))}
@@ -620,7 +627,7 @@ function EmptyCatalog({
   searchTerm,
 }: {
   isFiltered: boolean;
-  onCreate: () => void;
+  onCreate?: () => void;
   onClear: () => void;
   searchTerm: string;
 }) {
@@ -654,12 +661,16 @@ function EmptyCatalog({
       <PackageOpen aria-hidden className="mx-auto h-8 w-8 text-muted-foreground" />
       <p className="mt-3 font-medium">Aún no hay productos</p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Crea el primero con su variante y precio para que el agente pueda cotizarlo.
+        {onCreate
+          ? "Crea el primero con su variante y precio para que el agente pueda cotizarlo."
+          : "Cuando alguien con permiso de catálogo los dé de alta, aparecerán aquí."}
       </p>
-      <Button size="sm" className="mt-4" onClick={onCreate}>
-        <Plus aria-hidden className="h-3.5 w-3.5" />
-        Crear producto
-      </Button>
+      {onCreate ? (
+        <Button size="sm" className="mt-4" onClick={onCreate}>
+          <Plus aria-hidden className="h-3.5 w-3.5" />
+          Crear producto
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -672,6 +683,7 @@ function ProductCard({
   onDraft,
   onArchive,
   activating,
+  canEdit,
 }: {
   product: Product;
   highlight: (text: string) => React.ReactNode;
@@ -680,6 +692,7 @@ function ProductCard({
   onDraft: () => void;
   onArchive: () => void;
   activating: boolean;
+  canEdit: boolean;
 }) {
   const range = priceRange(product);
   const outOfStock = product.variants.some(isOutOfStock);
@@ -711,6 +724,7 @@ function ProductCard({
             </p>
           </div>
         </div>
+        {canEdit ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -753,6 +767,7 @@ function ProductCard({
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
+        ) : null}
       </header>
 
       <div className="flex items-center gap-2">
@@ -794,17 +809,19 @@ function ProductCard({
         ) : null}
       </dl>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="-mx-1 mt-1 justify-between"
-        onClick={onEdit}
-        aria-label={`Editar ${product.title}`}
-      >
-        Editar
-        <ChevronRight aria-hidden className="h-3.5 w-3.5" />
-      </Button>
+      {canEdit ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-mx-1 mt-1 justify-between"
+          onClick={onEdit}
+          aria-label={`Editar ${product.title}`}
+        >
+          Editar
+          <ChevronRight aria-hidden className="h-3.5 w-3.5" />
+        </Button>
+      ) : null}
     </article>
   );
 }

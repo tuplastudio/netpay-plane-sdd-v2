@@ -34,6 +34,7 @@ import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { CustomerHistorySection } from "./_components/customer-history";
 import { CustomerEditSheet } from "./_components/customer-edit-sheet";
+import { usePermissions } from "@/components/app/use-permissions";
 
 /**
  * Forma real de `GET /customers/:id` (`customer.service.ts#get`): el registro
@@ -117,6 +118,7 @@ export default function CustomerDetailPage() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const canWrite = usePermissions().can("customers.write");
 
   const customerQ = useQuery({
     queryKey: ["customer", params.id],
@@ -274,6 +276,7 @@ export default function CustomerDetailPage() {
           </>
         }
         actions={
+          canWrite ? (
           <>
             {!isArchived ? (
               <Button variant="outline" onClick={() => setEditOpen(true)}>
@@ -293,6 +296,7 @@ export default function CustomerDetailPage() {
               </Button>
             )}
           </>
+          ) : undefined
         }
       />
 

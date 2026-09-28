@@ -161,7 +161,7 @@ export class WhatsAppController {
 
   @Post("connect")
   @HttpCode(201)
-  @RequireScopes("chat.write" as never)
+  @RequireScopes("integrations.write")
   async connect(
     @Body()
     body: {
@@ -180,14 +180,14 @@ export class WhatsAppController {
 
   @Post(":id/disconnect")
   @HttpCode(204)
-  @RequireScopes("chat.write" as never)
+  @RequireScopes("integrations.write")
   async disconnect(@Param("id") id: string) {
     const tenantId = requireTenant();
     await this.wa.disconnect(tenantId, id);
   }
 
   @Post(":id/rotate-webhook-secret")
-  @RequireScopes("chat.write" as never)
+  @RequireScopes("integrations.write")
   async rotateWebhookSecret(@Param("id") id: string) {
     const tenantId = requireTenant();
     return {
@@ -208,7 +208,7 @@ export class WhatsAppController {
    * - Cambiaste de demo.ngrok.io a prod.midominio.com.
    */
   @Patch(":id/webhook-url")
-  @RequireScopes("chat.write" as never)
+  @RequireScopes("integrations.write")
   async updateWebhookUrl(
     @Param("id") id: string,
     @Body() body: { webhookUrl?: string },
@@ -243,7 +243,7 @@ export class WhatsAppController {
   }
 
   @Post(":id/health")
-  @RequireScopes("chat.read" as never)
+  @RequireScopes("integrations.read")
   async health(@Param("id") id: string) {
     const tenantId = requireTenant();
     return {
@@ -262,7 +262,7 @@ export class WhatsAppController {
   /** `POST /whatsapp/evolution/provision`. Crea una instancia nueva y la conecta al tenant. */
   @Post("evolution/provision")
   @HttpCode(201)
-  @RequireScopes("chat.write" as never)
+  @RequireScopes("integrations.write")
   async provisionEvolution(@Body() body: { phoneNumber?: string }) {
     const tenantId = requireTenant();
     try {
@@ -282,7 +282,7 @@ export class WhatsAppController {
 
   /** `GET /whatsapp/evolution/qr/:instance`. Refresca el QR (rota cada ~60s). */
   @Get("evolution/qr/:instance")
-  @RequireScopes("chat.read" as never)
+  @RequireScopes("integrations.write")
   async evolutionQrCode(@Param("instance") instance: string) {
     const tenantId = requireTenant();
     await this.wa.assertEvolutionInstanceOwned(tenantId, instance);
@@ -292,7 +292,7 @@ export class WhatsAppController {
 
   /** `GET /whatsapp/evolution/image/:instance`. Devuelve el QR como PNG. */
   @Get("evolution/image/:instance")
-  @RequireScopes("chat.read" as never)
+  @RequireScopes("integrations.write")
   async evolutionQrImage(
     @Param("instance") instance: string,
     @Res() res: Response,
@@ -317,7 +317,7 @@ export class WhatsAppController {
 
   /** `GET /whatsapp/evolution/state/:instance`. Estado de la instancia. */
   @Get("evolution/state/:instance")
-  @RequireScopes("chat.read" as never)
+  @RequireScopes("integrations.write")
   async evolutionState(@Param("instance") instance: string) {
     const tenantId = requireTenant();
     await this.wa.assertEvolutionInstanceOwned(tenantId, instance);
@@ -343,7 +343,7 @@ export class WhatsAppController {
    */
   @Post("evolution/finalize/:instance")
   @HttpCode(200)
-  @RequireScopes("chat.write" as never)
+  @RequireScopes("integrations.write")
   async finalizeEvolution(
     @Param("instance") instance: string,
     @Body() body: { phoneNumber?: string },
@@ -362,7 +362,7 @@ export class WhatsAppController {
   /** `DELETE /whatsapp/evolution/instance/:instance`. Limpia la instancia en Evolution. */
   @Delete("evolution/instance/:instance")
   @HttpCode(204)
-  @RequireScopes("chat.write" as never)
+  @RequireScopes("integrations.write")
   async evolutionCleanup(@Param("instance") instance: string) {
     const tenantId = requireTenant();
     await this.wa.assertEvolutionInstanceOwned(tenantId, instance);

@@ -85,7 +85,9 @@ export const ROLE_SCOPES: Record<string, ReadonlyArray<Scope>> = {
   ],
   SUPPORT: [
     "catalog.read",
-    "customers.read",
+    // Soporte atiende conversaciones y corrige los datos del cliente (nombre,
+    // correo, dirección) que salen de ellas; sin esto el panel se lo negaba.
+    "customers.read", "customers.write",
     "quotes.read",
     "orders.read",
     "chat.read", "chat.write",

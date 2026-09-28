@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, CreditCard, ExternalLink } from "lucide-reac
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { usePermissions } from "@/components/app/use-permissions";
 import {
   Table,
   TableBody,
@@ -54,6 +55,7 @@ function netOf(p: OrderPayment): string {
  */
 export function PaymentsTable({ payments }: { payments: OrderPayment[] }) {
   const [open, setOpen] = useState<Set<string>>(() => new Set());
+  const canReadPayments = usePermissions().can("payments.read");
 
   function toggle(id: string) {
     setOpen((prev) => {
@@ -145,12 +147,14 @@ export function PaymentsTable({ payments }: { payments: OrderPayment[] }) {
                   <DateTime value={p.capturedAt} className="text-xs text-muted-foreground" />
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button asChild variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}>
-                    <Link href={`/payments/${p.id}`} aria-label={`Abrir pago ${p.id.slice(0, 8)}`}>
-                      <ExternalLink aria-hidden className="h-3.5 w-3.5" />
-                      Abrir
-                    </Link>
-                  </Button>
+                  {canReadPayments ? (
+                    <Button asChild variant="ghost" size="sm" onClick={(e) => e.stopPropagation()}>
+                      <Link href={`/payments/${p.id}`} aria-label={`Abrir pago ${p.id.slice(0, 8)}`}>
+                        <ExternalLink aria-hidden className="h-3.5 w-3.5" />
+                        Abrir
+                      </Link>
+                    </Button>
+                  ) : null}
                 </TableCell>
               </TableRow>
               {expanded ? (

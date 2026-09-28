@@ -18,6 +18,7 @@ import { StatTile } from "@/components/app/stat-tile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { centsToDecimalString, toCents } from "@/lib/decimal";
 import { useReportSummary } from "../_dashboard/use-dashboard-data";
+import { usePermissions } from "@/components/app/use-permissions";
 
 /** Estados de sesión sobre los que el backend admite un (nuevo) reembolso. */
 const REFUNDABLE_STATUSES = new Set(["CAPTURED", "PARTIALLY_REFUNDED"]);
@@ -72,6 +73,8 @@ interface LedgerEntry {
 }
 
 export default function PaymentsPage() {
+  // Reembolsar es `payments.refund` (OWNER y FINANCE); ADMIN solo consulta.
+  const canRefund = usePermissions().can("payments.refund");
   const queryClient = useQueryClient();
   const [refundTarget, setRefundTarget] = useState<Session | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
@@ -217,7 +220,7 @@ export default function PaymentsPage() {
       // Una sesión reembolsada a medias sigue admitiendo reembolso: el backend
       // acepta CAPTURED y PARTIALLY_REFUNDED mientras quede saldo.
       cell: (s) =>
-        REFUNDABLE_STATUSES.has(s.status) ? (
+        canRefund && REFUNDABLE_STATUSES.has(s.status) ? (
           <Button variant="outline" size="sm" onClick={() => openRefund(s)}>
             <RotateCcw className="h-3.5 w-3.5" />
             Reembolsar

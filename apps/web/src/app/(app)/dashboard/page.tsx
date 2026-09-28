@@ -1,5 +1,6 @@
 "use client";
 
+import type * as React from "react";
 import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -30,6 +31,8 @@ import { StatTile } from "@/components/app/stat-tile";
 import { Money, formatMoney } from "@/components/app/money";
 import { DateTime } from "@/components/app/date-time";
 import { useDashboardData } from "../_dashboard/use-dashboard-data";
+import { usePermissions } from "@/components/app/use-permissions";
+import { AGENT_MANAGE, accessForPath, type Scope } from "@/lib/permissions";
 
 /**
  * Panorama operativo del portal.
@@ -44,15 +47,24 @@ import { useDashboardData } from "../_dashboard/use-dashboard-data";
  */
 export default function HomePage() {
   const router = useRouter();
-  const { summary, unified } = useDashboardData();
+  const perms = usePermissions();
+  // Las cifras de dinero (y todo `/reports/*`) son de `payments.read`: OWNER,
+  // ADMIN y FINANCE. Al resto no se le pregunta nada que respondería 403.
+  const canMoney = perms.can("payments.read");
+  const canChat = perms.can("chat.read");
+  const canAudit = perms.can("audit.read");
+  const { summary, unified } = useDashboardData({ enabled: canMoney });
+  const quickActions = QUICK_ACTIONS.filter((a) => perms.canAccess({ anyOf: a.anyOf }));
 
   const me = useQuery({ queryKey: ["auth-me"], queryFn: fetchAuthMe, retry: false });
   useEffect(() => {
     if (me.data?.isSuperAdmin) router.replace("/super-admin");
   }, [me.data, router]);
 
+  // Sin sesión hidratada todavía no se sabe qué pedir: se pinta como cargando.
+  const loading = unified.isLoading || !perms.ready;
   const tile = {
-    isLoading: unified.isLoading,
+    isLoading: loading,
     isError: unified.isError,
     onRetry: () => void unified.refetch(),
   };
@@ -61,6 +73,8 @@ export default function HomePage() {
   const recentOrders = unified.data?.recentOrders ?? [];
   const recentConversations = unified.data?.recentConversations ?? [];
   const recentActivity = unified.data?.recentActivity ?? [];
+
+  if (perms.ready && !canMoney) return <RoleHome actions={quickActions} />;
 
   return (
     <div>
@@ -79,7 +93,7 @@ export default function HomePage() {
                 Ventas cobradas este mes
               </p>
               <p className="font-display text-display-lg tabular-nums text-white">
-                {unified.isLoading ? "…" : formatMoney(unified.data?.kpis.revenue.mtd)}
+                {loading ? "…" : formatMoney(unified.data?.kpis.revenue.mtd)}
               </p>
               <p className="text-body text-white/75">
                 {unified.data
@@ -87,13 +101,15 @@ export default function HomePage() {
                   : "Cargando cifras del mes…"}
               </p>
             </div>
-            <Button asChild variant="translucent" className="self-start sm:self-auto">
-              <Link href="/chat">
-                <MessageSquare className="h-4 w-4" />
-                Probar el agente
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
+            {perms.canAccess(accessForPath("/chat")) ? (
+              <Button asChild variant="translucent" className="self-start sm:self-auto">
+                <Link href="/chat">
+                  <MessageSquare className="h-4 w-4" />
+                  Probar el agente
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : null}
           </div>
         </section>
 
@@ -154,6 +170,7 @@ export default function HomePage() {
                 : `${unified.data.kpis.products.draft} en borrador`
             }
           />
+          {canChat ? (
           <StatTile size="compact"
             {...tile}
             label="Conversaciones abiertas"
@@ -168,6 +185,7 @@ export default function HomePage() {
                   : "Ninguna escalada"
             }
           />
+          ) : null}
         </div>
 
         {/* Fila 2: KPIs del día/mes (operativos). */}
@@ -213,7 +231,7 @@ export default function HomePage() {
             density="compact"
             className="lg:col-span-2"
           >
-            <SalesTrendMini data={salesTrend} isLoading={unified.isLoading} />
+            <SalesTrendMini data={salesTrend} isLoading={loading} />
           </Section>
 
           {/* Acciones rápidas. */}
@@ -223,68 +241,7 @@ export default function HomePage() {
             headerIcon={<Plus className="h-4 w-4" />}
             density="compact"
           >
-            <ul className="space-y-1.5 text-sm">
-              <li>
-                <Link
-                  href="/chat"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  <span className="flex items-center gap-2">
-                    <MessageSquare aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
-                    Hablar con el agente
-                  </span>
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/quotes"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  <span className="flex items-center gap-2">
-                    <FileText aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
-                    Crear cotización
-                  </span>
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/orders"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  <span className="flex items-center gap-2">
-                    <ShoppingCart aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
-                    Ver pedidos
-                  </span>
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/customers"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  <span className="flex items-center gap-2">
-                    <UserPlus aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
-                    Dar de alta un cliente
-                  </span>
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/agent"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-                >
-                  <span className="flex items-center gap-2">
-                    <Bot aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
-                    Consola del agente
-                  </span>
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-                </Link>
-              </li>
-            </ul>
+            <QuickActionList actions={quickActions} />
           </Section>
         </div>
 
@@ -304,11 +261,12 @@ export default function HomePage() {
           >
             <RecentOrders
               rows={recentOrders}
-              isLoading={unified.isLoading}
+              isLoading={loading}
             />
           </Section>
 
           {/* Conversaciones recientes. */}
+          {canChat ? (
           <Section
             title="Conversaciones recientes"
             description="Últimos hilos con actividad."
@@ -323,11 +281,13 @@ export default function HomePage() {
           >
             <RecentConversations
               rows={recentConversations}
-              isLoading={unified.isLoading}
+              isLoading={loading}
             />
           </Section>
+          ) : null}
 
           {/* Auditoría reciente. */}
+          {canAudit ? (
           <Section
             title="Actividad reciente"
             description="Últimos eventos de la bitácora."
@@ -336,11 +296,72 @@ export default function HomePage() {
           >
             <RecentActivity
               rows={recentActivity}
-              isLoading={unified.isLoading}
+              isLoading={loading}
             />
           </Section>
+          ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+const QUICK_ACTIONS: ReadonlyArray<{
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  anyOf: readonly Scope[];
+}> = [
+  { href: "/chat", label: "Hablar con el agente", icon: MessageSquare, anyOf: ["chat.write"] },
+  { href: "/quotes", label: "Crear cotización", icon: FileText, anyOf: ["quotes.write"] },
+  { href: "/orders", label: "Ver pedidos", icon: ShoppingCart, anyOf: ["orders.read"] },
+  { href: "/customers", label: "Dar de alta un cliente", icon: UserPlus, anyOf: ["customers.write"] },
+  { href: "/catalog", label: "Ver catálogo", icon: Package, anyOf: ["catalog.read"] },
+  { href: "/conversations", label: "Abrir la bandeja", icon: MessagesSquare, anyOf: ["chat.read"] },
+  { href: "/agent", label: "Consola del agente", icon: Bot, anyOf: AGENT_MANAGE },
+];
+
+function QuickActionList({ actions }: { actions: typeof QUICK_ACTIONS }) {
+  return (
+    <ul className="space-y-1.5 text-sm">
+      {actions.map(({ href, label, icon: Icon }) => (
+        <li key={href}>
+          <Link
+            href={href}
+            className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          >
+            <span className="flex items-center gap-2">
+              <Icon aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+              {label}
+            </span>
+            <ArrowRight aria-hidden className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Inicio para roles sin acceso a cifras de dinero (VENDOR, SUPPORT, CATALOG,
+ * VIEWER): nada de KPIs que responderían 403, solo sus accesos directos.
+ */
+function RoleHome({ actions }: { actions: typeof QUICK_ACTIONS }) {
+  return (
+    <div>
+      <PageHeader
+        title="Inicio"
+        description="Tus accesos directos. Ves las secciones que tu rol permite."
+      />
+      <Section
+        title="Acciones rápidas"
+        description="Lo que puedes hacer con tu rol en esta empresa."
+        headerIcon={<Plus className="h-4 w-4" />}
+        density="compact"
+        className="max-w-xl"
+      >
+        <QuickActionList actions={actions} />
+      </Section>
     </div>
   );
 }

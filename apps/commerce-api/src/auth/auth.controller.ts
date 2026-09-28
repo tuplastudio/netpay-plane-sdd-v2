@@ -176,7 +176,12 @@ export class AuthController {
     if (!userId) {
       throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Sesión requerida" });
     }
-    return { data: await this.auth.me(userId, RequestContext.tenantId), requestId: RequestContext.requestId };
+    const principal = RequestContext.principal;
+    const impersonatedRole = principal.impersonated && principal.type === "USER" ? principal.role : undefined;
+    return {
+      data: await this.auth.me(userId, RequestContext.tenantId, impersonatedRole),
+      requestId: RequestContext.requestId,
+    };
   }
 
   /**

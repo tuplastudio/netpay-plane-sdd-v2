@@ -356,7 +356,12 @@ export class AuthService {
     return recoveryCodes;
   }
 
-  async me(userId: string, tenantId?: string) {
+  /**
+   * `impersonatedRole`: el rol con el que el guard trata a un super-admin que
+   * entró a otra empresa. No tiene membresía ahí, así que sin esto /auth/me
+   * le daba scopes de VIEWER y el panel le escondía lo que sí puede hacer.
+   */
+  async me(userId: string, tenantId?: string, impersonatedRole?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, fullName: true, totpEnabled: true, isSuperAdmin: true },
@@ -395,7 +400,7 @@ export class AuthService {
       tenantId: tenantId ?? null,
       tenantSlug: tenant?.slug ?? null,
       tenantName: tenant?.name ?? null,
-      role: membership?.status === "ACTIVE" ? membership.role : null,
+      role: impersonatedRole ?? (membership?.status === "ACTIVE" ? membership.role : null),
       memberships: memberships.map((m) => ({
         tenantId: m.tenantId,
         slug: m.tenant.slug,
@@ -416,7 +421,7 @@ export class AuthService {
       // los usa para filtrar el sidebar/tabs y para mostrar/ocultar botones.
       // Si el usuario no tiene membresía ACTIVE (caso raro), scopes queda
       // como VIEWER — el más restrictivo.
-      scopes: scopesFor(membership?.status === "ACTIVE" ? membership.role : "VIEWER"),
+      scopes: scopesFor(impersonatedRole ?? (membership?.status === "ACTIVE" ? membership.role : "VIEWER")),
     };
   }
 
