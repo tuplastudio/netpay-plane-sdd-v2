@@ -9,6 +9,8 @@ import {
   Patch,
   Post,
   Delete,
+  Logger,
+  NotFoundException,
   Query,
   Res,
   UseGuards,
@@ -17,7 +19,9 @@ import argon2 from "argon2";
 import type { Response } from "express";
 import {
   DEFAULT_CONVERSATION_LIMIT,
+  DEFAULT_MESSAGE_LIMIT,
   MANUAL_STATUSES,
+  MAX_MESSAGE_LIMIT,
   WhatsAppService,
   type ConversationListFilters,
   type ConversationSort,
@@ -82,6 +86,42 @@ function parseLimit(raw: string | undefined): number {
   return Math.min(n, MAX_PAGE_SIZE);
 }
 
+function parseMessageLimit(raw: string | undefined): number {
+  if (!raw) return DEFAULT_MESSAGE_LIMIT;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new BadRequestException(`limit must be an integer between 1 and ${MAX_MESSAGE_LIMIT}`);
+  }
+  return Math.min(n, MAX_MESSAGE_LIMIT);
+}
+
+/**
+ * Tenant de la petición o 404. Nunca se debe llegar a Prisma con
+ * `where: { tenantId: undefined }`: Prisma lo interpreta como "sin filtro".
+ */
+function requireTenant(): string {
+  const tenantId = RequestContext.tenantId;
+  if (!tenantId) throw new NotFoundException({ code: "NOT_FOUND", message: "Sin tenant" });
+  return tenantId;
+}
+
+/**
+ * Respuesta única del webhook público cuando no se procesa nada por
+ * autenticación / tenant desconocido: misma forma para slug inexistente,
+ * tenant sin conexión o secreto inválido (no permite enumerar tiendas).
+ */
+const WEBHOOK_REJECTED = { data: { ok: false } } as const;
+
+/**
+ * Hash argon2 de un valor aleatorio para igualar el tiempo de respuesta
+ * cuando no hay hash real contra el cual verificar (slug inexistente).
+ */
+let dummyHashPromise: Promise<string> | null = null;
+function dummyHash(): Promise<string> {
+  dummyHashPromise ??= argon2.hash(`dummy-${Math.random()}`);
+  return dummyHashPromise;
+}
+
 @Controller("whatsapp")
 @UseGuards(RoleGuard)
 export class WhatsAppController {
@@ -92,10 +132,30 @@ export class WhatsAppController {
     private readonly evolutionOnboarding: EvolutionOnboardingService,
   ) {}
 
+  private readonly logger = new Logger(WhatsAppController.name);
+
+  /**
+   * Autentica el secreto del webhook contra la conexión. Sin hash guardado no
+   * hay contra qué comparar: se acepta solo si `allowUnset` (forma Evolution,
+   * compatibilidad con conexiones viejas); la forma legacy exige hash.
+   */
+  private async verifyWebhookSecret(
+    hash: string | null,
+    secret: string | undefined,
+    allowUnset: boolean,
+  ): Promise<boolean> {
+    if (!hash) {
+      await argon2.verify(await dummyHash(), secret ?? "").catch(() => false);
+      return allowUnset;
+    }
+    if (!secret) return false;
+    return argon2.verify(hash, secret).catch(() => false);
+  }
+
   @Get("connections")
   @RequireScopes("chat.read" as never)
   async listConnections() {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return { data: await this.wa.listConnections(tenantId), requestId: RequestContext.requestId };
   }
 
@@ -111,7 +171,7 @@ export class WhatsAppController {
       webhookUrl?: string;
     },
   ) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.connect(tenantId, body),
       requestId: RequestContext.requestId,
@@ -122,14 +182,14 @@ export class WhatsAppController {
   @HttpCode(204)
   @RequireScopes("chat.write" as never)
   async disconnect(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     await this.wa.disconnect(tenantId, id);
   }
 
   @Post(":id/rotate-webhook-secret")
   @RequireScopes("chat.write" as never)
   async rotateWebhookSecret(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.rotateWebhookSecret(tenantId, id),
       requestId: RequestContext.requestId,
@@ -175,7 +235,7 @@ export class WhatsAppController {
         message: "webhookUrl debe ser http(s)",
       });
     }
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.updateWebhookUrl(tenantId, id, url),
       requestId: RequestContext.requestId,
@@ -185,7 +245,7 @@ export class WhatsAppController {
   @Post(":id/health")
   @RequireScopes("chat.read" as never)
   async health(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.health(tenantId, id),
       requestId: RequestContext.requestId,
@@ -204,7 +264,7 @@ export class WhatsAppController {
   @HttpCode(201)
   @RequireScopes("chat.write" as never)
   async provisionEvolution(@Body() body: { phoneNumber?: string }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     try {
       const result = await this.wa.provisionEvolution(tenantId, body.phoneNumber);
       return { data: result, requestId: RequestContext.requestId };
@@ -224,7 +284,8 @@ export class WhatsAppController {
   @Get("evolution/qr/:instance")
   @RequireScopes("chat.read" as never)
   async evolutionQrCode(@Param("instance") instance: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
+    await this.wa.assertEvolutionInstanceOwned(tenantId, instance);
     const base64 = await this.evolutionOnboarding.fetchQrCode(tenantId, instance);
     return { data: { qrCodeBase64: base64 }, requestId: RequestContext.requestId };
   }
@@ -236,7 +297,8 @@ export class WhatsAppController {
     @Param("instance") instance: string,
     @Res() res: Response,
   ) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
+    await this.wa.assertEvolutionInstanceOwned(tenantId, instance);
     const base64 = await this.evolutionOnboarding.fetchQrCode(tenantId, instance);
     if (!base64) {
       res.status(404).json({ error: { code: "NOT_FOUND", message: "QR no disponible" } });
@@ -257,7 +319,8 @@ export class WhatsAppController {
   @Get("evolution/state/:instance")
   @RequireScopes("chat.read" as never)
   async evolutionState(@Param("instance") instance: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
+    await this.wa.assertEvolutionInstanceOwned(tenantId, instance);
     try {
       const state = await this.evolutionOnboarding.connectionState(tenantId, instance);
       return { data: state, requestId: RequestContext.requestId };
@@ -285,7 +348,9 @@ export class WhatsAppController {
     @Param("instance") instance: string,
     @Body() body: { phoneNumber?: string },
   ) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
+    // `finalizeEvolutionConnection` vuelve a verificar la pertenencia.
+    await this.wa.assertEvolutionInstanceOwned(tenantId, instance);
     const result = await this.wa.finalizeEvolutionConnection(
       tenantId,
       instance,
@@ -299,7 +364,8 @@ export class WhatsAppController {
   @HttpCode(204)
   @RequireScopes("chat.write" as never)
   async evolutionCleanup(@Param("instance") instance: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
+    await this.wa.assertEvolutionInstanceOwned(tenantId, instance);
     await this.evolutionOnboarding.disconnectAndDelete(tenantId, instance);
   }
 
@@ -321,7 +387,7 @@ export class WhatsAppController {
     @Query("sort") sort?: string,
     @Query("assignee") assignee?: string,
   ) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     const filters: ConversationListFilters = {
       q: q?.trim() || undefined,
       status: parseEnum("status", status, CONVERSATION_STATUSES),
@@ -343,10 +409,24 @@ export class WhatsAppController {
 
   @Get("conversations/:id/messages")
   @RequireScopes("chat.read" as never)
-  async messages(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+  async messages(
+    @Param("id") id: string,
+    @Query("limit") limit?: string,
+    @Query("before") before?: string,
+  ) {
+    const tenantId = requireTenant();
+    // `before` es opaco para el cliente: el id del mensaje más viejo de la
+    // página anterior (lo que devuelve `pageInfo.nextBefore`). Se acepta
+    // también una fecha ISO por compatibilidad.
+    const cursor = before && UUID_RE.test(before) ? before : undefined;
+    const page = await this.wa.listMessages(tenantId, id, {
+      limit: parseMessageLimit(limit),
+      beforeId: cursor,
+      before: cursor ? undefined : parseDate("before", before),
+    });
     return {
-      data: await this.wa.listMessages(tenantId, id),
+      data: page.data,
+      pageInfo: page.pageInfo,
       requestId: RequestContext.requestId,
     };
   }
@@ -359,7 +439,7 @@ export class WhatsAppController {
   @Get("conversations/:id/context")
   @RequireScopes("chat.read" as never)
   async conversationContext(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.context.get(tenantId, id),
       requestId: RequestContext.requestId,
@@ -373,7 +453,7 @@ export class WhatsAppController {
   @Patch("conversations/:id/status")
   @RequireScopes("chat.write" as never)
   async setStatus(@Param("id") id: string, @Body() body: { status?: string }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     const status = parseEnum<ManualConversationStatus>("status", body?.status, MANUAL_STATUSES);
     if (!status) {
       throw new BadRequestException({
@@ -391,7 +471,7 @@ export class WhatsAppController {
   @Get("agents")
   @RequireScopes("chat.read" as never)
   async agents() {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.listAgents(tenantId),
       requestId: RequestContext.requestId,
@@ -401,7 +481,7 @@ export class WhatsAppController {
   @Get("messages/:id/notes")
   @RequireScopes("chat.read" as never)
   async messageNotes(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.listMessageNotes(tenantId, id),
       requestId: RequestContext.requestId,
@@ -412,7 +492,7 @@ export class WhatsAppController {
   @HttpCode(201)
   @RequireScopes("chat.write" as never)
   async addMessageNote(@Param("id") id: string, @Body() body: { body: string }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.addMessageNote(tenantId, id, RequestContext.userId, body?.body),
       requestId: RequestContext.requestId,
@@ -423,7 +503,7 @@ export class WhatsAppController {
   @Patch("conversations/:id/customer")
   @RequireScopes("chat.write" as never)
   async linkCustomer(@Param("id") id: string, @Body() body: { customerId: string }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.linkCustomer(tenantId, id, body?.customerId, RequestContext.userId),
       requestId: RequestContext.requestId,
@@ -433,7 +513,7 @@ export class WhatsAppController {
   @Patch("conversations/:id/tags")
   @RequireScopes("chat.write" as never)
   async setTags(@Param("id") id: string, @Body() body: { tags: string[] }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.setTags(
         tenantId,
@@ -450,7 +530,7 @@ export class WhatsAppController {
   @HttpCode(200)
   @RequireScopes("chat.write" as never)
   async claim(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     const userId = RequestContext.userId;
     if (!userId) {
       throw new BadRequestException({
@@ -469,7 +549,7 @@ export class WhatsAppController {
   @HttpCode(201)
   @RequireScopes("chat.write" as never)
   async sendQuote(@Param("id") id: string, @Body() body: { body: string }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.sendQuoteMessage(tenantId, id, body?.body),
       requestId: RequestContext.requestId,
@@ -489,7 +569,7 @@ export class WhatsAppController {
       mediaUrl?: string;
     },
   ) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.send(tenantId, {
         tenantId,
@@ -510,7 +590,7 @@ export class WhatsAppController {
     @Param("id") id: string,
     @Body() body: { userId: string },
   ) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.handoffToHuman(tenantId, id, body.userId, RequestContext.userId),
       requestId: RequestContext.requestId,
@@ -523,7 +603,7 @@ export class WhatsAppController {
   @HttpCode(201)
   @RequireScopes("chat.write" as never)
   async reply(@Param("id") id: string, @Body() body: { body: string }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.replyToConversation(tenantId, id, body?.body),
       requestId: RequestContext.requestId,
@@ -537,7 +617,7 @@ export class WhatsAppController {
     @Param("id") id: string,
     @Body() body: { filename: string; mimetype: string; base64: string; caption?: string },
   ) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.sendAttachmentToConversation(tenantId, id, {
         filename: body?.filename,
@@ -552,7 +632,7 @@ export class WhatsAppController {
   @Get("conversations/:id/notes")
   @RequireScopes("chat.read" as never)
   async notes(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.listNotes(tenantId, id),
       requestId: RequestContext.requestId,
@@ -563,7 +643,7 @@ export class WhatsAppController {
   @HttpCode(201)
   @RequireScopes("chat.write" as never)
   async addNote(@Param("id") id: string, @Body() body: { body: string }) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.addNote(tenantId, id, RequestContext.userId, body?.body),
       requestId: RequestContext.requestId,
@@ -574,7 +654,7 @@ export class WhatsAppController {
   @HttpCode(200)
   @RequireScopes("chat.write" as never)
   async returnToAgent(@Param("id") id: string) {
-    const tenantId = RequestContext.tenantId!;
+    const tenantId = requireTenant();
     return {
       data: await this.wa.returnToAgent(tenantId, id, RequestContext.userId),
       requestId: RequestContext.requestId,
@@ -603,11 +683,16 @@ export class WhatsAppController {
     const tenant = await this.wa["prisma"].tenant.findUnique({
       where: { slug: tenantSlug },
     });
-    if (!tenant) return { data: { ok: false } };
+    if (!tenant) {
+      // Mismo costo y misma respuesta que un secreto inválido.
+      await argon2.verify(await dummyHash(), secret ?? "").catch(() => false);
+      return WEBHOOK_REJECTED;
+    }
 
     const parsed = await this.parseInboundPayload(tenant.id, body, secret);
     if (!parsed.ok) {
-      return { data: { ok: false, reason: parsed.reason } };
+      this.logger.warn(`webhook inbound rechazado (tenant ${tenant.id}): ${parsed.reason}`);
+      return WEBHOOK_REJECTED;
     }
 
     if (parsed.connectionUpdate) {
@@ -789,17 +874,27 @@ export class WhatsAppController {
     const obj = (body ?? {}) as Record<string, unknown>;
 
     // Forma legacy/manual (pruebas, curl): ya trae connectionId explícito.
-    // Se mantiene sin exigir secreto — solo alcanzable sabiendo el connectionId.
+    // Exige el mismo secreto de webhook que la forma de Evolution, contra la
+    // conexión indicada (que debe ser de este tenant). Sin hash guardado no se
+    // puede autenticar y se rechaza.
     if (
       typeof obj.connectionId === "string" &&
       typeof obj.externalPhone === "string" &&
       typeof obj.body === "string"
     ) {
+      const legacyConn = UUID_RE.test(obj.connectionId)
+        ? await this.wa["prisma"].whatsAppConnection.findFirst({
+            where: { id: obj.connectionId, tenantId },
+            select: { id: true, provider: true, webhookSecretHash: true },
+          })
+        : null;
+      const valid = await this.verifyWebhookSecret(legacyConn?.webhookSecretHash ?? null, secret, false);
+      if (!legacyConn || !valid) return { ok: false, reason: "secreto de webhook inválido o ausente" };
       return {
         ok: true,
         message: {
-          provider: (obj.provider as "META" | "EVOLUTION" | undefined) ?? "META",
-          connectionId: obj.connectionId,
+          provider: legacyConn.provider,
+          connectionId: legacyConn.id,
           externalPhone: obj.externalPhone,
           body: obj.body,
           externalId: typeof obj.externalId === "string" ? obj.externalId : crypto.randomUUID(),
@@ -812,12 +907,9 @@ export class WhatsAppController {
       const connection = await this.wa["prisma"].whatsAppConnection.findUnique({
         where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
       });
+      const valid = await this.verifyWebhookSecret(connection?.webhookSecretHash ?? null, secret, true);
       if (!connection) return { ok: false, reason: "no hay conexión Evolution para este tenant" };
-
-      if (connection.webhookSecretHash) {
-        const valid = secret ? await argon2.verify(connection.webhookSecretHash, secret) : false;
-        if (!valid) return { ok: false, reason: "secreto de webhook inválido o ausente" };
-      }
+      if (!valid) return { ok: false, reason: "secreto de webhook inválido o ausente" };
 
       if (obj.event === "connection.update") {
         const data = obj.data as { state?: string; statusReason?: number; wuid?: string; instance?: string };

@@ -29,8 +29,17 @@ import { AgentLifecycleClient } from "./agent-lifecycle.client.js";
 import {
   EvolutionApiError,
   EvolutionOnboardingService,
+  isGeneratedInstanceFor,
+  type PlatformEvolution,
   type ProvisionResult,
 } from "./evolution-onboarding.service.js";
+import {
+  credentialsForStorage,
+  platformEvolutionCredentials,
+  resolveEvolutionCredentials,
+  sanitizeConnection,
+  tenantEvolutionCredentials,
+} from "./connection-credentials.js";
 import {
   OPT_IN_CONFIRMATION,
   OPT_OUT_CONFIRMATION,
@@ -130,6 +139,10 @@ export interface ConversationStats {
 
 export const DEFAULT_CONVERSATION_LIMIT = 50;
 
+/** Página de `GET /whatsapp/conversations/:id/messages`. */
+export const DEFAULT_MESSAGE_LIMIT = 100;
+export const MAX_MESSAGE_LIMIT = 200;
+
 /**
  * Último mensaje del hilo: quién habló al final (`isUnanswered`) y un
  * adelanto de texto para la lista de la bandeja (`lastMessagePreview`).
@@ -183,7 +196,50 @@ export class WhatsAppService {
       orderBy: { createdAt: "desc" },
       take: 50,
     });
-    return connections.map(({ webhookSecretHash: _hash, ...c }) => c);
+    return connections.map((c) => sanitizeConnection(c));
+  }
+
+  /**
+   * Credenciales a guardar para una instancia operada con `platform`: si es la
+   * key de la plataforma (env) solo se guarda el marcador, nunca la key; si es
+   * la key propia del tenant, va cifrada.
+   */
+  private evolutionCredentialsFor(platform: PlatformEvolution, instance: string) {
+    return platform.source === "env"
+      ? platformEvolutionCredentials(instance)
+      : tenantEvolutionCredentials(platform.baseUrl, platform.apiKey, instance);
+  }
+
+  /**
+   * Verifica que `instanceName` sea de este tenant antes de operar sobre ella
+   * en Evolution (con la key de la plataforma, que ve TODAS las instancias).
+   * Es suya si está guardada en su propia conexión, o si tiene exactamente la
+   * forma que genera `provision` para su slug y ninguna otra empresa la tiene
+   * guardada. Cualquier otra cosa → 404 (no se revela si existe).
+   */
+  async assertEvolutionInstanceOwned(tenantId: string, instanceName: string): Promise<void> {
+    const notFound = () =>
+      new NotFoundException({ code: "NOT_FOUND", message: "Instancia no accesible" });
+    if (!instanceName) throw notFound();
+
+    const own = await this.prisma.whatsAppConnection.findUnique({
+      where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
+      select: { credentials: true },
+    });
+    if (resolveEvolutionCredentials(own?.credentials).instance === instanceName) return;
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
+    if (!tenant || !isGeneratedInstanceFor(tenant.slug, instanceName)) throw notFound();
+
+    const claimedElsewhere = await this.prisma.whatsAppConnection.findFirst({
+      where: {
+        provider: "EVOLUTION",
+        tenantId: { not: tenantId },
+        credentials: { path: ["instance"], equals: instanceName },
+      },
+      select: { id: true },
+    });
+    if (claimedElsewhere) throw notFound();
   }
 
   async connect(
@@ -240,6 +296,9 @@ export class WhatsAppService {
       }
     }
 
+    // Nunca se guarda en claro: la key de la plataforma se reemplaza por un
+    // marcador y los secretos propios del tenant van cifrados.
+    const storedCredentials = credentialsForStorage(input.provider, input.credentials);
     const connection = await this.prisma.whatsAppConnection.upsert({
       where: { tenantId_provider: { tenantId, provider: input.provider } },
       create: {
@@ -247,7 +306,7 @@ export class WhatsAppService {
         provider: input.provider,
         phoneNumber: input.phoneNumber,
         status,
-        credentials: input.credentials as never,
+        credentials: storedCredentials as never,
         webhookUrl,
         webhookSecretHash,
         lastError,
@@ -256,7 +315,7 @@ export class WhatsAppService {
       update: {
         phoneNumber: input.phoneNumber,
         status,
-        credentials: input.credentials as never,
+        credentials: storedCredentials as never,
         webhookUrl,
         webhookSecretHash,
         lastError,
@@ -264,8 +323,7 @@ export class WhatsAppService {
       },
     });
 
-    const { webhookSecretHash: _hash, ...safeConnection } = connection;
-    return { ...safeConnection, webhookSecret: plainWebhookSecret };
+    return { ...sanitizeConnection(connection), webhookSecret: plainWebhookSecret };
   }
 
   /** Rota el secreto del webhook entrante; el anterior deja de aceptarse de inmediato. */
@@ -297,11 +355,15 @@ export class WhatsAppService {
     // Evolution: además de guardarla, se reapunta la instancia para que el
     // cambio surta efecto sin pasar por el panel de Evolution.
     let lastError: string | null = null;
-    const creds = (conn.credentials ?? {}) as { baseUrl?: string; apiKey?: string; instance?: string };
+    const creds = resolveEvolutionCredentials(conn.credentials);
     if (conn.provider === "EVOLUTION" && creds.baseUrl && creds.apiKey && creds.instance) {
       try {
         await this.evolutionOnboarding.registerWebhook(
-          { baseUrl: creds.baseUrl.replace(/\/+$/, ""), apiKey: creds.apiKey, source: "tenant-connection" },
+          {
+            baseUrl: creds.baseUrl,
+            apiKey: creds.apiKey,
+            source: creds.source === "platform" ? "env" : "tenant-connection",
+          },
           creds.instance,
           webhookUrl,
         );
@@ -311,10 +373,12 @@ export class WhatsAppService {
       }
     }
 
-    const { webhookSecretHash: _omit, ...safe } = await this.prisma.whatsAppConnection.update({
-      where: { id },
-      data: { webhookUrl, lastError, version: { increment: 1 } },
-    });
+    const safe = sanitizeConnection(
+      await this.prisma.whatsAppConnection.update({
+        where: { id },
+        data: { webhookUrl, lastError, version: { increment: 1 } },
+      }),
+    );
     this.logger.log(
       `webhookUrl de ${conn.provider} ${id} actualizada a ${webhookUrl} (anterior: ${conn.webhookUrl})`,
     );
@@ -360,7 +424,7 @@ export class WhatsAppService {
       where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
       select: { status: true, credentials: true },
     });
-    const previousInstance = (previous?.credentials as { instance?: string } | null)?.instance;
+    const previousInstance = resolveEvolutionCredentials(previous?.credentials).instance;
     if (previous && previous.status !== "ACTIVE" && previousInstance) {
       await this.evolutionOnboarding.disconnectAndDelete(tenantId, previousInstance);
     }
@@ -369,11 +433,7 @@ export class WhatsAppService {
     const webhookSecretHash = await argon2.hash(webhookSecret);
     const result = await this.evolutionOnboarding.provision(tenant, { phoneHint, webhookSecret });
 
-    const credentials = {
-      baseUrl: platform.baseUrl,
-      apiKey: platform.apiKey,
-      instance: result.instanceName,
-    };
+    const credentials = this.evolutionCredentialsFor(platform, result.instanceName);
     const connection = await this.prisma.whatsAppConnection.upsert({
       where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
       create: {
@@ -413,6 +473,8 @@ export class WhatsAppService {
     instanceName: string,
     phoneHint?: string,
   ) {
+    // Nunca se re-apunta (webhook + fila) una instancia de otra empresa.
+    await this.assertEvolutionInstanceOwned(tenantId, instanceName);
     const state = await this.evolutionOnboarding.connectionState(tenantId, instanceName);
     if (state.state !== "open") {
       throw new BadRequestException({
@@ -434,7 +496,7 @@ export class WhatsAppService {
     const existing = await this.prisma.whatsAppConnection.findUnique({
       where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
     });
-    const existingInstance = (existing?.credentials as { instance?: string } | null)?.instance;
+    const existingInstance = resolveEvolutionCredentials(existing?.credentials).instance;
 
     let webhookUrl = existing?.webhookUrl ?? null;
     let webhookSecretHash = existing?.webhookSecretHash ?? null;
@@ -446,7 +508,7 @@ export class WhatsAppService {
       await this.evolutionOnboarding.registerWebhook(platform, instanceName, webhookUrl);
     }
 
-    const credentials = { baseUrl: platform.baseUrl, apiKey: platform.apiKey, instance: instanceName };
+    const credentials = this.evolutionCredentialsFor(platform, instanceName);
     const updated = await this.prisma.whatsAppConnection.upsert({
       where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
       create: {
@@ -472,8 +534,7 @@ export class WhatsAppService {
       },
     });
 
-    const { webhookSecretHash: _omit, ...safe } = updated;
-    return { ...safe, webhookSecret: secret };
+    return { ...sanitizeConnection(updated), webhookSecret: secret };
   }
 
   /**
@@ -492,7 +553,7 @@ export class WhatsAppService {
       where: { tenantId_provider: { tenantId, provider: "EVOLUTION" } },
     });
     if (!connection) return null;
-    const instance = (connection.credentials as { instance?: string } | null)?.instance;
+    const instance = resolveEvolutionCredentials(connection.credentials).instance;
     if (update.instance && instance && update.instance !== instance) return null;
 
     if (update.state === "open") {
@@ -555,8 +616,10 @@ export class WhatsAppService {
     longitude?: number;
   }) {
     if (input.externalId) {
+      // Único por (tenantId, externalId): el mismo id en otro tenant es otro
+      // mensaje (dos negocios de la plataforma escribiéndose entre sí).
       const dup = await this.prisma.whatsAppMessage.findUnique({
-        where: { externalId: input.externalId },
+        where: { tenantId_externalId: { tenantId: input.tenantId, externalId: input.externalId } },
       });
       if (dup) return dup;
     }
@@ -631,7 +694,7 @@ export class WhatsAppService {
       // el mensaje que sí quedó.
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
         const existing = await this.prisma.whatsAppMessage.findUnique({
-          where: { externalId: input.externalId },
+          where: { tenantId_externalId: { tenantId: input.tenantId, externalId: input.externalId } },
         });
         if (existing) return existing;
       }
@@ -1602,11 +1665,51 @@ export class WhatsAppService {
     return stats;
   }
 
-  async listMessages(tenantId: string, conversationId: string) {
-    return this.prisma.whatsAppMessage.findMany({
-      where: { tenantId, conversationId },
-      orderBy: { createdAt: "asc" },
-      take: 100,
+  /**
+   * Mensajes del hilo, paginados hacia atrás desde el más reciente.
+   *
+   * Se piden los `limit + 1` más nuevos (`createdAt desc`) —estrictamente
+   * anteriores a `before` si viene— y se devuelven en orden ascendente para
+   * pintarlos tal cual. Antes se pedían los 100 MÁS VIEJOS en `asc`, así que
+   * un hilo largo nunca mostraba lo último que escribió el cliente.
+   */
+  async listMessages(
+    tenantId: string,
+    conversationId: string,
+    opts: { limit?: number; before?: Date; beforeId?: string } = {},
+  ) {
+    const limit = Math.min(Math.max(opts.limit ?? DEFAULT_MESSAGE_LIMIT, 1), MAX_MESSAGE_LIMIT);
+    const where = {
+      tenantId,
+      conversationId,
+      ...(opts.before && !opts.beforeId ? { createdAt: { lt: opts.before } } : {}),
+    };
+    // Cursor por id del mensaje (no por fecha): Postgres guarda microsegundos
+    // y un Date de JS solo milisegundos, así que `createdAt < fecha` saltaba
+    // mensajes del mismo milisegundo en el borde de la página. El cursor de
+    // Prisma compara (createdAt, id) contra la fila en la BD, sin truncar.
+    // Un id ajeno (otro hilo/tenant) no se usa como cursor: primera página.
+    const cursorOk = opts.beforeId
+      ? await this.prisma.whatsAppMessage.findFirst({
+          where: { id: opts.beforeId, tenantId, conversationId },
+          select: { id: true },
+        })
+      : null;
+    const rows = await this.prisma.whatsAppMessage.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+      ...(cursorOk ? { cursor: { id: cursorOk.id }, skip: 1 } : {}),
     });
+    const hasMore = rows.length > limit;
+    const page = (hasMore ? rows.slice(0, limit) : rows).reverse();
+    const oldest = page[0];
+    return {
+      data: page,
+      pageInfo: {
+        hasMore,
+        nextBefore: hasMore && oldest ? oldest.id : null,
+      },
+    };
   }
 }

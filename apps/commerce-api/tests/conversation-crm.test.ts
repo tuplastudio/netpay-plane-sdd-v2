@@ -198,10 +198,30 @@ describe("ingestInbound: un cliente que vuelve a escribir reabre su ticket", () 
     const fake = prismaWith("CLOSED");
     const prisma = {
       ...fake.prisma,
-      whatsAppMessage: { ...fake.prisma.whatsAppMessage, findUnique: async () => ({ id: "dup" }) },
+      whatsAppMessage: { ...fake.prisma.whatsAppMessage, findUnique: async () => ({ id: "dup", tenantId: TENANT }) },
     };
     await makeService(prisma).ingestInbound(inbound);
     expect(fake.updateManys).toHaveLength(0);
+  });
+
+  it("deduplica por (tenantId, externalId): el mismo id en OTRO tenant es otro mensaje", async () => {
+    const fake = prismaWith("CLOSED");
+    const lookups: unknown[] = [];
+    const prisma = {
+      ...fake.prisma,
+      whatsAppMessage: {
+        ...fake.prisma.whatsAppMessage,
+        // La fila de "otro" tenant nunca aparece: la llave compuesta lleva el tenant.
+        findUnique: async ({ where }: { where: unknown }) => {
+          lookups.push(where);
+          return null;
+        },
+      },
+    };
+    await makeService(prisma).ingestInbound(inbound);
+    expect(lookups[0]).toEqual({ tenantId_externalId: { tenantId: TENANT, externalId: "wamid.1" } });
+    // Se ingesta normal (reabre el hilo cerrado) en vez de perder el mensaje.
+    expect(fake.updateManys).toHaveLength(1);
   });
 });
 

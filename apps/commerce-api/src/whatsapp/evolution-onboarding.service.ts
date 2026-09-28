@@ -20,6 +20,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Tenant } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { resolveEvolutionCredentials } from "./connection-credentials.js";
 
 const EVOLUTION_TIMEOUT_MS = 8000;
 
@@ -79,6 +80,27 @@ function safeReadEnv(name: string): string {
   return raw.trim();
 }
 
+/**
+ * Prefijo de las instancias que `provision` crea para un tenant
+ * (`easysell_<slug>_`), en minúsculas. El sufijo es un timestamp base36 de
+ * hasta 6 caracteres sin `_`.
+ */
+export function evolutionInstancePrefix(tenantSlug: string): string {
+  const slug = tenantSlug.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 16) || "tenant";
+  return `easysell_${slug}_`.toLowerCase();
+}
+
+/**
+ * ¿`instanceName` tiene exactamente la forma que `provision` genera para ese
+ * slug? Exige sufijo base36 sin `_`, para que el tenant `abc` no calce con
+ * `easysell_abc_def_xxxxxx` (instancia del tenant `abc_def`).
+ */
+export function isGeneratedInstanceFor(tenantSlug: string, instanceName: string): boolean {
+  const prefix = evolutionInstancePrefix(tenantSlug);
+  if (!instanceName.startsWith(prefix)) return false;
+  return /^[0-9a-z]{1,6}$/.test(instanceName.slice(prefix.length));
+}
+
 /** Origen público desde el que Evolution alcanza a commerce-api (sin barra final). */
 export function publicApiBaseUrl(): string {
   const base =
@@ -105,8 +127,11 @@ export class EvolutionOnboardingService {
       where: { tenantId, provider: "EVOLUTION" },
       select: { credentials: true },
     });
-    const creds = (conn?.credentials ?? {}) as { baseUrl?: string; apiKey?: string };
-    if (creds.baseUrl && creds.apiKey) {
+    // Solo una key PROPIA del tenant cuenta como "tenant-connection"; una fila
+    // que opera con la key de la plataforma (marcador o fila vieja con la key
+    // copiada) cae al env, que es de donde debe salir siempre esa key.
+    const creds = resolveEvolutionCredentials(conn?.credentials);
+    if (creds.source === "tenant" && creds.baseUrl && creds.apiKey) {
       return { baseUrl: normalizeBaseUrl(creds.baseUrl), apiKey: creds.apiKey, source: "tenant-connection" };
     }
     const envBase = safeReadEnv("EVOLUTION_BASE_URL");
@@ -138,8 +163,7 @@ export class EvolutionOnboardingService {
       );
     }
 
-    const tenantSlug = tenant.slug.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 16) || "tenant";
-    const instanceName = `easysell_${tenantSlug}_${Date.now().toString(36).slice(-6)}`.toLowerCase();
+    const instanceName = `${evolutionInstancePrefix(tenant.slug)}${Date.now().toString(36).slice(-6)}`.toLowerCase();
     const webhookUrl = this.buildInboundWebhookUrl(tenant.slug, opts?.webhookSecret);
 
     // 1) crea la instancia (Evolution regenera QR cada vez que la instancia

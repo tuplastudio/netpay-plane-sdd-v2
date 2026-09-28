@@ -16,6 +16,7 @@
 
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { resolveEvolutionCredentials, resolveMetaCredentials } from "./connection-credentials.js";
 
 export interface SendMessageInput {
   tenantId: string;
@@ -134,7 +135,7 @@ export class MetaChannel implements ChannelAdapter {
     if (!conn || conn.provider !== "META" || conn.status !== "ACTIVE") {
       return { externalId: null, status: "FAILED", error: "Conexión Meta inactiva" };
     }
-    const credentials = (conn.credentials ?? {}) as { token?: string; phoneId?: string };
+    const credentials = resolveMetaCredentials(conn.credentials);
     if (!credentials.token || !credentials.phoneId) {
       return { externalId: null, status: "FAILED", error: "Credenciales Meta faltantes" };
     }
@@ -193,7 +194,7 @@ export class EvolutionChannel implements ChannelAdapter {
     if (!conn || conn.provider !== "EVOLUTION" || conn.status !== "ACTIVE") {
       return { ok: false, error: "No active Evolution connection" };
     }
-    const creds = (conn.credentials ?? {}) as { baseUrl?: string; apiKey?: string; instance?: string };
+    const creds = resolveEvolutionCredentials(conn.credentials);
     if (!creds.baseUrl || !creds.instance) {
       return { ok: false, error: "Evolution baseUrl/instance no configurados" };
     }
@@ -223,7 +224,7 @@ export class EvolutionChannel implements ChannelAdapter {
     if (!conn || conn.provider !== "EVOLUTION" || conn.status !== "ACTIVE") {
       return { externalId: null, status: "FAILED", error: "Conexión Evolution inactiva" };
     }
-    const creds = (conn.credentials ?? {}) as { baseUrl?: string; instance?: string; apiKey?: string };
+    const creds = resolveEvolutionCredentials(conn.credentials);
     if (!creds.baseUrl || !creds.instance) {
       return { externalId: null, status: "FAILED", error: "Credenciales Evolution faltantes" };
     }
@@ -264,7 +265,7 @@ export class EvolutionChannel implements ChannelAdapter {
     if (!conn || conn.provider !== "EVOLUTION" || conn.status !== "ACTIVE") {
       return { externalId: null, status: "FAILED", error: "Conexión Evolution inactiva" };
     }
-    const creds = (conn.credentials ?? {}) as { baseUrl?: string; instance?: string; apiKey?: string };
+    const creds = resolveEvolutionCredentials(conn.credentials);
     if (!creds.baseUrl || !creds.instance) {
       return { externalId: null, status: "FAILED", error: "Credenciales Evolution faltantes" };
     }
@@ -313,7 +314,7 @@ export class EvolutionChannel implements ChannelAdapter {
       where: { id: connectionId },
     });
     if (!conn || conn.provider !== "EVOLUTION") return null;
-    const creds = (conn.credentials ?? {}) as { baseUrl?: string; instance?: string; apiKey?: string };
+    const creds = resolveEvolutionCredentials(conn.credentials);
     if (!creds.baseUrl || !creds.instance) return null;
     try {
       const res = await fetch(

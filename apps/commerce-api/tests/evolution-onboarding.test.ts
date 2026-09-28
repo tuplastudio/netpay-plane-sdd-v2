@@ -69,8 +69,20 @@ function fakePrisma() {
       findUnique: async () => TENANT,
     },
     whatsAppConnection: {
-      findFirst: async ({ where }: { where: { tenantId: string; provider: string } }) =>
-        rows.get(key(where.tenantId, where.provider)) ?? null,
+      findFirst: async ({ where }: { where: { tenantId: string | { not: string }; provider: string; credentials?: { equals: string } } }) => {
+        if (typeof where.tenantId === "object") {
+          const not = where.tenantId.not;
+          return (
+            [...rows.values()].find(
+              (r) =>
+                r.tenantId !== not &&
+                r.provider === where.provider &&
+                (r.credentials as { instance?: string } | null)?.instance === where.credentials?.equals,
+            ) ?? null
+          );
+        }
+        return rows.get(key(where.tenantId, where.provider)) ?? null;
+      },
       findUnique: async ({ where }: { where: { tenantId_provider?: { tenantId: string; provider: string }; id?: string } }) => {
         if (where.tenantId_provider) return rows.get(key(where.tenantId_provider.tenantId, where.tenantId_provider.provider)) ?? null;
         return [...rows.values()].find((r) => r.id === where.id) ?? null;
@@ -150,7 +162,9 @@ describe("provisionEvolution", () => {
     const row = prisma.rows.get("t1:EVOLUTION")!;
     expect(row.status).toBe("PENDING");
     expect(row.webhookUrl).toBe(registered.url);
-    expect(row.credentials).toEqual({ baseUrl: "https://evo.example", apiKey: "evo-key", instance: result.instanceName });
+    // La key de la plataforma NUNCA se copia a la fila: solo el marcador.
+    expect(row.credentials).toEqual({ source: "platform", instance: result.instanceName });
+    expect(JSON.stringify(row.credentials)).not.toContain("evo-key");
     const secret = new URL(registered.url).searchParams.get("secret")!;
     expect(await argon2.verify(String(row.webhookSecretHash), secret)).toBe(true);
     expect(result.webhookUrl).not.toMatch(/ngrok/);
@@ -235,10 +249,10 @@ describe("finalizeEvolutionConnection", () => {
     process.env.EVOLUTION_API_KEY_REF = "evo-key";
     const calls = stubEvolution("open");
     const { prisma, wa } = makeServices();
-    const result = await wa.finalizeEvolutionConnection("t1", "easysell_manual");
+    const result = await wa.finalizeEvolutionConnection("t1", "easysell_demo-store_abc123");
     expect(result.status).toBe("ACTIVE");
     expect(result.webhookSecret).toMatch(/^[A-Za-z0-9_-]{20,}$/);
-    expect(calls.some((c) => c.url.endsWith("/webhook/set/easysell_manual"))).toBe(true);
+    expect(calls.some((c) => c.url.endsWith("/webhook/set/easysell_demo-store_abc123"))).toBe(true);
     expect(prisma.rows.get("t1:EVOLUTION")!.webhookUrl).toContain(`?secret=${encodeURIComponent(result.webhookSecret!)}`);
   });
 
@@ -247,7 +261,7 @@ describe("finalizeEvolutionConnection", () => {
     process.env.EVOLUTION_API_KEY_REF = "evo-key";
     stubEvolution("connecting");
     const { wa } = makeServices();
-    await expect(wa.finalizeEvolutionConnection("t1", "x")).rejects.toMatchObject({
+    await expect(wa.finalizeEvolutionConnection("t1", "easysell_demo-store_abc123")).rejects.toMatchObject({
       response: { code: "INSTANCE_NOT_CONNECTED" },
     });
   });
@@ -270,5 +284,133 @@ describe("connect (credenciales manuales)", () => {
       `https://api-easysell.tupla.dev/api/v1/whatsapp/webhook/inbound/demo-store?secret=${encodeURIComponent(result.webhookSecret!)}`,
     );
     expect(prisma.rows.get("t1:EVOLUTION")!.lastError).toBeNull();
+  });
+});
+
+describe("credenciales: nunca se exponen ni se guarda la key de la plataforma", () => {
+  it("listConnections/finalize devuelven solo la vista pública", async () => {
+    process.env.EVOLUTION_BASE_URL = "https://evo.example";
+    process.env.EVOLUTION_API_KEY_REF = "evo-key";
+    stubEvolution("open");
+    const { prisma, wa } = makeServices();
+    const { instanceName } = await wa.provisionEvolution("t1");
+    const finalized = await wa.finalizeEvolutionConnection("t1", instanceName);
+    expect(JSON.stringify(finalized)).not.toContain("evo-key");
+    expect(finalized.credentials).toMatchObject({ instance: instanceName, hasApiKey: true, source: "platform", baseUrl: null });
+
+    (prisma.whatsAppConnection as unknown as { findMany: unknown }).findMany = async () => [...prisma.rows.values()];
+    const list = await wa.listConnections("t1");
+    expect(JSON.stringify(list)).not.toContain("evo-key");
+    expect(list[0]).not.toHaveProperty("webhookSecretHash");
+  });
+
+  it("filas viejas con la key de la plataforma en claro siguen operando como platform", async () => {
+    process.env.EVOLUTION_BASE_URL = "https://evo.example";
+    process.env.EVOLUTION_API_KEY_REF = "evo-key";
+    const { resolveEvolutionCredentials } = await import("../src/whatsapp/connection-credentials.js");
+    const legacy = resolveEvolutionCredentials({ baseUrl: "https://evo.example/", apiKey: "evo-key", instance: "i1" });
+    expect(legacy).toEqual({ baseUrl: "https://evo.example", apiKey: "evo-key", instance: "i1", source: "platform" });
+    const marker = resolveEvolutionCredentials({ source: "platform", instance: "i1" });
+    expect(marker).toEqual({ baseUrl: "https://evo.example", apiKey: "evo-key", instance: "i1", source: "platform" });
+  });
+
+  it("connect cifra la key propia del tenant y la lee de vuelta", async () => {
+    process.env.TOKEN_ENCRYPTION_KEY_REF = "x".repeat(40);
+    stubEvolution();
+    const { prisma, wa } = makeServices();
+    const result = await wa.connect("t1", {
+      provider: "EVOLUTION",
+      credentials: { baseUrl: "https://own.example", apiKey: "tenant-secret", instance: "mi_instancia", source: "platform" },
+    });
+    expect(JSON.stringify(result)).not.toContain("tenant-secret");
+    const stored = prisma.rows.get("t1:EVOLUTION")!.credentials as Record<string, unknown>;
+    expect(stored.apiKey).toBeUndefined();
+    expect(stored.source).toBeUndefined(); // el cliente no puede fijar el marcador
+    expect(String(stored.apiKeyEnc)).not.toContain("tenant-secret");
+    const { resolveEvolutionCredentials } = await import("../src/whatsapp/connection-credentials.js");
+    expect(resolveEvolutionCredentials(stored)).toMatchObject({ apiKey: "tenant-secret", source: "tenant" });
+    delete process.env.TOKEN_ENCRYPTION_KEY_REF;
+  });
+});
+
+describe("assertEvolutionInstanceOwned", () => {
+  it("acepta la instancia guardada o una generada para su slug; rechaza ajenas", async () => {
+    process.env.EVOLUTION_BASE_URL = "https://evo.example";
+    process.env.EVOLUTION_API_KEY_REF = "evo-key";
+    stubEvolution();
+    const { prisma, wa } = makeServices();
+    const { instanceName } = await wa.provisionEvolution("t1");
+    await expect(wa.assertEvolutionInstanceOwned("t1", instanceName)).resolves.toBeUndefined();
+    await expect(wa.assertEvolutionInstanceOwned("t1", "easysell_demo-store_zz9")).resolves.toBeUndefined();
+
+    for (const bad of ["easysell_manual", "easysell_otra_abc123", "easysell_demo-store_x_abc123", ""]) {
+      await expect(wa.assertEvolutionInstanceOwned("t1", bad)).rejects.toMatchObject({ response: { code: "NOT_FOUND" } });
+    }
+
+    // Instancia con forma de este slug pero ya guardada por OTRO tenant.
+    prisma.rows.set("t2:EVOLUTION", { id: "c2", tenantId: "t2", provider: "EVOLUTION", credentials: { instance: "easysell_demo-store_aaa111" } });
+    await expect(wa.assertEvolutionInstanceOwned("t1", "easysell_demo-store_aaa111")).rejects.toMatchObject({
+      response: { code: "NOT_FOUND" },
+    });
+    await expect(wa.finalizeEvolutionConnection("t1", "easysell_otra_abc123")).rejects.toMatchObject({
+      response: { code: "NOT_FOUND" },
+    });
+  });
+});
+
+describe("listMessages", () => {
+  function messagePrisma(total: number) {
+    const base = Date.UTC(2026, 0, 1);
+    // De tres en tres comparten createdAt: el borde de página cae entre
+    // mensajes del mismo instante, justo el caso que el cursor por fecha
+    // saltaba.
+    const msgs = Array.from({ length: total }, (_, i) => ({
+      id: `m${String(i).padStart(3, "0")}`,
+      tenantId: "t1",
+      conversationId: "c1",
+      createdAt: new Date(base + Math.floor((i + 1) / 3) * 1000),
+    }));
+    const desc = (a: (typeof msgs)[number], b: (typeof msgs)[number]) =>
+      b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+    const prisma = {
+      whatsAppMessage: {
+        findFirst: async ({ where }: { where: { id: string } }) => msgs.find((m) => m.id === where.id) ?? null,
+        findMany: async ({
+          where,
+          take,
+          cursor,
+          skip,
+        }: {
+          where: { createdAt?: { lt: Date } };
+          take: number;
+          cursor?: { id: string };
+          skip?: number;
+        }) => {
+          let rows = msgs.filter((m) => !where.createdAt || m.createdAt < where.createdAt.lt).sort(desc);
+          if (cursor) rows = rows.slice(rows.findIndex((m) => m.id === cursor.id) + (skip ?? 0));
+          return rows.slice(0, take);
+        },
+      },
+    };
+    return { prisma, msgs };
+  }
+
+  it("devuelve los más nuevos en orden ascendente y pagina hacia atrás sin saltar empates", async () => {
+    const { prisma } = messagePrisma(250);
+    const wa = new WhatsAppService(prisma as never, {} as never, {} as never, {} as never);
+    const first = await wa.listMessages("t1", "c1");
+    expect(first.data).toHaveLength(100);
+    expect(first.data[99]!.id).toBe("m249");
+    expect(first.data[0]!.id).toBe("m150");
+    // El cursor es el id del mensaje más viejo de la página, no su fecha.
+    expect(first.pageInfo).toEqual({ hasMore: true, nextBefore: "m150" });
+
+    const second = await wa.listMessages("t1", "c1", { limit: 200, beforeId: first.pageInfo.nextBefore! });
+    expect(second.data).toHaveLength(150);
+    expect(second.data[0]!.id).toBe("m000");
+    // m149 comparte createdAt con m150 (trío 149..151): con el cursor viejo
+    // por fecha (`createdAt < m150.createdAt`) se perdía.
+    expect(second.data[149]!.id).toBe("m149");
+    expect(second.pageInfo).toEqual({ hasMore: false, nextBefore: null });
   });
 });
