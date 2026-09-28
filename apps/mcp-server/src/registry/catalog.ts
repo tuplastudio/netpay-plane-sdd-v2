@@ -37,10 +37,7 @@ export const catalogRoutes: RouteDef[] = [
     name: "catalog_create_product",
     method: "POST",
     path: "/catalog/products",
-    description:
-      "Crea un producto con al menos una variante. Nota: commerce-api exige un usuario humano en sesión " +
-      "para este endpoint (`requireUser()`); una API key sin userId asociado recibe 403 aunque tenga catalog.write. " +
-      "Usa el panel para alta de productos si esto falla.",
+    description: "Crea un producto con al menos una variante.",
     scopes: ["catalog.write"],
     body: {
       sku: { type: "string", required: true },
@@ -126,6 +123,28 @@ export const catalogRoutes: RouteDef[] = [
         type: "array",
         required: true,
         description: "Cada fila es un objeto plano string→string (columna del CSV → valor).",
+        items: { type: "any" },
+      },
+    },
+  },
+  {
+    name: "catalog_commit_import",
+    method: "POST",
+    path: "/catalog/imports/commit",
+    description:
+      "Aplica de verdad un lote de importación (crea o actualiza productos/variantes), tras revisar con " +
+      "catalog_dry_run_import. Mismo formato de filas que el dry-run. Cada fila es un producto con UNA " +
+      "sola variante (mismo sku/title para ambos): si el sku ya existe se actualiza esa variante, si no " +
+      "se crea un producto nuevo. No hay forma de mapear varias filas a un mismo producto multi-variante " +
+      "desde aquí — para eso usa catalog_add_variant después. Procesa fila por fila: una fila con error no " +
+      "detiene las demás. Máximo 10 000 filas.",
+    scopes: ["catalog.write"],
+    destructiveHint: true,
+    body: {
+      rows: {
+        type: "array",
+        required: true,
+        description: "Cada fila es un objeto plano string→string (columna del CSV → valor): sku, title, price, satProductCode?, satUnitCode?.",
         items: { type: "any" },
       },
     },

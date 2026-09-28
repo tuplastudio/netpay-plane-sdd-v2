@@ -89,7 +89,7 @@ export class CatalogService {
 
   async createProduct(
     tenantId: string,
-    actorId: string,
+    actorId: string | null,
     input: {
       sku: string;
       title: string;
@@ -274,6 +274,34 @@ export class CatalogService {
   }
 
   /**
+   * Valida una fila cruda de importación (mismas reglas para dry-run y
+   * commit — nunca deben divergir, o un dry-run "sin errores" podría fallar
+   * al aplicarse de verdad). No consulta la base; el chequeo de sku
+   * duplicado/existente lo hace el llamador, que ya trae el índice armado.
+   */
+  private validateImportRow(row: Record<string, string>): {
+    sku?: string;
+    title?: string;
+    price?: string;
+    satProductCode?: string;
+    satUnitCode?: string;
+    errors: string[];
+  } {
+    const errs: string[] = [];
+    const sku = row.sku?.trim();
+    const title = row.title?.trim();
+    const price = row.price?.trim();
+    const satProd = row.satProductCode?.trim();
+    const satUnit = row.satUnitCode?.trim();
+    if (!sku) errs.push("sku requerido");
+    if (!title) errs.push("title requerido");
+    if (!price || !/^\d+\.\d{2}$/.test(price)) errs.push("price formato inválido (NN.NN)");
+    if (satProd && !/^\d{8}$/.test(satProd)) errs.push("satProductCode debe ser 8 dígitos");
+    if (satUnit && !/^[A-Z0-9]{2,3}$/.test(satUnit)) errs.push("satUnitCode inválido");
+    return { sku, title, price, satProductCode: satProd, satUnitCode: satUnit, errors: errs };
+  }
+
+  /**
    * Dry-run de importación CSV: valida formato y reglas básicas.
    * No muta datos. Devuelve errores por fila.
    * Ver docs/04-cat.md T-CAT-06.
@@ -297,28 +325,18 @@ export class CatalogService {
       });
     }
 
-    const skuIndex = new Map<string, { row: number; product?: string }>();
+    const skuIndex = new Map<string, number>();
     for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]!;
-      const errs: string[] = [];
-      const sku = row.sku?.trim();
-      const title = row.title?.trim();
-      const price = row.price?.trim();
-      const satProd = row.satProductCode?.trim();
-      const satUnit = row.satUnitCode?.trim();
-      if (!sku) errs.push("sku requerido");
-      if (!title) errs.push("title requerido");
-      if (!price || !/^\d+\.\d{2}$/.test(price)) errs.push("price formato inválido (NN.NN)");
-      if (satProd && !/^\d{8}$/.test(satProd)) errs.push("satProductCode debe ser 8 dígitos");
-      if (satUnit && !/^[A-Z0-9]{2,3}$/.test(satUnit)) errs.push("satUnitCode inválido");
-      if (sku) {
-        if (skuIndex.has(sku)) {
-          errs.push(`sku duplicado en fila ${skuIndex.get(sku)!.row}`);
+      const parsed = this.validateImportRow(rows[i]!);
+      const errs = [...parsed.errors];
+      if (parsed.sku) {
+        if (skuIndex.has(parsed.sku)) {
+          errs.push(`sku duplicado en fila ${skuIndex.get(parsed.sku)}`);
         } else {
-          skuIndex.set(sku, { row: i });
+          skuIndex.set(parsed.sku, i);
         }
         const existing = await this.prisma.productVariant.findFirst({
-          where: { tenantId, sku },
+          where: { tenantId, sku: parsed.sku },
         });
         if (existing) result.wouldUpdate += 1;
         else result.wouldCreate += 1;
@@ -328,6 +346,107 @@ export class CatalogService {
       }
     }
     return result;
+  }
+
+  /**
+   * Aplica de verdad una importación CSV (T-CAT-06): mismas reglas que
+   * `dryRunImport`, pero crea o actualiza. Una fila = un producto con UNA
+   * variante (mismo sku/title para ambos) — el CSV no trae una columna de
+   * agrupación por producto, así que no hay forma de mapear varias filas a
+   * un mismo producto multi-variante desde aquí; para eso sigue estando el
+   * alta manual (`createProduct`/`addVariant`).
+   *
+   * Fila por fila, no en una sola transacción: con hasta 10,000 filas, una
+   * transacción interactiva de Prisma se arriesga a expirar, y una fila mala
+   * no debe tumbar las 9,999 buenas. `actorId` es opcional (a diferencia de
+   * `createProduct`, que exige sesión humana) — importar en bulk es
+   * justamente el caso de uso de una API key/agente sin persona detrás.
+   */
+  async commitImport(
+    tenantId: string,
+    actorId: string | null,
+    rows: Array<Record<string, string>>,
+  ): Promise<{
+    totalRows: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    errors: Array<{ row: number; errors: string[] }>;
+    results: Array<{ row: number; sku: string; action: "created" | "updated"; id: string }>;
+  }> {
+    if (rows.length > 10_000) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Máximo 10,000 filas por job",
+      });
+    }
+
+    const summary = {
+      totalRows: rows.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as Array<{ row: number; errors: string[] }>,
+      results: [] as Array<{ row: number; sku: string; action: "created" | "updated"; id: string }>,
+    };
+
+    const skuIndex = new Map<string, number>();
+    for (let i = 0; i < rows.length; i++) {
+      const parsed = this.validateImportRow(rows[i]!);
+      const errs = [...parsed.errors];
+      if (parsed.sku) {
+        if (skuIndex.has(parsed.sku)) {
+          errs.push(`sku duplicado en fila ${skuIndex.get(parsed.sku)}`);
+        } else {
+          skuIndex.set(parsed.sku, i);
+        }
+      }
+      if (errs.length > 0) {
+        summary.errors.push({ row: i, errors: errs });
+        summary.skipped += 1;
+        continue;
+      }
+      const { sku, title, price, satProductCode, satUnitCode } = parsed as {
+        sku: string;
+        title: string;
+        price: string;
+        satProductCode?: string;
+        satUnitCode?: string;
+      };
+
+      const existing = await this.prisma.productVariant.findFirst({ where: { tenantId, sku } });
+      try {
+        if (existing) {
+          await this.prisma.productVariant.update({
+            where: { id: existing.id },
+            data: {
+              title,
+              price,
+              satProductCode: satProductCode ?? existing.satProductCode,
+              satUnitCode: satUnitCode ?? existing.satUnitCode,
+              version: { increment: 1 },
+            },
+          });
+          summary.updated += 1;
+          summary.results.push({ row: i, sku, action: "updated", id: existing.id });
+        } else {
+          const product = await this.createProduct(tenantId, actorId, {
+            sku,
+            title,
+            variants: [{ sku, title, price, satProductCode, satUnitCode }],
+          });
+          summary.created += 1;
+          summary.results.push({ row: i, sku, action: "created", id: product.variants[0]!.id });
+        }
+      } catch (err) {
+        summary.skipped += 1;
+        summary.errors.push({
+          row: i,
+          errors: [err instanceof Error ? err.message : "error desconocido al guardar"],
+        });
+      }
+    }
+    return summary;
   }
 
   // ---------- imágenes ----------

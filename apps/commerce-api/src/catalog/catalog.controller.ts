@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   HttpCode,
   NotFoundException,
@@ -61,8 +60,7 @@ export class CatalogController {
   @RequireScopes("catalog.write")
   async create(@Body() body: CreateProductDto) {
     const tenantId = this.requireTenant();
-    const userId = this.requireUser();
-    const product = await this.catalog.createProduct(tenantId, userId, body);
+    const product = await this.catalog.createProduct(tenantId, RequestContext.userId ?? null, body);
     return { data: product, requestId: RequestContext.requestId };
   }
 
@@ -133,6 +131,17 @@ export class CatalogController {
     return { data: result, requestId: RequestContext.requestId };
   }
 
+  /** Aplica de verdad una importación (crea/actualiza), tras revisar el dry-run. */
+  @Post("imports/commit")
+  @RequireScopes("catalog.write")
+  async commitImport(
+    @Body() body: DryRunImportDto,
+  ) {
+    const tenantId = this.requireTenant();
+    const result = await this.catalog.commitImport(tenantId, RequestContext.userId ?? null, body.rows);
+    return { data: result, requestId: RequestContext.requestId };
+  }
+
   @Delete("products/:id")
   @HttpCode(204)
   @RequireScopes("catalog.write")
@@ -145,11 +154,5 @@ export class CatalogController {
     const t = RequestContext.tenantId;
     if (!t) throw new NotFoundException({ code: "UNAUTHORIZED", message: "Sin tenant" });
     return t;
-  }
-
-  private requireUser(): string {
-    const u = RequestContext.userId;
-    if (!u) throw new ForbiddenException({ code: "UNAUTHORIZED", message: "Sin usuario" });
-    return u;
   }
 }
