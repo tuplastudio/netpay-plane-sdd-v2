@@ -16,7 +16,7 @@ export const apiKeysMcp: HelpCategory = {
         {
           type: "p",
           text:
-            "Normalmente entras a Easy Sell con tu correo y tu contraseña. Eso crea una sesión: el sistema sabe " +
+            "Normalmente entras a Atiende ya con tu correo y tu contraseña. Eso crea una sesión: el sistema sabe " +
             "que eres tú, con tu usuario y tu rol. Pero a veces quieres que un programa, un script, o un agente " +
             "de inteligencia artificial (un programa que puede hacer acciones por su cuenta, como Claude) use " +
             "tu cuenta sin que haya una persona escribiendo su correo y contraseña cada vez. Para eso existen " +
@@ -29,14 +29,14 @@ export const apiKeysMcp: HelpCategory = {
             "que funciona como una contraseña hecha específicamente para máquinas, no para personas. Cualquier " +
             "sistema que tenga esa key puede hablar directamente con tu cuenta — sin abrir el panel, sin " +
             "escribir tu contraseña — usando la API: la vía técnica por la que un programa externo le pide " +
-            "cosas a Easy Sell (API son las siglas de \"interfaz de programación de aplicaciones\", pero lo " +
+            "cosas a Atiende ya (API son las siglas de \"interfaz de programación de aplicaciones\", pero lo " +
             "único que importa es que es la forma en que dos programas se comunican entre sí).",
         },
         {
           type: "p",
           text:
             "Ejemplo: imagina que tienes una tienda de pinturas y usas un programa aparte para llevar tu " +
-            "inventario. Si le das una API key a ese programa, puede consultar tu catálogo de Easy Sell y " +
+            "inventario. Si le das una API key a ese programa, puede consultar tu catálogo de Atiende ya y " +
             "mantenerlo actualizado él solo, sin que nadie tenga que copiar productos a mano todos los días.",
         },
         {
@@ -107,7 +107,7 @@ export const apiKeysMcp: HelpCategory = {
           type: "callout",
           tone: "warning",
           text:
-            "Si pierdes el secreto, no hay forma de recuperarlo: por seguridad, Easy Sell nunca guarda el " +
+            "Si pierdes el secreto, no hay forma de recuperarlo: por seguridad, Atiende ya nunca guarda el " +
             "secreto en texto legible, solo una huella cifrada que le sirve para comprobar que el secreto es " +
             "correcto, pero no para reconstruirlo. Si lo perdiste, la única opción es revocar esa key (dejarla " +
             "inválida para siempre) y crear una nueva desde cero.",
@@ -170,7 +170,7 @@ export const apiKeysMcp: HelpCategory = {
         {
           type: "p",
           text:
-            "Para que un agente pueda usar tu cuenta de Easy Sell necesita dos cosas: una forma de \"hablar\" " +
+            "Para que un agente pueda usar tu cuenta de Atiende ya necesita dos cosas: una forma de \"hablar\" " +
             "con tu sistema, y permiso para hacerlo. MCP (Model Context Protocol) resuelve la primera parte: es " +
             "un lenguaje común que le permite a un agente usar tu catálogo, tus clientes, tus cotizaciones, tus " +
             "pedidos y tus conversaciones de WhatsApp como herramientas — el agente \"aprende\" que existen esas " +
@@ -226,13 +226,14 @@ export const apiKeysMcp: HelpCategory = {
           text:
             "No necesitas entender esa línea para usarla — solo copiarla y pegarla donde el asistente te lo " +
             "pida. \"atiendeya\" es simplemente el nombre técnico interno del conector; no cambia el nombre de " +
-            "tu negocio ni de Easy Sell en ningún lado que vean tus clientes.",
+            "tu negocio ni de Atiende ya en ningún lado que vean tus clientes.",
         },
         {
           type: "callout",
           tone: "info",
           text:
-            "¿Necesitas que tu agente también haga reembolsos, exporte pagos, o administre usuarios? Esos " +
+            "¿Necesitas que tu agente también cree o edite productos, haga reembolsos, exporte pagos o " +
+            "administre usuarios? Esos " +
             "permisos no vienen incluidos aquí a propósito. Crea la key a mano desde el artículo \"API keys de " +
             "tu empresa\", eligiendo tú mismo los permisos exactos que quieras, y úsala igual en el mismo tipo " +
             "de comando (cambiando el secreto por el de esa nueva key).",
@@ -247,7 +248,125 @@ export const apiKeysMcp: HelpCategory = {
             "botón \"Generar API key y conectar\" para que te dé un secreto nuevo.",
         },
       ],
-      related: ["api-keys-de-empresa"],
+      related: ["api-keys-de-empresa", "mcp-catalogo"],
+    },
+    {
+      slug: "mcp-catalogo",
+      title: "Editar tu catálogo con un asistente (MCP)",
+      summary:
+        "Crear, editar y dar de baja productos, variantes y precios pidiéndoselo en lenguaje normal a Claude u otro asistente conectado por MCP.",
+      audience: "owner",
+      keywords: ["mcp", "claude", "crear producto", "editar producto", "eliminar producto", "archivar", "catalog.write", "asistente", "importar"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Con una conexión por MCP puedes pedirle a un asistente cosas como \"crea el producto Playera " +
+            "básica con tallas S, M y L a $199\" o \"sube 10% el precio de todas las pinturas\". El asistente " +
+            "usa tu cuenta para hacerlo, como si fuera una persona del equipo.",
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          title: "La key del botón \"Generar API key y conectar\" solo lee el catálogo",
+          text:
+            "Esa key rápida trae permiso para ver el catálogo, no para cambiarlo. Para crear, editar o " +
+            "archivar productos, crea una key a mano con el permiso de escribir catálogo (sigue los pasos de " +
+            "abajo).",
+        },
+        { type: "h3", text: "Preparar la conexión con permiso de catálogo" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Admin → API keys y da clic en \"Nueva API key\".",
+            "Nombre: por ejemplo \"Asistente - catálogo\".",
+            "En Permisos, marca ver catálogo y modificar catálogo. Agrega otros solo si los necesitas.",
+            "Da clic en \"Crear API key\" y copia el secreto (empieza con npk_). Solo se muestra una vez.",
+            "Usa el mismo comando de instalación de \"Conectar por MCP\", cambiando el secreto por el de " +
+              "esta key nueva.",
+          ],
+        },
+        { type: "h3", text: "Qué le puedes pedir" },
+        {
+          type: "table",
+          headers: ["Acción", "Ejemplo de lo que le pides", "Qué hace"],
+          rows: [
+            ["Ver productos", "\"¿Qué pinturas tengo y a qué precio?\"", "Lista y busca por nombre, SKU o sinónimo."],
+            ["Crear un producto", "\"Crea Playera básica, SKU PLAY-BAS, con variantes S, M y L a 199.00\"", "Crea el producto con al menos una variante. Queda en borrador hasta que lo actives."],
+            ["Editar un producto", "\"Cambia la descripción de la Playera básica\"", "Cambia título, descripción, sinónimos, estado, etc."],
+            ["Agregar una variante", "\"Agrega la talla XL a 219.00\"", "Suma una variante al producto."],
+            ["Editar una variante", "\"Pon la existencia de la talla M en 25\"", "Cambia precio, existencia, claves SAT o estado de esa variante."],
+            ["Dar de baja", "\"Archiva la Playera básica\"", "Archiva el producto: deja de venderse, pero no se borra."],
+            ["Borrar una foto", "\"Quita la segunda foto de la talla S\"", "Elimina esa foto."],
+            ["Importar muchos", "\"Importa estas 200 filas\"", "Primero hace la vista previa (sin guardar) y luego, si confirmas, guarda."],
+          ],
+        },
+        {
+          type: "callout",
+          tone: "info",
+          title: "\"Eliminar\" significa archivar",
+          text:
+            "Por seguridad, ningún producto se borra para siempre, ni desde el panel ni desde un asistente. " +
+            "Si le pides \"elimina este producto\", el asistente lo archiva. Así no se rompen cotizaciones ni " +
+            "pedidos viejos que lo incluyen.",
+        },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "Las mismas reglas del panel aplican: precios con dos decimales (149.00), SKU único, clave SAT de " +
+            "8 dígitos, existencia con hasta 3 decimales. Si otra persona cambió el mismo producto al mismo " +
+            "tiempo, el asistente recibe un aviso de conflicto y tiene que volver a leerlo antes de guardar.",
+        },
+      ],
+      related: ["conectar-por-mcp", "api-keys-de-empresa", "productos-y-variantes"],
+    },
+    {
+      slug: "preguntas-api-mcp",
+      title: "Preguntas frecuentes: API keys y MCP",
+      summary: "Dudas comunes al crear llaves de integración y conectar asistentes.",
+      audience: "owner",
+      keywords: ["faq", "error de permisos", "key no funciona", "403", "401", "perdí la key"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "Perdí el secreto de una API key.",
+              a:
+                "No se puede recuperar. Revoca esa key y crea una nueva. Actualiza el programa o asistente " +
+                "que la usaba.",
+            },
+            {
+              q: "El asistente dice que no tiene permiso para algo.",
+              a:
+                "La key no incluye ese permiso. Crea una key nueva con el permiso que falta (las keys no se " +
+                "editan) y cámbiala en el asistente.",
+            },
+            {
+              q: "Una key dejó de funcionar de repente.",
+              a:
+                "Revisa en Admin → API keys si venció (columna Expira) o si alguien la revocó. En ambos casos, " +
+                "crea una nueva.",
+            },
+            {
+              q: "¿Una key ve los datos de otras empresas?",
+              a: "No. Cada key solo funciona con la empresa en la que se creó.",
+            },
+            {
+              q: "Creo que alguien más tiene mi key.",
+              a:
+                "Revócala de inmediato en Admin → API keys. Deja de funcionar al instante. Después revisa " +
+                "Catálogo, Pedidos y Clientes por si hay cambios que no reconoces.",
+            },
+            {
+              q: "¿Quién puede crear API keys?",
+              a: "Las personas con permiso de administrar API keys; por defecto, Propietario y Administrador.",
+            },
+          ],
+        },
+      ],
+      related: ["api-keys-de-empresa", "conectar-por-mcp"],
     },
   ],
 };

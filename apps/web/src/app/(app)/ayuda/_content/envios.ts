@@ -32,68 +32,70 @@ export const envios: HelpCategory = {
         {
           type: "p",
           text:
-            "Una zona de envío se define por códigos postales, un patrón de ciudad, un estado, o ninguno de " +
-            "los tres (esa es la zona \"catch-all\": solo puede haber una por empresa, y es la que aplica " +
-            "cuando ninguna otra zona coincide).",
+            "Una zona cubre un área de una de estas dos formas, o de ninguna (la zona \"catch-all\"):",
         },
         {
           type: "list",
           items: [
-            "Códigos postales: escribes una lista de códigos postales (de 4 o 5 dígitos cada uno, separados " +
-              "por coma o espacio, por ejemplo \"06000, 06010, 06020\"). La zona aplica solo si la dirección " +
-              "del cliente cae exactamente en uno de esos códigos.",
-            "Patrón de ciudad: el nombre de una ciudad (por ejemplo \"Guadalajara\" o \"Zapopan\"). Útil " +
-              "cuando no quieres listar cada código postal uno por uno.",
-            "Estado o departamento: por ejemplo \"JAL\", \"CDMX\" o \"NL\". Cubre toda esa entidad.",
-            "Ninguno de los tres campos anteriores lleno: eso convierte la zona en \"catch-all\" (todas las " +
-              "direcciones que no encajaron en ninguna otra zona).",
+            "Por códigos postales: una lista de códigos separados por coma o espacio, por ejemplo \"06000, " +
+              "06010, 06020\". La zona aplica si el código postal del cliente es exactamente uno de esos.",
+            "Por estado y ciudad, juntos: escribe el estado (por ejemplo \"JAL\", \"CDMX\" o \"NL\") y un " +
+              "patrón de ciudad (por ejemplo \"Guadalajara\" o \"Zapopan\"). La zona aplica si el estado " +
+              "coincide y la ciudad del cliente contiene ese patrón.",
+            "Sin códigos postales, sin ciudad y sin estado: es la zona catch-all. Aplica a todas las " +
+              "direcciones que no encajaron en otra zona. Solo puede haber una.",
+          ],
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          title: "El estado solo no basta",
+          text:
+            "Una zona con estado pero sin patrón de ciudad no se aplica nunca: ni coincide por ciudad ni " +
+            "cuenta como catch-all. Si quieres cubrir todo un estado, usa sus códigos postales, o llena " +
+            "estado y ciudad para cada ciudad que te interese.",
+        },
+        {
+          type: "p",
+          text:
+            "Además, cada zona tiene: nombre (\"Centro\", \"Zona metropolitana\", \"Foráneo\"), precio del " +
+            "envío en pesos, pedido mínimo (opcional), orden de evaluación, notas internas y la casilla " +
+            "\"Activa\".",
+        },
+        {
+          type: "callout",
+          tone: "info",
+          title: "El pedido mínimo es una referencia",
+          text:
+            "Por ahora, el pedido mínimo se guarda como referencia para tu equipo, pero el sistema no lo " +
+            "aplica solo al calcular el envío. Si tienes una regla como \"envío gratis arriba de $500\", " +
+            "escríbela también en las Reglas adicionales del agente.",
+        },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "El orden de evaluación importa cuando dos zonas podrían aplicar a la misma dirección: un número " +
+            "menor se revisa primero. Si dos zonas tienen el mismo código postal, gana la de número menor.",
+        },
+        { type: "h3", text: "Cómo se elige la zona de un cliente" },
+        {
+          type: "steps",
+          items: [
+            "Primero se busca una zona activa que tenga el código postal del cliente.",
+            "Si no hay, se busca una zona con el mismo estado y un patrón de ciudad que aparezca en la " +
+              "ciudad del cliente.",
+            "Si no hay, se usa la zona catch-all.",
+            "Si tampoco hay catch-all (o no tienes ninguna zona activa), se cobra el \"Envío fijo\" de " +
+              "Admin → Empresa.",
           ],
         },
         {
           type: "p",
           text:
-            "Además del área que cubre, cada zona tiene: un nombre (para que la reconozcas en la lista, por " +
-            "ejemplo \"Centro\", \"Zona metropolitana\" o \"Foráneo\"), el precio del envío en pesos " +
-            "mexicanos, un pedido mínimo opcional para poder usar esa zona (por ejemplo, envío gratis solo " +
-            "si el pedido es mayor a $500), un \"orden de evaluación\" (qué zona se revisa primero cuando " +
-            "una dirección podría encajar en más de una), notas internas opcionales, y si la zona está " +
-            "activa o no.",
-        },
-        {
-          type: "callout",
-          tone: "info",
-          text:
-            "El \"orden de evaluación\" importa cuando dos zonas podrían aplicar a la misma dirección. Un " +
-            "número menor se revisa antes. Por ejemplo, si tienes una zona \"Centro CDMX\" (por código " +
-            "postal) y otra zona más amplia \"CDMX\" (por estado), le pones a \"Centro CDMX\" un número de " +
-            "orden más bajo para que se revise primero — así una dirección del centro toma el precio de " +
-            "\"Centro CDMX\" y no el de la zona más general por estado.",
-        },
-        { type: "h3", text: "Cómo se elige la zona de un cliente" },
-        {
-          type: "p",
-          text:
-            "Cuando un cliente da su dirección (por chat o en el checkout), el sistema resuelve automáticamente " +
-            "qué zona le toca y ajusta el costo de envío en la cotización. Sin dirección, se usa la tarifa " +
-            "plana de tu empresa (Admin → Empresa).",
-        },
-        {
-          type: "p",
-          text:
-            "El orden en el que se busca la zona correcta es: primero se busca una coincidencia exacta de " +
-            "código postal, después una coincidencia de estado más ciudad, y al final, si nada de lo " +
-            "anterior coincidió, se usa la zona catch-all (si existe). Si ni siquiera hay una zona catch-all " +
-            "configurada, se cobra el envío estándar de tu empresa — el campo \"Envío fijo\" (en pesos " +
-            "mexicanos) que se configura en Admin → Empresa, y que se cobra siempre que la dirección no cae " +
-            "en ninguna zona específica.",
-        },
-        {
-          type: "callout",
-          tone: "info",
-          text:
-            "Piensa en el \"envío fijo\" de Admin → Empresa como el precio de respaldo cuando aún no has " +
-            "configurado ninguna zona, o cuando la dirección del cliente cae fuera de todas las zonas que " +
-            "sí tienes creadas y no configuraste una zona catch-all para cubrir el resto de los casos.",
+            "El agente pide código postal, ciudad y estado antes de calcular el envío (si tienes activado " +
+            "\"Pedir dirección antes de cotizar a domicilio\"). Con esos datos resuelve la zona y ajusta el " +
+            "total de la cotización.",
         },
         { type: "h3", text: "Crear o editar una zona" },
         {
@@ -103,8 +105,8 @@ export const envios: HelpCategory = {
             "Pulsa \"Nueva zona\" (o el ícono de editar sobre una zona que ya existe).",
             "Escribe el nombre de la zona.",
             "Pon el precio del envío para esa zona, en pesos mexicanos.",
-            "Llena códigos postales, patrón de ciudad o estado — según cómo quieras definir el área. Si los " +
-              "dejas todos vacíos, esa zona se vuelve la zona catch-all (recuerda: solo puede haber una).",
+            "Define el área: llena códigos postales, o estado y patrón de ciudad juntos. Si dejas los tres " +
+              "vacíos, esa zona se vuelve la catch-all (solo puede haber una).",
             "Opcional: pon un pedido mínimo para esa zona, un orden de evaluación, y notas internas.",
             "Deja marcada la casilla \"Activa\" si quieres que el sistema ya la use; desmárcala si la " +
               "quieres guardar pero todavía no aplicarla.",
@@ -154,6 +156,53 @@ export const envios: HelpCategory = {
             "esa zona y quién lo hizo, en vez de tener que confiar en la memoria de alguien.",
         },
       ],
+    },
+    {
+      slug: "preguntas-envios",
+      title: "Preguntas frecuentes: envío a domicilio",
+      summary: "Por qué se cobró cierto envío, cómo ofrecer envío gratis y cómo trabaja el agente con las zonas.",
+      audience: "owner",
+      keywords: ["faq", "envío gratis", "costo de envío", "zona incorrecta", "recoger en tienda"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "¿Cómo ofrezco envío gratis?",
+              a:
+                "Crea una zona con precio 0.00 para el área donde el envío es gratis. Si quieres envío gratis " +
+                "solo a partir de cierto monto, escríbelo en las Reglas adicionales del agente: el pedido " +
+                "mínimo de una zona por ahora es solo una referencia y no se aplica solo.",
+            },
+            {
+              q: "Al cliente se le cobró un envío que no esperaba.",
+              a:
+                "Revisa qué zona coincidió con su dirección: primero se busca por código postal, luego por " +
+                "estado y ciudad juntos, luego la zona catch-all y al final el envío fijo. Revisa también " +
+                "que la zona que esperabas esté activa.",
+            },
+            {
+              q: "¿El agente pregunta la dirección?",
+              a:
+                "Sí, si tienes activado \"Pedir dirección antes de cotizar a domicilio\" en la configuración " +
+                "del agente. Pregunta código postal, ciudad y estado y aplica tus zonas. Si está apagado, usa " +
+                "el envío fijo.",
+            },
+            {
+              q: "Mi negocio no hace envíos.",
+              a:
+                "En la configuración del agente, pon \"Entrega por defecto\" en recoger en tienda y escribe en " +
+                "Reglas adicionales algo como \"No hacemos envíos a domicilio\".",
+            },
+            {
+              q: "El cliente mandó su ubicación de WhatsApp.",
+              a:
+                "La ubicación no basta para elegir zona. El agente le pide código postal, ciudad y estado.",
+            },
+          ],
+        },
+      ],
+      related: ["zonas-de-envio", "datos-de-la-empresa"],
     },
   ],
 };

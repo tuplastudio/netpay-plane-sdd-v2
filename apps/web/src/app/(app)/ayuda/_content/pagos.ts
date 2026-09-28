@@ -171,5 +171,55 @@ export const pagos: HelpCategory = {
       ],
       related: ["sesiones-y-libro-de-pagos"],
     },
+    {
+      slug: "preguntas-pagos",
+      title: "Preguntas frecuentes: pagos y reembolsos",
+      summary: "Formas de pago, pagos pendientes, reembolsos y totales que no cuadran.",
+      audience: "owner",
+      keywords: ["faq", "formas de pago", "oxxo", "spei", "tarjeta", "pago pendiente", "reembolso rechazado"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "¿Cómo pueden pagar mis clientes?",
+              a:
+                "Desde el link de pago: con tarjeta, transferencia SPEI o efectivo en OXXO. El cliente elige " +
+                "en la pasarela segura.",
+            },
+            {
+              q: "El cliente dice que ya pagó y el pedido no aparece como pagado.",
+              a:
+                "Las transferencias y los pagos en efectivo tardan en confirmarse. El pedido cambia a Pagado " +
+                "cuando la pasarela confirma. Si pasa mucho tiempo, pide al cliente su comprobante y escribe " +
+                "a hola@tupla.dev con el número de pedido.",
+            },
+            {
+              q: "No veo el botón \"Reembolsar\".",
+              a:
+                "Tu rol no tiene permiso de reembolsar (por defecto solo Propietario y Finanzas), o la sesión " +
+                "no está cobrada o ya está reembolsada completa.",
+            },
+            {
+              q: "Me rechazó el reembolso.",
+              a:
+                "El monto es mayor a lo que queda por devolver en esa sesión. Revisa el libro de movimientos: " +
+                "quizá alguien ya devolvió una parte.",
+            },
+            {
+              q: "¿Qué significa \"Cobrado (neto)\"?",
+              a: "Todo lo cobrado menos lo reembolsado.",
+            },
+            {
+              q: "¿Cuándo llega el dinero a mi cuenta?",
+              a:
+                "Depende de tu contrato con el procesador de pagos, no del panel. En modo de pruebas no hay " +
+                "dinero real.",
+            },
+          ],
+        },
+      ],
+      related: ["sesiones-y-libro-de-pagos", "reembolsos"],
+    },
   ],
 };

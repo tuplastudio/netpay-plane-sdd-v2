@@ -115,5 +115,57 @@ export const clientes: HelpCategory = {
         },
       ],
     },
+    {
+      slug: "preguntas-clientes",
+      title: "Preguntas frecuentes: clientes",
+      summary: "Dudas comunes sobre fichas duplicadas, datos del cliente, consentimientos y archivar.",
+      audience: "owner",
+      keywords: ["faq", "cliente duplicado", "editar cliente", "restaurar cliente", "baja", "no molestar"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "¿Cómo creo un cliente a mano?",
+              a:
+                "En Clientes, da clic en \"Nuevo cliente\". Solo el nombre es obligatorio; correo, teléfono, " +
+                "RFC y notas se pueden completar después con \"Editar cliente\".",
+            },
+            {
+              q: "Tengo al mismo cliente dos veces.",
+              a:
+                "Pasa cuando una persona escribe desde otro número o se creó una ficha a mano antes. Usa una " +
+                "de las dos para sus compras nuevas y archiva la que sobra. El historial de cada ficha se " +
+                "conserva.",
+            },
+            {
+              q: "No puedo cotizarle a un cliente.",
+              a:
+                "Probablemente está archivado. Abre su ficha y da clic en \"Restaurar cliente\".",
+            },
+            {
+              q: "Un cliente pidió que ya no le escribamos.",
+              a:
+                "En su ficha, revoca los consentimientos de WhatsApp y Marketing. El sistema no le manda " +
+                "recordatorios automáticos a clientes que pidieron la baja.",
+            },
+            {
+              q: "¿El agente llena los datos del cliente solo?",
+              a:
+                "Sí: crea la ficha con el teléfono de WhatsApp y guarda el nombre (y el correo, si lo tienes " +
+                "activado) cuando el cliente se los da. Si el cliente pide factura, también guarda su RFC y " +
+                "razón social.",
+            },
+            {
+              q: "¿Dónde veo todo lo que le he vendido a un cliente?",
+              a:
+                "En su ficha, sección Historial: todas sus cotizaciones y pedidos, del más reciente al más " +
+                "antiguo. En Conversaciones, el panel del cliente muestra lo que tiene en curso.",
+            },
+          ],
+        },
+      ],
+      related: ["fichas-de-cliente"],
+    },
   ],
 };

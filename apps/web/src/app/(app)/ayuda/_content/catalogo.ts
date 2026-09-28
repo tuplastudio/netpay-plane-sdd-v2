@@ -268,5 +268,68 @@ export const catalogo: HelpCategory = {
       ],
       related: ["productos-y-variantes"],
     },
+    {
+      slug: "preguntas-catalogo",
+      title: "Preguntas frecuentes: catálogo",
+      summary: "Dudas comunes al dar de alta productos, precios, existencias, fotos e importaciones.",
+      audience: "owner",
+      keywords: ["faq", "borrar producto", "eliminar producto", "precio no cambia", "sin existencias", "foto rechazada"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "¿Cómo borro un producto?",
+              a:
+                "Los productos no se borran: se archivan. Abre el menú de acciones del producto y elige " +
+                "\"Archivar\". Deja de venderse y el agente ya no lo ofrece, pero su historial se conserva " +
+                "(cotizaciones y pedidos viejos lo siguen mostrando). Puedes reactivarlo cuando quieras.",
+            },
+            {
+              q: "Creé un producto y el agente no lo ofrece.",
+              a:
+                "Casi siempre sigue en Borrador. Cámbialo a Activo desde su menú de acciones. Revisa también " +
+                "que la variante esté activa y que su existencia no sea 0.",
+            },
+            {
+              q: "¿Qué pasa si dejo la existencia vacía?",
+              a:
+                "Esa variante no lleva control de inventario: nunca se marca como agotada. Útil para cosas " +
+                "que haces sobre pedido o servicios.",
+            },
+            {
+              q: "¿Cuándo baja la existencia?",
+              a:
+                "Cuando se abre el cobro de un pedido, las unidades quedan apartadas. Si el link de pago " +
+                "vence o el pedido se cancela, se liberan.",
+            },
+            {
+              q: "Me sale un aviso de conflicto al guardar.",
+              a:
+                "Otra persona guardó cambios en el mismo producto justo antes que tú. Recarga para ver la " +
+                "versión nueva, vuelve a hacer tu cambio y guarda.",
+            },
+            {
+              q: "El precio no se guarda.",
+              a: "Escríbelo con dos decimales y punto, sin comas ni signo de pesos: 149.00.",
+            },
+            {
+              q: "Los clientes le dicen al producto con otro nombre.",
+              a:
+                "Agrégalo como sinónimo del producto. Por ejemplo, si vendes \"Pintura vinílica 19 L\" y te " +
+                "piden \"cubeta grande\", pon \"cubeta grande\" como sinónimo. El agente y el buscador lo " +
+                "encuentran.",
+            },
+            {
+              q: "¿Puedo editar el catálogo desde Claude u otro asistente?",
+              a:
+                "Sí, con una conexión por MCP y una API key con permiso de escribir catálogo. Ver \"Editar tu " +
+                "catálogo con un asistente (MCP)\".",
+            },
+          ],
+        },
+      ],
+      related: ["productos-y-variantes", "fotos-de-producto", "mcp-catalogo"],
+    },
   ],
 };

@@ -10,71 +10,68 @@ export const primerosPasos: HelpCategory = {
       summary:
         "El portal operativo de tu tienda: el cliente escribe por WhatsApp, un agente automático responde con tu catálogo real y tú ves y cierras la venta desde el panel.",
       audience: "both",
-      keywords: ["bot", "whatsapp", "cómo funciona", "agente automático"],
+      keywords: ["bot", "whatsapp", "cómo funciona", "agente automático", "inicio", "introducción"],
       body: [
         {
           type: "p",
           text:
-            "Atiende ya conecta tres cosas que normalmente viven separadas: tu catálogo de productos, tus " +
-            "clientes y tu WhatsApp de negocio. Todo queda en un solo lugar, que es el panel que estás usando " +
-            "ahora. La idea es simple: un cliente te escribe por WhatsApp, un programa automático (el " +
-            "\"agente\") le contesta usando tu catálogo real —los mismos precios y existencias que tú ves aquí, " +
-            "no una copia vieja—, y si el cliente quiere comprar, el agente arma una cotización y, si la " +
-            "acepta, genera un link de pago. Tú puedes ver todo ese proceso desde el panel en cualquier " +
-            "momento, y puedes meterte a cualquier conversación tú mismo cuando haga falta, por ejemplo si el " +
-            "cliente pregunta algo que el agente no sabe contestar.",
+            "Atiende ya junta en un solo lugar tres cosas que normalmente viven separadas: tu catálogo de " +
+            "productos, tus clientes y tu WhatsApp de negocio. Ese lugar es el panel que estás usando ahora.",
         },
         {
           type: "p",
           text:
-            "Dos palabras que vas a ver seguido: una \"cotización\" es una propuesta de compra con productos, " +
-            "cantidades y precio total, todavía sin pagar — es el equivalente a cuando alguien pide precio y tú " +
-            "le apuntas en una libreta cuánto le va a costar. Un \"pedido\" es lo que resulta cuando esa " +
-            "cotización se confirma y se paga (o se acuerda pagar). El \"link de pago\" es una dirección web " +
-            "que le mandas al cliente para que pague con tarjeta u otro método, sin que tenga que ir a tu " +
-            "tienda a pagar en efectivo.",
+            "La idea es esta: un cliente te escribe por WhatsApp. Un programa automático, al que llamamos " +
+            "\"el agente\", le contesta usando tu catálogo real: los mismos precios y existencias que tú ves " +
+            "aquí, no una copia vieja. Si el cliente quiere comprar, el agente arma una cotización. Si el " +
+            "cliente la acepta, el agente le manda un link de pago. Tú puedes ver todo eso desde el panel, y " +
+            "puedes entrar a cualquier conversación cuando quieras para contestar tú.",
         },
         {
-          type: "h3", text: "Un ejemplo completo, de principio a fin",
+          type: "p",
+          text:
+            "Tres palabras que vas a ver en todas partes. Una \"cotización\" es una propuesta de compra: " +
+            "productos, cantidades y total, todavía sin pagar. Un \"pedido\" es lo que nace cuando esa " +
+            "cotización se acepta y se va a cobrar. Un \"link de pago\" es una dirección web que le mandas " +
+            "al cliente para que pague con tarjeta, transferencia SPEI o efectivo desde su celular.",
         },
+        { type: "h3", text: "Un ejemplo completo, de principio a fin" },
         {
           type: "steps",
           items: [
-            "Un cliente de una taquería le escribe por WhatsApp: \"¿tienen orden de bistec y cuánto cuesta?\".",
-            "El agente busca en tu catálogo real, ve el precio y la existencia vigentes, y responde con esa " +
-              "información — no con un precio fijo escrito a mano en un mensaje automático, sino con el precio " +
-              "que tú tienes cargado en Catálogo en ese momento.",
-            "El cliente dice que sí quiere. El agente arma una cotización con esa orden (y cualquier otra cosa " +
-              "que el cliente vaya agregando, como refrescos o una orden extra).",
-            "El cliente confirma que quiere pagar. El agente genera un link de pago y se lo manda por el mismo " +
-              "chat.",
-            "El cliente paga desde ese link, con su celular, sin salir de WhatsApp.",
-            "Tú ves ese pago reflejado en el panel, en Pagos y en Pedidos, sin haber tenido que hacer nada — " +
-              "el agente hizo la venta solo, de principio a fin.",
+            "Un cliente de una taquería escribe por WhatsApp: \"¿tienen orden de bistec y cuánto cuesta?\".",
+            "El agente busca en tu catálogo, ve el precio y la existencia de ese momento, y contesta con " +
+              "esos datos. No usa un precio escrito a mano en un mensaje automático.",
+            "El cliente dice que sí quiere. El agente le pide su nombre (siempre lo hace antes de cotizar) " +
+              "y arma una cotización con la orden y lo que el cliente vaya agregando.",
+            "El cliente confirma. El agente genera el link de pago y lo manda por el mismo chat.",
+            "El cliente paga desde ese link en su celular.",
+            "Tú ves el pago en Pagos y el pedido en Pedidos. No tuviste que hacer nada: el agente hizo la " +
+              "venta completa.",
           ],
         },
         {
           type: "p",
           text:
-            "Ese es el caso ideal. En la práctica, el agente no siempre puede resolverlo todo: si el cliente " +
-            "pregunta algo raro, se queja, o pide algo que no está en el catálogo, tú puedes entrar a esa " +
-            "misma conversación desde Conversaciones y contestar tú mismo, como si fueras un vendedor tomando " +
-            "el chat. El cliente no nota ninguna diferencia técnica: sigue siendo el mismo número de WhatsApp, " +
-            "la misma conversación.",
+            "Ese es el caso ideal. A veces el cliente pregunta algo que el agente no sabe, se queja o pide " +
+            "un precio especial. En esos casos el agente pasa la conversación a una persona. Tú la tomas " +
+            "desde Conversaciones y contestas desde el panel. El cliente sigue en el mismo chat, con el mismo " +
+            "número, y no nota ningún cambio técnico.",
         },
-        {
-          type: "h3", text: "Qué encuentras en cada parte del panel",
-        },
+        { type: "h3", text: "Qué encuentras en cada parte del panel" },
         {
           type: "list",
           items: [
-            "Catálogo: tus productos y variantes (por ejemplo, un mismo producto en distintos tamaños o " +
-              "colores), cada uno con su precio y su existencia (cuánto tienes disponible para vender).",
-            "Clientes: una ficha por cada persona que te ha comprado o cotizado, con su historial completo.",
-            "Cotizaciones y pedidos: todo el camino desde que se arma el carrito de compra hasta que se cobra.",
-            "Conversaciones: la bandeja de WhatsApp, tanto lo que contesta el agente como lo que contestas tú.",
-            "Administración: la marca de tu negocio, quién tiene acceso (usuarios), notificaciones, seguridad " +
-              "y las llaves (API keys) que usan integraciones externas.",
+            "Inicio: un resumen de ventas, pedidos, cotizaciones y conversaciones del día.",
+            "Catálogo: tus productos y sus variantes (por ejemplo tallas, colores o tamaños), con precio, " +
+              "existencia y fotos.",
+            "Cotizaciones, Cobro rápido, Pedidos y Pagos: todo el camino desde que alguien pide precio " +
+              "hasta que el dinero entra (y, si hace falta, se devuelve).",
+            "Clientes: una ficha por persona, con su historial completo.",
+            "Chat con el agente, Consola del agente, Canales y Conversaciones: todo lo del agente y de " +
+              "WhatsApp.",
+            "Admin: datos de tu empresa, marca, envíos, usuarios, llaves de integración, notificaciones y " +
+              "seguridad.",
           ],
         },
         {
@@ -82,129 +79,313 @@ export const primerosPasos: HelpCategory = {
           tone: "info",
           title: "Modo de pruebas",
           text:
-            "Si en la barra superior del panel ves la etiqueta \"Pruebas\", significa que los pagos que se " +
-            "generan son simulados: pasan por una \"pasarela de pago\" de prueba (dummy gateway), que es un " +
-            "sistema que se comporta igual que el de pagos reales pero sin mover dinero de verdad. Nadie paga " +
-            "nada real y a ti no te llega ni un peso, aunque en pantalla se vea como una venta completa. Sirve " +
-            "para que pruebes todo el flujo — desde que el cliente escribe hasta que \"paga\" — antes de " +
-            "activar los pagos reales. Cuando tu negocio pase a producción, esa etiqueta desaparece y los " +
-            "cobros que se generen ya sí mueven dinero real; por eso conviene hacer al menos una compra de " +
-            "prueba completa mientras la etiqueta \"Pruebas\" todavía está ahí, para confirmar que todo el " +
-            "recorrido funciona como esperas.",
+            "Si ves la etiqueta \"Pruebas\" (en el panel, en el link de pago o en la pantalla de \"pago " +
+            "aplicado\"), los pagos son simulados. Todo se ve como una venta real, pero no se mueve dinero. " +
+            "Sirve para practicar el recorrido completo antes de cobrar de verdad. Haz al menos una compra " +
+            "de prueba completa mientras la etiqueta siga ahí.",
         },
         {
           type: "callout",
           tone: "warning",
           title: "El agente necesita WhatsApp conectado",
           text:
-            "Para que un cliente pueda escribirle al agente, primero tiene que existir una conexión activa de " +
-            "WhatsApp para tu negocio (eso se configura en Canales, dentro de la sección \"Agente IA\" del " +
-            "menú). Sin esa conexión, el catálogo y las cotizaciones existen igual en el panel, pero no hay " +
-            "ningún número de WhatsApp real recibiendo mensajes de clientes.",
+            "Para que un cliente le escriba al agente, primero conecta un número en Canales. Sin eso, el " +
+            "catálogo y las cotizaciones funcionan en el panel, pero ningún mensaje de WhatsApp entra.",
         },
       ],
-      related: ["recorrido-del-panel", "roles-de-usuario"],
+      related: ["lista-de-arranque", "recorrido-del-panel", "roles-de-usuario"],
+    },
+    {
+      slug: "lista-de-arranque",
+      title: "Lista de arranque: tu primer día",
+      summary:
+        "Los pasos, en orden, para dejar tu negocio listo para vender por WhatsApp: empresa, catálogo, envíos, agente, canal y una compra de prueba.",
+      audience: "owner",
+      keywords: ["configurar", "empezar", "checklist", "onboarding", "configuración inicial", "primer día"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Sigue esta lista de arriba hacia abajo. Cada paso depende del anterior: por ejemplo, el agente " +
+            "no puede cotizar productos que todavía no existen en tu catálogo. Calcula de una a dos horas si " +
+            "tu catálogo es pequeño.",
+        },
+        { type: "h3", text: "1. Revisa los datos de tu empresa" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Admin → Empresa.",
+            "Revisa el IVA (normalmente 16%), el envío fijo, el descuento máximo de tus vendedores y las " +
+              "vigencias de cotización y de link de pago.",
+            "Da clic en \"Guardar cambios\".",
+          ],
+        },
+        { type: "h3", text: "2. Pon tu marca" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Admin → Marca.",
+            "Sube tu logo y elige tus colores. Tus clientes los ven en el link de cotización y en el de pago.",
+          ],
+        },
+        { type: "h3", text: "3. Carga tu catálogo" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Catálogo. Crea tus productos uno por uno con \"Nuevo producto\", o impórtalos todos con un " +
+              "archivo CSV.",
+            "Agrega fotos: ayudan al cliente y al agente.",
+            "Activa cada producto (estado \"Activo\"). Un producto en borrador no se vende.",
+          ],
+        },
+        { type: "h3", text: "4. Configura el envío a domicilio (si repartes)" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Admin → Envío a domicilio.",
+            "Crea tus zonas por código postal, ciudad o estado, con su precio.",
+          ],
+        },
+        { type: "h3", text: "5. Enséñale tu negocio al agente" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Consola del agente → pestaña General.",
+            "Usa \"Crear bot con IA\": describe tu negocio en tus palabras y el sistema arma un borrador " +
+              "con nombre, tono, horarios y reglas. Revísalo y da clic en \"Aplicar\".",
+            "En la pestaña Conocimiento, agrega lo que el agente debe saber: horarios, dirección, formas de " +
+              "pago, políticas de cambio.",
+          ],
+        },
+        { type: "h3", text: "6. Prueba al agente sin clientes reales" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Chat con el agente.",
+            "Escríbele como si fueras un cliente: pregunta precios, pide envío, pide una cotización.",
+            "Si algo no te gusta, corrige el catálogo, el conocimiento o la configuración y vuelve a probar.",
+          ],
+        },
+        { type: "h3", text: "7. Conecta tu WhatsApp" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Canales → \"Conectar canal\".",
+            "Elige Evolution (con QR, lo más rápido) o Meta (si ya tienes la API oficial aprobada).",
+            "Espera a ver el canal como \"Conectado\".",
+          ],
+        },
+        { type: "h3", text: "8. Invita a tu equipo" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Admin → Usuarios → \"Invitar usuario\".",
+            "Dale a cada persona el rol que necesita, no más.",
+            "Marca como \"Agente WhatsApp activo\" a quienes van a atender conversaciones.",
+          ],
+        },
+        { type: "h3", text: "9. Haz una compra de prueba completa" },
+        {
+          type: "steps",
+          items: [
+            "Desde otro celular, escribe a tu número de WhatsApp como si fueras un cliente.",
+            "Pide un producto, acepta la cotización y paga con el link.",
+            "Revisa que el pedido aparezca en Pedidos como pagado y el cobro en Pagos.",
+          ],
+        },
+        {
+          type: "callout",
+          tone: "success",
+          title: "Protege tu cuenta",
+          text:
+            "Antes de terminar, activa la verificación en dos pasos en Admin → Seguridad. Tarda dos minutos y " +
+            "evita que alguien entre aunque adivine tu contraseña.",
+        },
+      ],
+      related: ["productos-y-variantes", "configurar-el-agente", "conectar-whatsapp", "chat-de-prueba"],
     },
     {
       slug: "recorrido-del-panel",
       title: "Recorrido del panel",
       summary:
-        "Qué hace cada sección del menú lateral, en qué orden conviene revisarlas la primera vez, y qué significan los términos que vas a encontrar en cada una.",
+        "Qué hace cada sección del menú lateral, cómo buscar rápido, y qué significan los términos que vas a encontrar en cada una.",
       audience: "both",
-      keywords: ["menú", "navegación", "sidebar", "secciones"],
+      keywords: ["menú", "navegación", "sidebar", "secciones", "buscar", "atajo", "ctrl k"],
       body: [
         {
           type: "p",
           text:
-            "El menú lateral es la forma principal de moverte por el panel. Está agrupado por tema, no por " +
-            "orden alfabético, para que las secciones que usas juntas queden cerca. Además del menú, hay un " +
-            "enlace \"Inicio\" que te regresa siempre a la pantalla principal, sin importar en qué sección " +
-            "estés — úsalo si te pierdes.",
+            "El menú lateral es la forma principal de moverte por el panel. Está agrupado por tema, para que " +
+            "las secciones que usas juntas queden cerca. En celular, el menú se abre con el botón de menú " +
+            "de la parte de arriba.",
         },
-        { type: "h3", text: "Operación" },
+        { type: "h3", text: "Inicio" },
         {
           type: "p",
           text:
-            "Esta es la parte que usas para el trabajo diario de vender: catálogo, cotizar, cobrar, dar " +
-            "seguimiento a pedidos y llevar el registro de tus clientes.",
+            "Es la primera pantalla al entrar. Muestra un panorama: ventas cobradas de hoy y del mes, pedidos " +
+            "por pagar, cotizaciones emitidas, conversaciones abiertas, productos activos y clientes totales. " +
+            "Abajo ves una gráfica de ventas de los últimos 7 días, los últimos pedidos, las últimas " +
+            "conversaciones y la actividad reciente del equipo.",
         },
+        { type: "h3", text: "Operación" },
         {
           type: "list",
           items: [
-            "Catálogo — tus productos, sus variantes (talla, color, presentación), precios, existencias y " +
-              "fotos. Es la fuente de verdad que usa el agente cuando cotiza: si cambias un precio aquí, el " +
-              "agente cotiza con el precio nuevo de inmediato.",
-            "Cotizaciones — todas las cotizaciones que existen, en cualquiera de sus estados: en borrador " +
-              "(todavía se está armando), emitida (ya se le mandó al cliente), aceptada (el cliente dijo que " +
-              "sí) o vencida (se pasó la fecha límite y ya no se puede aceptar tal cual).",
-            "Cobro rápido — para cuando quieres cobrarle a alguien un monto libre, sin tener que pasar por " +
-              "catálogo ni armar una cotización formal. Útil por ejemplo para un cobro de servicio o un ajuste " +
-              "que no corresponde a ningún producto puntual.",
-            "Pedidos — los pedidos que ya se generaron, sea porque una cotización se aceptó o porque se creó " +
-              "un pedido directo. Aquí ves su \"checkout\" (el proceso en el que el cliente completa el pago) " +
-              "y en qué estado va.",
-            "Pagos — el detalle de cada intento de cobro (sesión de cobro), un \"libro de movimientos\" (un " +
-              "listado ordenado de todo lo que entró y salió, parecido a un estado de cuenta bancario) y los " +
-              "reembolsos que se hayan hecho.",
-            "Clientes — la ficha de cada persona: sus datos de contacto, sus direcciones guardadas y sus " +
-              "consentimientos (los permisos que te dio para contactarlo o usar sus datos).",
+            "Catálogo: productos, variantes, precios, existencias y fotos. El agente cotiza con lo que hay " +
+              "aquí. Si cambias un precio, el agente usa el precio nuevo de inmediato.",
+            "Cotizaciones: todas tus cotizaciones, en borrador, emitidas, aceptadas, vencidas o canceladas.",
+            "Cobro rápido: para cobrar un monto libre sin cotización. Por ejemplo, un servicio que no está " +
+              "en tu catálogo.",
+            "Pedidos: las ventas que ya se están cobrando o que ya se cobraron, con su estado.",
+            "Pagos: cada intento de cobro, su libro de movimientos y los reembolsos.",
+            "Clientes: la ficha de cada persona, con sus datos, direcciones, permisos e historial.",
           ],
         },
         { type: "h3", text: "Agente IA" },
         {
+          type: "list",
+          items: [
+            "Chat con el agente: habla con tu agente como si fueras un cliente, para probarlo.",
+            "Consola del agente: la configuración del agente, lo que sabe de tu negocio, lo que está " +
+              "aprendiendo y las acciones que puede hacer.",
+            "Canales: tus números de WhatsApp conectados.",
+            "Conversaciones: la bandeja real de WhatsApp, donde tú y tu equipo atienden a los clientes.",
+          ],
+        },
+        { type: "h3", text: "Sistema y ayuda" },
+        {
+          type: "list",
+          items: [
+            "Admin: empresa, marca, envío a domicilio, usuarios, API keys, notificaciones y seguridad.",
+            "Ayuda: esta guía.",
+            "Soporte (en el menú de tu usuario, arriba a la derecha): cómo escribirnos si tienes un " +
+              "problema.",
+          ],
+        },
+        { type: "h3", text: "Buscar cualquier cosa" },
+        {
           type: "p",
           text:
-            "Aquí configuras y pones a prueba al agente automático que contesta por WhatsApp, y aquí también " +
-            "está la bandeja real de conversaciones con tus clientes.",
-        },
-        {
-          type: "list",
-          items: [
-            "Chat con el agente — te deja probar al agente tú mismo, escribiéndole como si fueras un cliente " +
-              "cualquiera. Es la forma más rápida de detectar si algo del catálogo o del comportamiento del " +
-              "agente no está como quieres, sin arriesgar una conversación real.",
-            "Consola del agente — muestra qué sabe el agente de tu negocio (qué información tiene disponible) " +
-              "y cómo está configurado su comportamiento.",
-            "Canales — las conexiones de WhatsApp de tu negocio, sea a través de Meta (el proveedor oficial de " +
-              "WhatsApp Business) o de Evolution (otro proveedor de conexión). Sin al menos un canal " +
-              "conectado, el agente no puede recibir mensajes reales.",
-            "Conversaciones — la bandeja real de WhatsApp: cada \"hilo\" (la conversación completa con un " +
-              "cliente en particular), quién la está atendiendo en este momento (el agente o una persona), y " +
-              "notas internas que puedes dejar para el equipo.",
-          ],
-        },
-        { type: "h3", text: "Sistema" },
-        {
-          type: "list",
-          items: [
-            "Admin — la configuración de tu empresa: datos de la empresa, marca (logo y colores), envío a " +
-              "domicilio, quién tiene acceso (usuarios), llaves de integración (API keys), notificaciones y " +
-              "seguridad.",
-            "Ayuda — esta guía que estás leyendo.",
-          ],
-        },
-        {
-          type: "callout",
-          tone: "info",
-          title: "Si eres super-admin de la plataforma",
-          text:
-            "Además de todo lo anterior, ves un grupo aparte llamado \"Plataforma\" en la parte de arriba del " +
-            "menú, con: Resumen (una vista general de toda la plataforma, no solo de una empresa), Empresas " +
-            "(el listado de todos los negocios que usan Atiende ya), Uso y costos, y API keys globales. Esto " +
-            "es distinto de lo que ve el dueño de un negocio normal, que solo ve su propia empresa.",
+            "Arriba del panel hay un buscador para encontrar un producto o un cliente sin navegar. Ábrelo " +
+            "con Ctrl + K (en Windows) o Cmd + K (en Mac), o con la tecla / cuando no estés escribiendo en " +
+            "otro campo. Escribe parte del nombre o del SKU y elige el resultado.",
         },
         {
           type: "callout",
           tone: "info",
           title: "No todos ven lo mismo",
           text:
-            "Lo que aparece en tu menú depende de tu rol (VENDOR, FINANCE, CATALOG, etc.). Por ejemplo, alguien " +
-            "con rol CATALOG probablemente no vea la sección Pagos, porque su trabajo es solo el catálogo. Si " +
-            "a ti te falta una sección que esperabas ver, puede ser que tu rol no incluya acceso a ella — " +
-            "revisa el artículo sobre roles para confirmarlo.",
+            "Tu menú depende de tu rol. Por ejemplo, alguien con rol Catálogo no ve Pagos. Si te falta una " +
+            "sección, pide a quien administra tu empresa que revise tu rol.",
+        },
+        {
+          type: "callout",
+          tone: "info",
+          title: "Si eres super-admin de la plataforma",
+          text:
+            "Ves además un grupo \"Plataforma\" con Resumen, Empresas, Usuarios, Uso y costos, y API keys " +
+            "globales. El dueño de un negocio normal solo ve su propia empresa.",
         },
       ],
-      related: ["que-es-atiende-ya", "roles-de-usuario"],
+      related: ["que-es-atiende-ya", "roles-de-usuario", "entrar-a-tu-cuenta"],
+    },
+    {
+      slug: "entrar-a-tu-cuenta",
+      title: "Entrar, recuperar tu contraseña y cerrar sesión",
+      summary:
+        "Cómo iniciar sesión, qué hacer si olvidaste tu contraseña, cómo activar una invitación y por qué a veces el panel te pide entrar de nuevo.",
+      audience: "both",
+      keywords: ["login", "iniciar sesión", "olvidé mi contraseña", "recuperar", "sesión expirada", "invitación", "activar cuenta"],
+      body: [
+        { type: "h3", text: "Iniciar sesión" },
+        {
+          type: "steps",
+          items: [
+            "Abre la página del panel. Si no tienes sesión, ves la pantalla \"Iniciar sesión\".",
+            "Escribe tu correo y tu contraseña.",
+            "Da clic en \"Iniciar sesión\".",
+            "Si tienes la verificación en dos pasos activa, el panel te pide un \"Código de verificación\". " +
+              "Abre tu app autenticadora y escribe los 6 números que muestra en ese momento. Tienes 5 " +
+              "minutos para hacerlo.",
+          ],
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          title: "Demasiados intentos",
+          text:
+            "Si escribes mal la contraseña varias veces seguidas, el sistema bloquea los intentos por 15 " +
+            "minutos y muestra \"Demasiados intentos\". Es una protección contra quien intenta adivinar " +
+            "contraseñas. Espera y vuelve a intentar, o recupera tu contraseña.",
+        },
+        { type: "h3", text: "Olvidé mi contraseña" },
+        {
+          type: "steps",
+          items: [
+            "En la pantalla de inicio de sesión, da clic en \"¿Olvidaste tu contraseña?\".",
+            "Escribe tu correo y da clic en \"Recuperar contraseña\".",
+            "Siempre verás el mensaje \"Si el correo existe, enviamos instrucciones\". Así nadie puede " +
+              "averiguar qué correos tienen cuenta.",
+            "Abre el correo y da clic en el link. El link vale 30 minutos.",
+            "Escribe tu nueva contraseña dos veces (mínimo 12 caracteres, con mayúscula, minúscula, número " +
+              "y símbolo) y guárdala.",
+          ],
+        },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "Puedes pedir hasta 3 correos de recuperación por hora. Si no llega, revisa tu carpeta de spam y " +
+            "confirma que escribiste el mismo correo con el que te invitaron.",
+        },
+        { type: "h3", text: "Activar una invitación" },
+        {
+          type: "steps",
+          items: [
+            "Abre el correo de invitación y da clic en el link. El link vale 48 horas.",
+            "En la pantalla \"Activar cuenta\", elige tu contraseña y escríbela dos veces.",
+            "Da clic en \"Activar cuenta\". Ya puedes entrar con tu correo y esa contraseña.",
+          ],
+        },
+        { type: "h3", text: "Por qué el panel te pide entrar de nuevo" },
+        {
+          type: "list",
+          items: [
+            "Si pasas 30 minutos sin usar el panel, la sesión se cierra sola. Protege tu cuenta si dejas la " +
+              "computadora abierta.",
+            "Aunque lo uses sin parar, cada sesión dura como máximo 12 horas.",
+            "Si cambias tu contraseña, se cierran tus sesiones en otros dispositivos.",
+          ],
+        },
+        {
+          type: "faq",
+          items: [
+            {
+              q: "Me dice \"El link es inválido o ya expiró\". ¿Qué hago?",
+              a:
+                "El link de recuperación dura 30 minutos y el de invitación 48 horas, y cada uno sirve una " +
+                "sola vez. Pide uno nuevo: en recuperación, desde \"Recuperar contraseña\"; en invitación, " +
+                "pide al dueño de la empresa que te invite otra vez.",
+            },
+            {
+              q: "Perdí el celular con mi app autenticadora. ¿Cómo entro?",
+              a:
+                "En el paso del código, usa uno de tus códigos de recuperación en lugar del código de la " +
+                "app. Cada uno sirve una vez. Ya dentro, desactiva y vuelve a activar la verificación en " +
+                "dos pasos con tu celular nuevo. Si tampoco tienes códigos de recuperación, escribe a " +
+                "hola@tupla.dev desde el correo de tu cuenta.",
+            },
+            {
+              q: "El código de 6 números me sale inválido aunque lo copio bien.",
+              a:
+                "Revisa que la hora de tu celular esté en automático. Los códigos dependen de la hora " +
+                "exacta; si tu celular va adelantado o atrasado, los códigos no coinciden.",
+            },
+          ],
+        },
+      ],
+      related: ["seguridad-de-la-cuenta", "invitar-usuarios"],
     },
     {
       slug: "roles-de-usuario",
@@ -212,85 +393,128 @@ export const primerosPasos: HelpCategory = {
       summary:
         "OWNER, ADMIN, VENDOR, FINANCE, CATALOG, SUPPORT, VIEWER: qué ve y qué puede modificar cada rol, y cómo invitar a alguien con el rol correcto.",
       audience: "owner",
-      keywords: ["permisos", "invitación", "usuarios", "invitar-usuarios", "accesos"],
+      keywords: ["permisos", "invitación", "usuarios", "invitar-usuarios", "accesos", "propietario", "vendedor"],
       body: [
         {
           type: "p",
           text:
-            "Cada persona que forma parte de tu empresa dentro del panel — tú, tus empleados, tu contador — " +
-            "tiene un \"rol\" asignado. El rol es una etiqueta que decide dos cosas a la vez: qué secciones del " +
-            "menú puede ver, y qué puede hacer dentro de esas secciones (solo mirar, o también cambiar cosas). " +
-            "Esto existe para que cada persona tenga acceso a exactamente lo que necesita para su trabajo, ni " +
-            "más ni menos.",
+            "Cada persona de tu empresa dentro del panel tiene un \"rol\". El rol decide dos cosas: qué " +
+            "secciones del menú puede ver, y qué puede hacer dentro de ellas (solo mirar, o también cambiar). " +
+            "Así cada persona tiene justo lo que necesita para su trabajo.",
         },
         {
           type: "p",
           text:
-            "Por qué esto importa en la práctica: si le das a un vendedor de mostrador el mismo acceso que a " +
-            "ti como dueño, esa persona podría, sin mala intención, cambiar el precio de un producto por " +
-            "error, o ver los reembolsos y pagos de toda la empresa. Dándole el rol correcto — por ejemplo " +
-            "VENDOR — evitas ese riesgo desde el principio, sin tener que estar revisando después qué cambió " +
-            "cada quien.",
+            "Por qué importa: si le das a un vendedor el mismo acceso que tú, podría cambiar un precio por " +
+            "error o ver todos los pagos de la empresa. Con el rol correcto evitas ese riesgo desde el " +
+            "principio.",
         },
         {
           type: "table",
-          headers: ["Rol", "Para quién es", "Puede"],
+          headers: ["Rol (en pantalla)", "Para quién es", "Puede"],
           rows: [
-            ["OWNER", "Dueño del negocio", "Todo: incluida administración de la empresa, usuarios y API keys."],
-            ["ADMIN", "Mano derecha del dueño", "Casi todo, salvo lo reservado a OWNER (dar de baja la empresa, ceder otro OWNER)."],
-            ["VENDOR", "Vendedor / atención al cliente", "Catálogo (lectura), clientes, cotizaciones, pedidos propios, chat."],
-            ["FINANCE", "Cuentas por cobrar", "Ver catálogo/clientes/cotizaciones/pedidos, pagos y reembolsos."],
-            ["CATALOG", "Encargado de catálogo", "Solo catálogo, lectura y escritura."],
-            ["SUPPORT", "Atención al cliente sin ventas", "Ver catálogo/clientes/cotizaciones/pedidos, y chat."],
-            ["VIEWER", "Solo consulta", "Ver catálogo, clientes, cotizaciones, pedidos y notificaciones — nada de escritura."],
+            ["Propietario (OWNER)", "Dueño del negocio", "Todo, incluidos pagos, reembolsos, usuarios, API keys y configuración de la empresa."],
+            ["Administrador (ADMIN)", "Mano derecha del dueño", "Casi todo, pero no reembolsa ni exporta pagos, y no puede nombrar a otro Propietario."],
+            ["Vendedor (VENDOR)", "Ventas y atención", "Ve el catálogo, maneja clientes, cotizaciones y pedidos, cancela sus propios pedidos y contesta WhatsApp."],
+            ["Finanzas (FINANCE)", "Cuentas y cobranza", "Ve catálogo, clientes, cotizaciones y pedidos; ve, reembolsa y exporta pagos."],
+            ["Catálogo (CATALOG)", "Encargado de productos", "Solo el catálogo, para ver y editar."],
+            ["Soporte (SUPPORT)", "Atención sin ventas", "Ve catálogo, clientes, cotizaciones y pedidos, y contesta WhatsApp. No toca pagos."],
+            ["Lectura (VIEWER)", "Solo consulta", "Ve catálogo, clientes, cotizaciones, pedidos y notificaciones. No cambia nada."],
           ],
         },
         {
           type: "p",
           text:
-            "Algunos ejemplos concretos para elegir bien: si contratas a alguien solo para tomar fotos de " +
-            "producto, escribir descripciones y actualizar precios en una tienda de pinturas, dale el rol " +
-            "CATALOG — así puede hacer su trabajo completo pero no puede ver los datos de tus clientes ni tus " +
-            "pagos, aunque quisiera. Si tu contador solo necesita revisar qué se cobró y qué se reembolsó en " +
-            "una boutique, FINANCE le basta — no necesita ni debería poder cambiar el catálogo. Si alguien va " +
-            "a atender el chat de WhatsApp de una taquería y cerrar ventas, VENDOR es lo normal.",
+            "Ejemplos para elegir bien: a quien solo toma fotos y actualiza precios, dale Catálogo. A tu " +
+            "contador, dale Finanzas. A quien atiende WhatsApp y cierra ventas, dale Vendedor. A un socio que " +
+            "solo quiere ver cómo va el negocio, dale Lectura.",
         },
-        {
-          type: "h3", text: "Cómo invitar a alguien" },
+        { type: "h3", text: "Cómo invitar a alguien" },
         {
           type: "steps",
           items: [
-            "Ve a Admin en el menú lateral y abre la pestaña \"Usuarios\".",
-            "Ahí abres el formulario \"Invitar usuario\".",
-            "Escribe su nombre completo y su correo, y elige su rol en el menú desplegable.",
+            "Ve a Admin → Usuarios y da clic en \"Invitar usuario\".",
+            "Escribe su nombre completo y su correo, y elige su rol.",
             "Al guardar, la persona recibe un correo con un link de invitación.",
-            "Cuando esa persona abre el link y crea su contraseña, ya puede entrar al panel con el rol que le " +
-              "asignaste.",
+            "Cuando abre el link y crea su contraseña, ya puede entrar con ese rol.",
           ],
         },
         {
           type: "callout",
           tone: "info",
-          title: "OWNER y ADMIN no se asignan al invitar",
+          title: "Propietario y Administrador no se asignan al invitar",
           text:
-            "Cuando invitas a alguien nuevo, el formulario solo te deja elegir entre Vendedor, Finanzas, " +
-            "Catálogo, Soporte o Lectura (los roles VENDOR, FINANCE, CATALOG, SUPPORT y VIEWER, mostrados en " +
-            "español). Los roles OWNER y ADMIN no aparecen ahí a propósito: son roles de mucha confianza, y se " +
-            "asignan después, cambiando el rol de alguien que ya forma parte del equipo desde esa misma tabla " +
-            "de Usuarios — no desde el formulario de invitación inicial.",
+            "El formulario de invitación solo ofrece Vendedor, Finanzas, Catálogo, Soporte y Lectura. Para " +
+            "hacer a alguien Administrador o Propietario, primero invítalo con otro rol y, cuando ya tenga su " +
+            "cuenta activa, cámbiale el rol en la tabla de Usuarios.",
         },
         {
           type: "callout",
           tone: "warning",
           title: "Si te equivocas de rol",
           text:
-            "No es un problema grave ni definitivo: puedes cambiar el rol de una persona más adelante desde la " +
-            "misma tabla de Usuarios en Admin, sin tener que volver a invitarla. Mientras tanto, si le diste un " +
-            "rol demasiado limitado, simplemente no va a ver algunas secciones hasta que lo corrijas; no borra " +
-            "ni pierde nada.",
+            "No pasa nada grave: cambia el rol desde la tabla de Usuarios en Admin, sin volver a invitar. " +
+            "Cambiar un rol no borra nada.",
         },
       ],
       related: ["recorrido-del-panel", "invitar-usuarios"],
+    },
+    {
+      slug: "preguntas-primeros-pasos",
+      title: "Preguntas frecuentes: empezar",
+      summary: "Respuestas cortas a las dudas más comunes de los primeros días con el panel.",
+      audience: "both",
+      keywords: ["faq", "preguntas", "dudas", "problemas", "ayuda"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "¿Necesito saber programar para usar Atiende ya?",
+              a:
+                "No. Todo se hace desde el panel con botones y formularios. Solo las API keys y la conexión " +
+                "por MCP son para conectar otros programas, y son opcionales.",
+            },
+            {
+              q: "¿El agente puede vender algo que no tengo?",
+              a:
+                "No. El agente consulta tu catálogo en cada respuesta. Si un producto no existe, está en " +
+                "borrador, está archivado o no tiene existencia, no lo ofrece como disponible.",
+            },
+            {
+              q: "¿Puedo usar mi número de WhatsApp de siempre?",
+              a:
+                "Sí, con la conexión por Evolution (código QR). Tu número queda vinculado como un " +
+                "dispositivo más, igual que WhatsApp Web.",
+            },
+            {
+              q: "¿Cómo sé si ya estoy cobrando dinero real?",
+              a:
+                "Si ves la etiqueta \"Pruebas\" o \"Modo de pruebas\", los pagos son simulados. Cuando tu " +
+                "empresa pasa a producción, esa etiqueta desaparece.",
+            },
+            {
+              q: "Me falta una sección del menú que otra persona sí ve.",
+              a:
+                "Tu rol no incluye esa sección. Pide al Propietario o Administrador de tu empresa que revise " +
+                "tu rol en Admin → Usuarios.",
+            },
+            {
+              q: "¿Puedo usar el panel desde el celular?",
+              a:
+                "Sí. El panel se adapta a pantallas pequeñas. En el celular, el menú se abre con el botón de " +
+                "la parte de arriba. Para cargar muchos productos, una computadora es más cómoda.",
+            },
+            {
+              q: "¿A quién le escribo si algo no funciona?",
+              a:
+                "A hola@tupla.dev. En la página Soporte (menú de tu usuario) está la lista de datos que nos " +
+                "ayudan a resolverlo más rápido. Nunca mandes contraseñas ni API keys por correo.",
+            },
+          ],
+        },
+      ],
+      related: ["lista-de-arranque", "entrar-a-tu-cuenta"],
     },
   ],
 };

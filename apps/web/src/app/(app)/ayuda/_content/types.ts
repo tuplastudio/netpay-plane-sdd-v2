@@ -14,7 +14,11 @@ export type HelpBlock =
   | { type: "steps"; items: string[] }
   | { type: "callout"; tone: "info" | "warning" | "success"; title?: string; text: string }
   | { type: "code"; text: string }
-  | { type: "table"; headers: string[]; rows: string[][] };
+  | { type: "table"; headers: string[]; rows: string[][] }
+  /** Preguntas frecuentes: se muestran como acordeón (pregunta visible, respuesta al abrir). */
+  | { type: "faq"; items: Array<{ q: string; a: string }> }
+  /** Lista de términos con su definición. */
+  | { type: "glossary"; items: Array<{ term: string; definition: string }> };
 
 export type HelpAudience = "owner" | "super_admin" | "both";
 

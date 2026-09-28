@@ -6,115 +6,142 @@ export const reportesUso: HelpCategory = {
   articles: [
     {
       slug: "dashboard-y-resumen",
-      title: "Dashboard y resumen de ventas",
+      title: "Inicio: tu resumen de ventas",
       summary:
-        "La primera pantalla que ves al entrar: KPIs de tu negocio, actividad reciente y la tendencia de " +
-        "ventas de los últimos 7 días, todo de un vistazo.",
+        "La primera pantalla al entrar: cuánto cobraste, qué está por pagar, cotizaciones, conversaciones y la tendencia de ventas de los últimos 7 días.",
       audience: "owner",
-      keywords: ["inicio", "panel principal", "kpi", "resumen", "gráfica"],
+      keywords: ["inicio", "dashboard", "panel principal", "kpi", "resumen", "gráfica", "ventas del día"],
       body: [
         {
           type: "p",
           text:
-            "Cuando entras a Easy Sell, la primera pantalla que ves (el dashboard, o \"panel principal\") no te " +
-            "obliga a buscar nada: te junta de una vez los números más importantes de tu negocio, para que en " +
-            "unos segundos sepas cómo vas, sin tener que entrar a varias secciones distintas.",
+            "Inicio junta los números más importantes de tu negocio en una sola pantalla. En pocos segundos " +
+            "sabes cómo vas sin entrar a varias secciones. Los números se actualizan solos.",
         },
+        { type: "h3", text: "Panorama" },
+        {
+          type: "table",
+          headers: ["Tarjeta", "Qué muestra"],
+          rows: [
+            ["Cobrado (neto)", "Lo cobrado menos lo reembolsado."],
+            ["Por pagar", "El dinero de pedidos que ya tienen link de pago y el cliente todavía no paga."],
+            ["Cotizaciones emitidas", "Cuántas cotizaciones emitidas esperan respuesta del cliente."],
+            ["Productos activos", "Productos a la venta en tu catálogo."],
+            ["Conversaciones abiertas", "Conversaciones de WhatsApp en curso, con el agente o con una persona."],
+            ["Ventas cobradas hoy / del mes", "El dinero de pedidos pagados o entregados, hoy y en el mes."],
+            ["Pedidos hoy", "Cuántos pedidos se crearon hoy, y abajo cuántos van en el mes."],
+            ["Clientes totales", "Cuántas fichas de cliente tienes, y cuántas nuevas hoy."],
+          ],
+        },
+        { type: "h3", text: "Debajo del panorama" },
         {
           type: "list",
           items: [
-            "Ventas: cuánto dinero has vendido, normalmente en el periodo reciente.",
-            "Pedidos: cuántas ventas se han cerrado como pedidos formales, no solo cotizaciones o mensajes " +
-              "sueltos.",
-            "Conversaciones recientes: los últimos mensajes de WhatsApp que tu agente de inteligencia " +
-              "artificial ha atendido, para que veas de un vistazo si hay algo que necesita tu atención.",
-            "Bitácora de cambios importantes: un registro de eventos relevantes de tu cuenta (por ejemplo, " +
-              "cambios de configuración), para que no se te pase nada.",
-            "Gráfica de 7 días: una línea o barra que muestra cómo se han movido tus ventas día por día durante " +
-              "la última semana, para notar de inmediato si vas subiendo, bajando, o estable.",
+            "Ventas cobradas · últimos 7 días: una barra por día con el total de pedidos pagados o " +
+              "entregados. Sirve para ver si vas subiendo o bajando.",
+            "Acciones rápidas: atajos a lo que más se usa, como probar el agente o crear una cotización.",
+            "Pedidos recientes: los últimos 5 pedidos. \"Ver todos\" abre Pedidos.",
+            "Conversaciones recientes: los últimos chats con actividad. \"Ver bandeja\" abre Conversaciones.",
+            "Actividad reciente: los últimos cambios registrados en tu empresa (quién hizo qué).",
           ],
         },
         {
           type: "p",
           text:
-            "Ejemplo: si tienes una taquería y entras un lunes en la mañana, con solo ver esta pantalla puedes " +
-            "saber si el fin de semana vendiste más o menos que la semana anterior, sin tener que sumar nada a " +
-            "mano ni entrar a un reporte aparte.",
+            "Ejemplo: si tienes una taquería y entras un lunes en la mañana, con ver la gráfica sabes si el " +
+            "fin de semana vendiste más o menos, sin sumar nada a mano.",
         },
         {
           type: "callout",
           tone: "info",
           text:
-            "Si apenas empezaste a usar Easy Sell, es normal que estos números aparezcan en cero o casi vacíos " +
-            "los primeros días — no es un error, simplemente todavía no hay suficiente actividad registrada. " +
-            "Se van a llenar solos a medida que recibas pedidos y conversaciones.",
+            "Si apenas empezaste, es normal ver ceros. Los números se llenan conforme recibes pedidos y " +
+            "conversaciones.",
         },
       ],
+      related: ["uso-y-costos", "recorrido-del-panel"],
     },
     {
       slug: "uso-y-costos",
       title: "Uso y costos del agente",
       summary:
-        "Cuánto está costando el agente de inteligencia artificial que atiende tus WhatsApp, medido en tokens " +
-        "y en dólares, para el rango de fechas que elijas.",
+        "Cuánto está costando el agente de inteligencia artificial este mes, medido en tokens y en dólares, con el detalle por modelo.",
       audience: "owner",
-      keywords: ["tokens", "costo", "modelo de ia", "consumo", "gasto"],
+      keywords: ["tokens", "costo", "modelo de ia", "consumo", "gasto", "openrouter"],
       body: [
         {
           type: "p",
           text:
-            "El agente de Easy Sell que contesta tus WhatsApp está construido sobre un modelo de inteligencia " +
-            "artificial. Cada vez que ese modelo lee un mensaje de un cliente y escribe una respuesta, hace un " +
-            "trabajo que tiene un costo real — igual que hacer una llamada telefónica tiene un costo, aunque no " +
-            "lo veas directamente cuando hablas.",
+            "El agente usa un modelo de inteligencia artificial. Cada vez que lee un mensaje y escribe una " +
+            "respuesta, ese trabajo tiene un costo, igual que una llamada telefónica cuesta aunque no lo veas " +
+            "en el momento.",
         },
         {
           type: "p",
           text:
-            "Ese costo se mide en tokens: son los fragmentos en los que el modelo divide el texto para " +
-            "procesarlo (aproximadamente, pedazos de palabras). Mientras más largo sea un mensaje, o mientras " +
-            "más mensajes se intercambien en una conversación, más tokens se usan. Más tokens significa más " +
-            "costo. Por ejemplo, un cliente que manda un mensaje corto (\"¿tienen pintura blanca?\") consume " +
-            "muchos menos tokens que uno que manda un párrafo largo describiendo lo que busca, o una " +
-            "conversación de veinte mensajes de ida y vuelta.",
+            "El costo se mide en tokens: pedazos de palabras en los que el modelo divide el texto. Un mensaje " +
+            "corto (\"¿tienen pintura blanca?\") usa pocos tokens. Una conversación de veinte mensajes, fotos " +
+            "o videos usa muchos más. Más tokens = más costo.",
         },
         {
           type: "p",
           text:
-            "Esta sección te muestra ese consumo traducido a dinero: el costo se reporta en dólares (USD), " +
-            "porque así es como se facturan internacionalmente los modelos de inteligencia artificial que usa " +
-            "el agente, sin importar que tu negocio venda y cobre en pesos.",
+            "El costo se muestra en dólares (USD), porque así cobran los proveedores de modelos de " +
+            "inteligencia artificial, aunque tu negocio venda en pesos.",
         },
-        {
-          type: "h3",
-          text: "Dónde verlo",
-        },
+        { type: "h3", text: "Dónde verlo" },
         {
           type: "steps",
           items: [
             "Ve a Admin → Empresa.",
             "Busca la sección \"Uso y costo del agente\".",
-            "Elige el rango de fechas que quieras revisar (por ejemplo, el mes en curso, o la semana pasada).",
-            "Revisa el total de tokens consumidos y el costo correspondiente en ese rango.",
+            "Arriba ves el costo estimado del mes en curso y el total de tokens (entrada + salida).",
+            "Abajo, la tabla \"Consumo del agente por modelo\" muestra, por cada modelo: turnos (respuestas), " +
+              "tokens de entrada, tokens de salida y costo.",
           ],
         },
         {
           type: "callout",
           tone: "info",
           text:
-            "Solo las personas con permisos de administración de tu empresa pueden ver esta sección — no " +
-            "aparece para cualquier miembro del equipo, porque es información sobre el gasto del negocio.",
+            "El costo es una estimación del panel. El cobro real lo hace el proveedor del modelo " +
+            "(OpenRouter). Si guardaste tu propia OpenRouter key en la configuración del agente, ese cobro " +
+            "llega a tu cuenta de OpenRouter.",
         },
         {
-          type: "callout",
-          tone: "info",
-          text:
-            "Si un día ves un salto grande en el costo, no significa que algo esté fallando. Las causas más " +
-            "comunes son: hubo muchas más conversaciones que lo normal ese día (por ejemplo, una promoción " +
-            "trajo muchos clientes nuevos), o algunas conversaciones fueron inusualmente largas. Revisa las " +
-            "conversaciones recientes de ese día para entender de dónde vino el consumo.",
+          type: "faq",
+          items: [
+            {
+              q: "Un día el costo subió mucho. ¿Algo está fallando?",
+              a:
+                "Normalmente no. Lo común es que hubo más conversaciones que de costumbre (por ejemplo, una " +
+                "promoción) o conversaciones muy largas, con muchas fotos o videos. Revisa las conversaciones " +
+                "de ese día.",
+            },
+            {
+              q: "¿Cómo bajo el costo?",
+              a:
+                "En Consola del agente → General: elige un modelo más económico, baja \"Máx. tokens por " +
+                "respuesta\", baja \"Máx. opciones por mensaje\" y deja apagada la revisión de respuestas del " +
+                "equipo si no la necesitas. Prueba en Chat con el agente que las respuestas sigan siendo " +
+                "buenas.",
+            },
+            {
+              q: "¿Las conversaciones que atiende una persona cuestan?",
+              a:
+                "Lo que escribe una persona no usa el modelo, salvo que actives \"Revisar las respuestas del " +
+                "equipo antes de enviarlas\": en ese caso, cada mensaje revisado cuesta una consulta pequeña.",
+            },
+            {
+              q: "No veo la sección de uso.",
+              a:
+                "Está en Admin → Empresa y solo la ven personas con acceso a la administración de la " +
+                "empresa. Si no la ves, pide acceso al Propietario.",
+            },
+          ],
         },
       ],
+      related: ["dashboard-y-resumen", "configurar-el-agente"],
     },
   ],
 };

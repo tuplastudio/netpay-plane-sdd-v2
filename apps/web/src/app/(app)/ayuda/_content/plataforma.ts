@@ -16,7 +16,7 @@ export const plataforma: HelpCategory = {
         {
           type: "p",
           text:
-            "Cada negocio que usa Easy Sell es lo que internamente se llama un tenant (\"empresa\", en el " +
+            "Cada negocio que usa Atiende ya es lo que internamente se llama un tenant (\"empresa\", en el " +
             "panel): un espacio separado con su propio catálogo, sus propios clientes, pedidos y equipo. Dar de " +
             "alta una empresa es crear ese espacio por primera vez, para un negocio que todavía no tiene cuenta.",
         },
@@ -255,6 +255,90 @@ export const plataforma: HelpCategory = {
         },
       ],
       related: ["administrar-una-empresa", "conectar-por-mcp"],
+    },
+    {
+      slug: "detalle-de-empresa",
+      title: "Pestañas del detalle de una empresa y usuarios de la plataforma",
+      summary:
+        "Qué hay en Resumen, Usuarios, Costos, Agente y API keys de cada empresa, cómo renombrarla o suspenderla, y la lista de todos los usuarios de la plataforma.",
+      audience: "super_admin",
+      keywords: ["tenant", "renombrar", "suspender", "costos", "agente de la empresa", "usuarios de la plataforma"],
+      body: [
+        {
+          type: "p",
+          text:
+            "En Plataforma → Empresas, da clic en una empresa para abrir su detalle. Arriba tienes las " +
+            "acciones \"Renombrar empresa\" y suspender; abajo, cinco pestañas.",
+        },
+        {
+          type: "table",
+          headers: ["Pestaña", "Qué ves y qué puedes hacer"],
+          rows: [
+            ["Resumen", "Usuarios activos, productos, pedidos y datos generales de la empresa."],
+            ["Usuarios", "El equipo de la empresa: invitar con cualquier rol, cambiar roles y quitar membresías."],
+            ["Costos", "El consumo del agente de esa empresa, con detalle por día y por modelo."],
+            ["Agente", "La misma configuración del agente que ve el dueño en Consola del agente → General. Puedes ajustarla por ellos."],
+            ["API keys", "Las llaves de integración de esa empresa. El secreto solo se muestra al crearla."],
+          ],
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          title: "Suspender corta el acceso a todos",
+          text:
+            "Al suspender una empresa, nadie de su equipo puede entrar. Confirma con \"Suspender\" solo " +
+            "cuando sea necesario y reactívala en cuanto se resuelva.",
+        },
+        { type: "h3", text: "Usuarios de la plataforma" },
+        {
+          type: "p",
+          text:
+            "Plataforma → Usuarios lista todas las cuentas de la plataforma y las empresas a las que " +
+            "pertenece cada una. Usa el buscador por nombre o correo. Sirve, por ejemplo, para saber en qué " +
+            "empresas está una persona que pide soporte.",
+        },
+      ],
+      related: ["administrar-una-empresa", "impersonar-una-empresa", "uso-y-costos-de-plataforma"],
+    },
+    {
+      slug: "preguntas-plataforma",
+      title: "Preguntas frecuentes: super-admin",
+      summary: "Dudas comunes al operar la plataforma completa.",
+      audience: "super_admin",
+      keywords: ["faq", "super-admin", "soporte a clientes", "impersonar"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "Un negocio dice que su bot no contesta. ¿Por dónde empiezo?",
+              a:
+                "Abre su empresa → pestaña Agente y revisa que \"Respuesta automática activa\" esté encendido. " +
+                "Luego impersona la empresa y revisa en Canales que el número esté \"Conectado\" y en " +
+                "Conversaciones que el hilo no lo tenga tomado una persona.",
+            },
+            {
+              q: "¿Mis acciones como super-admin quedan registradas?",
+              a:
+                "Sí. Lo que haces mientras impersonas queda registrado como tuyo y marcado como " +
+                "impersonación en la bitácora de auditoría. Actúa como si el dueño lo fuera a leer.",
+            },
+            {
+              q: "¿Puedo nombrar a alguien Propietario de una empresa?",
+              a:
+                "Sí. Desde la pestaña Usuarios puedes invitar o cambiar a cualquier rol, incluido " +
+                "Propietario. Un Administrador de la empresa no puede hacerlo.",
+            },
+            {
+              q: "Una API key global se filtró.",
+              a:
+                "Revócala de inmediato en Plataforma → API keys globales. Tiene acceso a todas las empresas, " +
+                "así que después revisa la actividad reciente de las empresas más importantes.",
+            },
+          ],
+        },
+      ],
+      related: ["administrar-una-empresa", "api-keys-globales"],
     },
   ],
 };

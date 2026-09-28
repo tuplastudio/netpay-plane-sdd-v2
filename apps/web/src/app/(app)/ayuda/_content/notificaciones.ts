@@ -190,5 +190,52 @@ export const notificaciones: HelpCategory = {
         },
       ],
     },
+    {
+      slug: "preguntas-notificaciones",
+      title: "Preguntas frecuentes: notificaciones",
+      summary: "Recordatorios que no salen, plantillas de WhatsApp y la cola de notificaciones.",
+      audience: "owner",
+      keywords: ["faq", "recordatorio no llegó", "plantilla", "cola de notificaciones", "correo no llega"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Admin → Notificaciones muestra la cola de envíos de tu empresa: cada correo o mensaje que el " +
+            "sistema programó o mandó, con su canal, plantilla, estado (programada, enviada, entregada, " +
+            "fallida), intentos y motivo. Da clic en una fila para ver su detalle.",
+        },
+        {
+          type: "faq",
+          items: [
+            {
+              q: "Un recordatorio no le llegó al cliente.",
+              a:
+                "Búscalo en la cola de Admin → Notificaciones y revisa su estado y motivo. Causas comunes: el " +
+                "cliente pidió la baja, era fuera del horario de 9:00 a 19:00, faltaba una plantilla de " +
+                "WhatsApp aprobada, la cotización ya venció o ya se pagó.",
+            },
+            {
+              q: "¿Necesito plantillas si conecté WhatsApp por Evolution?",
+              a:
+                "Las plantillas son una regla de la API oficial de Meta. Si tu canal es de Meta, registra al " +
+                "menos la plantilla del recordatorio de cotización.",
+            },
+            {
+              q: "¿Puedo cambiar el texto de los recordatorios?",
+              a:
+                "El texto lo arma el sistema con los datos de la cotización. En números de Meta, fuera de la " +
+                "ventana de 24 horas, se manda dentro de la plantilla que tú aprobaste en Meta.",
+            },
+            {
+              q: "¿Cómo apago los recordatorios?",
+              a:
+                "En Admin → Empresa, desmarca \"Recordar al cliente una cotización sin pagar\", o pon 0 en " +
+                "\"Máximo por cotización\".",
+            },
+          ],
+        },
+      ],
+      related: ["recordatorios-de-cotizacion", "plantillas-de-whatsapp"],
+    },
   ],
 };

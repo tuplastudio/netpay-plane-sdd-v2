@@ -297,5 +297,157 @@ export const empresaSeguridad: HelpCategory = {
         },
       ],
     },
+    {
+      slug: "datos-de-la-empresa",
+      title: "Datos y parámetros de la empresa",
+      summary:
+        "IVA, envío fijo, descuento máximo, vigencias de cotización y de pago, y recordatorios automáticos: qué hace cada ajuste de Admin → Empresa.",
+      audience: "owner",
+      keywords: ["iva", "envío fijo", "descuento máximo", "vigencia", "zona horaria", "parámetros comerciales", "configuración de la empresa"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Admin → Empresa tiene los datos de tu negocio y las reglas que se aplican a todas las ventas. " +
+            "Los cambios aplican a cotizaciones y pedidos nuevos; los que ya existen no cambian.",
+        },
+        { type: "h3", text: "Datos de la empresa (solo lectura)" },
+        {
+          type: "list",
+          items: [
+            "Nombre: el nombre de tu negocio.",
+            "Identificador: un nombre corto y técnico de tu empresa (el \"slug\"). Te lo podemos pedir en " +
+              "soporte.",
+            "Estado, zona horaria y fecha de alta.",
+          ],
+        },
+        { type: "h3", text: "Parámetros que puedes cambiar" },
+        {
+          type: "table",
+          headers: ["Campo", "Unidad", "Qué hace", "Ejemplo"],
+          rows: [
+            ["IVA", "%", "Impuesto que se suma a cotizaciones y pedidos nuevos.", "16"],
+            ["Envío fijo", "MXN", "Lo que se cobra de envío cuando la dirección no cae en ninguna zona de envío.", "80.00"],
+            ["Descuento máximo del vendedor", "%", "Tope de descuento que un vendedor puede poner sin autorización.", "10"],
+            ["Vigencia de cotización", "horas", "Cuánto vale una cotización emitida y su link público.", "72"],
+            ["Vigencia del link de pago", "minutos", "Cuánto dura el link de pago antes de vencer.", "30"],
+            ["Vigencia de cobro rápido", "horas", "Cuánto dura el link de un cobro rápido.", "24"],
+          ],
+        },
+        { type: "h3", text: "Recordatorios de pago" },
+        {
+          type: "list",
+          items: [
+            "Recordar al cliente una cotización sin pagar: actívalo para que el sistema le escriba al " +
+              "cliente si no ha pagado.",
+            "Cada (horas): tiempo mínimo entre un recordatorio y el siguiente.",
+            "Máximo por cotización: cuántos recordatorios como máximo. 0 los apaga.",
+          ],
+        },
+        {
+          type: "p",
+          text:
+            "Al terminar, da clic en \"Guardar cambios\". Verás \"Parámetros comerciales actualizados\". En " +
+            "esta misma pantalla, más abajo, está \"Uso y costo del agente\".",
+        },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "Una vigencia de link de pago muy corta (por ejemplo 5 minutos) hace que los clientes que tardan " +
+            "en pagar tengan que pedir un link nuevo. Una muy larga deja existencias apartadas más tiempo. " +
+            "Entre 30 y 60 minutos funciona bien para la mayoría de los negocios.",
+        },
+      ],
+      related: ["recordatorios-de-cotizacion", "zonas-de-envio", "uso-y-costos"],
+    },
+    {
+      slug: "actividad-y-auditoria",
+      title: "Actividad: quién cambió qué",
+      summary:
+        "La bitácora de auditoría registra automáticamente los cambios importantes de tu empresa. Cómo leerla y para qué sirve.",
+      audience: "owner",
+      keywords: ["auditoría", "bitácora", "historial", "actividad", "quién cambió", "registro"],
+      body: [
+        {
+          type: "p",
+          text:
+            "La bitácora de auditoría es un registro automático de las acciones importantes: cambios de rol, " +
+            "invitaciones, API keys creadas o revocadas, cambios de configuración, cobros y más. Nadie la " +
+            "puede editar. Sirve para resolver dudas como \"¿quién cambió el precio del envío?\" sin depender " +
+            "de la memoria de nadie.",
+        },
+        { type: "h3", text: "Dónde verla" },
+        {
+          type: "steps",
+          items: [
+            "Ve a Admin → Seguridad → pestaña Actividad.",
+            "Ves los últimos eventos con Fecha, Actor (quién lo hizo), Acción, Objetivo (sobre qué) y " +
+              "Detalle.",
+            "Da clic en un evento para ver todo su detalle.",
+          ],
+        },
+        {
+          type: "p",
+          text:
+            "Si el actor dice \"Sistema\", la acción la hizo el propio sistema (por ejemplo, un vencimiento " +
+            "automático) o una integración, no una persona. En Inicio, \"Actividad reciente\" muestra los " +
+            "últimos eventos de esta misma bitácora.",
+        },
+      ],
+      related: ["seguridad-de-la-cuenta", "invitar-usuarios"],
+    },
+    {
+      slug: "preguntas-empresa",
+      title: "Preguntas frecuentes: empresa, usuarios y seguridad",
+      summary: "Dudas comunes sobre marca, usuarios, contraseñas y verificación en dos pasos.",
+      audience: "owner",
+      keywords: ["faq", "logo no aparece", "invitación no llega", "quitar usuario", "cambiar dueño"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "La invitación no le llegó a mi compañero.",
+              a:
+                "Que revise su carpeta de spam. Si ya pasaron 48 horas, el link venció: revoca la invitación " +
+                "en Admin → Usuarios y vuelve a invitarlo. Confirma que el correo esté bien escrito.",
+            },
+            {
+              q: "Alguien dejó de trabajar conmigo. ¿Cómo le quito el acceso?",
+              a:
+                "En Admin → Usuarios, abre el menú de acciones de esa persona y elige \"Quitar del portal\". " +
+                "Pierde el acceso de inmediato y su historial se conserva.",
+            },
+            {
+              q: "¿Cómo paso la empresa a otro dueño?",
+              a:
+                "Un Propietario puede cambiar el rol de otra persona a Propietario desde Admin → Usuarios. " +
+                "Después, el nuevo Propietario puede cambiar tu rol. La empresa nunca puede quedarse sin un " +
+                "Propietario activo.",
+            },
+            {
+              q: "Subí mi logo pero mis clientes no lo ven.",
+              a:
+                "Recarga el link de cotización o de pago. Si sigue sin verse, revisa en Admin → Marca que el " +
+                "logo se haya subido (debe verse la vista previa) y no haya un error de tamaño o proporción.",
+            },
+            {
+              q: "¿Es obligatoria la verificación en dos pasos?",
+              a:
+                "No, pero la recomendamos para todas las personas con acceso a pagos o administración. " +
+                "Protege tu cuenta aunque alguien sepa tu contraseña.",
+            },
+            {
+              q: "Cambié un parámetro y una cotización vieja no cambió.",
+              a:
+                "Es lo esperado: los parámetros se aplican a cotizaciones y pedidos nuevos. Una cotización " +
+                "emitida conserva sus condiciones.",
+            },
+          ],
+        },
+      ],
+      related: ["invitar-usuarios", "seguridad-de-la-cuenta", "marca"],
+    },
   ],
 };

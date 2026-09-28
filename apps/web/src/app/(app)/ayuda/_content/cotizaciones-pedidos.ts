@@ -8,261 +8,367 @@ export const cotizacionesPedidos: HelpCategory = {
       slug: "crear-cotizacion",
       title: "Crear, emitir y compartir una cotización",
       summary:
-        "El camino normal: armar el carrito, emitirla, y mandarle el link al cliente. Incluye qué significa cada estado y qué pasa si cambias precios o cantidades después.",
+        "El cotizador paso a paso: elegir cliente, agregar productos, descuentos, emitir, compartir el link, editar y qué significa cada estado.",
       audience: "owner",
-      keywords: ["presupuesto", "estimado", "carrito", "cotizador"],
+      keywords: ["presupuesto", "estimado", "carrito", "cotizador", "nueva cotización", "emitir", "compartir", "recibo", "pdf", "editar cotización"],
       body: [
         {
           type: "p",
           text:
-            "Una cotización es una propuesta de compra: una lista de productos con sus cantidades y precios, " +
-            "lista para mandarle a un cliente antes de que pague. Por ejemplo, en una tlapalería alguien " +
-            "pregunta por WhatsApp cuánto le costarían 10 botes de pintura y 3 brochas: en vez de contestar " +
-            "\"como $1,800\" a ojo, armas una cotización con las líneas exactas y el cliente ve el total real, " +
-            "con impuestos y envío incluidos si aplica.",
+            "Una cotización es una propuesta de compra: productos, cantidades y precios, lista para mandar " +
+            "al cliente antes de que pague. Ejemplo: en una tlapalería alguien pide por WhatsApp el precio de " +
+            "10 botes de pintura y 3 brochas. En vez de contestar \"como $1,800\", armas una cotización y el " +
+            "cliente ve el total exacto, con IVA y envío si aplica.",
         },
-        { type: "h3", text: "Paso 1: crear la cotización" },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "El agente crea cotizaciones solo cuando atiende por WhatsApp. Esta guía es para cuando las creas " +
+            "tú desde el panel.",
+        },
+        { type: "h3", text: "Paso 1: abrir el cotizador" },
+        {
+          type: "p",
+          text:
+            "Ve a Cotizaciones y da clic en \"Nueva cotización\", arriba a la derecha. Se abre el cotizador " +
+            "con tres columnas: cliente, productos y la cotización que vas armando. En celular las columnas " +
+            "aparecen una debajo de otra.",
+        },
+        { type: "h3", text: "Paso 2: elegir cliente y productos" },
         {
           type: "steps",
           items: [
-            "Ve a Cotizaciones → Nueva cotización. Se abre el cotizador.",
-            "Elige el cliente. Si es alguien nuevo, primero tienes que darlo de alta como cliente " +
-              "(nombre, teléfono, etc.) antes de poder cotizarle.",
-            "Agrega una línea por cada producto: elige la variante exacta (por ejemplo \"Pintura vinílica " +
-              "blanca, cubeta 19L\", no solo \"pintura\"), la cantidad, y si quieres, un descuento por línea.",
-            "Repite el paso anterior por cada producto distinto que lleve el pedido. Puedes mezclar líneas " +
-              "con y sin descuento en la misma cotización.",
-            "Revisa el total antes de continuar: incluye subtotal, descuento, impuesto (IVA) y envío si el " +
-              "cliente ya dio una dirección.",
+            "En \"Cliente\", elige a la persona. Si es nueva, primero créala en Clientes → \"Nuevo cliente\" " +
+              "(solo el nombre es obligatorio).",
+            "En el buscador de productos, escribe parte del nombre o del SKU. Solo aparecen productos " +
+              "activos.",
+            "Da clic en un producto para ver sus variantes (por ejemplo \"19 L\" o \"4 L\").",
+            "En la variante que quieres, da clic en \"Agregar\". Si ya estaba, el botón dice \"Sumar\" y " +
+              "aumenta la cantidad.",
+            "En la columna de la cotización, ajusta la cantidad con los botones + y −, o escribiéndola.",
+            "Si quieres, escribe un descuento en porcentaje para esa línea (0 a 100).",
           ],
         },
         {
           type: "callout",
           tone: "info",
+          title: "Tope de descuento",
           text:
-            "El descuento por línea tiene un tope: cada vendedor tiene un \"descuento máximo\" configurado " +
-            "en Admin → Empresa (por ejemplo 10%). Si intentas poner un descuento mayor a tu tope, el sistema " +
-            "lo rechaza. Solo un OWNER o alguien con permiso especial puede autorizar descuentos más grandes.",
+            "Tu empresa define un \"Descuento máximo del vendedor\" en Admin → Empresa (por ejemplo 10%). Si " +
+            "pones un descuento mayor, el sistema lo rechaza al guardar.",
         },
-        { type: "h3", text: "Paso 2: borrador o emitida" },
-        {
-          type: "p",
-          text:
-            "Cuando terminas de armar las líneas, decides entre dos caminos: guardarla como borrador " +
-            "(estado DRAFT) para seguir editándola después sin compromiso, o emitirla de una vez " +
-            "(estado ISSUED) con el botón \"Emitir\".",
-        },
-        {
-          type: "p",
-          text:
-            "\"Emitir\" quiere decir dos cosas concretas: primero, los precios de esa cotización quedan " +
-            "fijos con lo que valía cada producto en ese momento exacto — si más tarde subes el precio del " +
-            "producto en tu catálogo, esta cotización ya emitida NO cambia, sigue mostrando el precio de " +
-            "cuando la emitiste. Segundo, se le pone una fecha de vencimiento (la \"vigencia de cotización\", " +
-            "configurable en Admin → Empresa en horas; por ejemplo 72 horas). Pasado ese plazo sin que el " +
-            "cliente la acepte, la cotización pasa sola a estado EXPIRED y ya no se puede pagar desde su link.",
-        },
-        {
-          type: "callout",
-          tone: "info",
-          text:
-            "El precio y la existencia que ve el cliente siempre salen del catálogo vigente al momento de " +
-              "cotizar, nunca de un dato guardado de antes — si cambias el precio de un producto, las " +
-              "cotizaciones ya emitidas no cambian, pero una nueva sí toma el precio actual. Por eso, si un " +
-              "cliente te pide \"la misma cotización de la semana pasada\" después de que subiste precios, " +
-              "tienes que hacer una nueva: la de la semana pasada sigue mostrando el precio viejo mientras " +
-              "esté vigente, pero una nueva cotización siempre usa el precio de hoy.",
-        },
-        { type: "h3", text: "Paso 3: compartir el link" },
+        { type: "h3", text: "Paso 3: revisar y crear" },
         {
           type: "steps",
           items: [
-            "Con el botón \"Compartir\" generas un link público único para esa cotización.",
-            "Ese link lo puede abrir cualquier persona sin necesidad de crear una cuenta ni iniciar sesión " +
-              "— nada más con el link, como si fuera una página web normal.",
-            "Desde esa página el cliente ve el detalle completo (qué productos, cuántos, cuánto cuesta cada " +
-              "uno y el total) y puede pagar directamente ahí, sin que tú tengas que hacer nada más.",
-            "Manda el link por el canal que uses con ese cliente: WhatsApp, correo, lo que sea. El link no " +
-              "cambia aunque el cliente lo abra varias veces.",
+            "Abajo ves el total calculado al momento: subtotal, descuento, IVA, envío y total.",
+            "La casilla \"Emitir\" viene marcada. Déjala así para que la cotización quede lista para " +
+              "mandar. Desmárcala si quieres guardarla como borrador y terminarla después.",
+            "Da clic en \"Crear cotización\". Se abre su página de detalle.",
           ],
-        },
-        {
-          type: "callout",
-          tone: "info",
-          text:
-            "Recordatorio automático (opcional): si tu empresa tiene activado \"Recordar al cliente una " +
-            "cotización sin pagar\" (Admin → Empresa), el sistema le vuelve a mandar un mensaje al cliente " +
-            "por el mismo canal que usó, cada cierto número de horas que tú configures, hasta un máximo de " +
-            "recordatorios por cotización (por ejemplo, cada 24 horas, hasta 3 veces). Respeta si el cliente " +
-            "se dio de baja de notificaciones, solo manda mensajes entre 9 de la mañana y 7 de la noche hora " +
-            "local, y respeta la ventana de 24 horas que WhatsApp exige para mensajes de este tipo. Poner el " +
-            "máximo en 0 apaga los recordatorios de esa cotización en adelante.",
-        },
-        {
-          type: "p",
-          text:
-            "También puedes descargar un recibo en PDF de la cotización desde el botón \"Recibo\", por si el " +
-            "cliente lo necesita impreso o para sus propios archivos.",
-        },
-        { type: "h3", text: "¿Y si necesito cambiar algo después de emitirla?" },
-        {
-          type: "p",
-          text:
-            "Mientras la cotización no esté cancelada, vencida, o ya pagada, puedes seguir editándola con el " +
-            "botón \"Editar\" — por ejemplo si el cliente pidió una cantidad distinta o quiere agregar un " +
-            "producto más. Al guardar el cambio, los precios se vuelven a calcular con el catálogo vigente " +
-            "en ese momento (no con lo que estaba fijo antes). Si la cotización ya se le había compartido al " +
-            "cliente, se le reenvía el link con la información actualizada. Si esa cotización ya tenía un " +
-            "pedido asociado que todavía no se pagaba, ese pedido regresa a borrador para que el cobro se " +
-            "genere otra vez con las líneas correctas — así nunca se le cobra al cliente algo distinto a lo " +
-            "que quedó en la versión final de la cotización.",
         },
         {
           type: "callout",
           tone: "warning",
           text:
-            "Una vez que el pedido de esa cotización ya se pagó (aunque sea parcialmente, con un cobro " +
-            "capturado), ya no puedes editar la cotización. En ese caso, si algo salió mal, la herramienta " +
-            "correcta es un reembolso desde el pedido, no editar la cotización original.",
+            "Si cierras el cotizador con líneas agregadas, el sistema pregunta \"¿Cerrar sin guardar?\". Si " +
+            "aceptas, se pierden esas líneas.",
+        },
+        { type: "h3", text: "Qué significa \"Emitir\"" },
+        {
+          type: "list",
+          items: [
+            "Los precios quedan fijos. Si después cambias un precio en el catálogo, esta cotización no cambia.",
+            "Empieza a correr su vigencia (\"Vigencia de cotización\" en Admin → Empresa, en horas; por " +
+              "ejemplo 72). Al terminar, la cotización vence sola y ya no se puede pagar.",
+          ],
+        },
+        { type: "h3", text: "Paso 4: compartir con el cliente" },
+        {
+          type: "steps",
+          items: [
+            "En el detalle de la cotización, da clic en \"Compartir\". Aparece el \"Link público de la " +
+              "cotización\" con un botón para copiarlo.",
+            "Manda ese link por WhatsApp, correo o donde hables con el cliente.",
+            "El cliente lo abre sin cuenta ni contraseña, ve el detalle y puede pagar desde ahí.",
+          ],
+        },
+        {
+          type: "p",
+          text:
+            "El botón \"Recibo\" descarga la cotización en PDF, por si el cliente la quiere impresa. Ver " +
+            "\"Lo que ve tu cliente\" para saber cómo se ve el link del lado del cliente.",
+        },
+        { type: "h3", text: "Botones del detalle" },
+        {
+          type: "table",
+          headers: ["Botón", "Cuándo aparece", "Qué hace"],
+          rows: [
+            ["Editar", "Mientras la cotización se pueda cambiar", "Cambia cantidades, líneas o notas para el cliente."],
+            ["Emitir", "En borrador", "Fija precios y empieza la vigencia."],
+            ["Aprobar cotización", "Emitida", "Crea el pedido con las mismas líneas y abre el link de pago. Útil si el cliente confirmó por teléfono o en persona. No se puede deshacer."],
+            ["Compartir", "En borrador o emitida", "Genera el link público."],
+            ["Cancelar", "En borrador o emitida", "La cotización ya no se puede aceptar ni pagar. No se puede deshacer."],
+            ["Recibo", "Siempre", "Descarga el PDF."],
+          ],
+        },
+        { type: "h3", text: "Editar después de emitir" },
+        {
+          type: "p",
+          text:
+            "Mientras la cotización no esté cancelada, vencida o pagada, puedes usar \"Editar\": agregar " +
+            "productos con \"Agregar presentación\", cambiar cantidades o escribir \"Notas para el cliente\" " +
+            "(condiciones, tiempos de entrega). Al guardar, los precios se recalculan con el catálogo de ese " +
+            "momento. Si ya la habías compartido, el cliente recibe el link actualizado. Si ya tenía un " +
+            "pedido sin pagar, ese pedido regresa a borrador y su link de pago anterior deja de servir: " +
+            "vuelve a iniciar el cobro.",
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          text:
+            "Si el pedido de esa cotización ya se pagó, no se puede editar. Si algo salió mal, usa un " +
+            "reembolso desde el pedido.",
         },
         { type: "h3", text: "Estados de una cotización" },
         {
           type: "table",
           headers: ["Estado", "Qué significa"],
           rows: [
-            ["DRAFT", "Borrador, se puede seguir editando. Todavía no tiene precios fijos ni vencimiento."],
-            [
-              "ISSUED",
-              "Emitida: precios fijos y tiene vigencia (fecha de vencimiento). Ya se le puede compartir el link al cliente.",
-            ],
-            [
-              "ACCEPTED",
-              "El cliente la aceptó — porque pagó directo desde el link, o porque tú, como negocio, la marcaste como aprobada con el botón \"Aprobar cotización\".",
-            ],
-            ["CANCELLED", "Cancelada — ya no se puede aceptar ni pagar desde su link. No se puede revertir."],
-            [
-              "EXPIRED",
-              "Venció sin que se aceptara: se pasó la fecha de vigencia. Pasa a este estado sola, sin que nadie lo tenga que hacer a mano.",
-            ],
+            ["Borrador (DRAFT)", "Se puede seguir editando. Todavía no tiene precios fijos ni vencimiento."],
+            ["Emitida (ISSUED)", "Precios fijos y vigencia corriendo. Lista para compartir."],
+            ["Aceptada (ACCEPTED)", "El cliente la aceptó (pagó desde el link o abrió su pago), o tú la aprobaste."],
+            ["Cancelada (CANCELLED)", "Ya no se puede aceptar ni pagar. No se revierte."],
+            ["Expirada (EXPIRED)", "Pasó su vigencia sin aceptarse. Pasa sola a este estado."],
           ],
         },
         {
           type: "callout",
-          tone: "warning",
+          tone: "info",
           text:
-            "Una cotización CANCELLED o EXPIRED ya no se puede editar ni reactivar. Si el cliente sigue " +
-            "interesado después de que venció, la solución es crear una cotización nueva (que tomará los " +
-            "precios actuales del catálogo, no los de la vencida).",
+            "Una cotización cancelada o vencida no se reactiva. Si el cliente sigue interesado, crea una " +
+            "nueva: tomará los precios de hoy.",
         },
       ],
-      related: ["de-cotizacion-a-pedido"],
+      related: ["lo-que-ve-tu-cliente", "de-cotizacion-a-pedido", "preguntas-cotizaciones"],
     },
     {
       slug: "de-cotizacion-a-pedido",
       title: "De cotización a pedido y cobro",
       summary:
-        "Cómo se convierte una cotización aceptada en un pedido con checkout abierto, y cómo cobrar algo que no está en tu catálogo con Cobro rápido.",
+        "Cómo una cotización aceptada se convierte en pedido con link de pago, cuánto dura ese link y cómo cobrar algo que no está en tu catálogo con Cobro rápido.",
       audience: "owner",
-      keywords: ["checkout token", "link de pago", "aprobar cotización", "idempotencia"],
+      keywords: ["checkout token", "link de pago", "aprobar cotización", "idempotencia", "cobro rápido", "iniciar checkout", "pagar pedido"],
       body: [
-        { type: "h3", text: "De cotización a pedido" },
         {
           type: "p",
           text:
-            "Un pedido es distinto de una cotización: la cotización es la propuesta, el pedido es lo que ya " +
-            "se está cobrando de verdad. Un pedido nace de dos formas: cuando el cliente acepta una " +
-            "cotización, o de forma directa con Cobro rápido (ver más abajo).",
+            "La cotización es la propuesta. El pedido es la venta que ya se está cobrando. Un pedido nace " +
+            "de dos formas: cuando se acepta una cotización, o directamente con Cobro rápido.",
         },
+        { type: "h3", text: "De cotización a pedido" },
         {
           type: "steps",
           items: [
-            "El cliente acepta la cotización: esto pasa cuando paga directo desde el link público, o cuando " +
-              "tú, desde el panel, pulsas \"Aprobar cotización\" (esto es útil si el cliente te confirmó por " +
-              "teléfono o en persona, sin usar el link).",
-            "Al aceptarse, se crea automáticamente un pedido con exactamente las mismas líneas (mismos " +
-              "productos, mismas cantidades, mismos descuentos) que tenía la cotización.",
-            "Desde ese pedido se abre el checkout — el proceso de cobro. Esto genera un link de pago con " +
-              "vigencia limitada.",
+            "La cotización se acepta: el cliente da clic en \"Aceptar y pagar\" en su link, o tú das clic en " +
+              "\"Aprobar cotización\" en el panel.",
+            "Se crea un pedido con las mismas líneas, cantidades y descuentos.",
+            "Se abre el checkout (la pantalla de pago) y se genera un link de pago. Las existencias de esos " +
+              "productos quedan apartadas mientras el link esté vigente.",
           ],
         },
         {
           type: "p",
           text:
-            "El link de pago no dura para siempre. Su vigencia (\"minutos de reserva de checkout\") se " +
-            "configura en Admin → Empresa, en minutos — por ejemplo 30 minutos. Mientras ese link está " +
-            "activo, el pedido queda en estado \"checkout abierto\" (CHECKOUT_OPEN) o \"esperando pago\" " +
-            "(AWAITING_PAYMENT). Si el cliente no paga a tiempo, el link deja de servir y hay que volver a " +
-            "abrir el checkout para generar uno nuevo.",
+            "El link de pago dura lo que diga \"Vigencia del link de pago\" en Admin → Empresa, en minutos " +
+            "(por ejemplo 30). Mientras dure, el pedido está en \"Checkout abierto\" o \"Por pagar\". " +
+            "Si el cliente no paga a tiempo, el link deja de servir y el apartado de existencias se libera.",
         },
         {
-          type: "callout",
-          tone: "info",
+          type: "p",
           text:
-            "El \"checkout token\" es el código secreto que va dentro del link de pago — es lo que le da " +
-            "acceso al cliente a esa pantalla de cobro sin necesidad de una cuenta. Es como la llave de una " +
-            "puerta temporal: solo abre esa puerta, solo mientras no haya vencido, y no sirve para nada más " +
-            "en el sistema. Nunca debes compartir ese link con alguien distinto al cliente que debe pagar, " +
-            "porque quien lo tenga puede completar el pago con él.",
+            "Para mandar otra vez el link, entra al pedido. Si sigue abierto, en \"Esperando pago\" da clic " +
+            "en \"Pagar pedido\" para generar o reenviar el link. Si el pedido viene de una cotización y está " +
+            "en borrador, da clic en \"Iniciar checkout\". Aparece \"Link de pago listo\" con un botón " +
+            "\"Copiar\".",
         },
         {
           type: "callout",
           tone: "warning",
+          title: "El link de pago es personal",
           text:
-            "Si mientras el checkout está abierto tú editas la cotización original (por ejemplo cambias una " +
-            "cantidad), el pedido regresa a borrador y el link de pago que ya se había mandado deja de " +
-            "servir. Tienes que volver a abrir el checkout para generar un link nuevo con los datos " +
-            "correctos, y avisarle al cliente que use el link nuevo, no el viejo.",
+            "El link lleva un código secreto que abre esa pantalla de pago sin cuenta. Quien tenga el link " +
+            "puede pagar. Mándalo solo al cliente que debe pagar.",
         },
         { type: "h3", text: "Cobro rápido" },
         {
           type: "p",
           text:
-            "Si no necesitas pasar por catálogo (un servicio, un ajuste, algo que no tienes dado de alta), usa " +
-            "Cobro rápido: un concepto libre y un monto, y se abre el checkout directo. Trae una clave de " +
-            "idempotencia para que reintentar la misma llamada no duplique el cobro.",
-        },
-        {
-          type: "p",
-          text:
-            "Un ejemplo: en una taquería alguien pide que le cobres $250 por un servicio de banquete para una " +
-            "fiesta de cumpleaños. Ese \"servicio de banquete\" no es un producto que tengas dado de alta en " +
-            "tu catálogo, así que en vez de crear un producto solo para esa vez, usas Cobro rápido: escribes " +
-            "\"Servicio de banquete cumpleaños\" como concepto, pones $250.00 como monto, eliges el cliente " +
-            "(opcional) y listo — se abre el checkout con ese concepto y ese monto exactos.",
+            "Para cobrar algo que no está en tu catálogo, como un servicio o un ajuste. Ejemplo: una " +
+            "taquería cobra $250 por un servicio de banquete. En lugar de crear un producto solo para eso, " +
+            "usa Cobro rápido.",
         },
         {
           type: "steps",
           items: [
-            "Ve a Cobro rápido en el menú.",
-            "Elige el cliente (opcional, pero recomendado para llevar el historial).",
-            "Escribe el concepto: una descripción corta de qué es el cobro (máximo 200 caracteres).",
-            "Escribe el importe: solo números y un punto decimal, sin comas ni signos de moneda (por " +
-              "ejemplo escribe 250.00, no $250.00 ni 250,00).",
-            "Confirma. Se genera el link de pago igual que con un pedido normal.",
+            "Ve a Cobro rápido.",
+            "Elige el cliente (opcional, pero así queda en su historial).",
+            "Escribe el concepto, máximo 200 caracteres. Ejemplo: \"Servicio de banquete cumpleaños\".",
+            "Escribe el importe con punto decimal, sin comas ni signo de pesos: 250.00.",
+            "Confirma. Se genera el link de pago.",
           ],
         },
         {
           type: "callout",
           tone: "info",
           text:
-            "¿Qué es una \"clave de idempotencia\"? Es un identificador único que se manda junto con el " +
-            "cobro para evitar cobros duplicados. Imagina que tu conexión a internet se corta justo después " +
-            "de dar clic en \"Cobrar\": no sabes si el cobro ya se procesó o no, y si le das clic otra vez " +
-            "por accidente, podrías cobrarle dos veces al mismo cliente por el mismo concepto. La clave de " +
-            "idempotencia evita eso: si el sistema recibe dos veces la misma clave, sabe que es el mismo " +
-            "intento repetido y no genera un segundo cobro. En el panel esto se maneja solo, sin que tengas " +
-            "que escribir nada — se genera automáticamente cada vez que abres el formulario de Cobro rápido.",
+            "Cobro rápido evita cobros duplicados: si se te va el internet y das clic otra vez, el sistema " +
+            "reconoce que es el mismo intento y no genera un segundo cobro. Su link dura lo que diga " +
+            "\"Vigencia de cobro rápido\" en Admin → Empresa, en horas.",
+        },
+      ],
+      related: ["crear-cotizacion", "seguimiento-de-pedidos", "cancelaciones"],
+    },
+    {
+      slug: "seguimiento-de-pedidos",
+      title: "Pedidos: estados, entrega y seguimiento",
+      summary:
+        "Qué significa cada estado de un pedido, cómo marcarlo como entregado y el link de seguimiento que recibe tu cliente.",
+      audience: "owner",
+      keywords: ["pedido", "estado del pedido", "entregado", "marcar como entregado", "seguimiento", "rastreo", "línea de tiempo"],
+      body: [
+        {
+          type: "p",
+          text:
+            "En Pedidos ves todas tus ventas. Da clic en una para ver su detalle: productos vendidos, " +
+            "totales, cliente, pagos, facturación, referencias y una línea de tiempo con cada cambio.",
+        },
+        { type: "h3", text: "Estados de un pedido" },
+        {
+          type: "table",
+          headers: ["Estado", "Qué significa", "Qué puedes hacer"],
+          rows: [
+            ["Borrador", "Se creó pero no se ha abierto el cobro.", "Iniciar checkout o cancelar."],
+            ["Checkout abierto", "El link de pago existe y está vigente.", "Reenviar el link o cancelar."],
+            ["Por pagar", "El cliente abrió la pasarela; el pago está en proceso.", "Esperar; la página del cliente se actualiza sola."],
+            ["Pagado", "El dinero entró.", "Marcar como entregado o reembolsar."],
+            ["Entregado", "Pagado y entregado al cliente.", "Reembolsar si hace falta."],
+            ["Expirado", "El link de pago venció sin pago.", "Crear una cotización o cobro nuevo."],
+            ["Cancelado", "Se canceló antes de pagarse.", "Nada; no se revierte."],
+            ["Reembolsado", "Se devolvió el dinero.", "Nada."],
+          ],
+        },
+        { type: "h3", text: "Marcar como entregado" },
+        {
+          type: "steps",
+          items: [
+            "Abre un pedido en estado Pagado.",
+            "Da clic en \"Marcar como entregado\", arriba a la derecha.",
+            "El pedido pasa a Entregado y el cliente recibe un aviso.",
+          ],
+        },
+        { type: "h3", text: "Seguimiento del cliente" },
+        {
+          type: "p",
+          text:
+            "Cada pedido tiene un link público de seguimiento. El cliente lo recibe por WhatsApp o correo al " +
+            "pagar y al marcarse como entregado. Ahí ve el estado actual (\"Pago confirmado, preparando tu " +
+            "pedido\", entregado o cancelado) con tu logo y tus colores. En el detalle del pedido, la " +
+            "sección \"Seguimiento del cliente\" tiene ese link por si quieres copiarlo.",
+        },
+        { type: "h3", text: "El origen del pedido" },
+        {
+          type: "p",
+          text:
+            "Arriba del detalle ves el origen: si vino de una cotización, de un cobro rápido o de otro canal. " +
+            "Sirve para saber cómo se generó la venta.",
+        },
+      ],
+      related: ["de-cotizacion-a-pedido", "cancelaciones", "reembolsos"],
+    },
+    {
+      slug: "lo-que-ve-tu-cliente",
+      title: "Lo que ve tu cliente: cotización, pago y confirmación",
+      summary:
+        "Cómo se ven, del lado del cliente, el link de la cotización, la pantalla de pago, la sección de factura y la confirmación.",
+      audience: "owner",
+      keywords: ["link público", "cliente", "checkout", "pagar", "página de pago", "tarjeta", "spei", "efectivo", "gracias"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Tu cliente nunca entra al panel. Todo lo hace desde links públicos que se abren en su celular sin " +
+            "cuenta ni contraseña. Todas estas pantallas usan tu logo y tus colores de Admin → Marca.",
+        },
+        { type: "h3", text: "1. El link de la cotización" },
+        {
+          type: "list",
+          items: [
+            "Arriba: el nombre del cliente, el folio y el estado de la cotización.",
+            "El desglose: cada producto con cantidad y precio, y abajo subtotal, descuento, IVA, envío y " +
+              "total.",
+            "La fecha de vencimiento. Si faltan 48 horas o menos, dice \"vence pronto\".",
+            "Botones: \"Descargar PDF\", copiar el enlace y \"Aceptar y pagar\" (o \"Pagar ahora\" si ya " +
+              "hay un link de pago abierto). En celular, el botón de pago queda fijo abajo.",
+          ],
+        },
+        {
+          type: "p",
+          text:
+            "Si la cotización ya se pagó, venció o se canceló, el cliente ve un aviso y ya no puede pagar. " +
+            "Si venció, el aviso le pide que solicite una nueva.",
+        },
+        { type: "h3", text: "2. La pantalla de pago (checkout)" },
+        {
+          type: "list",
+          items: [
+            "El resumen del pedido con totales y la hora a la que vence el link.",
+            "El botón para pagar, que lleva a una pasarela segura para pagar con tarjeta, transferencia SPEI o " +
+              "efectivo.",
+            "Si el pago se rechaza, un aviso \"Pago rechazado — intenta de nuevo\".",
+            "Mientras el pago se confirma, la página se actualiza sola cada pocos segundos.",
+            "La sección \"¿Necesitas factura?\" para subir la constancia de situación fiscal.",
+          ],
+        },
+        { type: "h3", text: "3. La confirmación" },
+        {
+          type: "p",
+          text:
+            "Cuando el pago se aplica, el cliente ve \"¡Listo! Tu pago se aplicó\" con el número de pedido. " +
+            "Esa pantalla aclara que el comprobante de pago no es un CFDI (factura). Después recibe el link " +
+            "de seguimiento de su pedido.",
         },
         {
           type: "callout",
           tone: "info",
           text:
-            "Cobro rápido también tiene su propia vigencia (\"vigencia de cobro rápido\", en horas, " +
-            "configurable en Admin → Empresa) para el link de pago que genera, igual que las cotizaciones y " +
-            "el checkout normal tienen la suya.",
+            "En modo de pruebas, estas pantallas muestran \"Modo de pruebas · sin dinero real\". Así puedes " +
+            "hacer compras de práctica sin cobrar.",
+        },
+        {
+          type: "faq",
+          items: [
+            {
+              q: "El cliente dice \"Este enlace de pago ya no sirve\".",
+              a:
+                "El link venció o el pedido cambió (por ejemplo, editaste la cotización). Entra al pedido y " +
+                "genera un link nuevo con \"Pagar pedido\" o \"Iniciar checkout\".",
+            },
+            {
+              q: "El cliente dice \"Demasiados intentos seguidos\".",
+              a: "Intentó abrir el pago muchas veces en poco tiempo. Que espere un momento y vuelva a intentar.",
+            },
+            {
+              q: "El cliente pagó en efectivo en una tienda y el pedido sigue \"Por pagar\".",
+              a:
+                "Los pagos en efectivo y algunas transferencias tardan en confirmarse. El pedido cambia a " +
+                "Pagado solo cuando la pasarela confirma el pago.",
+            },
+          ],
         },
       ],
-      related: ["crear-cotizacion", "cancelaciones"],
+      related: ["crear-cotizacion", "facturacion", "marca"],
     },
     {
       slug: "cancelaciones",
@@ -274,132 +380,219 @@ export const cotizacionesPedidos: HelpCategory = {
       body: [
         { type: "h3", text: "Cancelar una cotización" },
         {
-          type: "p",
-          text: "Cancelar una cotización la deja fuera de juego: ya no se puede aceptar ni pagar desde su link.",
-        },
-        {
-          type: "p",
-          text:
-            "Por ejemplo, si un cliente te pidió una cotización para 20 metros de tela y luego te avisa que " +
-            "ya no le interesa, cancelas esa cotización desde el botón \"Cancelar\" en su detalle. El link " +
-            "que ya le habías mandado sigue abriendo (la página se puede ver), pero si intenta pagar desde " +
-            "ahí, el sistema lo rechaza porque la cotización ya está cancelada.",
-        },
-        {
-          type: "callout",
-          tone: "warning",
-          text:
-            "Cancelar una cotización no se puede deshacer. Si te equivocaste y en realidad sí seguía " +
-            "vigente, tienes que crear una cotización nueva desde cero — con los precios actuales del " +
-            "catálogo, que pueden ya no ser los mismos que tenía la cancelada.",
-        },
-        { type: "h3", text: "Cancelar un pedido" },
-        {
-          type: "p",
-          text:
-            "Cancelar un pedido depende de tu rol: por defecto solo puedes cancelar los pedidos que tú mismo " +
-            "creaste (\"cancelar propios\"); OWNER y ADMIN pueden cancelar cualquiera de la empresa " +
-            "(\"cancelar cualquiera\").",
-        },
-        {
-          type: "p",
-          text:
-            "En la práctica, esto significa que si trabajas como VENDOR (vendedor) en una boutique con " +
-            "varios empleados, solo puedes cancelar los pedidos que tú abriste con tus propios clientes — no " +
-            "puedes cancelar un pedido que abrió otro vendedor, aunque estés viéndolo en el panel. Si " +
-            "necesitas cancelar el pedido de otra persona (por ejemplo, porque esa persona ya no trabaja " +
-            "ahí, o porque tú eres quien está resolviendo el reclamo del cliente), tiene que hacerlo alguien " +
-            "con rol OWNER o ADMIN, que sí puede cancelar cualquier pedido de la empresa sin importar quién " +
-            "lo haya creado.",
-        },
-        {
-          type: "callout",
-          tone: "info",
-          text:
-            "\"Cancelar propios\" y \"cancelar cualquiera\" son dos permisos distintos dentro del sistema " +
-            "(orders.cancel_own y orders.cancel_any). Casi todos los roles con acceso a pedidos tienen al " +
-            "menos \"cancelar propios\"; solo OWNER y ADMIN traen además \"cancelar cualquiera\" de forma " +
-            "predeterminada.",
-        },
-        {
-          type: "callout",
-          tone: "warning",
-          text:
-            "Igual que con las cotizaciones, cancelar un pedido no se puede deshacer. Un pedido ya cobrado " +
-            "(pagado) no se cancela: en ese caso la herramienta correcta es un reembolso, no una " +
-            "cancelación — cancelar es para pedidos que todavía no se han pagado.",
-        },
-      ],
-      related: ["de-cotizacion-a-pedido"],
-    },
-    {
-      slug: "facturacion",
-      title: "Pedir factura de un pedido",
-      summary:
-        "Qué datos fiscales se piden, cómo se guardan en el pedido, y qué es (y qué no es) esta solicitud de factura.",
-      audience: "owner",
-      keywords: ["factura", "facturar", "cfdi", "rfc", "razón social", "uso de cfdi", "constancia de situación fiscal"],
-      body: [
-        {
-          type: "p",
-          text:
-            "Cuando un cliente necesita factura por su compra (por ejemplo, un cliente empresarial que va a " +
-            "deducir el gasto), el pedido tiene una sección para registrar sus datos fiscales. Esto NO genera " +
-            "la factura por sí solo: deja la solicitud lista, con todos los datos correctos, para que tú (o " +
-            "tu contador, o tu sistema de facturación) generes el CFDI aparte.",
-        },
-        {
-          type: "callout",
-          tone: "info",
-          text:
-            "CFDI significa \"Comprobante Fiscal Digital por Internet\" — es el nombre oficial que usa el " +
-            "SAT en México para las facturas electrónicas. Cuando este artículo dice \"factura\", se refiere " +
-            "a ese comprobante.",
-        },
-        { type: "h3", text: "Datos que se piden" },
-        {
-          type: "list",
+          type: "steps",
           items: [
-            "RFC (Registro Federal de Contribuyentes) del cliente: 13 caracteres si es persona física, 12 " +
-              "si es persona moral (una empresa).",
-            "Razón social: el nombre legal completo a nombre de quien se factura (puede ser distinto al " +
-              "nombre con el que el cliente aparece en tu lista de clientes).",
-            "Código postal fiscal: el código postal de 5 dígitos registrado ante el SAT — puede no ser el " +
-              "mismo que la dirección de envío del pedido.",
-            "Uso de CFDI: un código corto que indica para qué va a usar el cliente esa factura (por " +
-              "ejemplo G03 para \"gastos en general\", P01 para \"por definir\"). El cliente normalmente ya " +
-              "sabe cuál necesita; si no, G03 es el más común para compras generales.",
-            "Constancia de situación fiscal (opcional): un documento que el SAT le da al cliente con sus " +
-              "datos fiscales exactos. Si el cliente te la manda, puedes guardar el link a ese archivo aquí " +
-              "para no tener que copiar los datos a mano y evitar errores de dedo en el RFC.",
+            "Abre la cotización y da clic en \"Cancelar\".",
+            "Confirma en \"¿Cancelar cotización?\".",
+            "La cotización queda Cancelada. Su link sigue abriendo, pero el cliente ve \"Cotización " +
+              "cancelada\" y no puede pagar.",
           ],
         },
         {
           type: "callout",
           tone: "warning",
           text:
-            "Un error común: capturar el RFC con espacios o en minúsculas. El sistema lo guarda en " +
-            "mayúsculas automáticamente, pero si el RFC tiene un dígito equivocado, la factura que generes " +
-            "después con esos datos saldrá mal y el cliente no podrá deducirla. Si tienes duda, pide al " +
-            "cliente su constancia de situación fiscal en vez de que te dicte el RFC de memoria.",
+            "No se puede deshacer. Si te equivocaste, crea una cotización nueva (con los precios de hoy).",
+        },
+        { type: "h3", text: "Cancelar un pedido" },
+        {
+          type: "p",
+          text:
+            "Solo se cancelan pedidos que no se han pagado: en Borrador, Checkout abierto o Por " +
+            "pagar. Abre el pedido, da clic en \"Cancelar pedido\" y confirma. Se liberan las existencias " +
+            "apartadas y el link de pago deja de servir.",
         },
         {
           type: "p",
           text:
-            "La cotización o el pedido en sí no son un comprobante fiscal — esto solo deja la solicitud " +
-            "lista para que factures por tu propio sistema. Es decir: guardar estos datos en el pedido no " +
-            "sustituye la factura real, es el paso antes de generarla.",
+            "Quién puede: por defecto cada persona cancela solo los pedidos que ella creó. Propietario y " +
+            "Administrador pueden cancelar cualquier pedido de la empresa. Ejemplo: en una boutique con " +
+            "varios vendedores, un vendedor no puede cancelar el pedido de otro; tiene que pedírselo al " +
+            "dueño o al administrador.",
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          text:
+            "Un pedido pagado no se cancela: se reembolsa. Cancelar es solo para pedidos sin pagar.",
+        },
+      ],
+      related: ["de-cotizacion-a-pedido", "reembolsos"],
+    },
+    {
+      slug: "facturacion",
+      title: "Factura: basta con subir la constancia de situación fiscal",
+      summary:
+        "El cliente sube el PDF de su constancia y el sistema lee RFC, razón social, código postal y régimen. Cómo funciona en el link de pago, por WhatsApp y en el panel.",
+      audience: "owner",
+      keywords: ["factura", "facturar", "cfdi", "rfc", "razón social", "uso de cfdi", "constancia de situación fiscal", "régimen fiscal", "csf", "sat"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Cuando un cliente necesita factura, antes tenía que dictar cuatro datos (RFC, razón social, " +
+            "código postal y régimen) y era fácil equivocarse en una letra. Ahora basta con subir su " +
+            "constancia de situación fiscal: un PDF que el SAT le da a cada contribuyente. El sistema lee los " +
+            "datos de ahí.",
         },
         {
           type: "callout",
           tone: "info",
+          title: "Qué hace y qué no hace",
           text:
-            "El pedido guarda un estado de facturación (por ejemplo \"datos completos\") y la fecha en que " +
-            "se pidió la factura, además de los datos fiscales. También se guarda el último RFC y razón " +
-            "social usados en la ficha del cliente, para que la próxima vez que compre no tengas que " +
-            "volver a preguntarle todo desde cero.",
+            "Atiende ya guarda la solicitud de factura con los datos correctos en el pedido. No emite el CFDI " +
+            "(la factura oficial): eso lo haces tú, tu contador o tu sistema de facturación con estos datos.",
+        },
+        { type: "h3", text: "Qué se lee de la constancia y qué no" },
+        {
+          type: "table",
+          headers: ["Dato", "¿Viene en la constancia?"],
+          rows: [
+            ["RFC", "Sí."],
+            ["Nombre o razón social", "Sí."],
+            ["Código postal fiscal", "Sí."],
+            ["Régimen fiscal (por ejemplo 626)", "Sí."],
+            ["Uso del CFDI (por ejemplo G03)", "No. Siempre lo elige el cliente."],
+          ],
+        },
+        { type: "h3", text: "Desde el link de pago (lo más común)" },
+        {
+          type: "steps",
+          items: [
+            "El cliente abre su link de pago y toca \"¿Necesitas factura?\".",
+            "Toca \"Sube tu constancia (PDF)\" y elige el archivo. Máximo 8 MB.",
+            "Elige el \"Uso del CFDI\". Viene seleccionado G03 — Gastos en general. Otras opciones: G01 " +
+              "(adquisición de mercancías), G02 (devoluciones o descuentos), P01 (por definir) y S01 (sin " +
+              "efectos fiscales).",
+            "Toca \"Subir y facturar\".",
+            "Ve \"Listo, tus datos fiscales quedaron guardados\" con su razón social, RFC, código postal y " +
+              "régimen, para que confirme que son correctos.",
+          ],
+        },
+        {
+          type: "p",
+          text:
+            "Si el cliente no tiene la constancia a la mano, toca \"Prefiero capturarlo a mano\" y escribe " +
+            "RFC, razón social, código postal y, si quiere, la clave de régimen. El formulario revisa que el " +
+            "RFC y el código postal tengan el formato correcto.",
+        },
+        { type: "h3", text: "Por WhatsApp" },
+        {
+          type: "p",
+          text:
+            "Si el cliente le pide factura al agente, el agente le pide el uso de CFDI y le dice que suba su " +
+            "constancia en el link de pago (el agente no lee archivos mandados por WhatsApp). Si el cliente " +
+            "tiene un enlace público a su constancia, el agente puede usarlo directamente. Si no la tiene, " +
+            "el agente le pide los datos, se los lee de vuelta y solo los guarda cuando el cliente confirma. " +
+            "Si el cliente ya facturó antes, el agente le pregunta si son los mismos datos.",
+        },
+        { type: "h3", text: "Dónde lo ves en el panel" },
+        {
+          type: "p",
+          text:
+            "Abre el pedido. La sección \"Facturación (CFDI)\" muestra el estado, RFC, razón social, código " +
+            "postal fiscal, uso de CFDI, la fecha en que se pidió y un enlace \"Ver documento\" a la " +
+            "constancia. También en Conversaciones, en el panel del cliente, ves estos datos. El último RFC y " +
+            "razón social se guardan en la ficha del cliente para la próxima compra.",
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          title: "Si la constancia no se leyó completa",
+          text:
+            "El sistema nunca inventa un dato fiscal. Si no pudo leer alguno, lo deja vacío y muestra \"La " +
+            "constancia no trajo todo: …\" con lo que falta (por ejemplo \"No se pudo leer el código " +
+            "postal\"). En ese caso, captura ese dato a mano.",
+        },
+        {
+          type: "faq",
+          items: [
+            {
+              q: "¿Sirve una foto o un escaneo de la constancia?",
+              a:
+                "No. Tiene que ser el PDF que se descarga del portal del SAT, porque su texto se puede leer. " +
+                "Una foto o un escaneo es una imagen y no se puede leer. Si solo tiene foto, que capture los " +
+                "datos a mano.",
+            },
+            {
+              q: "¿Dónde consigue el cliente su constancia?",
+              a:
+                "En el portal del SAT (sat.gob.mx), en la opción para generar la constancia de situación " +
+                "fiscal, con su RFC y contraseña o e.firma. También puede pedirla en la app SAT Móvil.",
+            },
+            {
+              q: "Me aparece un aviso de que no se pudo leer el régimen.",
+              a:
+                "No impide la solicitud. Pide al cliente su clave de régimen (3 números, por ejemplo 626) o " +
+                "consúltala tú en la constancia antes de facturar.",
+            },
+            {
+              q: "El PDF pesa más de 8 MB.",
+              a:
+                "Una constancia normal pesa mucho menos. Pide al cliente que la descargue otra vez del SAT, " +
+                "sin escanearla ni imprimirla.",
+            },
+            {
+              q: "¿El pedido o la cotización sirven como factura?",
+              a:
+                "No. Son comprobantes de compra. La factura (CFDI) la emites tú con tu sistema de facturación " +
+                "usando los datos guardados.",
+            },
+          ],
         },
       ],
+      related: ["lo-que-ve-tu-cliente", "fotos-audio-y-video"],
+    },
+    {
+      slug: "preguntas-cotizaciones",
+      title: "Preguntas frecuentes: cotizaciones y pedidos",
+      summary: "Dudas comunes al cotizar, cobrar y cancelar.",
+      audience: "owner",
+      keywords: ["faq", "cotización vencida", "precio cambió", "no puedo editar", "link no funciona"],
+      body: [
+        {
+          type: "faq",
+          items: [
+            {
+              q: "Cambié un precio y la cotización del cliente sigue con el anterior.",
+              a:
+                "Es a propósito: una cotización emitida conserva sus precios. Edítala (se recalcula con el " +
+                "precio nuevo) o crea una nueva.",
+            },
+            {
+              q: "No aparece un producto en el cotizador.",
+              a: "Solo aparecen productos en estado Activo. Revisa en Catálogo que no esté en borrador o archivado.",
+            },
+            {
+              q: "No me deja poner el descuento que quiero.",
+              a:
+                "Rebasa el \"Descuento máximo del vendedor\" de Admin → Empresa. Pide al Propietario que lo " +
+                "suba o que haga la cotización.",
+            },
+            {
+              q: "El botón \"Editar\" no aparece.",
+              a:
+                "La cotización está cancelada, vencida o su pedido ya se pagó. Crea una nueva o, si ya se " +
+                "pagó, usa un reembolso.",
+            },
+            {
+              q: "¿Puedo reactivar una cotización vencida?",
+              a: "No. Crea una nueva; tomará los precios actuales del catálogo.",
+            },
+            {
+              q: "El cliente no recibió el link de la cotización.",
+              a:
+                "En el detalle, da clic en \"Compartir\", copia el link y mándaselo tú por WhatsApp o correo.",
+            },
+            {
+              q: "¿El cliente puede pagar en partes?",
+              a:
+                "No desde un mismo link. Si acordaste pagos parciales, usa Cobro rápido para cada parte.",
+            },
+          ],
+        },
+      ],
+      related: ["crear-cotizacion", "de-cotizacion-a-pedido"],
     },
   ],
 };
