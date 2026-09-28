@@ -171,7 +171,7 @@ export function TenantCostTab({ tenantId }: { tenantId: string }) {
         title="Gasto del mes"
         description="Periodo en curso. Estimado, no es la factura real del proveedor."
       >
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <StatTile size="compact"
             {...tile}
             label="Costo del mes"
@@ -203,7 +203,7 @@ export function TenantCostTab({ tenantId }: { tenantId: string }) {
         title="Acumulado"
         description="Todo el historial registrado por el agente para esta empresa."
       >
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <StatTile size="compact"
             {...tile}
             label="Costo total"

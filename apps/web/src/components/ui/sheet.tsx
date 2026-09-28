@@ -17,7 +17,7 @@ const SheetOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/70 backdrop-blur-sm",
+      "fixed inset-0 z-50 bg-black/60 backdrop-blur-sm",
       "data-[state=open]:animate-in data-[state=closed]:animate-out",
       "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
@@ -73,7 +73,7 @@ const SheetContent = React.forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          "fixed z-50 gap-4 bg-card p-6 shadow-airbnb-lg transition ease-in-out",
+          "fixed z-50 gap-4 border-hairline-strong bg-popover p-6 shadow-3 transition ease-in-out",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:duration-200 data-[state=open]:duration-300",
           sheetVariants[side],
@@ -86,9 +86,8 @@ const SheetContent = React.forwardRef<
         ) : null}
         <TitleRegistry.Provider value={register}>{children}</TitleRegistry.Provider>
         <DialogPrimitive.Close
-          // Mismo anillo que `Button`: focus-visible + ring-foreground. Antes
-          // usaba focus:ring-ring, otro anillo dentro del mismo panel.
-          className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none"
+          // Mismo anillo que `Button` (menta). Blanco táctil de 44px en móvil.
+          className="absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground ring-offset-background transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none sm:h-9 sm:w-9"
           aria-label="Cerrar"
         >
           <X aria-hidden className="h-4 w-4" />

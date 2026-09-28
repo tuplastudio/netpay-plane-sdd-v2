@@ -110,7 +110,7 @@ export default function LoginPage() {
                 <Label htmlFor="password">Contraseña</Label>
                 <Link
                   href="/recover"
-                  className="ml-auto text-sm underline-offset-4 hover:underline"
+                  className="ml-auto inline-flex min-h-11 items-center text-sm underline-offset-4 hover:underline sm:min-h-0"
                 >
                   ¿Olvidaste tu contraseña?
                 </Link>
@@ -127,7 +127,7 @@ export default function LoginPage() {
                 <p className="text-xs text-destructive">{errors.password.message}</p>
               )}
             </div>
-            <Button type="submit" className="w-full" loading={submitting}>
+            <Button type="submit" variant="accent" className="w-full" loading={submitting}>
               Entrar
             </Button>
           </div>

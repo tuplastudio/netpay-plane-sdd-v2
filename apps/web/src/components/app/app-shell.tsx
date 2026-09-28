@@ -9,7 +9,7 @@ import { api, fetchAuthMe } from "@/lib/api";
 import { Brand, EnvFooter, SidebarCollapseToggle, SidebarNav } from "./sidebar-nav";
 import { Topbar } from "./topbar";
 import { ImpersonationBanner } from "./impersonation-banner";
-import { hexToHsl, hslShift } from "@/lib/hex-to-hsl";
+import { onTenantColor } from "@/lib/hex-to-hsl";
 import { RouteGuard } from "./use-permissions";
 
 /**
@@ -72,40 +72,27 @@ function useRedirectIfSignedOut() {
     if (status === 401) router.replace("/login");
   }, [isError, error, router]);
 
-// Marca del tenant (colores de admin?tab=marca): convierte los hex que
-// llegan del backend a tripletas HSL y las monta sobre las variables de
-// diseño que ya consumen `bg-primary`, `bg-secondary`, etc. Sin esto, los
-// hex de marca solo viven en `--tenant-*` y el chrome sigue mostrando el
-// rojo por defecto de Rausch.
+// Marca del tenant (colores de admin?tab=marca). Los hex del tenant NO
+// pisan los tokens del sistema (`--primary`, `--secondary`, `--accent`…):
+// hacerlo rompía el contraste verificado de badges, sidebar y botones
+// (rojo 1.3:1, morado 2.3:1). Solo se exponen como `--tenant-*` y los
+// consumen superficies acotadas: avatar/logo de respaldo de la empresa y,
+// cuando el dato exista, el hero de la cotización pública / checkout.
   React.useEffect(() => {
     const branding = data?.branding;
     const root = document.documentElement;
-    if (!branding) return;
-    const primary = hexToHsl(branding.primaryColor);
-    const secondary = hexToHsl(branding.secondaryColor);
-    const accent = hexToHsl(branding.accentColor);
-    // Override de los tokens del sistema (ver globals.css). Los "strong"
-    // son el mismo tono un poco más saturado/oscuro para textos sobre el
-    // primario y estados hover/active.
-    if (primary) {
-      root.style.setProperty("--primary", primary);
-      root.style.setProperty("--primary-strong", primary);
-      const darker = hslShift(primary, -5);
-      const darkest = hslShift(primary, -10);
-      if (darker) root.style.setProperty("--primary-strong-hover", darker);
-      if (darkest) root.style.setProperty("--primary-strong-active", darkest);
-      // El botón "primary" usa el nivel fuerte como relleno de fondo.
-      root.style.setProperty("--primary", primary);
+    const vars = [
+      "--tenant-primary",
+      "--tenant-primary-foreground",
+      "--tenant-secondary",
+      "--tenant-accent",
+    ];
+    if (!branding) {
+      vars.forEach((v) => root.style.removeProperty(v));
+      return;
     }
-    if (secondary) {
-      root.style.setProperty("--secondary", secondary);
-    }
-    if (accent) {
-      root.style.setProperty("--accent", accent);
-    }
-    // También dejamos los originales en variables `--tenant-*` por si
-    // algún componente quiere leerlos directo (p. ej. el PDF).
     root.style.setProperty("--tenant-primary", branding.primaryColor);
+    root.style.setProperty("--tenant-primary-foreground", onTenantColor(branding.primaryColor));
     root.style.setProperty("--tenant-secondary", branding.secondaryColor);
     root.style.setProperty("--tenant-accent", branding.accentColor);
   }, [data?.branding]);

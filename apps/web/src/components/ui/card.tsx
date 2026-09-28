@@ -12,7 +12,10 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * @example <Card className="shadow-airbnb"><CardContent>…</CardContent></Card>
+ * Tarjeta plana: surface-1, hairline, radio 12px, sin sombra (elevación 0).
+ * Sombra solo si flota (menú, diálogo): `shadow-2` / `shadow-3`.
+ *
+ * @example <Card><CardContent>…</CardContent></Card>
  * @example <Card asChild><section aria-labelledby="totales">…</section></Card>
  */
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
@@ -21,7 +24,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
     return (
       <Comp
         ref={ref}
-        className={cn("rounded-card border border-hairline-soft bg-card text-card-foreground", className)}
+        className={cn("rounded-lg border border-hairline bg-card text-card-foreground", className)}
         {...props}
       />
     );
@@ -40,7 +43,7 @@ const CardTitle = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivE
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("font-display text-[1.125rem] font-medium leading-tight tracking-[-0.02em]", className)}
+      className={cn("text-lg font-semibold leading-snug", className)}
       {...props}
     />
   ),

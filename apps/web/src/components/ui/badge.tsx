@@ -11,13 +11,13 @@ import { cn } from "@/lib/utils";
  * mismos tokens que `StatusBadge`, así que no hay dos verdes en la app.
  */
 const badgeVariants = cva(
-  "inline-flex items-center rounded-sm border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+  "inline-flex items-center rounded-sm border font-semibold leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
   {
     variants: {
       // Idénticos a `statusBadgeVariants` para que un chip y una insignia de
       // estado en la misma fila queden a la misma altura.
       size: {
-        sm: "px-2 py-0 text-[11px]",
+        sm: "px-2 py-0 text-micro",
         default: "px-2.5 py-0.5 text-xs",
       },
       variant: {
@@ -35,12 +35,14 @@ const badgeVariants = cva(
         /** Relleno sólido, solo para avisos de destrucción inminente. */
         "destructive-solid": "border-transparent bg-destructive text-destructive-foreground",
         /**
-         * Acento de resalte (magenta): "nuevo", "recomendado", categoría
-         * destacada. Nunca para comunicar estado — para eso los tonos de
-         * arriba (success/warning/…). Relleno sólido, ya viene con tinta
-         * blanca legible (`--highlight-strong` es lo bastante oscuro).
+         * Coral de resalte: "nuevo", "recomendado", categoría destacada.
+         * Nunca para comunicar estado — para eso los tonos de arriba
+         * (success/warning/…). Relleno sólido con tinta ink (6.6:1 claro,
+         * 7.5:1 oscuro); nunca texto blanco encima.
          */
-        highlight: "border-transparent bg-highlight-strong text-highlight-foreground",
+        highlight: "border-transparent bg-highlight text-highlight-foreground",
+        /** Menta de marca con tinta ink (`badge-discount`): descuentos, "gratis". */
+        brand: "border-transparent bg-brand text-brand-foreground",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

@@ -106,7 +106,7 @@ export default function CustomersPage() {
       header: "Teléfono",
       cell: (c) =>
         c.phone ? (
-          <span className="text-muted-foreground">{c.phone}</span>
+          <span className="font-mono text-code-sm text-muted-foreground">{c.phone}</span>
         ) : (
           <>
             <span aria-hidden className="text-muted-foreground">

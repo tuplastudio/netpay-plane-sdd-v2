@@ -187,7 +187,7 @@ export default function QuickChargePage() {
             title="Datos del cobro"
             description="El importe incluye IVA; el impuesto se calcula hacia atrás con la tasa del comercio."
             footer={
-              <Button type="submit" className="w-full" loading={charge.isPending}>
+              <Button type="submit" variant="accent" className="w-full" loading={charge.isPending}>
                 <Zap aria-hidden className="h-4 w-4" />
                 {charge.isPending ? "Creando cobro…" : "Crear cobro y generar link"}
               </Button>
@@ -210,7 +210,7 @@ export default function QuickChargePage() {
                     </option>
                   ))}
                 </Select>
-                <p id="customer-help" className="text-xs text-muted-foreground">
+                <p id="customer-help" className="text-caption text-muted-foreground">
                   {customers.isError
                     ? "No se pudo cargar la lista de clientes: el cobro se creará a nombre de “Cliente mostrador”."
                     : "Sin cliente el cobro se registra a nombre de “Cliente mostrador”."}

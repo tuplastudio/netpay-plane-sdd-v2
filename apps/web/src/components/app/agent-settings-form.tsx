@@ -500,7 +500,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             <RotateCcw aria-hidden className="h-4 w-4" />
             Restablecer todo
           </Button>
-          <Button type="submit" disabled={!dirty || hasErrors} loading={save.isPending}>
+          <Button type="submit" variant="accent" disabled={!dirty || hasErrors} loading={save.isPending}>
             <Save aria-hidden className="h-4 w-4" />
             {save.isPending ? "Guardando…" : "Guardar cambios"}
           </Button>
@@ -1372,7 +1372,7 @@ function DefaultMeta({
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <span className="text-[11px] text-muted-foreground">
         Predeterminado:{" "}
-        <span className="break-all font-mono text-foreground/80">{defaultLabel}</span>
+        <span className="break-all font-mono text-code-sm text-foreground">{defaultLabel}</span>
       </span>
       {overridden && onReset ? (
         <button

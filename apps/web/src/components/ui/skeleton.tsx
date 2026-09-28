@@ -13,7 +13,7 @@ export const Skeleton = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HT
     <div
       ref={ref}
       aria-hidden
-      className={cn("animate-pulse rounded-md bg-muted", className)}
+      className={cn("animate-pulse rounded-md bg-secondary", className)}
       {...props}
     />
   ),
@@ -131,7 +131,7 @@ export const SkeletonTable = React.forwardRef<HTMLDivElement, SkeletonTableProps
     >
       {header ? (
         <div
-          className="grid gap-3 border-b pb-3"
+          className="grid gap-3 border-b border-hairline pb-3"
           style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         >
           {Array.from({ length: cols }, (_, c) => (

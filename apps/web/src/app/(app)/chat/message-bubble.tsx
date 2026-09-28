@@ -47,7 +47,7 @@ export function MessageBubble({
             isOutbound
               ? "rounded-br-sm bg-primary-strong text-primary-foreground"
               : "rounded-bl-sm bg-muted text-foreground",
-            message.status === "FAILED" && "opacity-60",
+            message.status === "FAILED" && "ring-1 ring-destructive",
           )}
         >
           {message.content}

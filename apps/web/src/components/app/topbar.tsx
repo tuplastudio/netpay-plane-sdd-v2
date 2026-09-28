@@ -37,7 +37,7 @@ export function Topbar() {
           <Button
             variant="ghost"
             size="icon"
-            className="lg:hidden"
+            className="shrink-0 lg:hidden"
             aria-label="Abrir navegación"
           >
             <Menu className="h-5 w-5" aria-hidden />
@@ -56,7 +56,7 @@ export function Topbar() {
                 caben y ayudan a quien está orientándose. */}
             <SidebarNav onNavigate={() => setOpen(false)} showDescriptions />
           </div>
-          <EnvFooter className="border-t" />
+          <EnvFooter className="border-t" tooltip={false} />
         </SheetContent>
       </Sheet>
 
@@ -64,10 +64,16 @@ export function Topbar() {
         <CurrentPageLabel />
       </div>
 
-      <div className="flex items-center gap-1.5 sm:gap-2">
+      {/* Clúster derecho: en teléfono solo íconos de 44px (búsqueda, tema,
+          cuenta); campo de búsqueda desde `md`, empresa y chip de entorno
+          desde `lg`. `min-w-0` + `shrink-0` en cada pieza: nada empuja el
+          ancho de la página. */}
+      <div className="flex min-w-0 shrink-0 items-center gap-1 sm:gap-2">
         <GlobalSearch />
-        <EnvBadge compact className="hidden sm:inline-flex" />
-        <TenantSwitcher />
+        <EnvBadge compact className="hidden lg:inline-flex" />
+        <div className="hidden lg:block">
+          <TenantSwitcher />
+        </div>
         <ThemeToggle />
         <UserMenu />
       </div>
@@ -108,7 +114,7 @@ function CurrentPageLabel() {
         : last;
   }
 
-  return <span className="block truncate text-sm font-medium">{label}</span>;
+  return <span className="block truncate text-body-sm-medium">{label}</span>;
 }
 
 function humanize(seg: string): string {

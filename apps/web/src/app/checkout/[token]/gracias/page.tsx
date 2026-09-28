@@ -109,7 +109,7 @@ export default function ThanksPage() {
           className="w-full max-w-md overflow-hidden rounded-card border bg-card shadow-airbnb"
         >
           <div className="space-y-4 p-8 text-center">
-            <div className="mx-auto h-12 w-12 animate-pulse rounded-full bg-success/20" />
+            <div className="mx-auto h-12 w-12 animate-pulse rounded-full bg-success-subtle" />
             <div className="mx-auto h-6 w-40 rounded bg-muted" />
             <div className="mx-auto h-4 w-56 rounded bg-muted" />
           </div>

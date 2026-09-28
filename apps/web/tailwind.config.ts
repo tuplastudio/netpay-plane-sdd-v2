@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 const config: Config = {
   darkMode: ["class"], // <html class="dark"> o "light", lo pone theme-provider antes del primer paint
@@ -11,30 +12,37 @@ const config: Config = {
     },
     extend: {
       fontFamily: {
-        sans: ["var(--font-inter)", "-apple-system", "system-ui", "sans-serif"],
-        /* Titulares (PageHeader, Section, hero de auth). Geist 500 con
-           tracking muy negativo: la jerarquía la da el tamaño + tracking, no
-           el peso. */
-        display: ["var(--font-display)", "var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["var(--font-inter)", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        /* Titulares: la misma Inter, en peso 600. `font-display` se conserva
+           como alias para no tocar los usos existentes; ya no es otra fuente. */
+        display: ["var(--font-inter)", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
+        /* Geist Mono: código, ids, SKUs, firmas. Nunca prosa. */
+        mono: ["var(--font-mono)", "SF Mono", "Menlo", "Consolas", "monospace"],
       },
-      /* Escala display: el tracking negativo es proporcional al tamaño
-         (~5% en los más grandes, ~1% en cuerpo). Si hace falta achicar,
-         se baja el TAMAÑO, no el porcentaje. */
+      /* Escala tipográfica (TOKEN-SPEC.md). Display en 600 con tracking
+         negativo suave (nunca por debajo de -0.03em) e interlínea ≥1.05.
+         Cuerpo 16/1.5, nunca comprimido. Los `clamp()` escriben primero el
+         valor móvil (<480px). */
       fontSize: {
-        "display-xxl": ["clamp(3rem, 8vw, 6.875rem)", { lineHeight: "0.85", letterSpacing: "-0.05em", fontWeight: "500" }],
-        "display-xl": ["clamp(2.5rem, 6vw, 5.3rem)", { lineHeight: "0.95", letterSpacing: "-0.05em", fontWeight: "500" }],
-        "display-lg": ["clamp(2rem, 4.5vw, 3.875rem)", { lineHeight: "1", letterSpacing: "-0.05em", fontWeight: "500" }],
-        "display-md": ["clamp(1.625rem, 3vw, 2rem)", { lineHeight: "1.13", letterSpacing: "-0.031em", fontWeight: "500" }],
-        headline: ["1.375rem", { lineHeight: "1.2", letterSpacing: "-0.036em", fontWeight: "700" }],
-        subhead: ["1.5rem", { lineHeight: "1.3", letterSpacing: "0" }],
-        "body-lg": ["1.125rem", { lineHeight: "1.3", letterSpacing: "-0.01em" }],
-        body: ["0.9375rem", { lineHeight: "1.3", letterSpacing: "-0.01em" }],
-        "body-sm": ["0.875rem", { lineHeight: "1.4", letterSpacing: "-0.01em", fontWeight: "500" }],
-        caption: ["0.8125rem", { lineHeight: "1.2", letterSpacing: "-0.01em", fontWeight: "500" }],
-        micro: ["0.75rem", { lineHeight: "1.2", letterSpacing: "-0.01em" }],
+        "display-xxl": ["clamp(2.25rem, 6vw, 4.5rem)", { lineHeight: "1.05", letterSpacing: "-0.03em", fontWeight: "600" }],
+        "display-xl": ["clamp(2rem, 5vw, 3.5rem)", { lineHeight: "1.1", letterSpacing: "-0.025em", fontWeight: "600" }],
+        "display-lg": ["clamp(1.75rem, 4vw, 3rem)", { lineHeight: "1.1", letterSpacing: "-0.02em", fontWeight: "600" }],
+        "display-md": ["clamp(1.625rem, 3vw, 2.25rem)", { lineHeight: "1.2", letterSpacing: "-0.015em", fontWeight: "600" }],
+        headline: ["1.375rem", { lineHeight: "1.3", letterSpacing: "0", fontWeight: "600" }],
+        subhead: ["1.125rem", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "400" }],
+        "body-lg": ["1.125rem", { lineHeight: "1.5", letterSpacing: "0" }],
+        body: ["1rem", { lineHeight: "1.5", letterSpacing: "0" }],
+        "body-sm": ["0.875rem", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "400" }],
+        "body-sm-medium": ["0.875rem", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "500" }],
+        caption: ["0.8125rem", { lineHeight: "1.4", letterSpacing: "0" }],
+        micro: ["0.75rem", { lineHeight: "1.4", letterSpacing: "0", fontWeight: "500" }],
+        "micro-uppercase": ["0.6875rem", { lineHeight: "1.4", letterSpacing: "0.5px", fontWeight: "600" }],
+        /* Solo tamaño: la familia la pone `font-mono`. */
+        "code-md": ["0.875rem", { lineHeight: "1.5", letterSpacing: "0" }],
+        "code-sm": ["0.8125rem", { lineHeight: "1.4", letterSpacing: "0" }],
       },
       letterSpacing: {
-        display: "-0.035em",
+        display: "-0.02em",
       },
       colors: {
         border: "hsl(var(--border))",
@@ -50,9 +58,22 @@ const config: Config = {
           soft: "hsl(var(--border-soft))",
           strong: "hsl(var(--border-strong))",
         },
-        // Acento de dos niveles. `primary` es ornamento (3.52:1: pasa 1.4.11,
-        // no 1.4.3); `primary-strong` es el nivel que puede llevar texto o ser
-        // tinta (5.20:1). Ver el bloque grande de globals.css.
+        // Marca: menta. `brand` es el relleno (con `brand-foreground` = tinta
+        // oscura), `brand-text` la menta profunda para texto/enlace/foco y
+        // `brand-soft` el tinte de fondo (éxito, confirmación).
+        brand: {
+          DEFAULT: "hsl(var(--brand))",
+          foreground: "hsl(var(--brand-foreground))",
+          text: "hsl(var(--brand-text))",
+          soft: "hsl(var(--brand-soft))",
+        },
+        // Píldora blanca sobre bandas hero (`.hero-dark`), igual en ambos modos.
+        "on-hero": {
+          DEFAULT: "hsl(var(--on-hero))",
+          foreground: "hsl(var(--on-hero-foreground))",
+        },
+        // `primary` = menta profunda: texto de enlace, foco, selección (≥4.5:1).
+        // `primary-strong` = píldora de CTA (negra en claro, blanca en oscuro).
         primary: {
           DEFAULT: "hsl(var(--primary))",
           strong: "hsl(var(--primary-strong))",
@@ -76,7 +97,7 @@ const config: Config = {
           DEFAULT: "hsl(var(--accent))",
           foreground: "hsl(var(--accent-foreground))",
         },
-        // Escala semántica de estado. Un solo acento de marca (primary);
+        // Escala semántica de estado. Un solo acento de marca (brand);
         // estos tonos solo comunican estado. Ver globals.css.
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
@@ -105,16 +126,16 @@ const config: Config = {
           foreground: "hsl(var(--neutral-foreground))",
           subtle: "hsl(var(--neutral-subtle))",
         },
-        // Acento de MAYOR intención (emitir cotización, generar pago, entrar).
-        // Nunca decoración genérica: para eso sigue mandando `primary`.
+        // Píldora dominante (negra en claro / blanca en oscuro). Misma que
+        // `primary-strong`: un solo lenguaje de CTA.
         cta: {
           DEFAULT: "hsl(var(--cta))",
           hover: "hsl(var(--cta-hover))",
           active: "hsl(var(--cta-active))",
           foreground: "hsl(var(--cta-foreground))",
         },
-        // Acento de resalte (insignias, superficies de feature). Nunca botones
-        // de acción — para eso `primary` o `cta`.
+        // Coral de resalte (insignias "nuevo", "recomendado"). Siempre con
+        // tinta oscura (`highlight-foreground`), nunca texto blanco encima.
         highlight: {
           DEFAULT: "hsl(var(--highlight))",
           strong: "hsl(var(--highlight-strong))",
@@ -129,26 +150,38 @@ const config: Config = {
           foreground: "hsl(var(--popover-foreground))",
         },
       },
-      // Escala: xs 4 · sm 6 · md 10 · lg 15 · xl 20 · 2xl/xxl 30 · pill.
+      // Escala: xs 4 (chips de código) · sm 6 (ítems de nav, insignias) ·
+      // md 8 (inputs, búsqueda, código) · lg/card 12 (tarjetas) · xl/spotlight
+      // 16 (paneles grandes, hero) · 2xl/xxl 24 (vitrinas) · pill (botones).
       borderRadius: {
         xs: "4px",
         sm: "6px",
         md: "var(--radius)",
-        lg: "15px",
-        xl: "var(--radius-card)",
-        "2xl": "var(--radius-spotlight)",
-        xxl: "var(--radius-spotlight)",
+        lg: "var(--radius-card)",
+        xl: "16px",
+        "2xl": "24px",
+        xxl: "24px",
         card: "var(--radius-card)",
         spotlight: "var(--radius-spotlight)",
         pill: "var(--radius-pill)",
       },
+      // Elevación: 0 plano (hairline) · 1 tile al hover · 2 menús/tooltips ·
+      // 3 diálogos/sheets · brand = tarjeta destacada. `airbnb*` son alias.
       boxShadow: {
+        "1": "var(--shadow-1)",
+        "2": "var(--shadow-2)",
+        "3": "var(--shadow-3)",
+        brand: "var(--shadow-brand)",
         airbnb: "var(--shadow-airbnb)",
         "airbnb-lg": "var(--shadow-airbnb-lg)",
         selected: "var(--shadow-selected)",
-        "elevation-2": "var(--shadow-airbnb)",
+        "elevation-2": "var(--shadow-2)",
       },
+      // Degradados solo para bandas hero. Los `gradient-*` viejos son alias
+      // de `hero-dark` mientras se migran los usos.
       backgroundImage: {
+        "hero-dark": "var(--gradient-hero-dark)",
+        "hero-sky": "var(--gradient-hero-sky)",
         "gradient-violet": "var(--gradient-violet)",
         "gradient-magenta": "var(--gradient-magenta)",
         "gradient-orange": "var(--gradient-orange)",
@@ -160,7 +193,14 @@ const config: Config = {
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    /* `inactive:` = deshabilitado de verdad (no `loading`, que también pone
+       `disabled` pero lleva `aria-busy` y debe conservar su color). */
+    plugin(({ addVariant }) => {
+      addVariant("inactive", '&:disabled:not([aria-busy="true"])');
+    }),
+  ],
 };
 
 export default config;

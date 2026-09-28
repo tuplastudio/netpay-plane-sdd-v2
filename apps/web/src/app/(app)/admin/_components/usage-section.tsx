@@ -79,7 +79,7 @@ export function UsageSection() {
       description="Consumo del mes en curso. El costo es estimado, no la factura de OpenRouter."
       padded={false}
     >
-      <div className="grid grid-cols-2 gap-2 p-4 sm:p-6 sm:pt-0">
+      <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 sm:p-6 sm:pt-0">
         <StatTile size="compact"
           label="Costo estimado"
           value={<Money value={usage.data?.totalCostUsd} currency="USD" />}

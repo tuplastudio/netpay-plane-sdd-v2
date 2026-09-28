@@ -109,6 +109,12 @@ export function GlobalSearch({ className }: { className?: string }) {
 
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
+  // Bajo `md` el campo no cabe en la Topbar: se muestra un botón de ícono de
+  // 44px y, al pulsarlo, la barra de búsqueda ocupa la fila completa.
+  const [mobileOpen, setMobileOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (mobileOpen) inputRef.current?.focus();
+  }, [mobileOpen]);
   const [activeIndex, setActiveIndex] = React.useState(-1);
 
   const term = useDebounced(query.trim(), DEBOUNCE_MS);
@@ -224,6 +230,7 @@ export function GlobalSearch({ className }: { className?: string }) {
   // Navegar cierra el panel (también al volver atrás).
   React.useEffect(() => {
     setOpen(false);
+    setMobileOpen(false);
   }, [pathname]);
 
   const close = React.useCallback(() => {
@@ -319,12 +326,14 @@ export function GlobalSearch({ className }: { className?: string }) {
 
       if ((event.key === "k" || event.key === "K") && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
+        setMobileOpen(true);
         inputRef.current?.focus();
         inputRef.current?.select();
         return;
       }
       if (event.key === "/" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault();
+        setMobileOpen(true);
         inputRef.current?.focus();
       }
     }
@@ -350,18 +359,37 @@ export function GlobalSearch({ className }: { className?: string }) {
   let flatIndex = -1;
 
   return (
+    <>
+    {mobileOpen ? null : (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="shrink-0 md:hidden"
+        aria-label="Buscar producto o cliente"
+        onClick={() => setMobileOpen(true)}
+      >
+        <Search aria-hidden className="h-4 w-4" />
+      </Button>
+    )}
     <div
       ref={wrapperRef}
       role="search"
       aria-label="Búsqueda global"
-      className={cn("relative", className)}
+      className={cn(
+        "relative",
+        mobileOpen
+          ? "fixed inset-x-0 top-0 z-50 flex h-14 items-center gap-1 border-b bg-background px-3 md:static md:h-auto md:border-0 md:bg-transparent md:px-0"
+          : "hidden md:block",
+        className,
+      )}
       onBlur={(event) => {
         // Los resultados no roban el foco (mousedown preventDefault), pero el
         // botón de reintentar sí es focusable: no cerrar si el foco sigue dentro.
         if (!wrapperRef.current?.contains(event.relatedTarget as Node | null)) close();
       }}
     >
-      <div className="relative">
+      <div className="relative min-w-0 flex-1">
         <Search
           aria-hidden
           className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
@@ -389,7 +417,7 @@ export function GlobalSearch({ className }: { className?: string }) {
           onKeyDown={onKeyDown}
           placeholder="Buscar producto o cliente…"
           aria-label="Buscar producto o cliente"
-          className="h-9 w-32 rounded-pill pl-8 pr-9 focus-visible:border-2 sm:w-52 md:w-64"
+          className="h-11 w-full rounded-pill pl-8 pr-9 text-base focus-visible:border-2 sm:text-sm md:h-9 md:w-52 lg:w-64"
         />
         <span id={hintId} className="sr-only">
           Busca en el catálogo y en clientes. Atajo: la tecla barra diagonal o Control K. Usa las
@@ -414,12 +442,28 @@ export function GlobalSearch({ className }: { className?: string }) {
           // decorativa; el texto equivalente va en el `aria-describedby`.
           <kbd
             aria-hidden
-            className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-md border border-hairline bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-muted-foreground sm:block"
+            className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-md border border-hairline bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground sm:block"
           >
             /
           </kbd>
         )}
       </div>
+
+      {mobileOpen ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 md:hidden"
+          aria-label="Cerrar búsqueda"
+          onClick={() => {
+            close();
+            setMobileOpen(false);
+          }}
+        >
+          <X aria-hidden className="h-4 w-4" />
+        </Button>
+      ) : null}
 
       {/* Una sola región viva para toda la búsqueda. */}
       <div role="status" aria-live="polite" className="sr-only">
@@ -427,7 +471,7 @@ export function GlobalSearch({ className }: { className?: string }) {
       </div>
 
       {open ? (
-        <div className="absolute right-0 top-full z-40 mt-2 w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-card border bg-popover text-popover-foreground shadow-airbnb-lg">
+        <div className="absolute right-3 top-full z-40 mt-2 w-[min(24rem,calc(100vw-1.5rem))] md:right-0 overflow-hidden rounded-card border bg-popover text-popover-foreground shadow-airbnb-lg">
           <div className="max-h-[min(24rem,60dvh)] overflow-y-auto py-1">
             {/* El listbox contiene solo grupos y opciones: los estados
                 (vacío, error, carga) van fuera para no meter nodos inválidos
@@ -442,7 +486,7 @@ export function GlobalSearch({ className }: { className?: string }) {
                     <p
                       id={groupLabelId}
                       role="presentation"
-                      className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                      className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-micro-uppercase uppercase text-muted-foreground"
                     >
                       <GroupIcon aria-hidden className="h-3 w-3" />
                       {group.label}
@@ -469,7 +513,7 @@ export function GlobalSearch({ className }: { className?: string }) {
                         >
                           <span className="truncate font-medium">{option.label}</span>
                           {option.meta ? (
-                            <span className="truncate font-mono text-xs text-muted-foreground">
+                            <span className="truncate font-mono text-code-sm text-muted-foreground">
                               {option.meta}
                             </span>
                           ) : null}
@@ -536,7 +580,7 @@ export function GlobalSearch({ className }: { className?: string }) {
 
           <p
             aria-hidden
-            className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-[11px] text-muted-foreground"
+            className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-micro text-muted-foreground"
           >
             <span>↑↓ moverse · ↵ abrir · esc cerrar</span>
             {truncated ? <span>Primeros {MAX_PER_GROUP} por grupo</span> : null}
@@ -544,5 +588,6 @@ export function GlobalSearch({ className }: { className?: string }) {
         </div>
       ) : null}
     </div>
+    </>
   );
 }

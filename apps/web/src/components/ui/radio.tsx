@@ -99,13 +99,12 @@ RadioGroup.displayName = "RadioGroup";
 /**
  * Clases del control en sí, compartidas por `Radio` y `RadioCard`.
  *
- * `accent-primary` usa el nivel ORNAMENTO del acento a propósito: el punto
- * del radio nativo es un objeto gráfico, no texto, así que le aplica 1.4.11
- * (3:1) y no 1.4.3. #ff3859 da 3.52:1 contra blanco — pasa, y mantiene el
- * Rausch de marca visible en el formulario.
+ * `accent-primary` = menta profunda: el punto del radio nativo es un objeto
+ * gráfico (1.4.11, ≥3:1) y da 6.5:1 en claro / 11.5:1 en oscuro. 20px en
+ * móvil, 16px desde `sm`.
  */
 const radioInputClass =
-  "h-4 w-4 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+  "h-5 w-5 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:h-4 sm:w-4";
 
 export interface RadioProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {
   /** Etiqueta visible. Si la omites, pon `aria-label`. */
@@ -128,7 +127,7 @@ export const Radio = React.forwardRef<HTMLInputElement, RadioProps>(
     return (
       <label
         className={cn(
-          "flex cursor-pointer items-center gap-2 text-sm",
+          "flex min-h-11 cursor-pointer items-center gap-2 text-sm sm:min-h-0",
           disabled && "cursor-not-allowed opacity-50",
           className,
         )}
@@ -180,14 +179,13 @@ export const RadioCard = React.forwardRef<HTMLInputElement, RadioCardProps>(
     return (
       <label
         className={cn(
-          // `border-input`, no el `border` heredado: la tarjeta ES el blanco
-          // de clic de la opción, así que su límite cae bajo 1.4.11 (3:1) y no
-          // bajo la regla de separador estructural. Ver globals.css.
-          "flex gap-2.5 rounded-md border border-hairline bg-card p-3 text-left text-sm transition-colors",
-          "focus-within:outline-none focus-within:ring-2 focus-within:ring-foreground focus-within:ring-offset-2",
+          // Tarjeta plana con hairline; la opción marcada sube el borde a la
+          // menta profunda (`primary`, ≥3:1) y tiñe el fondo con `brand-soft`.
+          "flex gap-2.5 rounded-lg border border-hairline bg-card p-3 text-left text-sm transition-colors",
+          "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
           disabled
             ? "cursor-not-allowed opacity-50"
-            : "cursor-pointer hover:bg-muted has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:hover:bg-primary/5",
+            : "cursor-pointer hover:bg-secondary has-[:checked]:border-primary has-[:checked]:bg-brand-soft has-[:checked]:hover:bg-brand-soft",
           className,
         )}
       >

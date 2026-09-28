@@ -110,7 +110,7 @@ export const StatTile = React.forwardRef<HTMLDivElement, StatTileProps>(
     const iconBox = compact ? "h-7 w-7" : "h-8 w-8";
     const valueSkeleton = compact ? "h-7 w-20" : VALUE_SKELETON;
     const labelNode = (
-      <p className={cn("text-muted-foreground", compact ? "text-[11px] leading-4" : "text-xs")}>
+      <p className={cn("text-muted-foreground", compact ? "text-micro" : "text-caption")}>
         {label}
       </p>
     );
@@ -137,7 +137,7 @@ export const StatTile = React.forwardRef<HTMLDivElement, StatTileProps>(
             <span
               aria-hidden
               className={cn(
-                "flex shrink-0 items-center justify-center rounded-lg bg-destructive-subtle text-destructive-subtle-foreground",
+                "flex shrink-0 items-center justify-center rounded-md bg-destructive-subtle text-destructive-subtle-foreground",
                 iconBox,
               )}
             >
@@ -166,7 +166,7 @@ export const StatTile = React.forwardRef<HTMLDivElement, StatTileProps>(
               <Skeleton className={valueSkeleton} />
               {hint && !compact ? <Skeleton className="h-4 w-20" /> : null}
             </div>
-            {icon ? <Skeleton className={cn("rounded-lg", iconBox)} /> : null}
+            {icon ? <Skeleton className={cn("rounded-md", iconBox)} /> : null}
           </div>
         </Card>
       );
@@ -194,13 +194,13 @@ export const StatTile = React.forwardRef<HTMLDivElement, StatTileProps>(
             >
               {value}
             </p>
-            {hint && !compact ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+            {hint && !compact ? <p className="text-caption text-muted-foreground">{hint}</p> : null}
           </div>
           {icon ? (
             <span
               aria-hidden
               className={cn(
-                "flex shrink-0 items-center justify-center rounded-lg",
+                "flex shrink-0 items-center justify-center rounded-md",
                 iconBox,
                 ICON_TONE[tone],
               )}

@@ -659,7 +659,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
         <Button type="button" variant="ghost" size="sm" onClick={onCloseOrCancel(onDone)}>
           Cancelar
         </Button>
-        <Button type="submit" size="sm" loading={create.isPending} disabled={cart.length === 0}>
+        <Button type="submit" variant="accent" size="sm" loading={create.isPending} disabled={cart.length === 0}>
           {create.isPending ? "Creando…" : "Crear cotización"}
         </Button>
       </div>

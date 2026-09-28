@@ -41,7 +41,7 @@ async function copyValue(value: string, toastLabel: string): Promise<boolean> {
 /**
  * Identificador truncado en monoespaciada, con el valor completo en `title` y
  * un botón de copiar. Sustituye al patrón repetido
- * `<span className="font-mono text-xs">{id.slice(0, 8)}…</span>`.
+ * `<span className="font-mono text-code-sm">{id.slice(0, 8)}…</span>`.
  *
  * El valor completo también va en un `sr-only`: un lector de pantalla anuncia
  * el id entero, no "abc123 puntos suspensivos".
@@ -87,7 +87,7 @@ export const EntityId = React.forwardRef<HTMLSpanElement, EntityIdProps>(
 
     return (
       <span ref={ref} className={cn("inline-flex items-center gap-1", className)} {...props}>
-        <span title={value} className="font-mono text-xs">
+        <span title={value} className="font-mono text-code-sm">
           <span aria-hidden>{truncated}</span>
           <span className="sr-only">{value}</span>
         </span>
@@ -96,7 +96,7 @@ export const EntityId = React.forwardRef<HTMLSpanElement, EntityIdProps>(
             type="button"
             onClick={onCopy}
             aria-label={copyLabel}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+            className="-my-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground sm:my-0 sm:h-6 sm:w-6 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           >
             {copied ? (
               <Check aria-hidden className="h-3.5 w-3.5 text-success" />

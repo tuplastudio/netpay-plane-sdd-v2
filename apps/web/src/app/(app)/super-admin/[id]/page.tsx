@@ -159,7 +159,7 @@ export default function TenantDetailPage({ params }: { params: Promise<{ id: str
 
           <TabsContent value="summary" className="space-y-6">
             <Section title="Resumen" description={`Mes en curso · ${currentMonthLabel()}`}>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 <StatTile size="compact"
                   {...tile}
                   label="Usuarios activos"

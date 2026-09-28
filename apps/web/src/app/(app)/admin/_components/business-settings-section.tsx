@@ -116,7 +116,7 @@ function NumberField({ id, label, hint, suffix, step, error, register, disabled 
       {hint || error ? (
         <p
           id={`${id}-hint`}
-          className={error ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
+          className={error ? "text-caption text-destructive" : "text-caption text-muted-foreground"}
         >
           {error ?? hint}
         </p>
@@ -276,17 +276,22 @@ export function BusinessSettingsSection() {
 
             <fieldset className="space-y-4" disabled={saving}>
               <legend className="text-sm font-medium">Recordatorios de pago</legend>
-              <div className="flex items-start gap-2">
+              {/* Área táctil ≥44px: la etiqueta lleva el padding y también
+                  conmuta la casilla. */}
+              <div className="flex items-start gap-3">
                 <Checkbox
                   id="quoteReminderEnabled"
-                  className="mt-0.5"
+                  className="mt-3"
                   {...register("quoteReminderEnabled")}
                 />
-                <div>
-                  <Label htmlFor="quoteReminderEnabled">
+                <div className="min-w-0">
+                  <Label
+                    htmlFor="quoteReminderEnabled"
+                    className="block min-h-11 cursor-pointer py-2.5 leading-6"
+                  >
                     Recordar al cliente una cotización sin pagar
                   </Label>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-caption text-muted-foreground">
                     Se manda por el mismo canal del cliente, respetando su baja, el horario
                     09-19 local y la ventana de 24 h de WhatsApp.
                   </p>

@@ -134,47 +134,47 @@ interface ActionMeta {
  */
 function describeAction(action: string): ActionMeta {
   if (action === "tenant.created")
-    return { label: "Empresa creada", icon: Building2, tone: "bg-success/15 text-success-foreground" };
+    return { label: "Empresa creada", icon: Building2, tone: "bg-success-subtle text-success-foreground" };
   if (action === "tenant.archived")
-    return { label: "Empresa archivada", icon: Archive, tone: "bg-warning/15 text-warning-foreground" };
+    return { label: "Empresa archivada", icon: Archive, tone: "bg-warning-subtle text-warning-foreground" };
   if (action === "tenant.unarchived")
-    return { label: "Empresa restaurada", icon: ArchiveRestore, tone: "bg-success/15 text-success-foreground" };
+    return { label: "Empresa restaurada", icon: ArchiveRestore, tone: "bg-success-subtle text-success-foreground" };
   if (action === "tenant.renamed")
-    return { label: "Empresa renombrada", icon: Settings2, tone: "bg-info/15 text-info-foreground" };
+    return { label: "Empresa renombrada", icon: Settings2, tone: "bg-info-subtle text-info-foreground" };
   if (action === "user.invited" || action === "user_invitation_sent" || action === "user.invitation_sent")
-    return { label: "Invitación enviada", icon: MailOpen, tone: "bg-info/15 text-info-foreground" };
+    return { label: "Invitación enviada", icon: MailOpen, tone: "bg-info-subtle text-info-foreground" };
   if (action === "user.role_changed" || action === "user_role_changed")
-    return { label: "Rol de usuario cambiado", icon: UserCheck, tone: "bg-info/15 text-info-foreground" };
+    return { label: "Rol de usuario cambiado", icon: UserCheck, tone: "bg-info-subtle text-info-foreground" };
   if (action === "user.created" || action === "user_created")
-    return { label: "Usuario creado", icon: UserPlus, tone: "bg-success/15 text-success-foreground" };
+    return { label: "Usuario creado", icon: UserPlus, tone: "bg-success-subtle text-success-foreground" };
   if (action === "user.disabled" || action === "user_disabled")
-    return { label: "Usuario desactivado", icon: Users, tone: "bg-warning/15 text-warning-foreground" };
+    return { label: "Usuario desactivado", icon: Users, tone: "bg-warning-subtle text-warning-foreground" };
   if (action === "user.totp_enabled" || action === "user_totp_enabled")
-    return { label: "MFA activado", icon: ShieldCheck, tone: "bg-success/15 text-success-foreground" };
+    return { label: "MFA activado", icon: ShieldCheck, tone: "bg-success-subtle text-success-foreground" };
   if (action === "user.totp_disabled" || action === "user_totp_disabled")
-    return { label: "MFA desactivado", icon: ShieldCheck, tone: "bg-warning/15 text-warning-foreground" };
+    return { label: "MFA desactivado", icon: ShieldCheck, tone: "bg-warning-subtle text-warning-foreground" };
   if (action === "password_reset_requested" || action === "auth.password_reset_requested")
-    return { label: "Restablecimiento de contraseña solicitado", icon: MailOpen, tone: "bg-info/15 text-info-foreground" };
+    return { label: "Restablecimiento de contraseña solicitado", icon: MailOpen, tone: "bg-info-subtle text-info-foreground" };
   if (action === "whatsapp_conversation_returned" || action === "conversation.returned" || action === "whatsapp.conversation_returned")
     return { label: "Conversación devuelta al agente", icon: Activity, tone: "bg-muted text-muted-foreground" };
   if (action === "whatsapp_conversation_handoff" || action === "whatsapp.conversation_handoff")
-    return { label: "Conversación transferida a una persona", icon: UserCheck, tone: "bg-info/15 text-info-foreground" };
+    return { label: "Conversación transferida a una persona", icon: UserCheck, tone: "bg-info-subtle text-info-foreground" };
   if (action === "whatsapp_conversation_assigned" || action === "whatsapp.conversation_assigned")
-    return { label: "Conversación tomada por un asesor", icon: UserCheck, tone: "bg-info/15 text-info-foreground" };
+    return { label: "Conversación tomada por un asesor", icon: UserCheck, tone: "bg-info-subtle text-info-foreground" };
   if (action.startsWith("order."))
-    return { label: humanize(action), icon: Activity, tone: "bg-success/15 text-success-foreground" };
+    return { label: humanize(action), icon: Activity, tone: "bg-success-subtle text-success-foreground" };
   if (action.startsWith("payment."))
-    return { label: humanize(action), icon: Activity, tone: "bg-success/15 text-success-foreground" };
+    return { label: humanize(action), icon: Activity, tone: "bg-success-subtle text-success-foreground" };
   if (action.startsWith("whatsapp."))
     return { label: humanize(action), icon: Activity, tone: "bg-muted text-muted-foreground" };
   if (action === "superadmin.impersonation_started" || action === "impersonation_started")
-    return { label: "Impersonación iniciada", icon: ShieldCheck, tone: "bg-warning/15 text-warning-foreground" };
+    return { label: "Impersonación iniciada", icon: ShieldCheck, tone: "bg-warning-subtle text-warning-foreground" };
   if (action === "superadmin.impersonation_ended" || action === "impersonation_ended")
     return { label: "Impersonación terminada", icon: ShieldCheck, tone: "bg-muted text-muted-foreground" };
   if (action.startsWith("apikey."))
     return { label: "API key actualizada", icon: KeyRound, tone: "bg-muted text-muted-foreground" };
   if (action.includes("deleted") || action.includes("removed"))
-    return { label: humanize(action), icon: Trash2, tone: "bg-destructive/15 text-destructive-foreground" };
+    return { label: humanize(action), icon: Trash2, tone: "bg-destructive-subtle text-destructive-subtle-foreground" };
   return { label: humanize(action), icon: Activity, tone: "bg-muted text-muted-foreground" };
 }
 

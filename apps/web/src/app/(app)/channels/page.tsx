@@ -47,7 +47,7 @@ export default function ChannelsPage() {
                 Ver conversaciones
               </Link>
             </Button>
-            <Button onClick={() => setChooserOpen(true)}>
+            <Button variant="accent" onClick={() => setChooserOpen(true)}>
               <Plug aria-hidden className="h-4 w-4" />
               Conectar canal
             </Button>

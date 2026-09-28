@@ -68,13 +68,13 @@ export function ImpersonationBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="border-b border-warning/30 bg-warning-subtle text-warning-foreground"
+      className="border-b border-warning bg-warning-subtle text-warning-foreground"
     >
       <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-3 px-4 py-2 sm:px-6 lg:px-8">
         <ShieldOff aria-hidden className="h-4 w-4 shrink-0" />
         <p className="min-w-0 flex-1 text-sm">
           Estás operando como <span className="font-semibold">{target.name}</span>
-          <span className="ml-1 hidden font-mono text-xs uppercase opacity-80 sm:inline">
+          <span className="ml-1 hidden font-mono text-code-sm uppercase sm:inline">
             ({target.slug})
           </span>
           . Todo lo que hagas aplica a esta empresa.
@@ -84,7 +84,6 @@ export function ImpersonationBanner() {
           size="sm"
           loading={stop.isPending}
           onClick={() => stop.mutate()}
-          className="border-warning/40 hover:bg-warning/15"
         >
           <LogOut aria-hidden className="h-3.5 w-3.5" />
           Salir del modo empresa

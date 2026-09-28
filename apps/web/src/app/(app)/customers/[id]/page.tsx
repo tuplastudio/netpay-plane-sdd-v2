@@ -318,7 +318,7 @@ export default function CustomerDetailPage() {
               <DescriptionList divided>
                 <FieldRow label="Nombre">{c.fullName}</FieldRow>
                 <FieldRow label="Correo">{c.email}</FieldRow>
-                <FieldRow label="Teléfono">{c.phone}</FieldRow>
+                <FieldRow label="Teléfono" mono>{c.phone}</FieldRow>
                 <FieldRow label="RFC" mono>
                   {c.taxId}
                 </FieldRow>

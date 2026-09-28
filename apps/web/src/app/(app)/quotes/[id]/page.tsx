@@ -21,6 +21,7 @@ import {
 import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { Money } from "@/components/app/money";
+import { EntityId } from "@/components/app/entity-id";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -254,12 +255,12 @@ export default function QuoteDetailPage() {
               </Button>
             )}
             {canWrite && quote.status === "DRAFT" && (
-              <Button loading={issue.isPending} onClick={() => issue.mutate()}>
+              <Button variant="accent" loading={issue.isPending} onClick={() => issue.mutate()}>
                 Emitir
               </Button>
             )}
             {canApprove && quote.status === "ISSUED" && (
-              <Button loading={approve.isPending} onClick={() => setApproveConfirmOpen(true)}>
+              <Button variant="accent" loading={approve.isPending} onClick={() => setApproveConfirmOpen(true)}>
                 Aprobar cotización
               </Button>
             )}
@@ -488,19 +489,13 @@ export default function QuoteDetailPage() {
                 <FieldRow label="Nombre">{quote.customer.fullName}</FieldRow>
                 <FieldRow label="Correo">{quote.customer.email}</FieldRow>
                 <FieldRow label="Notas">{quote.notes}</FieldRow>
-                <FieldRow label="ID de cotización" mono>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="break-all">{quote.id}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Copiar ID de la cotización"
-                      className="h-7 w-7"
-                      onClick={() => void copyToClipboard(quote.id, "ID de la cotización")}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  </span>
+                <FieldRow label="ID de cotización">
+                  <EntityId
+                    value={quote.id}
+                    length={12}
+                    copyLabel="Copiar ID de la cotización"
+                    toastLabel="ID de la cotización"
+                  />
                 </FieldRow>
               </DescriptionList>
             </Section>

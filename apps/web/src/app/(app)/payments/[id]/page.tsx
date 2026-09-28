@@ -252,7 +252,7 @@ export default function PaymentDetailPage() {
           del resumen del listado no hay doble resta: el minuendo es el monto
           bruto de la sesión, no un subconjunto filtrado por estado.
         */}
-        <section aria-label="Resumen del pago" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <section aria-label="Resumen del pago" className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <StatTile size="compact" label="Monto" value={<Money value={s.amount} currency={s.currency} />} />
           <StatTile size="compact"
             label="Reembolsado"

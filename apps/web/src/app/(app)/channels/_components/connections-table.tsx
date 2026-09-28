@@ -153,7 +153,7 @@ export function ConnectionsTable({
             description:
               "Conecta un número de WhatsApp (Meta o Evolution) para que el agente pueda recibir y responder mensajes.",
             action: (
-              <Button onClick={onConnect}>
+              <Button variant="outline" onClick={onConnect}>
                 <Plug aria-hidden className="h-4 w-4" />
                 Conectar canal
               </Button>

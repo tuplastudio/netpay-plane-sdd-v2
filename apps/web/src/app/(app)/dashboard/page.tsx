@@ -33,6 +33,7 @@ import { DateTime } from "@/components/app/date-time";
 import { useDashboardData } from "../_dashboard/use-dashboard-data";
 import { usePermissions } from "@/components/app/use-permissions";
 import { AGENT_MANAGE, accessForPath, type Scope } from "@/lib/permissions";
+import { ON_HERO_MUTED } from "@/lib/hero";
 
 /**
  * Panorama operativo del portal.
@@ -84,25 +85,25 @@ export default function HomePage() {
       />
 
       <div className="space-y-6">
-        {/* Tarjeta spotlight: la cifra del mes y la acción principal. Es la
-            única tarjeta con degradado de la pantalla. */}
-        <section aria-labelledby="mes-titulo" className="spotlight spotlight-violet p-6 sm:p-[30px]">
+        {/* Banda hero-dark: la cifra del mes y la acción principal. Es la
+            única superficie con degradado de la pantalla. */}
+        <section aria-labelledby="mes-titulo" className="hero-dark p-6 sm:p-8">
           <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0 space-y-2">
-              <p id="mes-titulo" className="text-caption text-white/80">
+              <p id="mes-titulo" className={cn("text-caption", ON_HERO_MUTED)}>
                 Ventas cobradas este mes
               </p>
-              <p className="font-display text-display-lg tabular-nums text-white">
+              <p className="font-display text-display-lg tabular-nums">
                 {loading ? "…" : formatMoney(unified.data?.kpis.revenue.mtd)}
               </p>
-              <p className="text-body text-white/80">
+              <p className={cn("text-body", ON_HERO_MUTED)}>
                 {unified.data
                   ? `${unified.data.kpis.orders.mtd} pedidos en el mes · ${formatMoney(unified.data.kpis.revenue.today)} hoy`
                   : "Cargando cifras del mes…"}
               </p>
             </div>
             {perms.canAccess(accessForPath("/chat")) ? (
-              <Button asChild variant="translucent" className="self-start sm:self-auto">
+              <Button asChild variant="accent" className="self-start sm:self-auto">
                 <Link href="/chat">
                   <MessageSquare className="h-4 w-4" />
                   Probar el agente
@@ -114,7 +115,7 @@ export default function HomePage() {
         </section>
 
         {/* Fila 1: KPIs financieros clásicos. */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <StatTile size="compact"
             {...tile}
             label="Cobrado (neto)"
@@ -189,7 +190,7 @@ export default function HomePage() {
         </div>
 
         {/* Fila 2: KPIs del día/mes (operativos). */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile size="compact"
             {...tile}
             label="Ventas cobradas hoy"
@@ -415,7 +416,7 @@ function SalesTrendMini({
                 <div
                   className={cn(
                     "w-full rounded-t-md",
-                    revenue > 0 ? "bg-primary/20" : "bg-muted",
+                    revenue > 0 ? "bg-primary" : "bg-muted",
                     isPeak && "bg-primary",
                   )}
                   style={{ height: `${heightPx}px` }}
@@ -443,7 +444,7 @@ function SalesTrendMini({
           Pico del periodo
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-sm bg-primary/20" aria-hidden />
+          <span className="inline-block h-2 w-2 rounded-sm bg-primary" aria-hidden />
           Día con venta
         </span>
         <span className="inline-flex items-center gap-1">

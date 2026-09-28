@@ -1,16 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Inter } from "next/font/google";
+import { Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { themeScript } from "@/components/theme-provider";
 import { PwaRegister } from "@/components/app/pwa-register";
 
+/** Inter: cuerpo, UI y titulares (peso 600). `font-display` es alias de esta misma fuente. */
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
-/** Titulares (`font-display`): Geist 500 con tracking negativo proporcional al tamaño. */
-const geist = Geist({
+/** Geist Mono (`font-mono`): código, ids, SKUs, firmas. Nunca prosa. */
+const geistMono = Geist_Mono({
   subsets: ["latin"],
-  weight: ["500"],
-  variable: "--font-display",
+  weight: ["400", "500"],
+  variable: "--font-mono",
   display: "swap",
 });
 
@@ -41,7 +42,7 @@ export const viewport: Viewport = {
   // componentes con `env(safe-area-inset-*)` donde haga falta.
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#090909" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0e0d" },
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
   ],
 };
@@ -54,7 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       // documentElement.className y .style.colorScheme ANTES del primer
       // render. React no debería quejarse por esa mutación de pre-hidratación.
       suppressHydrationWarning
-      className={`${inter.variable} ${geist.variable}`}
+      className={`${inter.variable} ${geistMono.variable}`}
     >
       <head>
         {/* Anti-flash: aplica la clase light/dark a <html> antes del primer

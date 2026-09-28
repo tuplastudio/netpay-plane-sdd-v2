@@ -62,14 +62,14 @@ export function ConversationsFilters({
   ].filter(Boolean).length;
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
-      <div className="w-32 shrink-0">
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <div className="min-w-0 flex-1 sm:w-32 sm:flex-none">
         <Select
           id="conversations-status"
           aria-label="Estado de la conversación"
           value={filters.status}
           onChange={(e) => onChange({ status: e.target.value as ConversationStatus | "" })}
-          className="h-8 text-xs"
+          className="h-11 text-base sm:h-9 sm:text-sm"
         >
           <option value="">Todos</option>
           {STATUS_OPTIONS.map((s) => (
@@ -84,7 +84,7 @@ export function ConversationsFilters({
         type="button"
         variant={open || moreFilteredCount > 0 ? "secondary" : "outline"}
         size="sm"
-        className="h-8 px-2 text-xs"
+        className="h-11 px-3 sm:h-9 sm:px-2"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls="conversations-more-filters"
@@ -92,7 +92,7 @@ export function ConversationsFilters({
         <SlidersHorizontal aria-hidden className="h-3.5 w-3.5" />
         Más filtros
         {moreFilteredCount > 0 ? (
-          <span className="ml-1 rounded-pill bg-primary-strong px-1.5 text-[10px] font-semibold text-primary-foreground">
+          <span className="ml-1 rounded-pill bg-primary-strong px-1.5 text-micro font-semibold text-primary-foreground">
             {moreFilteredCount}
           </span>
         ) : null}
@@ -107,7 +107,8 @@ export function ConversationsFilters({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-8 px-2 text-xs"
+          className="h-11 w-11 px-0 sm:h-9 sm:w-9"
+          aria-label="Quitar filtros"
           onClick={() => {
             /* mantenido por contrato: la toolbar ya pinta el botón principal,
                este queda accesible si la pantalla se monta sin él. */
@@ -131,7 +132,7 @@ export function ConversationsFilters({
               id="conversations-handoff"
               value={filters.handoff}
               onChange={(e) => onChange({ handoff: e.target.value as HandoffFilter })}
-              className="h-8 text-xs"
+              className="h-11 text-base sm:h-9 sm:text-sm"
             >
               {HANDOFF_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -148,7 +149,7 @@ export function ConversationsFilters({
               id="conversations-provider"
               value={filters.provider}
               onChange={(e) => onChange({ provider: e.target.value })}
-              className="h-8 text-xs"
+              className="h-11 text-base sm:h-9 sm:text-sm"
             >
               <option value="">Todos</option>
               {PROVIDER_OPTIONS.map((p) => (
@@ -166,7 +167,7 @@ export function ConversationsFilters({
               id="conversations-range"
               value={filters.range}
               onChange={(e) => onChange({ range: e.target.value as RangeFilter })}
-              className="h-8 text-xs"
+              className="h-11 text-base sm:h-9 sm:text-sm"
             >
               {(Object.keys(RANGE_LABELS) as RangeFilter[]).map((r) => (
                 <option key={r} value={r}>
@@ -183,7 +184,7 @@ export function ConversationsFilters({
               id="conversations-tag"
               value={filters.tag}
               onChange={(e) => onChange({ tag: e.target.value })}
-              className="h-8 text-xs"
+              className="h-11 text-base sm:h-9 sm:text-sm"
             >
               <option value="">Todas</option>
             </Select>

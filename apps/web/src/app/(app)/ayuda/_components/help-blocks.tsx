@@ -13,7 +13,7 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
         switch (block.type) {
           case "p":
             return (
-              <p key={i} className="text-[15px] leading-[1.6] text-foreground/90">
+              <p key={i} className="text-body text-foreground">
                 {block.text}
               </p>
             );
@@ -21,14 +21,14 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
             return (
               <h3
                 key={i}
-                className="pt-3 font-display text-[1.25rem] font-medium leading-tight tracking-[-0.03em] text-foreground"
+                className="pt-3 font-display text-headline text-foreground"
               >
                 {block.text}
               </h3>
             );
           case "list":
             return (
-              <ul key={i} className="list-disc space-y-2 pl-5 text-[15px] leading-[1.55] text-foreground/90 marker:text-muted-foreground">
+              <ul key={i} className="list-disc space-y-2 pl-5 text-body text-foreground marker:text-muted-foreground">
                 {block.items.map((item, j) => (
                   <li key={j}>{item}</li>
                 ))}
@@ -38,10 +38,10 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
             return (
               <ol key={i} className="space-y-2.5">
                 {block.items.map((item, j) => (
-                  <li key={j} className="flex gap-3 text-[15px] leading-[1.55] text-foreground/90">
+                  <li key={j} className="flex gap-3 text-body text-foreground">
                     <span
                       aria-hidden
-                      className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium tabular-nums text-foreground"
+                      className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-secondary text-micro tabular-nums text-foreground"
                     >
                       {j + 1}
                     </span>
@@ -65,15 +65,15 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
           }
           case "code":
             return (
-              <pre key={i} className="overflow-x-auto rounded-[10px] border bg-muted p-3 text-xs">
+              <pre key={i} className="overflow-x-auto rounded-md border bg-muted p-3 font-mono text-code-sm text-foreground">
                 <code>{block.text}</code>
               </pre>
             );
           case "table":
             return (
-              <div key={i} className="overflow-x-auto rounded-[15px] border">
+              <div key={i} className="overflow-x-auto rounded-lg border">
                 <table className="w-full text-left text-sm">
-                  <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                  <thead className="bg-muted text-micro-uppercase uppercase text-muted-foreground">
                     <tr>
                       {block.headers.map((h, j) => (
                         <th key={j} scope="col" className="px-3 py-2.5 font-medium">
@@ -91,7 +91,7 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
                             className={
                               k === 0
                                 ? "px-3 py-2.5 align-top font-medium text-foreground"
-                                : "px-3 py-2.5 align-top text-foreground/90"
+                                : "px-3 py-2.5 align-top text-foreground"
                             }
                           >
                             {cell}
@@ -105,28 +105,28 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
             );
           case "faq":
             return (
-              <div key={i} className="divide-y overflow-hidden rounded-[15px] border">
+              <div key={i} className="divide-y overflow-hidden rounded-lg border">
                 {block.items.map((item, j) => (
                   <details key={j} className="group bg-card">
-                    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 px-4 py-3.5 text-[15px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                    <summary className="flex cursor-pointer list-none items-start justify-between gap-3 px-4 py-3.5 text-body font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                       <span>{item.q}</span>
                       <ChevronDown
                         aria-hidden
                         className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
                       />
                     </summary>
-                    <p className="px-4 pb-4 text-[15px] leading-[1.6] text-foreground/90">{item.a}</p>
+                    <p className="px-4 pb-4 text-body text-foreground">{item.a}</p>
                   </details>
                 ))}
               </div>
             );
           case "glossary":
             return (
-              <dl key={i} className="divide-y overflow-hidden rounded-[15px] border">
+              <dl key={i} className="divide-y overflow-hidden rounded-lg border">
                 {block.items.map((item, j) => (
                   <div key={j} className="grid gap-1 bg-card px-4 py-3.5 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
-                    <dt className="text-[15px] font-medium text-foreground">{item.term}</dt>
-                    <dd className="text-[15px] leading-[1.55] text-foreground/90">{item.definition}</dd>
+                    <dt className="text-body font-medium text-foreground">{item.term}</dt>
+                    <dd className="text-body text-foreground">{item.definition}</dd>
                   </div>
                 ))}
               </dl>

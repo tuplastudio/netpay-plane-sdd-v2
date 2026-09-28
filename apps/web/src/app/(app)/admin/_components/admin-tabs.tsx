@@ -83,8 +83,8 @@ export function AdminTabs() {
   );
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start">
-      <nav aria-label="Secciones de administración" className="lg:sticky lg:top-6">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start">
+      <nav aria-label="Secciones de administración" className="min-w-0 lg:sticky lg:top-6">
         {/* Riel horizontal hasta `lg`: seis secciones no caben verticalmente
             sin empujar el contenido fuera de la primera pantalla en tablet.
             De `lg` en adelante es la barra lateral vertical. */}
@@ -99,7 +99,7 @@ export function AdminTabs() {
                     aria-current={isActive ? "page" : undefined}
                     onClick={() => setSection(value)}
                     className={cn(
-                      "flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm font-medium transition-colors",
+                      "flex min-h-11 w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-left text-body-sm-medium transition-colors lg:min-h-10",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       isActive
                         ? "bg-primary-subtle text-primary-strong"

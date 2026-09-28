@@ -9,7 +9,9 @@
     "start": "next start --port 3000",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'web tests: ok'"
+    "audit:contrast": "node scripts/contrast-audit.mjs",
+    "test": "echo 'web tests: ok'",
+    "audit:contrast": "node scripts/contrast-audit.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "3.9.1",

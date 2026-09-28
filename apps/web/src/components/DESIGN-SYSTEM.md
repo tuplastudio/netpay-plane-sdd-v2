@@ -3,35 +3,45 @@
 Referencia de la capa de primitivas. Todo lo de aquí ya existe y compila: no
 reimplementes nada, no copies clases de una pantalla a otra.
 
-- Identidad: sistema **"póster" oscuro**. Lienzo casi negro, titulares grandes
-  en blanco con tracking muy negativo, CTA en píldora blanca, tarjetas carbón,
-  un solo color de señal (azul) y una familia pequeña de tarjetas con
-  degradado que se usan con cuentagotas.
-- **Oscuro por defecto, con modo claro.** `ThemeProvider`
+- Identidad: **Mintlify-like**. Neutros fríos (gris-verde, nunca gris puro),
+  **menta como único acento**, CTA en **píldora negra (claro) / blanca
+  (oscuro)**, tarjetas planas con hairline, **Inter** para todo el texto y
+  **Geist Mono** para código/ids. **Claro y oscuro de primera clase**: los dos
+  modos cumplen WCAG 2.2 AA y se prueban en cada cambio
+  (`node scripts/contrast-audit.mjs`).
+- **Oscuro por defecto, claro al mismo nivel.** `ThemeProvider`
   (`components/theme-provider.tsx`) pone `dark` o `light` en `<html>` antes del
   primer paint (clave `easysell-theme`: sistema / claro / oscuro) y el selector
-  vive en la barra superior (`ThemeToggle`). Ver "Modo claro" en §1.
+  vive en la barra superior (`ThemeToggle`).
 - Fuente del tema: `src/app/globals.css` (variables CSS) + `tailwind.config.ts`.
+  Referencia visual: `apps/web/DESIGN.md`; valores: `apps/web/TOKEN-SPEC.md`.
 - Idioma de UI: **es-MX**. Todo texto visible en español.
+- **Mobile first**: 16px de cuerpo, 44px de tacto en móvil (40 desde `sm`),
+  canal lateral 16px, sin scroll horizontal. Se escribe primero el valor
+  móvil y luego `sm:` / `md:` / `lg:`.
 - Si te falta una prop, **pídela**; no hagas un fork del componente en tu pantalla.
 
 ---
 
 ## 0. Reglas no negociables
 
-1. **Nunca un hex crudo.** `#10b981`, `bg-emerald-100`, `bg-amber-50` están
-   prohibidos. Solo tokens: `bg-success-subtle`, `text-warning-foreground`, …
+1. **Nunca un hex crudo.** `#00d4a4`, `bg-emerald-100`, `bg-amber-50` están
+   prohibidos en TSX. Solo tokens: `bg-brand`, `text-warning-foreground`, …
+   (única excepción: `branding-section.tsx`, el color de marca del tenant).
 2. **Nunca un `<table>` a pelo.** Listados → `DataTable`. Tablas a medida →
    `Table`/`TableRow`/`TableCell` de `@/components/ui/table`.
 3. **Nunca `toLocaleString()` / `toLocaleDateString()` en línea.** Fechas →
    `DateTime` / `formatDateTime`. Importes → `Money` / `formatMoney`.
-4. **Nunca un `<div className="rounded-card border bg-card p-4">`.** Eso es
+4. **Nunca un `<div className="rounded-lg border bg-card p-4">`.** Eso es
    `Section` (o `Card` si de verdad no lleva encabezado).
 5. **Nunca el enum crudo en pantalla.** `DRAFT` no, "Borrador" sí →
    `StatusBadge` / `statusLabel`.
 6. **Todo elemento interactivo** necesita anillo de foco visible y nombre
    accesible. Un botón que solo tiene ícono lleva `aria-label`. Un `Input` o
    `Select` lleva `<Label htmlFor>` o `aria-label`.
+7. **Menta solo como acento.** Relleno únicamente en `variant="accent"` (uno
+   por pantalla), checks de lista, borde de tarjeta destacada y punto activo de
+   nav. Nunca en texto de cuerpo ni como fondo de sección.
 
 ## 1. Estructura y escalas
 
@@ -59,147 +69,178 @@ Dentro de una sección: `space-y-4`. Entre etiqueta y control: `space-y-1.5`.
 ### Color
 
 Los nombres de token de Tailwind (`background`, `card`, `secondary`, …) son
-los mismos de siempre; aquí está a qué valor de la paleta apunta cada uno.
+los mismos de siempre; aquí está a qué valor apunta cada uno en cada modo.
 
-| Paleta | Valor | Token(s) Tailwind | Uso |
+#### Paleta — modo claro (`.light`)
+
+| Rol | Hex | Token(s) Tailwind | Uso |
 | --- | --- | --- | --- |
-| canvas | `#090909` | `bg-background`, `bg-canvas` | Fondo de toda página |
-| surface-1 | `#141414` | `bg-card` | Tarjetas, inputs, tiles, píldora de pestañas |
-| surface-2 | `#1c1c1c` | `bg-secondary`, `bg-popover` | Tarjeta destacada, pestaña/ítem seleccionado, botón secundario, menús |
-| — | `#0f0f0f` | `bg-muted` | Zonas hundidas entre canvas y surface-1 |
-| — | `#232323` | `bg-accent` | Hover sobre surface-1/2 |
-| hairline | `#262626` | `border-border`, `border-hairline` | Bordes estructurales, divisores de tabla |
-| hairline-soft | `#1a1a1a` | `border-hairline-soft` | Divisores sutiles (filas, FAQ, canto de tarjeta) |
-| — | `#666666` | `border-input` | Borde de control (3:1 contra surface-1) |
-| ink / primary | `#ffffff` | `text-foreground`, `bg-primary-strong`, `bg-cta` | Titulares, cuerpo, relleno de la píldora primaria |
-| on-primary | `#000000` | `text-primary-foreground` | Tinta sobre la píldora blanca |
-| ink-muted | `#999999` | `text-muted-foreground` | Texto secundario, meta, pestañas no seleccionadas |
-| accent-blue | `#0099ff` | `ring`, `primary`, `text-legal-link` (`#33adff`) | **Solo** enlaces, foco y selección. Nunca relleno |
-| semantic-success | `#22c55e` | `success` | Estado |
-| warning | `#f5a524` | `warning` | Estado |
-| danger | `#ff4d4f` | `destructive` | Estado / texto destructivo |
+| canvas | `#ffffff` | `bg-background`, `bg-canvas`, `bg-popover` | Página, inputs, menús |
+| surface-1 | `#f4f6f5` | `bg-card` | Tarjetas, tiles |
+| muted | `#f7f8f8` | `bg-muted` | Zonas hundidas, hover de fila |
+| surface-2 | `#e9ecea` | `bg-secondary` | Insignias de estado, pestaña activa (pill), hover de botón secundario |
+| hover | `#e2e6e4` | `bg-accent` | Hover de menús y filas |
+| hairline | `#e2e6e4` | `border-border`, `border-hairline` | Bordes de tarjeta, divisores |
+| hairline-soft | `#edf0ee` | `border-hairline-soft` | Divisores de fila |
+| hairline-strong | `#b9c0bd` | `border-hairline-strong` | Divisores que deben verse más |
+| borde de control | `#7a827f` | `border-input` | Inputs, checkbox, radio (3.9:1 canvas · 3.3:1 surface-2) |
+| ink | `#0f1211` | `text-foreground`, `bg-primary-strong`, `bg-cta` | Titulares, cuerpo, píldora negra |
+| on-primary | `#ffffff` | `text-primary-foreground`, `text-cta-foreground` | Tinta sobre la píldora negra |
+| charcoal | `#2a2f2d` | `text-body-text`, hover de píldora | Prosa larga |
+| steel | `#5a625f` | `text-muted-foreground` | Texto secundario, meta, cabeceras de tabla (6.3 · 5.8 · 5.3) |
+| stone | `#6f7774` | `text-muted-soft` | Decorativo / deshabilitado. **No** es texto sobre surface-2 |
+| **menta** | `#00d4a4` | `bg-brand` + `text-brand-foreground` (ink) | CTA `accent`, badge `brand`, borde destacado |
+| **menta profunda** | `#0a6b54` | `text-primary`, `ring`, `text-legal-link`, `text-brand-text` | Enlaces, foco, selección, checks (6.5 · 6.0 · 5.4) |
+| menta suave | `#e3f8f1` | `bg-brand-soft`, `bg-success-subtle` | Fondo de éxito / opción elegida |
+| success | `#0f7a4f` · texto `#0b6641` | `success`, `success-foreground` | Estado |
+| warning | `#a4500a` · texto `#8a4308` · fondo `#fdf1e0` | `warning`, `warning-foreground`, `warning-subtle` | Estado |
+| error | `#c62a36` · texto `#b0212c` · fondo `#fdeaec` | `destructive`, `destructive-subtle-foreground`, `destructive-subtle` | Estado, texto destructivo (5.6 · 5.1 · 4.7) |
+| info / tag | `#2b62b8` · texto `#23529c` · fondo `#e8f0fc` | `info`, `info-foreground`, `info-subtle` | Estado, tags |
+| neutral | `#5a625f` · texto `#3f4644` · fondo `#eef1f0` | `neutral*` | Estado inerte |
+| coral de resalte | `#ff6a3d` + tinta ink | `bg-highlight` + `text-highlight-foreground` | Badge "nuevo". Nunca texto blanco encima |
+
+#### Paleta — modo oscuro (`:root, .dark`)
+
+| Rol | Hex | Token(s) Tailwind | Uso |
+| --- | --- | --- | --- |
+| canvas | `#0b0e0d` | `bg-background`, `bg-canvas` | Página, inputs |
+| surface-1 | `#141817` | `bg-card` | Tarjetas, tiles, pestañas (pill) |
+| muted | `#101312` | `bg-muted` | Zonas hundidas, hover de fila |
+| surface-2 | `#1c2120` | `bg-secondary`, `bg-popover` | Insignias, menús, hover de botón secundario |
+| hover | `#242a28` | `bg-accent` | Hover de menús y filas |
+| hairline | `#282e2c` · soft `#1f2523` · strong `#3a423f` | `border-hairline*` | Bordes y divisores |
+| borde de control | `#6e7875` | `border-input` | Inputs (4.3 · 3.9 · 3.6) |
+| ink | `#f7f9f8` | `text-foreground` | Titulares, cuerpo |
+| body | `#e2e6e4` | `text-body-text` | Prosa larga |
+| steel | `#a2aaa7` | `text-muted-foreground` | Secundario (8.2 · 7.5 · 6.9 · 6.2 hover) |
+| stone | `#8a928f` | `text-muted-soft` | Decorativo |
+| píldora primaria | `#ffffff` · tinta `#0b0e0d` | `bg-primary-strong`, `bg-cta` | CTA (hover `#e6e9e8`, activo `#d3d8d6`) |
+| **menta** | `#00d4a4` + tinta `#0b0e0d` | `bg-brand`, `text-brand-foreground` | CTA `accent` (10.1:1) |
+| **menta texto** | `#2fe0b4` | `text-primary`, `ring`, `text-legal-link`, `text-brand-text` | Enlaces, foco, checks (11.5 · 10.6 · 9.7) |
+| menta suave | `#0f2a24` | `bg-brand-soft`, `bg-success-subtle` | Fondo de éxito |
+| success | `#3dd68c` | `success`, `success-foreground` | Estado |
+| warning | `#f5b544` · fondo `#2a2010` | `warning*` | Estado |
+| error | `#ff6b6f` · texto `#ff8a8d` · fondo `#2e1517` | `destructive*` (relleno con tinta oscura) | Estado (7.0 · 6.5 · 5.9) |
+| info | `#7fb0ff` · fondo `#12203a` | `info*` | Estado, tags |
+| neutral | `#a2aaa7` · texto `#cfd6d3` · fondo `#1c2120` | `neutral*` | Estado inerte |
+| coral de resalte | `#ff7a4d` + tinta oscura | `highlight*` | Badge "nuevo" |
+| píldora sobre hero | `#ffffff` · tinta `#0a0a0a` | `bg-on-hero`, `text-on-hero-foreground` | Botón `translucent` sobre `.hero-dark` (igual en claro) |
 
 La jerarquía es binaria: `foreground` o `muted-foreground`. La profundidad
-se marca subiendo de superficie (canvas → card → secondary), no con opacidad
-sobre texto blanco.
+se marca subiendo de superficie (canvas → card → secondary) y con hairline,
+no con sombra ni con opacidad sobre texto.
 
 Estados (success/warning/info/neutral/destructive): cada uno tiene
-`--<tono>` (punto/ícono), `--<tono>-subtle` (tinte) y `--<tono>-foreground`
-(texto). `StatusBadge` usa superficie neutra + punto + texto de color: el
-estado es señal, no relleno.
+`--<tono>` (punto/ícono/texto suelto), `--<tono>-subtle` (tinte) y
+`--<tono>-foreground` (texto sobre surface-2 o sobre su tinte). `StatusBadge`
+es una píldora sobre `neutral-subtle` + hairline con punto y texto de color:
+el estado es señal, no relleno.
 
-#### Degradados (tarjetas spotlight)
+#### Bandas hero (degradados)
 
-| Clase | Ancla | Degradado (135°) |
+| Clase / utilidad | Degradado | Texto |
 | --- | --- | --- |
-| `.spotlight-violet` / `bg-gradient-violet` | `#6a4cf5` | `#1a1147` → `#4a33b8` 50% → `#6045df` |
-| `.spotlight-magenta` / `bg-gradient-magenta` | `#d44df0` | `#33103c` → `#7a2c8a` 50% → `#9435a7` |
-| `.spotlight-orange` / `bg-gradient-orange` | `#ff7a3d` | `#3a1505` → `#7a3a1c` 50% → `#9c4a25` |
-| `.spotlight-coral` / `bg-gradient-coral` | `#ff5577` | `#3d0b17` → `#862d40` 50% → `#a8374e` |
+| `.hero-dark` / `bg-hero-dark` | 135° `#0a2b26` → `#0d4a3f` 50% → `#0e6453` | Blanco (peor punto 7.1:1); secundario `text-white/85` (5.6:1) |
+| `.hero-sky` / `bg-hero-sky` | 180° `#dbeeff` → `#fff6ea` | Ink `#0f1211` (15.9:1), incluso en modo oscuro |
 
-El ancla puro con texto blanco no pasa AA (naranja 2.6:1, magenta 3.4:1), así
-que cada degradado termina en el ancla oscurecida justo hasta dar ≥4.5:1 con
-blanco al 80% en cualquier punto. Texto secundario encima: `text-white/80`,
-nunca menos. Iguales en modo claro y oscuro.
-
-`.spotlight` pone radio 30px, texto blanco y un velo oscuro en el tercio
-inferior izquierdo. Son TARJETAS dentro de la
-grilla, nunca fondo de sección. **Una o dos por pantalla.** Hoy: panel de
-marca del login, cifra del mes en Panorama, total de la cotización pública.
-Botones encima de un degradado: `variant="translucent"` o la píldora blanca.
-
-#### Modo claro (`.light`)
-
-El mismo póster invertido; mismos nombres de token, otros valores.
-
-| Token | Oscuro | Claro |
-| --- | --- | --- |
-| `background` / canvas | `#090909` | `#ffffff` |
-| `card` / surface-1 | `#141414` | `#f5f5f5` |
-| `secondary` / surface-2 | `#1c1c1c` | `#ebebeb` |
-| `popover` | `#1c1c1c` | `#ffffff` (+ sombra) |
-| `foreground` | `#ffffff` | `#0a0a0a` |
-| `muted-foreground` | `#999999` | `#616161` |
-| `primary-strong` / `cta` (píldora) | blanca, tinta negra | negra, tinta blanca |
-| `primary` / `ring` (azul) | `#0099ff` | `#0062c2` |
-| `legal-link` | `#33adff` | `#005db8` |
-| `input` (borde de control) | `#666666` | `#858585` |
-| `destructive` | `#ff4d4f` | `#bf1822` |
-| estados `*-foreground` | tintes claros | tonos oscuros sobre `*-subtle` claro |
+Son la **única** superficie con degradado: panel de marca del login, cifra
+protagonista de Panorama, total de la cotización pública. Una por pantalla,
+nunca fondo de sección, radio `rounded-spotlight` (16px). Botones encima:
+`variant="translucent"` (píldora blanca `on-hero`). Las clases
+`.spotlight-*` y `bg-gradient-*` de la familia anterior siguen existiendo como
+alias de `hero-dark` mientras se migran; no las uses en código nuevo.
 
 #### Contraste verificado (WCAG 2.2)
 
-Texto ≥4.5:1; componentes de UI (foco, borde de control, puntos) ≥3:1.
+Calculado por `scripts/contrast-audit.mjs` a partir de `globals.css`
+(90 pares por modo; el script falla si algo baja de AA). Texto ≥4.5:1;
+componentes de UI (foco, borde de control, puntos) ≥3:1.
 
 | Par | Oscuro | Claro |
 | --- | --- | --- |
-| Texto / canvas · surface-1 · surface-2 | 19.9 · 18.4 · 17.0 | 19.8 · 18.1 · 16.5 |
-| Muted / canvas · surface-1 · surface-2 | 7.0 · 6.5 · 6.0 | 6.2 · 5.7 · 5.2 |
-| Muted / hover (`accent`) | 5.5 | 4.8 |
-| Placeholder / input | 6.5 | 5.7 |
-| Píldora primaria / hover | 21.0 / 16.0 | 19.8 / 12.6 |
-| Enlace / canvas · surface-1 · surface-2 | 8.2 · 7.6 · 7.0 | 5.9 · 5.4 · 4.9 |
-| Anillo de foco / canvas · surface-1 | 6.6 · 6.2 | 5.4 · 5.0 |
-| Borde de input / canvas · surface-1 | 3.5 · 3.2 | 3.7 · 3.4 |
-| Destructivo texto / canvas · surface-2 · sólido | 6.1 · 5.2 · 6.4 | 6.3 · 5.2 · 6.3 |
-| Insignias (destr./éxito/aviso/info/neutral/resalte) | 7.2/9.6/9.8/9.6/10.6/5.2 | 7.4/6.6/7.0/6.5/7.9/6.8 |
-| `text-success` / `text-warning` / `text-neutral` sobre canvas | 8.7 / 9.7 / 7.0 | 5.1 / 5.5 / 4.8 |
-| Puntos de estado sobre su insignia | ≥5.3 | ≥4.1 |
-| Blanco al 80% sobre spotlight (peor punto) | ≥4.5 | ≥4.5 |
+| Texto / canvas · surface-1 · surface-2 · hover | 18.3 · 16.9 · 15.4 · 13.8 | 18.8 · 17.4 · 15.8 · 15.0 |
+| Muted / canvas · surface-1 · surface-2 · hover | 8.2 · 7.5 · 6.9 · 6.2 | 6.3 · 5.8 · 5.3 · 5.0 |
+| Enlace / foco (`primary`) / canvas · surface-1 · surface-2 | 11.5 · 10.6 · 9.7 | 6.5 · 6.0 · 5.4 |
+| Tinta / píldora primaria · hover · activo | 19.4 · 15.9 · 13.5 | 18.8 · 13.6 · 9.7 |
+| Tinta / menta (`accent`) | 10.1 | 9.8 |
+| Borde de control / canvas · surface-1 · surface-2 | 4.3 · 3.9 · 3.6 | 3.9 · 3.6 · 3.3 |
+| Destructivo texto / canvas · surface-1 · surface-2 · tinta sobre relleno | 7.0 · 6.5 · 5.9 · 7.0 | 5.6 · 5.1 · 4.7 · 5.6 |
+| `text-success` / `text-warning` / `text-info` sobre canvas | 10.3 / 10.7 / 8.8 | 5.4 / 5.6 / 5.9 |
+| Insignias `StatusBadge` sobre `neutral-subtle` (éxito / aviso / info / neutral / destr.) | 8.7 / 9.0 / 7.4 / 11.0 / 7.2 | 6.2 / 6.4 / 6.7 / 8.5 / 6.0 |
+| Botón deshabilitado: muted / `primary-disabled` | 5.8 | 5.0 |
+| Texto de estado sobre su tinte `*-subtle` | ≥7.4 | ≥5.9 |
+| Punto de estado sobre su tinte | ≥6.1 | ≥4.8 |
+| Coral de resalte con tinta ink | 7.5 | 6.6 |
+| Blanco / blanco 85% sobre `.hero-dark` (peor punto) | 7.1 / 5.6 | 7.1 / 5.6 |
 
 ### Tipografía
 
-- Display: **Geist 500** (`font-display`), tracking negativo proporcional al
-  tamaño. Si hace falta achicar, baja el TAMAÑO, no el porcentaje.
-- Cuerpo: **Inter** con `cv01 cv05 cv09 cv11 ss03 ss07` siempre activas
-  (en `body`). Tablas, `.tabular-nums` y `[data-money]` agregan `tnum`.
+- **Inter** para todo: cuerpo, UI y titulares (peso 600). `font-display` se
+  conserva como alias de Inter para no tocar usos. Variantes
+  `cv01 cv05 cv09 cv11 ss03 ss07` siempre activas (en `body`); tablas,
+  `.tabular-nums` y `[data-money]` agregan `tnum`.
+- **Geist Mono** (`font-mono`): código, ids, SKUs, firmas. Nunca prosa.
+- Sin itálicas: el énfasis es peso 500/600, color o fondo.
+- Cuerpo **16px / 1.5 / tracking 0** (el `body` ya lo trae). Nunca interlínea
+  <1.5 en 14–16px. Display: tracking negativo suave, interlínea ≥1.05.
 
 | Token | Tamaño | Peso | Interlínea | Tracking | Uso |
 | --- | --- | --- | --- | --- | --- |
-| `text-display-xxl` | 48→110px | 500 | 0.85 | -0.05em | Hero de página pública |
-| `text-display-xl` | 40→85px | 500 | 0.95 | -0.05em | Apertura de sección grande |
-| `text-display-lg` | 32→62px | 500 | 1.00 | -0.05em | Cifra protagonista, hero de login |
-| `text-display-md` | 26→32px | 500 | 1.13 | -0.031em | h1 de página (`PageHeader`) |
-| `text-headline` | 22px | 700 | 1.20 | -0.036em | Títulos de tarjeta de precio / categoría |
-| `text-subhead` | 24px | 400 | 1.30 | 0 | Texto guía dentro de spotlight |
-| `text-body-lg` | 18px | 400 | 1.30 | -0.01em | Párrafo principal |
-| `text-body` | 15px | 400 | 1.30 | -0.01em | Cuerpo por defecto (el `body` ya trae 15px) |
-| `text-body-sm` | 14px | 500 | 1.40 | -0.01em | Datos densos |
-| `text-caption` | 13px | 500 | 1.20 | -0.01em | Eyebrows, meta |
-| `text-micro` | 12px | 400 | 1.20 | -0.01em | Notas al pie |
+| `text-display-xxl` | 36→72px | 600 | 1.05 | -0.03em | Hero de página pública |
+| `text-display-xl` | 32→56px | 600 | 1.10 | -0.025em | Apertura de sección grande |
+| `text-display-lg` | 28→48px | 600 | 1.10 | -0.02em | Cifra protagonista, hero de login |
+| `text-display-md` | 26→36px | 600 | 1.20 | -0.015em | h1 de página (`PageHeader`) |
+| `text-headline` | 22px | 600 | 1.30 | 0 | Títulos de tarjeta |
+| `text-subhead` | 18px | 400 | 1.50 | 0 | Subtítulo de hero, lead |
+| `text-body-lg` | 18px | 400 | 1.50 | 0 | Párrafo destacado |
+| `text-body` | 16px | 400 | 1.50 | 0 | Cuerpo por defecto |
+| `text-body-sm` | 14px | 400 | 1.50 | 0 | Celdas de tabla, navegación |
+| `text-body-sm-medium` | 14px | 500 | 1.50 | 0 | Nav activa, etiquetas de botón y pestaña |
+| `text-caption` | 13px | 400 | 1.40 | 0 | Ayuda, letra pequeña |
+| `text-micro` | 12px | 500 | 1.40 | 0 | Microcopy, chips |
+| `text-micro-uppercase` | 11px | 600 | 1.40 | +0.5px | Cabeceras de sección de sidebar, "REQUERIDO" |
+| `text-code-md` / `text-code-sm` | 14 / 13px | 400 | 1.5 / 1.4 | 0 | Bloques de código (`font-mono`) |
 
-h1 → `PageHeader` (display-md). h2 → `Section` (Geist 17px). Un solo `<h1>`
-por pantalla. Ids/SKUs → `font-mono text-xs`.
+h1 → `PageHeader` (display-md). h2 → `Section`. Un solo `<h1>` por pantalla.
+Ids/SKUs → `font-mono text-code-sm`.
 
 ### Espaciado, radios y elevación
 
-- Espaciado en ritmo de 5px: 4 · 8 · 12 · 15 · 20 · 30 · 40, sección 96px
-  (`p-section`). Entre secciones `space-y-6`; dentro `space-y-4`.
-- Radios: `rounded-xs` 4 · `rounded-sm` 6 (insignias) · `rounded-md` 10
-  (inputs, ítems de lista) · `rounded-lg` 15 (miniaturas) · `rounded-xl` /
-  `rounded-card` 20 (tarjetas) · `rounded-2xl` / `rounded-spotlight` 30
-  (spotlight, paneles grandes) · `rounded-pill` (TODO CTA de texto) ·
-  `rounded-full` (botones de ícono, avatares).
-- Elevación: 0 plano sobre canvas · 1 `bg-card` · 2 `shadow-airbnb` /
-  `shadow-elevation-2` (canto de luz 0.5px + caída negra: menús, tooltips,
-  tarjetas flotantes) y `shadow-airbnb-lg` (diálogos, sheets) · 3
-  `shadow-selected` (foco/seleccionado: anillo azul).
+- Espaciado base 4px (incremento principal 8): 4 · 8 · 12 · 16 · 20 · 24 ·
+  32 · 40, secciones 48 / 64 / 96 (`p-section`). Entre secciones `space-y-6`;
+  dentro `space-y-4`. Tarjeta: padding 24 (compacta) / 32 (panel).
+- Radios: `rounded-xs` 4 (chips de código) · `rounded-sm` 6 (ítems de nav,
+  insignias) · `rounded-md` 8 (inputs, búsqueda, código, ghost) ·
+  `rounded-lg` / `rounded-card` 12 (tarjetas, FAQ) · `rounded-xl` /
+  `rounded-spotlight` 16 (paneles grandes, hero) · `rounded-2xl` 24
+  (vitrinas) · `rounded-full` / `rounded-pill` (TODO botón de texto, avatares).
+- Elevación: **0 plano con hairline por defecto** (tarjetas, filas, inputs) ·
+  `shadow-1` tile al hover · `shadow-2` (alias `shadow-airbnb`) menús y
+  tooltips · `shadow-3` (alias `shadow-airbnb-lg`) diálogos y sheets ·
+  `shadow-brand` tarjeta destacada (borde menta 2px + halo) ·
+  `shadow-selected` anillo menta 2px (foco / seleccionado).
 
 ### Responsive
 
-Cortes: escritorio ≥1199 · tableta 810 (grillas 4→2, navegación al drawer) ·
-móvil <810 (una columna). Canal lateral 16px en teléfono, sin scroll
-horizontal de página (`html { overflow-x: clip }`). Botones e inputs miden
-44px de alto en móvil y se compactan a 40px desde `sm`.
+Cortes Tailwind: `sm` 640 · `md` 768 · `lg` 1024 · `xl` 1280. Móvil primero:
+una columna, tiles 2-up desde 480, grillas de 2 desde `md`, 3 desde `lg`.
+Canal lateral 16px en teléfono, sin scroll horizontal de página
+(`html { overflow-x: clip }`); tablas con scroll interno. Botones, inputs,
+ítems de nav y botones de ícono miden **44px** en móvil y se compactan a
+40 / 36 desde `sm`. Verificar en 360×740, 390×844, 768, 1024 y 1280.
 
 ### Hacer / no hacer
 
-Hacer: píldora en todo CTA; subir de superficie para jerarquía; azul solo
-como señal; una o dos spotlight por pantalla; variantes de Inter siempre.
+Hacer: píldora en todo botón de texto (negra en claro, blanca en oscuro);
+menta solo en `accent`, checks, borde destacado, foco y enlaces; subir de
+superficie o hairline para jerarquía; degradados solo en `.hero-*`;
+`rounded-lg` en tarjetas, `rounded-md` en UI compacta; cuerpo 16/1.5;
+Inter + Geist Mono, nada más; 44px de tacto en móvil.
 
-No hacer: modo claro; grises intermedios fuera de `muted-foreground`;
-rellenos azules; CTA cuadrados; degradados como fondo de sección; más de un
-acento cromático; botones con borde tipo "fantasma".
+No hacer: menta en texto de cuerpo o en fondos grandes; otros acentos fuera
+de menta, tag-blue, error y coral de resalte; sombras en tarjetas planas;
+interlínea <1.5 en cuerpo; dos acentos compitiendo en un hero; Inter para
+código o Geist Mono para prosa; hex crudo en TSX; botones cuadrados.
 
 ---
 
@@ -208,7 +249,7 @@ acento cromático; botones con borde tipo "fantasma".
 ### `Button`
 
 ```ts
-variant: "default" | "secondary" | "outline" | "ghost" | "destructive" | "destructive-solid" | "warning" | "translucent" | "link" | "cta"
+variant: "default" | "cta" | "accent" | "secondary" | "outline" | "ghost" | "destructive" | "destructive-solid" | "warning" | "translucent" | "link"
 size:    "sm" | "default" | "lg" | "icon"
 loading?: boolean   // muestra Spinner, aplica aria-busy y disabled
 asChild?: boolean   // con asChild, `loading` se ignora
@@ -216,31 +257,49 @@ asChild?: boolean   // con asChild, `loading` se ignora
 
 ```tsx
 <Button loading={m.isPending}>Guardar</Button>
+<Button variant="accent">Emitir cotización</Button>
 <Button variant="outline" size="sm" asChild><Link href="/orders">Ver pedidos</Link></Button>
 <Button variant="ghost" size="icon" aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
 ```
 
-- `default`/`cta`: píldora blanca, tinta negra. La acción principal.
-- `secondary`/`outline`: píldora carbón (surface-2). `outline` rinde igual (no hay botones con borde).
-- `destructive`: píldora carbón con texto rojo. `destructive-solid`: relleno rojo, solo para confirmar algo irreversible.
-- `translucent`: sobre degradados o imágenes.
-- `size="icon"`: círculo de 44px (40px desde `sm`).
-- Presionado = `scale(0.97)`, no oscurecer. Foco = anillo azul.
+- `default`/`cta`: píldora dominante (negra en claro, blanca en oscuro). La acción principal.
+- `accent`: píldora **menta** con tinta ink. Solo el CTA de máxima intención (emitir, cobrar, entrar): uno por pantalla.
+- `secondary`/`outline`: píldora con borde hairline y tinta ink; hover sube a surface-2. Rinden igual.
+- `ghost`: sin relleno ni borde, `rounded-md` (el único botón que no es píldora).
+- `destructive`/`warning`: píldora con borde y texto de estado; hover en su tinte `*-subtle`. `destructive-solid`: relleno rojo, solo para confirmar algo irreversible.
+- `translucent`: píldora blanca `on-hero` sobre `.hero-dark`.
+- `link`: texto en `legal-link` subrayado al hover.
+- Alturas móvil → `sm`: `default` 44 → 40 · `sm` 44 → 36 · `lg` 48 · `icon` 44 → 36 (círculo).
+- Presionado = `scale(0.97)` + un paso de tono. Foco = anillo menta 2px con separación (`ring-offset-2`).
+- **Deshabilitado**: nunca opacidad. Las variantes con relleno pasan a fondo
+  hairline (`primary-disabled`) + texto `muted-foreground` (5.0:1 claro,
+  5.8:1 oscuro); las sin relleno (`secondary`/`outline`/`ghost`/`link`/
+  `destructive`/`warning`) solo bajan el texto a `muted-soft`. Un botón en
+  `loading` conserva su color (variante Tailwind `inactive:` =
+  `:disabled:not([aria-busy])`).
+- **Botones de ícono** (contraer barra, menú de usuario, cerrar sheet, acciones
+  de fila): siempre `rounded-full` (`size="icon"` ya lo trae). La única
+  excepción son los **ítems de lista de nav** (sidebar, drawer), que son
+  filas, no botones: `rounded-sm` con 44px de alto en móvil.
 
 `loading` **no** cambia el texto: si quieres "Guardando…" ponlo tú como children.
 
 ### `Input` · `Textarea` · `Select` · `Checkbox` · `Label`
 
-Mismo alto (`h-10`), radio y foco. Para error pasa `aria-invalid` y el borde rojo
-sale solo. `Select` es un `<select>` nativo estilizado (sin Radix, sin dependencia
-nueva); `Checkbox` es un `<input type="checkbox">` con `accent-primary`.
+Mismo alto (44px móvil, 40 desde `sm`), fondo (`bg-background`, el lienzo),
+radio `rounded-md` (8px) y foco. Para error pasa `aria-invalid` y el borde
+rojo sale solo. `Select` es un `<select>` nativo estilizado (sin Radix, sin
+dependencia nueva); `Checkbox` es un `<input type="checkbox">` con
+`accent-primary` (20px en móvil, 16 desde `sm`).
 
-El borde en reposo de los cuatro es `border-input` (≥3:1 contra canvas y
-surface-1 en ambos modos: `#666` oscuro, `#858585` claro): el relleno del campo
-casi no se distingue del fondo, así que el borde es el control. No lo
-cambies por `border-border` — ese es el separador estructural y vive en 1.35:1.
-La palomita y el punto del radio siguen en `accent-primary` a propósito: son
-objeto gráfico, les aplica 1.4.11 (3:1) y #ff3859 da 3.52:1.
+El borde en reposo de los cuatro es `border-input` (≥3.3:1 contra canvas,
+surface-1 y surface-2 en ambos modos: `#6e7875` oscuro, `#7a827f` claro): el
+relleno del campo es el lienzo, así que el borde es el control. No lo cambies
+por `border-border` — ese es el separador estructural (hairline) y no llega a
+3:1. Foco = borde + anillo de 1px en `ring` (menta profunda). La palomita y
+el punto del radio usan `accent-primary` (menta profunda: 6.5:1 claro /
+11.5:1 oscuro, objeto gráfico bajo 1.4.11). Los campos tienen 16px en móvil
+para evitar el zoom de iOS.
 
 ```tsx
 <div className="space-y-1.5">
@@ -285,9 +344,9 @@ entre opciones**, más `aria-checked` implícito. **Nunca pongas `tabIndex`** en
 un `Radio`/`RadioCard`: es la forma clásica de romper eso.
 
 `RadioCard` es el caso "elige uno de tres, cada uno con su explicación". El
-resalte de la opción activa sale de `has-[:checked]:` en CSS, así que funciona
-igual controlado o no controlado; el anillo de foco va en la tarjeta completa
-(`focus-within`), no en el punto de 16px.
+resalte de la opción activa (borde `primary` + fondo `brand-soft`) sale de
+`has-[:checked]:` en CSS, así que funciona igual controlado o no controlado;
+el anillo de foco va en la tarjeta completa (`focus-within`), no en el punto.
 
 ```tsx
 <RadioGroup legend="Estilo de venta" name="sales_style"
@@ -309,13 +368,45 @@ igual controlado o no controlado; el anillo de foco va en la tarjeta completa
 ### `Card`
 
 `Card` (con `asChild?`) · `CardHeader` · `CardTitle` · `CardDescription` ·
-`CardContent` · `CardFooter`. Para bloques de pantalla usa `Section`, que ya los
+`CardContent` · `CardFooter`. Plana: surface-1, hairline, `rounded-lg`
+(12px), **sin sombra**. Para bloques de pantalla usa `Section`, que ya los
 compone.
+
+### `Tabs`
+
+```ts
+Tabs:        { defaultValue; value?; onValueChange?; variant?: "underline" | "pill" }
+TabsList:    React.HTMLAttributes<HTMLDivElement>   // role="tablist", flechas ← →
+TabsTrigger: { value }
+TabsContent: { value }
+```
+
+`underline` (por defecto): lista con hairline inferior; inactivo
+`muted-foreground`, activo `foreground` + subrayado de 2px en ink. `pill`: la
+lista es una píldora sobre surface-1 y el activo sube a surface-2. Alto táctil
+44px en móvil, 36 desde `sm`.
+
+```tsx
+<Tabs defaultValue="pagos">
+  <TabsList aria-label="Secciones">
+    <TabsTrigger value="pagos">Pagos</TabsTrigger>
+    <TabsTrigger value="ledger">Movimientos</TabsTrigger>
+  </TabsList>
+  <TabsContent value="pagos">…</TabsContent>
+</Tabs>
+```
 
 ### `Table`
 
+Cabecera 13px `muted-foreground` en mayúsculas; filas con `hairline-soft`,
+hover `bg-muted`, seleccionada `bg-secondary`. El contenedor lleva
+`.scroll-x-shadow`: en móvil una sombra en el borde avisa que hay más
+columnas y desaparece al final del scroll (si la tabla va sobre canvas y no
+sobre una tarjeta, pásale `containerClassName="[--scroll-shadow-bg:var(--background)]"`).
+`stickyFirstColumn` fija la columna identificadora (folio, SKU, cliente).
+
 ```ts
-Table:      { stickyHeader?: boolean; containerClassName?: string }
+Table:      { stickyHeader?: boolean; stickyFirstColumn?: boolean; containerClassName?: string }
 TableHead:  { numeric?: boolean }   // + scope="col" por defecto
 TableCell:  { numeric?: boolean }   // text-right + tabular-nums
 TableRow:   { interactive?: boolean }
@@ -353,7 +444,9 @@ variant: "default" | "success" | "warning" | "info" | "destructive"
 </Alert>
 ```
 
-El ícono va como primer hijo; el layout ya le reserva el hueco.
+El ícono va como primer hijo; el layout ya le reserva el hueco. Cada
+variante = tinte `*-subtle` + texto `*-foreground` + borde del tono al 30%;
+`default` es surface-1 con hairline.
 
 ### `AlertDialog` (confirmaciones) · `Sheet` (paneles)
 
@@ -389,6 +482,9 @@ Comportamiento del `AlertDialog`, ya resuelto en la primitiva:
   Archivar
 </AlertDialogAction>
 ```
+
+El panel del `Sheet` lleva `border-hairline-strong` en el lado de apertura y
+`shadow-3`; el cierre es un botón de ícono de 44px (36 desde `sm`).
 
 `SheetContent` **no puede quedarse sin nombre accesible**: si no rindes un
 `SheetTitle` visible, se rinde un título `sr-only` con `title` (por defecto
@@ -452,15 +548,31 @@ Si usas `DataTable` no necesitas nada de esto: ya trae su propia región.
 <Spinner size="sm" label={null} /> // dentro de un contenedor que ya anuncia
 ```
 
+### `Tooltip`
+
+`TooltipProvider` · `Tooltip` · `TooltipTrigger` · `TooltipContent`. En
+pantallas táctiles (`pointer: coarse`) el tooltip se fuerza cerrado: sin hover
+no hay forma de descartarlo y se quedaba pegado en el drawer móvil. El
+trigger debe llevar su propio nombre accesible (`aria-label`); el tooltip solo
+lo repite para ratón y teclado.
+
 ### `Badge`
 
 Etiqueta genérica (conteos, tags). Para estados de dominio usa `StatusBadge`.
 
 ```ts
 variant: "default" | "secondary" | "outline" | "success" | "warning" | "info"
-       | "neutral" | "muted" | "destructive" | "destructive-solid" | "highlight"
+       | "neutral" | "muted" | "destructive" | "destructive-solid" | "highlight" | "brand"
 size:    "sm" | "default"     // idénticos a StatusBadge
 ```
+
+Los tonos de estado van sobre su tinte `*-subtle` con `*-foreground` (≥5.9:1
+claro, ≥7.4:1 oscuro). `Badge` es rectangular (`rounded-sm`); `StatusBadge`
+es píldora (`rounded-full`) sobre `neutral-subtle` + hairline, para que un
+tenant que tiñe `secondary` no le cambie el color. `size="sm"` mide 12px en
+ambos: nada por debajo. `brand` = menta con tinta ink (descuentos, "gratis");
+`highlight` = coral con tinta ink ("nuevo", "recomendado"). Nunca texto
+blanco sobre menta ni sobre coral.
 
 `size` usa exactamente las mismas medidas que `StatusBadge`, así que un chip y
 una insignia de estado en la misma fila quedan alineados.
@@ -918,7 +1030,7 @@ app), así que este dominio es de uso explícito.
 | `new Date(x).toLocaleString("es-MX")` | `<DateTime value={x} />` |
 | `<Badge variant={statusVariant(s)}>{s}</Badge>` | `<StatusBadge status={s} domain="order" />` |
 | `<div className="rounded-card border bg-card p-4">` | `<Section title="…">` |
-| `<select className="flex h-10 w-full rounded-lg border …">` | `<Select>` |
+| `<select className="flex h-11 w-full rounded-md border …">` | `<Select>` |
 | `<Loader2 className="h-4 w-4 animate-spin" />` en botón | `<Button loading>` |
 | `bg-emerald-50`, `bg-amber-100`, `dark:bg-*` | `bg-success-subtle`, `bg-warning-subtle` |
 | `<td colSpan={7}>Cargando…</td>` / `Sin pedidos.` | los resuelve `DataTable` |

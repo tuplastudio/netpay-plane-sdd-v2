@@ -56,7 +56,7 @@ export function HelpNav() {
         />
       </div>
       {terms.length > 0 ? (
-        <p className="px-1 text-xs text-muted-foreground" aria-live="polite">
+        <p className="px-1 text-body-sm text-muted-foreground" aria-live="polite">
           {resultCount === 1 ? "1 guía encontrada" : `${resultCount} guías encontradas`}
         </p>
       ) : null}
@@ -69,7 +69,7 @@ export function HelpNav() {
         ) : (
           categories.map((cat) => (
             <div key={cat.slug}>
-              <p className="mb-1.5 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="mb-1.5 px-1 text-micro-uppercase uppercase text-muted-foreground">
                 {cat.title}
               </p>
               <ul className="space-y-0.5">

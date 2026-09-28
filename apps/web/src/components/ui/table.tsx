@@ -9,10 +9,18 @@ export interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> 
   stickyHeader?: boolean;
   /** Clases para el div con overflow que envuelve la tabla. */
   containerClassName?: string;
+  /**
+   * Fija la primera columna al hacer scroll horizontal (móvil): la celda
+   * identificadora (folio, SKU, cliente) siempre visible. Las celdas fijas
+   * llevan el fondo de la tarjeta para tapar lo que pasa debajo.
+   */
+  stickyFirstColumn?: boolean;
 }
 
 /**
- * Tabla semántica con contenedor de scroll horizontal propio.
+ * Tabla semántica con contenedor de scroll horizontal propio. El contenedor
+ * lleva `.scroll-x-shadow` (globals.css): una sombra en el borde indica que
+ * hay más columnas y desaparece al llegar al final.
  * `data-ui-table` la excluye de la regla móvil global de globals.css.
  *
  * @example
@@ -32,13 +40,18 @@ export interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> 
  * </Table>
  */
 const Table = React.forwardRef<HTMLTableElement, TableProps>(
-  ({ className, containerClassName, stickyHeader = false, ...props }, ref) => (
-    <div className={cn("relative w-full overflow-auto", containerClassName)}>
+  ({ className, containerClassName, stickyHeader = false, stickyFirstColumn = false, ...props }, ref) => (
+    <div className={cn("scroll-x-shadow relative w-full overflow-auto", containerClassName)}>
       <table
         ref={ref}
         data-ui-table=""
         data-sticky-header={stickyHeader ? "" : undefined}
-        className={cn("w-full caption-bottom border-collapse text-sm", className)}
+        className={cn(
+          "w-full caption-bottom border-collapse text-sm",
+          stickyFirstColumn &&
+            "[&_tr>*:first-child]:sticky [&_tr>*:first-child]:left-0 [&_tr>*:first-child]:z-[1] [&_tr>*:first-child]:bg-card",
+          className,
+        )}
         {...props}
       />
     </div>
@@ -94,7 +107,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, TableRowProps>(
       ref={ref}
       className={cn(
         "border-b border-hairline-soft transition-colors",
-        interactive && "hover:bg-card data-[state=selected]:bg-secondary",
+        interactive && "hover:bg-muted data-[state=selected]:bg-secondary",
         className,
       )}
       {...props}
@@ -114,7 +127,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
       ref={ref}
       scope={scope}
       className={cn(
-        "h-10 px-3 text-left align-middle text-xs font-medium uppercase tracking-wide text-muted-foreground",
+        "h-10 px-3 text-left align-middle text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground",
         numeric && "text-right tabular-nums",
         className,
       )}

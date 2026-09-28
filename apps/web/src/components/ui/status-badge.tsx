@@ -400,19 +400,23 @@ export function statusLabel(status: string, domain: StatusDomain = "generic"): s
 // ---------------------------------------------------------------------------
 
 export const statusBadgeVariants = cva(
-  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border border-transparent px-2.5 py-0.5 text-xs font-medium",
+  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline bg-neutral-subtle px-2.5 py-0.5 text-xs font-semibold leading-tight",
   {
     variants: {
       tone: {
-        // Superficie neutra + punto y texto de color: el estado es señal, no relleno.
-        success: "bg-secondary text-success-foreground",
-        warning: "bg-secondary text-warning-foreground",
-        info: "bg-secondary text-info-foreground",
-        neutral: "bg-secondary text-neutral-foreground",
-        destructive: "bg-secondary text-destructive-subtle-foreground",
+        // Superficie neutra (`neutral-subtle` + hairline, nunca `secondary`:
+        // no debe heredar color de marca del tenant) + punto y texto de color:
+        // el estado es señal, no relleno. Texto ≥4.5:1 en ambos modos
+        // (claro 6.2 · 6.4 · 6.7 · 8.5 · 6.0; oscuro 8.7 · 9.0 · 7.4 · 11.0 · 7.2).
+        success: "text-success-foreground",
+        warning: "text-warning-foreground",
+        info: "text-info-foreground",
+        neutral: "text-neutral-foreground",
+        destructive: "text-destructive-subtle-foreground",
       },
       size: {
-        sm: "px-2 py-0 text-[11px]",
+        // Mínimo legible 12px: nada de 11px en insignias.
+        sm: "px-2 py-0 text-micro",
         default: "px-2.5 py-0.5 text-xs",
       },
     },

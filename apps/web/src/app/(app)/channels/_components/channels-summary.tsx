@@ -25,7 +25,7 @@ export function ChannelsSummary({ connections }: { connections: UseQueryResult<C
   };
 
   return (
-    <div aria-label="Resumen de canales" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    <div aria-label="Resumen de canales" className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
       <StatTile size="compact"
         label="Canales conectados"
         value={active}

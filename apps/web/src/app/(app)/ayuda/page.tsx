@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { Section } from "@/components/app/section";
 import { HELP_CATEGORIES } from "./_content";
+import { ON_HERO_MUTED, ON_HERO_PILL } from "@/lib/hero";
+import { cn } from "@/lib/utils";
 
 const START_HERE = [
   { slug: "que-es-atiende-ya", label: "Qué es Atiende ya" },
@@ -14,16 +16,16 @@ export default function AyudaIndexPage() {
     <div className="space-y-6">
       <section
         aria-labelledby="ayuda-empieza"
-        className="spotlight spotlight-violet p-6 text-white sm:p-8"
+        className="hero-dark p-6 sm:p-8"
       >
-        <p className="text-[13px] font-medium text-white/80">Empieza aquí</p>
+        <p className={cn("text-caption font-medium", ON_HERO_MUTED)}>Empieza aquí</p>
         <h2
           id="ayuda-empieza"
-          className="mt-2 max-w-xl font-display text-[2rem] font-medium leading-[1.05] tracking-[-0.04em] sm:text-[2.5rem]"
+          className="mt-2 max-w-xl font-display text-display-lg"
         >
           Todo lo que necesitas para vender con Atiende ya.
         </h2>
-        <p className="mt-3 max-w-xl text-[15px] leading-[1.5] text-white/85">
+        <p className={cn("mt-3 max-w-xl text-body", ON_HERO_MUTED)}>
           Guías paso a paso de cada pantalla, con ejemplos y soluciones a los problemas más comunes. Usa el
           buscador de la izquierda si ya sabes lo que buscas.
         </p>
@@ -32,7 +34,10 @@ export default function AyudaIndexPage() {
             <li key={item.slug}>
               <Link
                 href={`/ayuda/${item.slug}`}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-white px-4 text-sm font-medium text-black transition-transform active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                className={cn(
+                  "inline-flex min-h-11 items-center gap-2 rounded-pill px-4 text-body-sm-medium transition-transform active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                  ON_HERO_PILL,
+                )}
               >
                 {item.label}
                 <ArrowRight aria-hidden className="h-4 w-4" />
@@ -54,10 +59,10 @@ export default function AyudaIndexPage() {
               <li key={a.slug}>
                 <Link
                   href={`/ayuda/${a.slug}`}
-                  className="block h-full rounded-[15px] border bg-card p-4 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="block h-full rounded-lg border bg-card p-4 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <span className="text-[15px] font-medium text-foreground">{a.title}</span>
-                  <span className="mt-1 block text-[13px] leading-[1.45] text-muted-foreground">{a.summary}</span>
+                  <span className="text-body font-medium text-foreground">{a.title}</span>
+                  <span className="mt-1 block text-caption text-muted-foreground">{a.summary}</span>
                 </Link>
               </li>
             ))}

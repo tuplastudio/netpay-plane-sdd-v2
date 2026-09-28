@@ -71,7 +71,7 @@ export default function RecoverPage() {
           </div>
           <div className="text-center text-sm">
             ¿Ya tienes cuenta?{" "}
-            <Link href="/login" className="underline underline-offset-4">
+            <Link href="/login" className="inline-flex min-h-11 items-center underline underline-offset-4 sm:min-h-0">
               Inicia sesión
             </Link>
           </div>

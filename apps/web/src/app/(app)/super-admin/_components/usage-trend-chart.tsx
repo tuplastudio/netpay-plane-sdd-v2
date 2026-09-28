@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import { ArrowRight, BarChart3 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Money } from "@/components/app/money";
@@ -96,7 +97,7 @@ export function UsageTrendChart({
                 <div
                   className={cn(
                     "w-full rounded-t-md transition-[height,background-color]",
-                    cost > 0 ? "bg-primary/20" : "bg-muted",
+                    cost > 0 ? "bg-primary" : "bg-muted",
                     isPeak && "bg-primary",
                   )}
                   style={{ height: `${heightPx}px` }}
@@ -140,20 +141,19 @@ export function UsageTrendChart({
           Pico del periodo
         </span>
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-sm bg-primary/20" aria-hidden />
+          <span className="inline-block h-2 w-2 rounded-sm bg-primary" aria-hidden />
           Día con gasto
         </span>
         <span className="inline-flex items-center gap-1">
           <span className="inline-block h-2 w-2 rounded-sm bg-muted" aria-hidden />
           Sin actividad
         </span>
-        <Link
-          href="/super-admin/usage"
-          className="ml-auto inline-flex items-center gap-1 rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
-        >
-          Ver detalle
-          <ArrowRight aria-hidden className="h-3 w-3" />
-        </Link>
+        <Button asChild variant="link" size="sm" className="ml-auto min-h-11 px-0 text-body-sm sm:min-h-0 sm:h-auto">
+          <Link href="/super-admin/usage">
+            Ver detalle
+            <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+          </Link>
+        </Button>
       </div>
     </div>
   );

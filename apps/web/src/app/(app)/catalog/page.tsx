@@ -731,7 +731,7 @@ function ProductCard({
               variant="ghost"
               size="icon"
               aria-label={`Acciones de ${product.title}`}
-              className="h-7 w-7 shrink-0"
+              className="h-11 w-11 shrink-0 sm:h-8 sm:w-8"
               onClick={(e) => e.stopPropagation()}
             >
               <MoreHorizontal className="h-4 w-4" />

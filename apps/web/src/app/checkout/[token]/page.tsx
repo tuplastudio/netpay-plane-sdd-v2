@@ -177,7 +177,7 @@ function TrustLine({ livemode }: { livemode?: boolean }) {
         Pago seguro con Atiende ya
       </p>
       {livemode === false ? (
-        <p className="opacity-70">Modo de pruebas · sin dinero real</p>
+        <p>Modo de pruebas · sin dinero real</p>
       ) : null}
     </div>
   );
@@ -326,6 +326,7 @@ export default function CheckoutPublicPage() {
                 </Alert>
               )}
               <Button
+                variant="accent"
                 className="h-12 w-full text-base"
                 size="lg"
                 onClick={() => void startCheckout()}

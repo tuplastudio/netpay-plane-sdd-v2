@@ -26,6 +26,7 @@ import { Money } from "@/components/app/money";
 import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { DetailLinesTable } from "@/components/app/detail-lines-table";
+import { ON_HERO_MUTED, ON_HERO_PILL } from "@/lib/hero";
 
 interface QuotePublic {
   id: string;
@@ -230,7 +231,10 @@ function PayButton({
   /** Para la barra fija de móvil: ancho de contenido, no `w-full`. */
   compact?: boolean;
 }) {
-  const sizeClass = compact ? "h-11 shrink-0 px-6" : "h-12 w-full sm:w-auto sm:px-8";
+  // Una sola píldora menta por pantalla: la de la barra fija (`compact`). En
+  // el hero-dark el mismo botón va en píldora blanca.
+  const sizeClass = compact ? "h-11 shrink-0 px-6" : `h-12 w-full sm:w-auto sm:px-8 ${ON_HERO_PILL}`;
+  const variant = compact ? "accent" : "default";
   const open = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/v1/orders/public/quote/${token}/checkout`, {
@@ -255,7 +259,7 @@ function PayButton({
 
   if (checkoutToken) {
     return (
-      <Button asChild size="lg" className={sizeClass}>
+      <Button asChild size="lg" variant={variant} className={sizeClass}>
         <Link href={`/checkout/${checkoutToken}`}>
           <CreditCard aria-hidden className="h-4 w-4" />
           Pagar ahora
@@ -268,6 +272,7 @@ function PayButton({
     <div className={compact ? "flex shrink-0 flex-col gap-1" : "flex w-full flex-col gap-1 sm:w-auto"}>
       <Button
         size="lg"
+        variant={variant}
         className={sizeClass}
         loading={open.isPending}
         onClick={() => open.mutate()}
@@ -333,7 +338,7 @@ function CopyLinkButton() {
         }
       }}
       aria-label="Copiar enlace de la cotización"
-      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent sm:h-8 sm:w-8 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {copied ? <Check aria-hidden className="h-4 w-4 text-success" /> : <Link2 aria-hidden className="h-4 w-4" />}
     </button>
@@ -385,20 +390,20 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
       {/* Total arriba de todo: en un teléfono es el dato que se busca primero. */}
       <section
         aria-labelledby="quote-total"
-        className="spotlight spotlight-violet p-6 text-center sm:p-[30px]"
+        className="hero-dark p-6 text-center sm:p-8"
       >
-        <h2 id="quote-total" className="text-caption text-white/80">
+        <h2 id="quote-total" className={`text-caption ${ON_HERO_MUTED}`}>
           Total de la cotización
         </h2>
         <Money
           value={quote.total}
           currency={currency}
           emphasis
-          className="mt-3 block font-display text-display-lg font-medium text-white"
+          className="mt-3 block font-display text-display-lg"
         />
         <p
           className={`mt-3 flex items-center justify-center gap-1.5 text-xs ${
-            expiringSoon ? "font-medium text-white" : "text-white/80"
+            expiringSoon ? "font-medium" : ON_HERO_MUTED
           }`}
         >
           {expiringSoon ? <Clock aria-hidden className="h-3.5 w-3.5" /> : null}
@@ -415,8 +420,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
           <Button
             asChild
             size="lg"
-            variant={payable ? "translucent" : "default"}
-            className="h-12 w-full sm:w-auto sm:px-8"
+            className={`h-12 w-full sm:w-auto sm:px-8 ${ON_HERO_PILL}`}
           >
             <a href={`/api/v1/quotes/public/${token}/pdf`} target="_blank" rel="noreferrer">
               <Download aria-hidden className="h-4 w-4" />
@@ -425,18 +429,18 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
           </Button>
         </div>
         {paid ? (
-          <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-success-foreground">
+          <p className="mt-3 inline-flex items-center gap-1.5 text-caption">
             <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
             Pagada
           </p>
         ) : payable ? (
-          <p className="mt-3 text-xs text-muted-foreground">
+          <p className={`mt-3 text-caption ${ON_HERO_MUTED}`}>
             {quote.checkoutToken
               ? "Tu link de pago sigue vigente. Puedes retomarlo cuando quieras."
               : "Al pagar se acepta la cotización con estos conceptos y precios."}
           </p>
         ) : orderClosed ? (
-          <p className="mt-3 text-xs text-muted-foreground">
+          <p className={`mt-3 text-caption ${ON_HERO_MUTED}`}>
             El pedido de esta cotización se cerró. Pide a tu asesor un link nuevo.
           </p>
         ) : null}

@@ -191,7 +191,7 @@ export function ConversationsList({
                 {c.customer?.fullName ?? c.externalPhone}
               </span>
               {c.customer ? (
-                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                <span className="shrink-0 font-mono text-code-sm text-muted-foreground">
                   {c.externalPhone}
                 </span>
               ) : null}
@@ -288,7 +288,7 @@ export function ConversationsList({
     <div
       ref={containerRef}
       onKeyDown={onKeyDownNav}
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     >
       <DataTable
         columns={columns}
@@ -309,7 +309,7 @@ export function ConversationsList({
         skeletonRows={6}
         stickyHeader
         className="flex min-h-0 flex-1 flex-col"
-        containerClassName="min-h-0 flex-1 overflow-y-auto"
+        containerClassName="min-h-0 min-w-0 flex-1 overflow-auto"
         empty={{
           icon: emptyIcon ?? (filtered ? <SearchX className="h-6 w-6" /> : <MessagesSquare className="h-6 w-6" />),
           title:

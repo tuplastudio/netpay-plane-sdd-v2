@@ -1,6 +1,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { ON_HERO_MUTED } from "@/lib/hero";
 
 /**
  * Lienzo de dos mitades para login y recuperación:
@@ -34,7 +35,7 @@ export function AuthSplitLayout({
         <header className="flex h-16 shrink-0 items-center px-6 sm:px-10">
           <Brand />
         </header>
-        <main className="flex flex-1 items-center justify-center px-6 py-8 sm:px-10">
+        <main className="flex flex-1 items-start justify-center px-4 pb-8 pt-12 sm:items-center sm:px-10 sm:py-8">
           <div className="w-full max-w-sm">{children}</div>
         </main>
         {footer ? (
@@ -44,26 +45,26 @@ export function AuthSplitLayout({
         ) : null}
       </div>
 
-      {/* Mitad derecha: tarjeta spotlight (degradado violeta) montada sobre
-          el lienzo — el degradado es una TARJETA, nunca el fondo de la sección. */}
+      {/* Mitad derecha: banda `hero-dark` (teal → menta) montada sobre el
+          lienzo — el degradado es una TARJETA, nunca el fondo de la sección. */}
       <div className="hidden bg-background p-4 lg:block">
-        <div className="spotlight spotlight-violet h-full">
+        <div className="hero-dark h-full">
           <BrandBackdrop />
           <div className="relative z-10 flex h-full flex-col justify-between p-10 xl:p-14">
-            <div className="flex w-fit items-center gap-2 rounded-pill bg-white/10 px-3 py-1.5 text-[13px] font-medium backdrop-blur">
-              <span className="h-1.5 w-1.5 rounded-full bg-white" />
+            <div className="flex w-fit items-center gap-2 rounded-pill bg-on-hero px-3 py-1.5 text-caption font-medium text-on-hero-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand" />
               Portal operativo
             </div>
             <div className="max-w-xl space-y-5">
               <p className="font-display text-display-lg">
                 Cotiza, conversa y cobra desde un mismo chat.
               </p>
-              <p className="max-w-md text-lg leading-[1.3] tracking-[-0.01em] text-white/80">
+              <p className={cn("max-w-md text-subhead", ON_HERO_MUTED)}>
                 El cliente escribe por WhatsApp, el agente responde y tú cierras
                 la venta.
               </p>
             </div>
-            <p className="text-xs text-white/80">Modo de pruebas · sin dinero real · v2</p>
+            <p className={cn("text-caption", ON_HERO_MUTED)}>Modo de pruebas · sin dinero real · v2</p>
           </div>
         </div>
       </div>
@@ -86,7 +87,7 @@ function Brand() {
       <SellLogo className="h-8 w-8" />
       <span className="flex flex-col leading-tight">
         <span className="font-display text-sm font-semibold text-foreground">Atiende ya</span>
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="text-micro-uppercase uppercase text-muted-foreground">
           Portal operativo
         </span>
       </span>
@@ -121,15 +122,14 @@ function SellLogo({ className }: { className?: string }) {
 
 /**
  * Anillos finos sobre el degradado: textura, no ilustración. Blanco
- * translúcido para que funcione sobre cualquiera de las cuatro variantes
- * spotlight.
+ * translúcido (decorativo, `aria-hidden`) sobre la banda `hero-dark`.
  */
 function BrandBackdrop() {
   return (
     <svg
       aria-hidden
       viewBox="0 0 600 600"
-      className="pointer-events-none absolute -bottom-40 -right-40 h-[680px] w-[680px] text-white opacity-[0.14]"
+      className="pointer-events-none absolute -bottom-40 -right-40 h-[680px] w-[680px] text-on-hero opacity-[0.14]"
       fill="none"
     >
       {[280, 220, 160, 100].map((r) => (

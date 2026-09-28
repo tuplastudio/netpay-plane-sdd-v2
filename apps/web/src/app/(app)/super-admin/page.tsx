@@ -140,7 +140,7 @@ export default function SuperAdminOverviewPage() {
 
       <div className="space-y-6">
         {/* Fila 1: KPIs principales. */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <StatTile size="compact"
             {...tile}
             label="Empresas activas"
@@ -198,7 +198,7 @@ export default function SuperAdminOverviewPage() {
         </div>
 
         {/* Fila 2: KPIs comerciales (lo que un operador quiere ver al entrar). */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <StatTile size="compact"
             {...tile}
             label="Nuevas empresas (mes)"
@@ -303,7 +303,7 @@ export default function SuperAdminOverviewPage() {
                 <button
                   type="button"
                   onClick={() => setCreateOpen(true)}
-                  className="flex w-full items-center justify-between rounded-md border border-dashed border-border bg-background px-3 py-2 text-left text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                  className="flex min-h-11 w-full items-center justify-between rounded-md border border-dashed border-border bg-background px-3 py-2.5 text-left text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <Plus aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -367,7 +367,7 @@ export default function SuperAdminOverviewPage() {
         </div>
 
         {o && o.newTenantsThisMonth > 0 ? (
-          <p className="text-center text-xs text-muted-foreground">
+          <p className="text-center text-caption text-muted-foreground">
             Datos actualizados al <DateTime value={o.to} /> · <DateTime value={o.from} withTime={false} /> al cierre del día.
           </p>
         ) : null}

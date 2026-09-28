@@ -3,201 +3,253 @@
 @tailwind utilities;
 
 /**
- * Sistema visual — ver src/components/DESIGN-SYSTEM.md. Oscuro por defecto (`:root, .dark`) y claro (`.light`).
+ * Sistema visual — ver src/components/DESIGN-SYSTEM.md y apps/web/DESIGN.md
+ * (referencia estilo Mintlify) + apps/web/TOKEN-SPEC.md (valores).
+ * Oscuro por defecto (`:root, .dark`) y claro (`.light`), ambos de primera
+ * clase y ambos WCAG 2.2 AA.
  *
- * Lienzo casi negro (canvas #090909) y todo monocromo: tinta blanca, gris
- * secundario (#999) y superficies que suben por pasos (canvas → surface-1
- * #141414 → surface-2 #1c1c1c). La jerarquía la dan el contraste
- * tinta / tinta-muted y la elevación por superficie, no el color ni el peso.
+ * Neutros con leve tinte frío (verde-gris), NO grises puros: lienzo blanco
+ * #ffffff / casi negro #0b0e0d, superficies que suben por pasos
+ * (canvas → surface-1 → surface-2) y líneas hairline. La jerarquía la dan
+ * tinta (`foreground`) vs tinta secundaria (`muted-foreground`) y la
+ * superficie, no el color ni el peso.
  *
- * UN acento cromático: azul #0099ff (--primary / --ring / --legal-link),
- * solo para enlaces, foco y selección. Nunca relleno de botón ni de sección.
+ * UN acento: menta #00d4a4 (`--brand`). Relleno SOLO en el CTA de máxima
+ * intención (`variant="accent"`), checks de lista, borde de tarjeta destacada
+ * y punto activo de nav. Como TEXTO/enlace/foco se usa la menta profunda
+ * (`--primary` / `--ring` / `--legal-link` / `--brand-text`): #0a6b54 en
+ * claro, #2fe0b4 en oscuro. Nunca menta en texto de cuerpo ni en fondos.
  *
- * CTA primario = píldora BLANCA con tinta negra (--primary-strong / --cta).
- * Secundario = píldora carbón (--secondary). Todo CTA es píldora.
+ * CTA dominante = píldora NEGRA con tinta blanca en claro y píldora BLANCA
+ * con tinta negra en oscuro (`--primary-strong` / `--cta`). Secundario =
+ * píldora con borde hairline y tinta ink. Todo CTA es píldora (`rounded-full`).
  *
- * Tarjetas spotlight con degradado (`.spotlight-*`): tarjetas sueltas, una o
- * dos por pantalla, nunca fondo de sección.
+ * Elevación plana por defecto (borde hairline, sin sombra). Sombras solo en
+ * menús (`--shadow-2`), diálogos/sheets (`--shadow-3`) y tarjeta destacada
+ * (`--shadow-brand`). Degradados solo en bandas hero: `.hero-dark` (teal →
+ * menta, texto blanco) y `.hero-sky` (cielo → crema, texto ink).
  *
  * Los tonos de estado (success/warning/info/neutral/destructive) son
- * funcionales, no de marca: se usan como punto o texto, casi nunca relleno.
+ * funcionales, no de marca: punto o texto sobre superficie neutra o sobre su
+ * tinte `*-subtle`; relleno sólido solo para confirmar algo irreversible.
  *
- * Contraste WCAG sobre canvas: blanco 19.8:1 · #999 7.0:1 (5.5:1 sobre
- * surface-2) · #0099ff 6.7:1 · #33adff 8.3:1 · peligro #ff4d4f 5.9:1.
+ * Contraste WCAG 2.2 calculado con `node scripts/contrast-audit.mjs` (falla si algo baja de AA):
+ *   CLARO   ink/canvas 18.8 · steel/canvas·card·surface-2 6.3·5.8·5.3 ·
+ *           enlace #0a6b54 6.5·6.0·5.4 · peligro #c62a36 5.6·5.1·4.7 ·
+ *           borde de control #7a827f 3.9·3.6·3.3 · ink/menta 9.8 ·
+ *           blanco/píldora negra 18.8 · insignias ≥5.9.
+ *   OSCURO  ink/canvas 18.3 · steel 8.2·7.5·6.9 · enlace #2fe0b4 11.5·10.6·9.7 ·
+ *           peligro #ff6b6f 7.0·6.5·5.9 · borde de control #6e7875 4.3·3.9·3.6 ·
+ *           negro/píldora blanca 19.4 · negro/menta 10.1 · insignias ≥7.2.
+ *   Blanco sobre `.hero-dark` (punto más claro #0e6453): 7.1.
  */
 @layer base {
   :root,
   .dark {
-    --canvas: 0 0% 3.5%; /* #090909 */
-    --background: 0 0% 3.5%;
-    --foreground: 0 0% 100%;
-    --card: 0 0% 7.8%; /* surface-1 #141414 */
-    --card-foreground: 0 0% 100%;
-    --popover: 0 0% 11%; /* surface-2 #1c1c1c */
-    --popover-foreground: 0 0% 100%;
+    --canvas: 160 12% 4.9%; /* #0b0e0d */
+    --background: 160 12% 4.9%;
+    --foreground: 150 14.3% 97.3%; /* ink #f7f9f8 */
+    --card: 165 9.1% 8.6%; /* surface-1 #141817 */
+    --card-foreground: 150 14.3% 97.3%;
+    --popover: 168 8.2% 12%; /* surface-2 #1c2120 */
+    --popover-foreground: 150 14.3% 97.3%;
 
-    /* Acento azul: foco, selección, enlaces. Nunca relleno. */
-    --primary: 204 100% 50%; /* #0099ff */
+    /* Menta como texto/enlace/foco: #2fe0b4 (11.5:1 sobre canvas). */
+    --primary: 165.1 74.1% 53.1%;
 
-    /* Píldora primaria: blanca con tinta negra. */
+    /* Píldora primaria: blanca con tinta negra (button-on-dark). */
     --primary-strong: 0 0% 100%;
-    --primary-strong-hover: 0 0% 88%;
-    --primary-strong-active: 0 0% 80%;
+    --primary-strong-hover: 160 6.4% 90.8%; /* #e6e9e8 */
+    --primary-strong-active: 156 6% 83.7%; /* #d3d8d6 */
     --primary-active: var(--primary-strong-active);
-    --primary-disabled: 0 0% 20%;
-    --primary-foreground: 0 0% 0%;
+    --primary-disabled: 160 7% 16.9%; /* hairline */
+    --primary-foreground: 160 12% 4.9%; /* #0b0e0d */
 
     /* Misma píldora blanca: un solo lenguaje de CTA. */
     --cta: 0 0% 100%;
-    --cta-hover: 0 0% 88%;
-    --cta-active: 0 0% 80%;
-    --cta-foreground: 0 0% 0%;
+    --cta-hover: 160 6.4% 90.8%;
+    --cta-active: 156 6% 83.7%;
+    --cta-foreground: 160 12% 4.9%;
 
-    /* Magenta de la familia de degradados. Solo insignias. */
-    --highlight: 322 85% 66%;
-    --highlight-strong: 322 75% 45%;
-    --highlight-foreground: 0 0% 100%;
+    /* Marca: menta de relleno (#00d4a4) con tinta oscura (10.1:1). */
+    --brand: 166.4 100% 41.6%;
+    --brand-foreground: 160 12% 4.9%;
+    --brand-text: 165.1 74.1% 53.1%; /* #2fe0b4 */
+    --brand-soft: 166.7 47.4% 11.2%; /* #0f2a24 */
 
-    --secondary: 0 0% 11%; /* píldora carbón = surface-2 */
-    --secondary-foreground: 0 0% 100%;
+    /* Píldora blanca sobre banda hero (`.hero-dark`): igual en ambos modos. */
+    --on-hero: 0 0% 100%;
+    --on-hero-foreground: 0 0% 4%;
 
-    --muted: 0 0% 5.9%; /* #0f0f0f, entre canvas y surface-1 */
-    --muted-foreground: 0 0% 60%; /* #999999 */
-    --muted-soft: 0 0% 36%;
+    /* Coral de resalte (#ff7a4d) con tinta oscura (7.5:1). Solo insignias. */
+    --highlight: 15.2 100% 65.1%;
+    --highlight-strong: 15.5 100% 70.4%; /* #ff8f68, presionado */
+    --highlight-foreground: 160 12% 4.9%;
 
-    --accent: 0 0% 13.7%; /* #232323, hover sobre surface-1/2 */
-    --accent-foreground: 0 0% 100%;
+    --secondary: 168 8.2% 12%; /* surface-2 #1c2120 */
+    --secondary-foreground: 150 14.3% 97.3%;
 
-    /* Peligro: texto/ícono rojo sobre carbón. El relleno (--destructive) se
-       reserva para confirmaciones irreversibles. */
-    --destructive: 359 100% 65%; /* #ff4d4f */
-    --destructive-foreground: 0 0% 0%;
-    --destructive-active: 359 100% 72%;
-    --destructive-subtle: 359 40% 12%;
-    --destructive-subtle-foreground: 359 100% 75%;
+    --muted: 160 8.6% 6.9%; /* #101312, entre canvas y surface-1 */
+    --muted-foreground: 157.5 4.5% 65.1%; /* steel #a2aaa7 */
+    --muted-soft: 157.5 3.5% 55.7%; /* stone #8a928f: decorativo, no texto */
 
-    --success: 142 71% 45%; /* #22c55e */
-    --success-subtle: 142 35% 10%;
-    --success-foreground: 142 65% 62%;
+    --accent: 160 7.7% 15.3%; /* hover #242a28 */
+    --accent-foreground: 150 14.3% 97.3%;
 
-    --warning: 37 91% 55%; /* #f5a524 */
-    --warning-subtle: 37 40% 11%;
-    --warning-foreground: 37 91% 68%;
+    /* Peligro: texto/ícono rojo (#ff6b6f, 7.0:1). El relleno (--destructive)
+       lleva tinta oscura y se reserva para confirmaciones irreversibles. */
+    --destructive: 358.4 100% 71%;
+    --destructive-foreground: 160 12% 4.9%;
+    --destructive-active: 358.5 100% 77.1%; /* #ff8a8d */
+    --destructive-subtle: 355.2 37.3% 13.1%; /* #2e1517 */
+    --destructive-subtle-foreground: 358.5 100% 77.1%; /* #ff8a8d */
 
-    --info: 204 100% 60%;
-    --info-subtle: 204 45% 11%;
-    --info-foreground: 204 100% 75%;
+    --success: 151 65.1% 53.9%; /* #3dd68c */
+    --success-subtle: 166.7 47.4% 11.2%; /* = brand-soft */
+    --success-foreground: 151 65.1% 53.9%;
 
-    --neutral: 0 0% 60%;
-    --neutral-subtle: 0 0% 11%;
-    --neutral-foreground: 0 0% 80%;
+    --warning: 38.3 89.8% 61.4%; /* #f5b544 */
+    --warning-subtle: 36.9 44.8% 11.4%; /* #2a2010 */
+    --warning-foreground: 38.3 89.8% 61.4%;
 
-    /* Líneas: hairline (#262626), hairline-soft (#1a1a1a), borde de control. */
-    --border: 0 0% 14.9%;
-    --border-soft: 0 0% 10.2%;
-    --border-strong: 0 0% 26%;
-    --input: 0 0% 40%; /* #666: 3:1 contra surface-1, límite de control visible */
-    --ring: 204 100% 50%;
+    --info: 217 100% 74.9%; /* #7fb0ff */
+    --info-subtle: 219 52.6% 14.9%; /* #12203a */
+    --info-foreground: 217 100% 74.9%;
 
-    --body-text: 0 0% 90%;
-    --legal-link: 204 100% 60%; /* #33adff */
+    --neutral: 157.5 4.5% 65.1%; /* #a2aaa7 */
+    --neutral-subtle: 168 8.2% 12%; /* #1c2120 */
+    --neutral-foreground: 154.3 7.9% 82.5%; /* #cfd6d3 */
 
-    --radius: 0.625rem; /* md 10px — inputs, items de lista */
-    --radius-card: 1.25rem; /* xl 20px — tarjetas */
-    --radius-spotlight: 1.875rem; /* xxl 30px — spotlight, paneles grandes */
-    --radius-pill: 100px;
+    /* Líneas: hairline #282e2c, hairline-soft #1f2523, strong #3a423f. */
+    --border: 160 7% 16.9%;
+    --border-soft: 160 8.8% 13.3%;
+    --border-strong: 157.5 6.5% 24.3%;
+    --input: 162 4.3% 45.1%; /* #6e7875: 3.6:1 sobre surface-2, 3.9:1 sobre surface-1 */
+    --ring: 165.1 74.1% 53.1%; /* #2fe0b4 */
 
-    /* Nivel 2: canto de luz de 0.5px + caída negra. */
-    --shadow-airbnb: inset 0 0.5px 0 rgb(255 255 255 / 0.1), 0 10px 30px rgb(0 0 0 / 0.25);
-    --shadow-airbnb-lg: inset 0 0.5px 0 rgb(255 255 255 / 0.1), 0 16px 48px rgb(0 0 0 / 0.45);
-    /* Nivel 3 (foco / seleccionado): anillo azul de 1px + halo translúcido. */
-    --shadow-selected: 0 0 0 1px rgb(0 153 255 / 0.6), 0 0 0 4px rgb(0 153 255 / 0.15);
+    --body-text: 150 7.4% 89.4%; /* #e2e6e4 */
+    --legal-link: 165.1 74.1% 53.1%; /* #2fe0b4 */
 
-    /* Anclas: violeta #6a4cf5 · magenta #d44df0 · naranja #ff7a3d · coral #ff5577.
-       El texto encima es blanco, así que ningún punto del degradado pasa de la
-       luz que deja 4.5:1 con blanco al 80%: cada uno va de un tinte muy oscuro
-       del ancla al ancla oscurecida justo hasta ese límite. */
-    --gradient-violet: linear-gradient(135deg, #1a1147 0%, #4a33b8 50%, #6045df 100%);
-    --gradient-magenta: linear-gradient(135deg, #33103c 0%, #7a2c8a 50%, #9435a7 100%);
-    --gradient-orange: linear-gradient(135deg, #3a1505 0%, #7a3a1c 50%, #9c4a25 100%);
-    --gradient-coral: linear-gradient(135deg, #3d0b17 0%, #862d40 50%, #a8374e 100%);
+    /* Radios: md 8 (inputs, código, búsqueda) · card 12 (tarjetas) ·
+       spotlight/xl 16 (paneles grandes, hero) · pill. */
+    --radius: 8px;
+    --radius-card: 12px;
+    --radius-spotlight: 16px;
+    --radius-pill: 9999px;
+
+    /* Elevación. 0 = plano con hairline. 1 tiles al hover · 2 menús/tooltips ·
+       3 diálogos/sheets · brand = tarjeta destacada. En oscuro, canto de luz
+       de 0.5px + caída negra. */
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-2: inset 0 0.5px 0 rgb(255 255 255 / 0.08), 0 10px 30px rgb(0 0 0 / 0.35);
+    --shadow-3: inset 0 0.5px 0 rgb(255 255 255 / 0.08), 0 24px 48px -8px rgb(0 0 0 / 0.55);
+    --shadow-brand: 0 8px 24px rgb(0 212 164 / 0.12);
+    /* Alias históricos (600+ usos): no renombrar. */
+    --shadow-airbnb: var(--shadow-2);
+    --shadow-airbnb-lg: var(--shadow-3);
+    /* Foco / seleccionado: anillo menta de 2px. */
+    --shadow-selected: 0 0 0 2px hsl(var(--ring));
+
+    /* Bandas hero. `hero-dark`: teal → menta con texto blanco (peor punto
+       #0e6453 = 7.1:1 con blanco, así que `text-white/85` sigue en AA).
+       `hero-sky`: cielo → crema con texto ink. Iguales en ambos modos. */
+    --gradient-hero-dark: linear-gradient(135deg, #0a2b26 0%, #0d4a3f 50%, #0e6453 100%);
+    --gradient-hero-sky: linear-gradient(180deg, #dbeeff 0%, #fff6ea 100%);
+    /* Alias temporales de la familia anterior (violeta/magenta/naranja/coral):
+       todos rinden `hero-dark` hasta que se migren los usos. */
+    --gradient-violet: var(--gradient-hero-dark);
+    --gradient-magenta: var(--gradient-hero-dark);
+    --gradient-orange: var(--gradient-hero-dark);
+    --gradient-coral: var(--gradient-hero-dark);
   }
 
-  /* Modo claro: el mismo póster invertido. Lienzo blanco, superficies gris
-     claro que suben por pasos (#f5f5f5 → #ebebeb), tinta casi negra y píldora
-     primaria NEGRA con texto blanco. El azul se oscurece para pasar AA como
-     enlace; los tonos de estado bajan de luz para servir como texto. */
+  /* Modo claro: lienzo blanco, superficies gris-verde muy claras
+     (#f4f6f5 → #e9ecea), tinta casi negra #0f1211 y píldora primaria NEGRA
+     con texto blanco. La menta como texto se oscurece (#0a6b54) para pasar AA;
+     los tonos de estado bajan de luz para servir como texto. */
   .light {
     --canvas: 0 0% 100%;
     --background: 0 0% 100%;
-    --foreground: 0 0% 4%; /* #0a0a0a */
-    --card: 0 0% 96%; /* surface-1 #f5f5f5 */
-    --card-foreground: 0 0% 4%;
+    --foreground: 160 9.1% 6.5%; /* ink #0f1211 */
+    --card: 150 10% 96.1%; /* surface-1 #f4f6f5 */
+    --card-foreground: 160 9.1% 6.5%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 4%;
+    --popover-foreground: 160 9.1% 6.5%;
 
-    --primary: 207 100% 38%; /* #0062c2 */
+    --primary: 165.8 82.9% 22.9%; /* menta profunda #0a6b54 (6.5:1) */
 
-    --primary-strong: 0 0% 4%;
-    --primary-strong-hover: 0 0% 20%;
-    --primary-strong-active: 0 0% 28%;
+    --primary-strong: 160 9.1% 6.5%; /* píldora negra */
+    --primary-strong-hover: 156 5.6% 17.5%; /* charcoal #2a2f2d */
+    --primary-strong-active: 162.9 5.3% 26.1%; /* #3f4644 */
     --primary-active: var(--primary-strong-active);
-    --primary-disabled: 0 0% 88%;
+    --primary-disabled: 150 7.4% 89.4%; /* hairline */
     --primary-foreground: 0 0% 100%;
 
-    --cta: 0 0% 4%;
-    --cta-hover: 0 0% 20%;
-    --cta-active: 0 0% 28%;
+    --cta: 160 9.1% 6.5%;
+    --cta-hover: 156 5.6% 17.5%;
+    --cta-active: 162.9 5.3% 26.1%;
     --cta-foreground: 0 0% 100%;
 
-    --highlight: 322 70% 45%;
-    --highlight-strong: 322 75% 38%;
-    --highlight-foreground: 0 0% 100%;
+    --brand: 166.4 100% 41.6%; /* #00d4a4, tinta ink 9.8:1 */
+    --brand-foreground: 160 9.1% 6.5%;
+    --brand-text: 165.8 82.9% 22.9%; /* #0a6b54 */
+    --brand-soft: 160 60% 93.1%; /* #e3f8f1 */
 
-    --secondary: 0 0% 92%; /* surface-2 #ebebeb */
-    --secondary-foreground: 0 0% 4%;
+    --on-hero: 0 0% 100%;
+    --on-hero-foreground: 0 0% 4%;
 
-    --muted: 0 0% 97%;
-    --muted-foreground: 0 0% 38%; /* #616161 */
-    --muted-soft: 0 0% 64%;
+    --highlight: 13.9 100% 62%; /* #ff6a3d, tinta ink 6.6:1. Nunca texto blanco. */
+    --highlight-strong: 13.9 88.4% 56.1%; /* #f25a2c, presionado (5.6:1) */
+    --highlight-foreground: 160 9.1% 6.5%;
 
-    --accent: 0 0% 89%;
-    --accent-foreground: 0 0% 4%;
+    --secondary: 140 7.3% 92%; /* surface-2 #e9ecea */
+    --secondary-foreground: 160 9.1% 6.5%;
 
-    --destructive: 356 78% 42%;
+    --muted: 180 6.7% 97.1%; /* #f7f8f8 */
+    --muted-foreground: 157.5 4.3% 36.9%; /* steel #5a625f */
+    --muted-soft: 157.5 3.5% 45.1%; /* stone #6f7774: decorativo, no texto */
+
+    --accent: 150 7.4% 89.4%; /* hover #e2e6e4 */
+    --accent-foreground: 160 9.1% 6.5%;
+
+    --destructive: 355.4 65% 47.1%; /* #c62a36 */
     --destructive-foreground: 0 0% 100%;
-    --destructive-active: 356 78% 35%;
-    --destructive-subtle: 356 90% 96%;
-    --destructive-subtle-foreground: 356 78% 34%;
+    --destructive-active: 355.1 66.3% 39.6%; /* #a8222d */
+    --destructive-subtle: 353.7 82.6% 95.5%; /* #fdeaec */
+    --destructive-subtle-foreground: 355.4 68.4% 41%; /* #b0212c */
 
-    --success: 142 72% 29%;
-    --success-subtle: 142 60% 94%;
-    --success-foreground: 142 72% 23%;
+    --success: 155.9 78.1% 26.9%; /* #0f7a4f */
+    --success-subtle: 160 60% 93.1%; /* = brand-soft */
+    --success-foreground: 155.6 80.5% 22.2%; /* #0b6641 */
 
-    --warning: 30 95% 33%;
-    --warning-subtle: 40 95% 93%;
-    --warning-foreground: 28 90% 27%;
+    --warning: 27.3 88.5% 34.1%; /* #a4500a */
+    --warning-subtle: 35.2 87.9% 93.5%; /* #fdf1e0 */
+    --warning-foreground: 27.2 89% 28.6%; /* #8a4308 */
 
-    --info: 207 100% 40%;
-    --info-subtle: 207 90% 95%;
-    --info-foreground: 207 100% 31%;
+    --info: 216.6 62.1% 44.5%; /* #2b62b8 */
+    --info-subtle: 216 76.9% 94.9%; /* #e8f0fc */
+    --info-foreground: 216.7 63.4% 37.5%; /* #23529c */
 
-    --neutral: 0 0% 45%;
-    --neutral-subtle: 0 0% 93%;
-    --neutral-foreground: 0 0% 28%;
+    --neutral: 157.5 4.3% 36.9%; /* #5a625f */
+    --neutral-subtle: 160 9.7% 93.9%; /* #eef1f0 */
+    --neutral-foreground: 162.9 5.3% 26.1%; /* #3f4644 */
 
-    --border: 0 0% 88%;
-    --border-soft: 0 0% 92%;
-    --border-strong: 0 0% 70%;
-    --input: 0 0% 52%;
-    --ring: 207 100% 38%;
+    --border: 150 7.4% 89.4%; /* hairline #e2e6e4 */
+    --border-soft: 140 9.1% 93.5%; /* #edf0ee */
+    --border-strong: 154.3 5.3% 73.9%; /* #b9c0bd */
+    --input: 157.5 3.2% 49.4%; /* #7a827f: 3.9:1 canvas, 3.3:1 surface-2 */
+    --ring: 165.8 82.9% 22.9%;
 
-    --body-text: 0 0% 15%;
-    --legal-link: 207 100% 36%;
+    --body-text: 156 5.6% 17.5%; /* charcoal #2a2f2d */
+    --legal-link: 165.8 82.9% 22.9%;
 
-    --shadow-airbnb: 0 1px 2px rgb(0 0 0 / 0.06), 0 10px 30px rgb(0 0 0 / 0.08);
-    --shadow-airbnb-lg: 0 1px 2px rgb(0 0 0 / 0.06), 0 16px 48px rgb(0 0 0 / 0.14);
-    --shadow-selected: 0 0 0 1px rgb(0 98 194 / 0.7), 0 0 0 4px rgb(0 98 194 / 0.15);
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 0.04);
+    --shadow-2: 0 4px 12px rgb(0 0 0 / 0.08);
+    --shadow-3: 0 24px 48px -8px rgb(0 0 0 / 0.12);
+    --shadow-brand: 0 8px 24px rgb(0 212 164 / 0.08);
+    --shadow-airbnb: var(--shadow-2);
+    --shadow-airbnb-lg: var(--shadow-3);
+    --shadow-selected: 0 0 0 2px hsl(var(--ring));
   }
 }
 
@@ -208,9 +260,9 @@
     /* Variantes de Inter que dan la voz del sistema: "1", "g", "i/l" y "0"
        alternos, sets estilísticos 03/07. Si la fuente no las trae, se ignoran. */
     font-feature-settings: "cv01", "cv05", "cv09", "cv11", "ss03", "ss07";
-    font-size: 15px;
-    line-height: 1.3;
-    letter-spacing: -0.01em;
+    font-size: 16px;
+    line-height: 1.5;
+    letter-spacing: 0;
   }
   html { color-scheme: dark; background: hsl(var(--background)); overflow-x: clip; }
   html.light { color-scheme: light; }
@@ -219,10 +271,12 @@
     font-feature-settings: "cv01", "cv05", "cv09", "cv11", "ss03", "ss07", "tnum";
     font-variant-numeric: tabular-nums;
   }
+  /* Código, ids, SKUs: Geist Mono sin las variantes de Inter. */
+  code, kbd, pre, samp, .font-mono { font-feature-settings: normal; }
   :focus-visible { outline-color: hsl(var(--ring)); }
   html { -webkit-text-size-adjust: 100%; }
   input, select, textarea { font-size: max(16px, 0.875rem); } /* evita zoom iOS al enfocar */
-  ::selection { background: hsl(var(--primary) / 0.35); }
+  ::selection { background: hsl(var(--brand) / 0.35); }
   a:not([class]) { color: hsl(var(--legal-link)); }
 }
 
@@ -244,26 +298,46 @@
     input, select, textarea { font-size: 0.875rem; }
   }
 
-  /* Tarjetas spotlight con degradado. Texto siempre blanco encima, en ambos
-     modos: los cuatro degradados están acotados para dar ≥4.5:1 con blanco
-     al 80% en cualquier punto. */
+  /* Bandas hero con degradado. Son la ÚNICA superficie con degradado del
+     sistema: panel de marca del login, cifra protagonista, total de la
+     cotización pública. Una por pantalla. */
+  .hero-dark,
+  .hero-sky,
   .spotlight {
     position: relative;
     overflow: hidden;
     border-radius: var(--radius-spotlight);
-    color: #fff;
     isolation: isolate;
   }
-  /* Oscurece el tercio inferior-izquierdo, donde va el texto blanco. */
-  .spotlight::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background: linear-gradient(20deg, rgb(0 0 0 / 0.35) 0%, transparent 55%);
+  /* Teal → menta, texto blanco (peor punto 7.1:1; secundario `text-white/85`). */
+  .hero-dark { background: var(--gradient-hero-dark); color: #fff; }
+  /* Cielo → crema, texto ink claro incluso en modo oscuro (15.9:1). */
+  .hero-sky { background: var(--gradient-hero-sky); color: #0f1211; }
+
+  /* Alias temporales: la familia spotlight (violeta/magenta/naranja/coral)
+     ya no existe; todas rinden `hero-dark` hasta migrar los usos. */
+  .spotlight { color: #fff; }
+  .spotlight-violet,
+  .spotlight-magenta,
+  .spotlight-orange,
+  .spotlight-coral { background: var(--gradient-hero-dark); }
+}
+
+@layer components {
+  /* Sombra de scroll horizontal (tablas en móvil): dos capas opacas que
+     viajan con el contenido (`background-attachment: local`) tapan a otras
+     dos fijas con la sombra; al llegar al borde la capa opaca cubre la sombra
+     y esta desaparece. Solo se ve cuando de verdad hay más columnas. El color
+     de tapa es el de la tarjeta; sobre canvas pásale
+     `[--scroll-shadow-bg:var(--background)]`. */
+  .scroll-x-shadow {
+    --scroll-shadow-bg: var(--card);
+    background:
+      linear-gradient(to right, hsl(var(--scroll-shadow-bg)) 40%, hsl(var(--scroll-shadow-bg) / 0)) left / 32px 100%,
+      linear-gradient(to left, hsl(var(--scroll-shadow-bg)) 40%, hsl(var(--scroll-shadow-bg) / 0)) right / 32px 100%,
+      linear-gradient(to right, hsl(var(--foreground) / 0.14), hsl(var(--foreground) / 0)) left / 14px 100%,
+      linear-gradient(to left, hsl(var(--foreground) / 0.14), hsl(var(--foreground) / 0)) right / 14px 100%;
+    background-repeat: no-repeat;
+    background-attachment: local, local, scroll, scroll;
   }
-  .spotlight-violet { background: var(--gradient-violet); }
-  .spotlight-magenta { background: var(--gradient-magenta); }
-  .spotlight-orange { background: var(--gradient-orange); }
-  .spotlight-coral { background: var(--gradient-coral); }
 }

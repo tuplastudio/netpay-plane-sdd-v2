@@ -296,7 +296,7 @@ export default function PaymentsPage() {
           backend devuelve bruto y neto por separado.
         */}
         <Section title="Resumen">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile size="compact"
               {...summaryTile}
               label="Cobrado (bruto)"

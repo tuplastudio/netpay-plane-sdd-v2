@@ -20,7 +20,7 @@ export function ShortcutsHelp({
         <button
           type="button"
           aria-label={label}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full sm:h-8 sm:w-8 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           <Keyboard aria-hidden className="h-4 w-4" />
         </button>
@@ -29,7 +29,7 @@ export function ShortcutsHelp({
         <ul className="space-y-1.5">
           {items.map((s) => (
             <li key={s.keys} className="flex items-center justify-between gap-3 text-xs">
-              <kbd className="rounded border border-background/30 bg-background/10 px-1.5 py-0.5 font-mono text-[10px]">
+              <kbd className="rounded border border-background/30 bg-background/10 px-1.5 py-0.5 font-mono text-micro">
                 {s.keys}
               </kbd>
               <span className="text-right">{s.label}</span>

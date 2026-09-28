@@ -226,7 +226,7 @@ export function ConversationsView() {
           <Button
             size="sm"
             variant="outline"
-            className="h-7 px-2 text-xs"
+            className="h-11 px-3 text-body-sm sm:h-8 sm:px-2"
             loading={claim.isPending && claim.variables === c.id}
             onClick={(e) => {
               e.stopPropagation();
@@ -240,7 +240,7 @@ export function ConversationsView() {
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-8 sm:w-8"
             aria-label={`Reabrir la conversación con ${c.customer?.fullName ?? c.externalPhone}`}
             title="Reabrir"
             loading={setStatus.isPending && setStatus.variables?.id === c.id}
@@ -255,7 +255,7 @@ export function ConversationsView() {
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7"
+            className="h-11 w-11 sm:h-8 sm:w-8"
             aria-label={`Cerrar la conversación con ${c.customer?.fullName ?? c.externalPhone}`}
             title="Cerrar"
             onClick={(e) => {
@@ -340,18 +340,18 @@ export function ConversationsView() {
         <StatsStrip query={list} />
       </div>
 
-      {/* Fila 2: toolbar de una sola línea. nowrap + shrink-0 en cada botón
-          para que la barra no se rompa en varias filas en pantallas más
-          estrechas (las dos mitades pueden ceder ancho pero no envolver). */}
-      <div className="relative flex shrink-0 flex-nowrap items-center justify-between gap-2">
+      {/* Fila 2: toolbar. En teléfono las pestañas y los filtros van en dos
+          filas (si no, los filtros quedan aplastados y desbordan la
+          página); desde `sm` vuelven a una sola línea. */}
+      <div className="relative flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Tabs
           value={view}
           defaultValue="inbox"
           onValueChange={(v) => setFilters({ view: v as InboxView })}
         >
-          <TabsList className="h-9 shrink-0">
+          <TabsList className="h-11 shrink-0 sm:h-9">
             {INBOX_TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value} className="h-7 whitespace-nowrap text-xs">
+              <TabsTrigger key={t.value} value={t.value} className="h-11 min-w-11 whitespace-nowrap px-3 text-body-sm sm:h-7 sm:min-w-0 sm:text-xs">
                 {t.label}
                 {typeof tabCount[t.value] === "number"
                   ? ` (${tabCount[t.value]})`
@@ -361,8 +361,8 @@ export function ConversationsView() {
           </TabsList>
         </Tabs>
 
-        <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
-          <div className="relative w-44 shrink-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <div className="relative w-full min-w-0 sm:w-44">
             <Search
               aria-hidden
               className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
@@ -374,7 +374,7 @@ export function ConversationsView() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Buscar… ( / )"
-              className="h-8 pl-7 text-xs"
+              className="h-11 pl-8 text-base sm:h-9 sm:text-sm"
               aria-label="Buscar conversaciones"
               autoComplete="off"
             />
@@ -383,7 +383,7 @@ export function ConversationsView() {
             aria-label="Ordenar por"
             value={filters.sort}
             onChange={(e) => setFilters({ sort: e.target.value as SortFilter })}
-            className="h-8 w-32 shrink-0 text-xs"
+            className="h-11 min-w-0 flex-1 text-base sm:h-9 sm:w-32 sm:flex-none sm:text-sm"
           >
             {(Object.keys(SORT_LABELS) as SortFilter[]).map((s) => (
               <option key={s} value={s}>
@@ -423,7 +423,7 @@ export function ConversationsView() {
                 )}
               >
                 <span className="font-semibold">{a.activeConversations}</span>
-                <span className={active ? "text-background/80" : "text-muted-foreground"}>
+                <span className={active ? "text-background" : "text-muted-foreground"}>
                   {a.fullName}
                 </span>
               </button>

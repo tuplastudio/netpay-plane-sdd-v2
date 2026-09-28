@@ -68,7 +68,7 @@ export function AuthBrand({ className }: { className?: string }) {
       <SellLogo className="h-8 w-8" />
       <span className="flex flex-col leading-tight">
         <span className="text-sm font-semibold">Atiende ya</span>
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">
+        <span className="text-micro-uppercase uppercase text-muted-foreground">
           Portal operativo
         </span>
       </span>

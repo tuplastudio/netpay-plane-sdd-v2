@@ -75,7 +75,7 @@ export function PageHeader({
     <header className={cn("mb-6 space-y-3", className)}>
       {breadcrumbs && breadcrumbs.length > 0 ? (
         <nav aria-label="Ruta">
-          <ol className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+          <ol className="flex flex-wrap items-center gap-1 text-caption text-muted-foreground">
             {breadcrumbs.map((crumb, i) => {
               const isLast = i === breadcrumbs.length - 1;
               return (
@@ -106,7 +106,7 @@ export function PageHeader({
             <Link
               href={backHref}
               aria-label={resolvedBackLabel}
-              className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-hairline bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:h-10 sm:w-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <ChevronLeft aria-hidden className="h-4 w-4" />
             </Link>
@@ -114,7 +114,7 @@ export function PageHeader({
           <div className="min-w-0 space-y-1">
             <h1 className="font-display text-display-md">{title}</h1>
             {description ? (
-              <p className="text-sm text-muted-foreground">{description}</p>
+              <p className="text-body text-muted-foreground">{description}</p>
             ) : null}
           </div>
         </div>

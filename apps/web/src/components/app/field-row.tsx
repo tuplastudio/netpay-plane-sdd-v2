@@ -66,16 +66,16 @@ export const FieldRow = React.forwardRef<HTMLDivElement, FieldRowProps>(
     <div
       ref={ref}
       className={cn(
-        "flex flex-col gap-0.5 py-1.5 sm:grid sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)] sm:items-baseline sm:gap-4",
+        "flex flex-col gap-0.5 py-1.5 sm:grid sm:grid-cols-[minmax(0,8rem)_minmax(0,1fr)] sm:items-baseline sm:gap-4",
         className,
       )}
       {...props}
     >
-      <dt className="text-xs text-muted-foreground sm:text-sm">{label}</dt>
+      <dt className="text-caption text-muted-foreground sm:text-body-sm">{label}</dt>
       <dd
         className={cn(
           "min-w-0 break-words text-foreground",
-          mono && "font-mono text-xs sm:text-[13px]",
+          mono && "font-mono text-code-sm",
           numeric && "tabular-nums sm:text-right",
           emphasis && "font-semibold",
         )}
@@ -90,7 +90,7 @@ export const FieldRow = React.forwardRef<HTMLDivElement, FieldRowProps>(
         ) : (
           children
         )}
-        {hint ? <span className="ml-2 text-xs text-muted-foreground">{hint}</span> : null}
+        {hint ? <span className="ml-2 text-caption text-muted-foreground">{hint}</span> : null}
       </dd>
     </div>
   ),

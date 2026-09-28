@@ -115,7 +115,7 @@ export function UserMenu() {
 
   if (!user) {
     return (
-      <Button asChild size="sm" className="h-9">
+      <Button asChild size="sm">
         <Link href="/login">Entrar</Link>
       </Button>
     );
@@ -133,7 +133,7 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 gap-2 px-2 data-[state=open]:bg-muted">
+        <Button variant="ghost" className="h-11 shrink-0 gap-2 px-1.5 data-[state=open]:bg-secondary sm:h-9 lg:px-2">
           {/* Nombre accesible: el sr-only + el texto visible. Un aria-label
               aquí taparía el nombre que se ve en pantalla. */}
           <span className="sr-only">Menú de cuenta</span>
@@ -145,13 +145,13 @@ export function UserMenu() {
           >
             {initials || "NP"}
           </span>
-          <span className="hidden max-w-[12rem] flex-col items-start leading-tight sm:flex">
+          <span className="hidden max-w-[12rem] flex-col items-start leading-tight lg:flex">
             <span className="truncate text-xs font-medium">{user.fullName || user.email}</span>
             {subtitle ? (
               <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
             ) : null}
           </span>
-          <ChevronsUpDown aria-hidden className="hidden h-3.5 w-3.5 text-muted-foreground sm:inline-block" />
+          <ChevronsUpDown aria-hidden className="hidden h-3.5 w-3.5 text-muted-foreground lg:inline-block" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">

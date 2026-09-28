@@ -205,8 +205,7 @@ export function TenantSwitcher() {
               variant={impersonating ? "warning" : "outline"}
               size="sm"
               className={cn(
-                "h-9 max-w-[14rem] gap-1.5 px-2.5 sm:max-w-[18rem]",
-                impersonating && "border-warning-strong/40",
+                "h-11 max-w-[14rem] gap-1.5 px-2.5 sm:h-9 sm:max-w-[18rem]",
               )}
               loading={(isSuperAdmin && current.isLoading) || switchMembership.isPending}
             >
@@ -247,7 +246,7 @@ export function TenantSwitcher() {
           <>
             <DropdownMenuSeparator />
             <DropdownMenuGroup aria-label="Mis empresas" className="py-1">
-              <div className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="px-2 pb-1 text-micro-uppercase uppercase text-muted-foreground">
                 Mis empresas
               </div>
               {memberships.map((m) => {
@@ -271,7 +270,7 @@ export function TenantSwitcher() {
                         <Check aria-hidden className="ml-auto h-4 w-4 shrink-0 text-primary-strong" />
                       ) : null}
                     </span>
-                    <span className="font-mono text-[10px] uppercase text-muted-foreground">
+                    <span className="font-mono text-micro uppercase text-muted-foreground">
                       {m.slug}
                     </span>
                   </DropdownMenuItem>
@@ -284,7 +283,7 @@ export function TenantSwitcher() {
         {isSuperAdmin ? (
           <>
             <DropdownMenuSeparator />
-            <div className="px-2 pb-1 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="px-2 pb-1 pt-1.5 text-micro-uppercase uppercase text-muted-foreground">
               Plataforma · ver cualquier empresa
             </div>
             <div className="px-2 pb-1">
@@ -329,7 +328,7 @@ export function TenantSwitcher() {
                           <span className="ml-auto text-xs font-medium text-warning-foreground">Activa</span>
                         ) : null}
                       </span>
-                      <span className="font-mono text-[10px] uppercase text-muted-foreground">
+                      <span className="font-mono text-micro uppercase text-muted-foreground">
                         {t.slug}
                       </span>
                     </DropdownMenuItem>

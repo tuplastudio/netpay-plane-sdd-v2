@@ -3,7 +3,10 @@ const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "object-src 'none'",
-  "img-src 'self' data: blob: https:",
+  // En dev la API sirve uploads (logo del tenant) por http://localhost:4000.
+  process.env.NODE_ENV === "production"
+    ? "img-src 'self' data: blob: https:"
+    : "img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*",
   "media-src 'self' blob: data: https:",
   // En dev Next usa eval (react-refresh) y websocket para HMR.
   process.env.NODE_ENV === "production"

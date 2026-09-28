@@ -41,7 +41,7 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
         </span>
       ) : null}
       <div className="space-y-1">
-        <p className="text-base font-semibold">{title}</p>
+        <p className="text-lg font-semibold leading-snug">{title}</p>
         {description ? (
           <p className="mx-auto max-w-sm text-sm text-muted-foreground">{description}</p>
         ) : null}

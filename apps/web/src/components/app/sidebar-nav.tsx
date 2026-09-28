@@ -311,7 +311,7 @@ export function SidebarNav({
               <p
                 id={titleId}
                 className={cn(
-                  "text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                  "text-micro-uppercase uppercase text-muted-foreground",
                   // Contraído el rótulo no cabe, pero sigue nombrando al <ul>
                   // por aria-labelledby: se oculta a la vista, no al lector.
                   collapsed ? "sr-only" : "px-2 pb-1",
@@ -371,11 +371,11 @@ function SidebarLink({
             onClick={onClick}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group relative flex h-10 items-center justify-center rounded-pill transition-colors",
+              "group relative flex h-10 items-center justify-center rounded-md transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               active
                 ? "bg-secondary text-foreground"
-                : "text-foreground/80 hover:bg-card hover:text-foreground",
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
             )}
           >
             <Icon
@@ -385,6 +385,9 @@ function SidebarLink({
                 active ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
               )}
             />
+            {active ? (
+              <span aria-hidden className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand" />
+            ) : null}
             <span className="sr-only">{item.label}</span>
           </Link>
         </TooltipTrigger>
@@ -399,15 +402,15 @@ function SidebarLink({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        // Activo = píldora surface-2 (superficie), tinta plena y
-        // `aria-current="page"` para lectores. Sin color de acento.
-        "group relative flex min-h-10 gap-3 rounded-pill px-3.5 text-sm transition-colors",
+        // Activo = surface-2, tinta plena, punto menta a la derecha y
+        // `aria-current="page"` para lectores. ≥44px en el drawer móvil.
+        "group relative flex min-h-11 gap-3 rounded-md px-3 text-body-sm-medium transition-colors lg:min-h-10",
         dense ? "py-1.5" : "py-2",
         withDescription ? "items-start" : "items-center",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         active
-          ? "bg-secondary font-medium text-foreground"
-          : "font-medium text-muted-foreground hover:bg-card hover:text-foreground",
+          ? "bg-secondary text-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
       <Icon
@@ -421,9 +424,15 @@ function SidebarLink({
       <span className="flex min-w-0 flex-col leading-tight">
         <span className="truncate">{item.label}</span>
         {withDescription ? (
-          <span className="text-xs font-normal text-muted-foreground">{item.description}</span>
+          <span className="text-caption font-normal text-muted-foreground">{item.description}</span>
         ) : null}
       </span>
+      {active ? (
+        <span
+          aria-hidden
+          className={cn("ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-brand", withDescription ? "mt-2" : "")}
+        />
+      ) : null}
     </Link>
   );
 }
@@ -491,14 +500,21 @@ export function Brand({ className, collapsed = false }: { className?: string; co
           onError={() => setLogoBroken(true)}
         />
       ) : (
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-strong text-primary-foreground"
+          // Única superficie del chrome que lleva el color de marca del tenant.
+          style={{
+            background: "var(--tenant-primary, hsl(var(--primary-strong)))",
+            color: "var(--tenant-primary-foreground, hsl(var(--primary-foreground)))",
+          }}
+        >
           <Sparkles className="h-4 w-4" aria-hidden />
         </span>
       )}
       {collapsed ? null : (
         <span className="flex min-w-0 flex-col leading-tight">
           <span className="truncate text-sm font-semibold">{displayName}</span>
-          <span className="truncate text-xs uppercase tracking-wider text-muted-foreground">
+          <span className="truncate text-micro-uppercase uppercase text-muted-foreground">
             {name ? PLATFORM_NAME : "Portal operativo"}
           </span>
         </span>
@@ -532,8 +548,8 @@ export function SidebarCollapseToggle({
       aria-label={label}
       aria-expanded={!collapsed}
       className={cn(
-        "flex h-10 items-center gap-3 rounded-pill text-sm font-medium text-muted-foreground transition-colors",
-        "hover:bg-card hover:text-foreground",
+        "flex h-10 items-center gap-3 rounded-md text-body-sm-medium text-muted-foreground transition-colors",
+        "hover:bg-accent hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         collapsed ? "w-full justify-center" : "w-full px-3",
         className,
@@ -564,7 +580,25 @@ const DUMMY_MODE_HELP =
  * `compact` es la versión de la Topbar; sin él se rinde el bloque del pie del
  * sidebar.
  */
-export function EnvBadge({ compact = false, className }: { compact?: boolean; className?: string }) {
+export function EnvBadge({
+  compact = false,
+  tooltip = true,
+  className,
+}: {
+  compact?: boolean;
+  /** `false` en el drawer móvil: en pantallas táctiles el tooltip queda abierto. */
+  tooltip?: boolean;
+  className?: string;
+}) {
+  if (!tooltip) {
+    return (
+      <Badge variant="warning" title={DUMMY_MODE_HELP} className={cn("gap-1.5", className)}>
+        <FlaskConical className="h-3 w-3" aria-hidden />
+        {compact ? "Pruebas" : "Pagos en modo de pruebas"}
+        <span className="sr-only">. {DUMMY_MODE_HELP}</span>
+      </Badge>
+    );
+  }
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -589,9 +623,11 @@ export function EnvBadge({ compact = false, className }: { compact?: boolean; cl
 export function EnvFooter({
   className,
   collapsed = false,
+  tooltip = true,
 }: {
   className?: string;
   collapsed?: boolean;
+  tooltip?: boolean;
 }) {
   // En el riel no cabe ni el chip ni la versión, pero "estás en modo de
   // pruebas" no puede desaparecer: se reduce al glifo, con el mismo texto en
@@ -619,9 +655,9 @@ export function EnvFooter({
 
   return (
     <div className={cn("flex flex-col items-start gap-2 p-3", className)}>
-      <EnvBadge />
-      <p className="text-xs text-muted-foreground">
-        <span className="font-mono">livemode=false</span> · v2
+      <EnvBadge tooltip={tooltip} />
+      <p className="text-caption text-muted-foreground">
+        <span className="font-mono text-code-sm">livemode=false</span> · v2
       </p>
     </div>
   );

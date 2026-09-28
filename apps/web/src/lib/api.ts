@@ -92,12 +92,16 @@ export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
       const isNoRefreshPath = NO_REFRESH_PATHS.some((path) =>
         axiosError.config?.url?.includes(path),
       );
+      // El proxy `/agent/*` habla con otro servicio: sus 401/502 no dicen
+      // nada de la sesión del portal y no deben cerrarla.
+      const isAgentProxy = axiosError.config?.url?.includes("/agent/") ?? false;
 
       // 401 → intentar refresh una vez por request
       if (
         axiosError.response?.status === 401 &&
         !axiosError.config?._retry &&
-        !isNoRefreshPath
+        !isNoRefreshPath &&
+        !isAgentProxy
       ) {
         const config = axiosError.config;
         if (config) config._retry = true;

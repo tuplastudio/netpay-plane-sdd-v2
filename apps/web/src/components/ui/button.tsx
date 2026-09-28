@@ -5,47 +5,55 @@ import { cn } from "@/lib/utils";
 import { Spinner } from "./spinner";
 
 export const buttonVariants = cva(
-  // Todo CTA es píldora. "Presionado" = encoger (scale), no oscurecer. Foco =
-  // anillo azul (único uso del acento junto con enlaces y selección).
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-pill text-sm font-medium tracking-[-0.01em] transition-[color,background-color,transform,box-shadow] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  // Todo botón de texto es píldora (`rounded-full`). "Presionado" = encoger
+  // (scale) + un paso de tono. Foco = anillo menta de 2px con separación.
+  // Deshabilitado (`inactive:` = disabled sin `aria-busy`): relleno hairline +
+  // texto muted (≥4.5:1), o texto `muted-soft` en las variantes sin relleno;
+  // nunca opacidad, que dejaba la menta con texto ilegible. Un botón en
+  // `loading` conserva su color: el spinner ya comunica el estado.
+  // Móvil primero: 44px de alto; desde `sm` se compacta.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-[color,background-color,border-color,transform,box-shadow] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        /** Píldora blanca (tinta oscura). La acción principal de la pantalla. */
+        /** Píldora dominante: negra en claro, blanca en oscuro. La acción principal. */
         default:
-          "bg-primary-strong text-primary-foreground hover:bg-primary-strong-hover active:bg-primary-strong-active",
-        /** Píldora carbón: acciones secundarias. */
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-accent active:bg-accent",
+          "bg-primary-strong text-primary-foreground hover:bg-primary-strong-hover active:bg-primary-strong-active inactive:bg-primary-disabled inactive:text-muted-foreground",
+        /** Misma píldora que `default`: un solo lenguaje de CTA. */
+        cta: "bg-cta text-cta-foreground hover:bg-cta-hover active:bg-cta-active inactive:bg-primary-disabled inactive:text-muted-foreground",
         /**
-         * Antes era un botón fantasma con borde. El sistema no usa botones con
-         * borde: se conserva la variante por compatibilidad y rinde igual que
-         * `secondary`.
+         * Menta de marca con tinta ink. Solo para el CTA de MÁXIMA intención
+         * (emitir, cobrar, entrar): uno por pantalla. Para todo lo demás,
+         * `default`.
          */
+        accent: "bg-brand text-brand-foreground hover:bg-brand/90 active:bg-brand/80 inactive:bg-primary-disabled inactive:text-muted-foreground",
+        /** Píldora con borde hairline y tinta ink: acciones secundarias. */
+        secondary:
+          "border border-hairline bg-transparent text-foreground hover:bg-secondary active:bg-accent inactive:text-muted-soft",
+        /** Alias histórico de `secondary` (mismo render). */
         outline:
-          "bg-secondary text-secondary-foreground hover:bg-accent active:bg-accent",
-        ghost: "text-foreground hover:bg-secondary active:bg-accent",
-        /** Píldora carbón con tinta roja: el rojo es señal, no relleno. */
+          "border border-hairline bg-transparent text-foreground hover:bg-secondary active:bg-accent inactive:text-muted-soft",
+        /** Sin relleno ni borde; radio md (no píldora). */
+        ghost: "rounded-md text-foreground hover:bg-secondary active:bg-accent inactive:text-muted-soft",
+        /** Píldora con borde y tinta roja: el rojo es señal, no relleno. */
         destructive:
-          "bg-secondary text-destructive hover:bg-destructive-subtle active:bg-destructive-subtle",
+          "border border-hairline bg-transparent text-destructive hover:bg-destructive-subtle active:bg-destructive-subtle inactive:text-muted-soft",
         /** Relleno rojo: solo el botón que confirma algo irreversible. */
         "destructive-solid":
-          "bg-destructive text-destructive-foreground hover:bg-destructive-active active:bg-destructive-active",
+          "bg-destructive text-destructive-foreground hover:bg-destructive-active active:bg-destructive-active inactive:bg-primary-disabled inactive:text-muted-foreground",
         warning:
-          "bg-secondary text-warning-foreground hover:bg-warning-subtle active:bg-warning-subtle",
-        /** Sobre fondos con degradado o imagen: superficie levantada translúcida. */
+          "border border-hairline bg-transparent text-warning-foreground hover:bg-warning-subtle active:bg-warning-subtle inactive:text-muted-soft",
+        /** Píldora blanca sobre bandas hero (`.hero-dark`), igual en ambos modos. */
         translucent:
-          "rounded-2xl bg-white/15 text-white backdrop-blur hover:bg-white/25 active:bg-white/25",
-        link: "rounded-none text-legal-link underline-offset-4 hover:underline active:scale-100",
-        /** Misma píldora blanca que `default`: un solo lenguaje de CTA. */
-        cta: "bg-cta text-cta-foreground hover:bg-cta-hover active:bg-cta-active",
+          "bg-on-hero text-on-hero-foreground hover:bg-on-hero/90 active:bg-on-hero/80 inactive:bg-on-hero/60",
+        link: "rounded-none text-legal-link underline-offset-4 hover:underline active:scale-100 inactive:text-muted-soft",
       },
       size: {
         // Móvil: alto táctil ≥44px; en escritorio se compacta.
-        default: "h-11 px-[15px] sm:h-10",
-        sm: "h-10 px-3.5 sm:h-9",
-        lg: "h-12 px-7 text-[15px]",
-        icon: "h-11 w-11 rounded-full sm:h-10 sm:w-10",
+        default: "h-11 px-5 sm:h-10",
+        sm: "h-11 px-4 sm:h-9",
+        lg: "h-12 px-7 text-base",
+        icon: "h-11 w-11 rounded-full sm:h-9 sm:w-9",
       },
     },
     defaultVariants: { variant: "default", size: "default" },
@@ -70,6 +78,7 @@ export interface ButtonProps
 /**
  * @example
  * <Button loading={mutation.isPending}>Guardar</Button>
+ * <Button variant="accent">Emitir cotización</Button>
  * <Button variant="outline" size="sm" asChild><Link href="/orders">Ver pedidos</Link></Button>
  * <Button variant="ghost" size="icon" aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
  */

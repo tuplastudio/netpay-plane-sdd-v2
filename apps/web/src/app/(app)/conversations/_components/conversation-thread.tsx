@@ -351,9 +351,9 @@ function LocationCard({ message }: { message: Message }) {
       </span>
       <div className="min-w-0">
         <p className="text-xs font-medium">Ubicación</p>
-        {message.body ? <p className="text-xs opacity-80">{message.body}</p> : null}
+        {message.body ? <p className="text-xs">{message.body}</p> : null}
         {hasCoords ? (
-          <p className="font-mono text-[11px] opacity-70">
+          <p className="font-mono text-code-sm">
             {message.latitude!.toFixed(5)}, {message.longitude!.toFixed(5)}
           </p>
         ) : null}
@@ -384,7 +384,7 @@ function DocumentCard({ message }: { message: Message }) {
           {name ?? "Archivo"}
         </p>
         {typeof message.fileSize === "number" ? (
-          <p className="text-[11px] opacity-70">{formatBytes(message.fileSize)}</p>
+          <p className="text-micro">{formatBytes(message.fileSize)}</p>
         ) : null}
       </div>
       {message.mediaUrl ? (
@@ -497,7 +497,7 @@ const MessageBubble = memo(function MessageBubble({
               </audio>
             )
           ) : media && MediaIcon ? (
-            <p className="mb-1 flex items-center gap-1.5 text-xs font-medium opacity-80">
+            <p className="mb-1 flex items-center gap-1.5 text-xs font-medium">
               <MediaIcon aria-hidden className="h-3.5 w-3.5" />
               {media.label}
               {message.mediaUrl ? (
@@ -517,8 +517,7 @@ const MessageBubble = memo(function MessageBubble({
           ) : null}
           <span
             className={cn(
-              "float-right ml-2 mt-0.5 inline-flex translate-y-0.5 items-center gap-1 text-[10px] leading-none",
-              failed ? "" : "opacity-70",
+              "float-right ml-2 mt-0.5 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none",
             )}
           >
             <time dateTime={message.createdAt} title={formatFull(message.createdAt)}>
@@ -1494,7 +1493,7 @@ function ThreadContextBar({ conversation }: { conversation: Conversation }) {
           <UserRound aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="font-medium text-foreground">{customerName}</span>
         </span>
-        <span aria-hidden className="text-muted-foreground/50">·</span>
+        <span aria-hidden className="text-muted-foreground">·</span>
         {loading && !data ? (
           <Skeleton className="h-3 w-40" />
         ) : (
@@ -1506,7 +1505,7 @@ function ThreadContextBar({ conversation }: { conversation: Conversation }) {
               {orderCount} {orderCount === 1 ? "pedido" : "pedidos"} ·{" "}
               {quoteCount} {quoteCount === 1 ? "cotización" : "cotizaciones"}
             </span>
-            <span aria-hidden className="text-muted-foreground/50">·</span>
+            <span aria-hidden className="text-muted-foreground">·</span>
             <span className="text-muted-foreground">
               <Money value={totalSpend} className="font-medium text-foreground" /> gastado
             </span>
