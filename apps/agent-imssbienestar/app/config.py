@@ -1,0 +1,471 @@
+"""Configuración del agente v2. Todo por env, sin secretos en código."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
+
+SERVICE_DIR = Path(__file__).resolve().parent.parent
+
+# Entornos donde está bien arrancar sin AGENT_INTERNAL_KEY (degradar a
+# abierto para no trabar el desarrollo local). Cualquier otro valor de
+# APP_ENV se trata como productivo y exige la llave.
+_OPEN_ENVIRONMENTS = {"local", "development", "dev", "test", ""}
+
+# Respaldo de `AGENT_SECRET_KEY` SOLO para desarrollo local (ver
+# `agent_settings._secret_key`). Está en el código fuente: cualquier
+# despliegue que lo use cifra las keys de los tenants con una llave pública.
+INSECURE_DEFAULT_SECRET_KEY = "dev-insecure-default-key-change-me"
+
+
+class SettingsError(RuntimeError):
+    """Una variable de entorno tiene un valor fuera de rango o incoherente.
+
+    `get_settings()` la convierte en `RuntimeError` con detalle al arrancar:
+    más claro que dejar que un valor absurdo tumbe el primer turno que toque
+    ese knob.
+    """
+
+
+def _env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default).strip()
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(_env(name) or default)
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = _env(name).lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(_env(name) or default)
+    except ValueError:
+        return default
+
+
+def _require_range(name: str, value: float, *, lo: float, hi: float | None = None) -> int | float:
+    """Valida rango y lanza `SettingsError` con detalle si está fuera."""
+    if value < lo or (hi is not None and value > hi):
+        bounds = f">= {lo}" if hi is None else f"in [{lo}, {hi}]"
+        raise SettingsError(f"{name}={value!r} debe ser {bounds}")
+    return value
+
+
+@dataclass(frozen=True)
+class Settings:
+    # ---- Entorno ----
+    environment: str = field(default_factory=lambda: _env("APP_ENV", "local").lower())
+
+    # ---- Modelo (OpenRouter, compatible con la API de OpenAI) ----
+    openrouter_key: str = field(
+        default_factory=lambda: _env("OPENROUTER_KEY_REF") or _env("OPENROUTER_API_KEY")
+    )
+    openrouter_base_url: str = field(
+        default_factory=lambda: _env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    )
+    # Default: Gemini 2.0 Flash (multimodal: imagen + video + audio). Razones:
+    # es lo más barato de OpenRouter que procesa video, soporta audio en el
+    # mismo turno, y el contrato de OpenAI que ya hablamos le sirve. Si un
+    # tenant prefiere texto-only (más barato aún), fija `text_model` desde
+    # el panel — `MODEL_ID` lo sobreescribe en cualquier punto.
+    model: str = field(
+        default_factory=lambda: _env("MODEL_ID", "google/gemini-2.0-flash-001")
+    )
+    summary_model: str = field(default_factory=lambda: _env("SUMMARY_MODEL_ID", ""))
+    temperature: float = field(default_factory=lambda: _env_float("AGENT_TEMPERATURE", 0.4))
+    max_tokens: int = field(default_factory=lambda: _env_int("AGENT_MAX_TOKENS", 800))
+
+    # ---- API comercial ----
+    commerce_api_url: str = field(
+        default_factory=lambda: _env("COMMERCE_API_URL", "http://localhost:4000/api/v1")
+    )
+    commerce_api_key: str = field(default_factory=lambda: _env("AGENT_API_KEY_REF"))
+    commerce_timeout: float = field(default_factory=lambda: _env_float("COMMERCE_TIMEOUT", 15.0))
+
+    # ---- Autenticación de servicio a servicio ----
+    internal_key: str = field(
+        default_factory=lambda: _env("AGENT_INTERNAL_KEY_REF") or _env("AGENT_INTERNAL_KEY")
+    )
+
+    # ---- Cifrado de secretos por tenant (ej. su propia OpenRouter API key) ----
+    # No es un KMS de producción: una sola clave simétrica de servidor,
+    # suficiente para esta etapa. Ver agent_settings.py `_encrypt`/`_decrypt`.
+    secret_key: str = field(default_factory=lambda: _env("AGENT_SECRET_KEY"))
+
+    # ---- Persistencia: el "hilo" de cada conversación y la memoria larga ----
+    data_dir: Path = field(
+        default_factory=lambda: Path(_env("AGENT_V2_DATA_DIR") or str(SERVICE_DIR / ".data"))
+    )
+
+    # ---- Presupuestos por turno ----
+    recursion_limit: int = field(default_factory=lambda: _env_int("AGENT_RECURSION_LIMIT", 40))
+    # commerce-api (agent-bridge.service.ts) aborta la llamada al agente a los
+    # 30 s (45 s si trae imagen). Un turno que tarde más ya no le llega a
+    # nadie: el tope del agente queda POR DEBAJO para que la degradación
+    # (reintento, respuesta suave o handoff) sí alcance al cliente.
+    turn_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_SECONDS", 28.0)
+    )
+    turn_timeout_image_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_IMAGE_SECONDS", 42.0)
+    )
+    # Video: procesarlo toma más (extracción de frames + audio). Por encima
+    # del de imagen para que el turno no aborte antes de que el modelo
+    # alcance a devolver respuesta. Sigue por debajo del puente de
+    # commerce-api (45 s con multimedia).
+    turn_timeout_video_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_TURN_TIMEOUT_VIDEO_SECONDS", 50.0)
+    )
+
+    # ---- Ráfagas de mensajes (ver pipeline/coalesce.py) ----
+    # En WhatsApp la gente escribe en varios mensajes seguidos ("hola" /
+    # "quiero 2 playeras" / "rojas"). Se espera esta ventana desde el último
+    # mensaje y se contesta a la ráfaga completa como un solo turno. 0 apaga.
+    coalesce_window_ms: int = field(default_factory=lambda: _env_int("AGENT_COALESCE_WINDOW_MS", 1500))
+    coalesce_channels: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            c.strip() for c in _env("AGENT_COALESCE_CHANNELS", "whatsapp").split(",") if c.strip()
+        )
+    )
+
+    # ---- Política de fallos del turno (ver pipeline/failures.py) ----
+    # Un error transitorio del proveedor (5xx, rate limit, red) se reintenta
+    # una vez reanudando el checkpoint. Solo tras N fallos seguidos en el
+    # mismo hilo se marca handoff; antes, respuesta suave sin bloquear al bot.
+    retry_transient_failures: bool = field(
+        default_factory=lambda: _env_bool("AGENT_RETRY_TRANSIENT", True)
+    )
+    handoff_after_failures: int = field(
+        default_factory=lambda: max(1, _env_int("AGENT_HANDOFF_AFTER_FAILURES", 3))
+    )
+
+    # ---- Observabilidad (ver pipeline/trace.py, GET /metrics) ----
+    metrics_latency_samples: int = field(
+        default_factory=lambda: _env_int("AGENT_METRICS_LATENCY_SAMPLES", 500)
+    )
+    # Cuántos mensajes devuelve GET /conversations/{id}/messages por defecto.
+    transcript_default_limit: int = field(
+        default_factory=lambda: _env_int("AGENT_TRANSCRIPT_LIMIT", 60)
+    )
+    max_input_chars: int = field(default_factory=lambda: _env_int("AGENT_MAX_INPUT_CHARS", 8000))
+    # v1 topaba el audio con AGENT_MAX_AUDIO_BYTES; v2 no tenía tope para
+    # imageBase64 (ver security.image_size_error, cableado en pipeline/turn.py).
+    max_image_bytes: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_IMAGE_BYTES", 5 * 1024 * 1024)
+    )
+    # Video: tope por encima del de imagen (los videos pesan más). El cliente
+    # (WhatsApp) suele mandar clips <2 minutos; 50 MB cubre eso con margen.
+    # Si el cliente sube uno más largo, hay que pedirle que recorte o mande
+    # por URL — el LLM tarda más en procesar cuanto más largo.
+    max_video_bytes: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_VIDEO_BYTES", 50 * 1024 * 1024)
+    )
+
+    # ---- Guardarraíl de tema ----
+    # Un clasificador barato decide si el mensaje va del negocio antes de
+    # gastar el bucle de herramientas. Apagable por si estorba en algún canal.
+    scope_guard_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_SCOPE_GUARD", True)
+    )
+    scope_guard_model: str = field(default_factory=lambda: _env("SCOPE_GUARD_MODEL_ID", ""))
+
+    # ---- Audio: notas de voz de WhatsApp y micrófono del chat web ----
+    stt_model: str = field(default_factory=lambda: _env("STT_MODEL_ID", "openai/whisper-1"))
+    # OpenRouter NO expone /audio/speech: `openai/tts-1` responde "Model does
+    # not exist" (comprobado). El endpoint /audio/tts queda por paridad con v1
+    # y degrada a 503; para usarlo hay que apuntar OPENROUTER_BASE_URL a un
+    # proveedor que sí lo soporte (la API de OpenAI directa, por ejemplo).
+    tts_model: str = field(default_factory=lambda: _env("TTS_MODEL_ID", "openai/tts-1"))
+    tts_voice: str = field(default_factory=lambda: _env("TTS_VOICE", "alloy"))
+    max_audio_bytes: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_AUDIO_BYTES", 8 * 1024 * 1024)
+    )
+    max_tts_chars: int = field(default_factory=lambda: _env_int("AGENT_MAX_TTS_CHARS", 700))
+    # Transcribir una nota de voz tarda más que un turno de chat: timeout aparte.
+    audio_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_AUDIO_TIMEOUT_SECONDS", 60.0)
+    )
+    # Tope genérico para argumentos de texto libre de las tools (consulta,
+    # notas, motivo/resumen de escalamiento): sin esto, un mensaje puede
+    # inflar indefinidamente el estado persistido y lo que se reinyecta en
+    # cada turno al prompt.
+    max_tool_arg_chars: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_TOOL_ARG_CHARS", 2000)
+    )
+    max_cart_lines: int = field(default_factory=lambda: _env_int("AGENT_MAX_CART_LINES", 40))
+    max_quantity: int = field(default_factory=lambda: _env_int("AGENT_MAX_QUANTITY", 100_000))
+    # Resumen: se dispara por número de mensajes y conserva los últimos N.
+    summarize_after_messages: int = field(
+        default_factory=lambda: _env_int("AGENT_SUMMARIZE_AFTER", 30)
+    )
+    keep_messages: int = field(default_factory=lambda: _env_int("AGENT_KEEP_MESSAGES", 12))
+
+    # ---- Enlaces públicos ----
+    public_base_url: str = field(
+        default_factory=lambda: _env("PUBLIC_BASE_URL", "http://localhost:3000")
+    )
+    # Orígenes adicionales permitidos por CORS (además de `public_base_url`).
+    # Separados por coma; vacíos = sin extras. Evita tocar `main.py` cuando
+    # un tenant expone el chat web desde otro dominio.
+    cors_extra_origins: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            o.strip() for o in _env("AGENT_CORS_EXTRA_ORIGINS").split(",") if o.strip()
+        )
+    )
+
+    knowledge_dir: Path = field(
+        default_factory=lambda: Path(_env("KNOWLEDGE_DIR") or str(SERVICE_DIR / "knowledge"))
+    )
+
+    # ---- Prompts versionados (ver app/prompts/registry.py) ----
+    # Carpeta con `vX.Y.Z/` y versión por defecto del proceso ("latest" o una
+    # concreta). El tenant puede fijar otra desde el panel
+    # (`AgentSettings.prompt_version`); esa gana sobre esta.
+    prompts_dir: Path = field(
+        default_factory=lambda: Path(_env("PROMPTS_DIR") or str(SERVICE_DIR / "prompts"))
+    )
+    prompt_version: str = field(default_factory=lambda: _env("PROMPT_VERSION", "latest"))
+
+    # ---- Guardas de entrada/salida ----
+    # El clasificador de tema (LLM) falla hacia abierto por defecto (ver
+    # guards/scope.py). En producción se puede pedir que un fallo del
+    # proveedor bloquee en vez de dejar pasar.
+    scope_guard_fail_closed: bool = field(
+        default_factory=lambda: _env_bool("AGENT_SCOPE_GUARD_FAIL_CLOSED", False)
+    )
+    # Heurísticas deterministas (inyección, fuera de tema obvio) antes del
+    # LLM: no cuestan tokens y no dependen del proveedor.
+    input_heuristics_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_INPUT_HEURISTICS", True)
+    )
+    # Revisión de la respuesta del modelo antes de salir al canal
+    # (fuga de prompt/notas internas, código, URLs inventadas, secretos).
+    output_guard_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_OUTPUT_GUARD", True)
+    )
+    # Redacción de nombres/lugares vía NER (Microsoft Presidio + spaCy), sobre
+    # el texto que ya limpió `guards.pii.redact()` con regex. Apagado de
+    # fábrica: pesa más que el resto de los guards y solo se usa en los dos
+    # puntos de más riesgo (memoria episódica, perfil de cliente) — ver
+    # `guards/pii.py`.
+    presidio_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_PRESIDIO_ENABLED", False)
+    )
+    # Capa adicional (experimental) sobre NVIDIA NeMo Guardrails: un
+    # self-check de jailbreak/tema sobre el mismo modelo del tenant, ANTES
+    # de las heurísticas propias. Ver `guards/nemo_rails.py`. Apagado de
+    # fábrica: agrega una llamada más al LLM por turno.
+    nemo_guardrails_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_NEMO_GUARDRAILS_ENABLED", False)
+    )
+
+    # ---- Observabilidad externa (ver app/observability.py) ----
+    # `turn.done` (arriba) ya queda en el log del proceso; esto además manda
+    # el mismo resumen (sin texto de cliente ni de respuesta) a Langfuse como
+    # una traza por turno, para verlo en un dashboard en vez de grep. Se
+    # activa solo si hay llave — sin ella, `langfuse_enabled` es False y el
+    # módulo no intenta ni importar el SDK.
+    langfuse_public_key: str = field(default_factory=lambda: _env("LANGFUSE_PUBLIC_KEY"))
+    langfuse_secret_key: str = field(default_factory=lambda: _env("LANGFUSE_SECRET_KEY"))
+    langfuse_host: str = field(default_factory=lambda: _env("LANGFUSE_HOST", "https://cloud.langfuse.com"))
+
+    # ---- Feature flags / hiperparámetros dinámicos (ver app/remote_config.py) ----
+    # Una tercera capa de configuración, encima de esta (env, por proceso) y
+    # de `agent_settings.py` (por tenant, desde el panel): un valor que
+    # operación puede cambiar en caliente para TODOS los tenants sin
+    # redeploy. Apagado sin `FLAGSMITH_ENVIRONMENT_KEY` — el módulo entero
+    # se vuelve no-op, ni siquiera intenta importar el SDK.
+    flagsmith_environment_key: str = field(default_factory=lambda: _env("FLAGSMITH_ENVIRONMENT_KEY"))
+    # Vacío = SaaS de Flagsmith; con un Flagsmith self-hosteado (droplet
+    # propio, como el resto de este proyecto) apunta a su API.
+    flagsmith_api_url: str = field(default_factory=lambda: _env("FLAGSMITH_API_URL"))
+    flagsmith_poll_seconds: int = field(
+        default_factory=lambda: _env_int("FLAGSMITH_POLL_SECONDS", 30)
+    )
+
+    # ---- Higiene de contexto (ver memory/context.py) ----
+    # Cuando el historial persistido supera este tamaño en caracteres se
+    # compacta antes de invocar al modelo: resumen + últimos N turnos.
+    compact_after_chars: int = field(
+        default_factory=lambda: _env_int("AGENT_COMPACT_AFTER_CHARS", 20_000)
+    )
+    compact_keep_turns: int = field(default_factory=lambda: _env_int("AGENT_COMPACT_KEEP_TURNS", 6))
+
+    # ---- Memoria episódica (ver memory/episodic.py) ----
+    episodic_memory_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_EPISODIC_MEMORY", False)
+    )
+    # Modelo para extraer el episodio (vacío = el modelo por defecto). Solo se
+    # usa si hay key; sin LLM se guarda la versión heurística.
+    episodic_model: str = field(default_factory=lambda: _env("EPISODIC_MODEL_ID", ""))
+    # Cuántas lecciones agregadas entran al prompt (0 = ninguna).
+    episodic_lessons_in_prompt: int = field(
+        default_factory=lambda: _env_int("AGENT_EPISODIC_LESSONS", 5)
+    )
+
+    # ---- Memoria del cliente por teléfono (ver memory/profile.py) ----
+    # Lo que sabemos de ESTE cliente entre conversaciones distintas: se
+    # guarda al cerrar el hilo y se reinyecta cuando el mismo número vuelve a
+    # escribir, aunque sea otra conversación y otro `thread_id`.
+    customer_memory_enabled: bool = field(
+        default_factory=lambda: _env_bool("AGENT_CUSTOMER_MEMORY", False)
+    )
+    # Días sin volver a escribir tras los que el perfil deja de inyectarse
+    # (sigue en disco hasta la poda; 0 = nunca caduca).
+    customer_memory_ttl_days: int = field(
+        default_factory=lambda: _env_int("AGENT_CUSTOMER_MEMORY_TTL_DAYS", 365)
+    )
+    # Modelo para extraer los hechos duraderos (vacío = el del tenant). Sin
+    # LLM se guarda la versión determinista derivada del estado comercial.
+    customer_memory_model: str = field(
+        default_factory=lambda: _env("CUSTOMER_MEMORY_MODEL_ID", "")
+    )
+
+    def __post_init__(self) -> None:
+        """Sanea y valida rangos. Los valores fuera de rango se cortan al
+        límite en vez de reventar: un knob mal configurado en producción
+        degrada en vez de tumbar el arranque.
+
+        Solo se valida (sin recortar) lo que rompería una invariante obvia:
+        un timeout negativo, un ratio sin denominador, un contador que
+        siempre sería 0.
+        """
+        if self.temperature < 0 or self.temperature > 2:
+            raise SettingsError(
+                f"AGENT_TEMPERATURE={self.temperature} fuera de rango [0, 2]"
+            )
+        if self.max_tokens <= 0:
+            raise SettingsError(f"AGENT_MAX_TOKENS={self.max_tokens} debe ser > 0")
+        if self.recursion_limit < 1:
+            raise SettingsError(f"AGENT_RECURSION_LIMIT={self.recursion_limit} debe ser >= 1")
+        if self.turn_timeout_seconds <= 0 or self.turn_timeout_image_seconds <= 0:
+            raise SettingsError("AGENT_TURN_TIMEOUT_* deben ser > 0")
+        if self.turn_timeout_seconds >= self.turn_timeout_image_seconds:
+            # El budget con imagen debe ser MAYOR (las imágenes tardan más),
+            # no igual ni menor. Si alguien invierte esto, el agente deja de
+            # aceptar imágenes para no superar el puente.
+            raise SettingsError(
+                f"AGENT_TURN_TIMEOUT_SECONDS ({self.turn_timeout_seconds}) debe ser "
+                f"< AGENT_TURN_TIMEOUT_IMAGE_SECONDS ({self.turn_timeout_image_seconds})"
+            )
+        if self.turn_timeout_video_seconds <= 0:
+            raise SettingsError("AGENT_TURN_TIMEOUT_VIDEO_SECONDS debe ser > 0")
+        if self.turn_timeout_video_seconds <= self.turn_timeout_image_seconds:
+            # El video debe tardar al menos tanto como la imagen (procesar
+            # frames + audio es más caro). Si alguien invierte esto, el
+            # agente aborta videos antes de llegar a tiempo.
+            raise SettingsError(
+                f"AGENT_TURN_TIMEOUT_VIDEO_SECONDS ({self.turn_timeout_video_seconds}) "
+                f"debe ser > AGENT_TURN_TIMEOUT_IMAGE_SECONDS ({self.turn_timeout_image_seconds})"
+            )
+        if self.max_video_bytes < 1:
+            raise SettingsError("AGENT_MAX_VIDEO_BYTES debe ser >= 1")
+        if self.coalesce_window_ms < 0:
+            raise SettingsError("AGENT_COALESCE_WINDOW_MS no puede ser negativo")
+        if self.handoff_after_failures < 1:
+            raise SettingsError("AGENT_HANDOFF_AFTER_FAILURES debe ser >= 1")
+        if self.compact_after_chars < 0 or self.compact_keep_turns < 0:
+            raise SettingsError("AGENT_COMPACT_AFTER_CHARS / KEEP_TURNS no pueden ser negativos")
+        if self.summarize_after_messages < 1:
+            raise SettingsError("AGENT_SUMMARIZE_AFTER debe ser >= 1")
+        if self.keep_messages < 1:
+            raise SettingsError("AGENT_KEEP_MESSAGES debe ser >= 1")
+        if self.max_input_chars < 1:
+            raise SettingsError("AGENT_MAX_INPUT_CHARS debe ser >= 1")
+        if self.max_tool_arg_chars < 1:
+            raise SettingsError("AGENT_MAX_TOOL_ARG_CHARS debe ser >= 1")
+        if self.max_audio_bytes < 1 or self.max_image_bytes < 1:
+            raise SettingsError("AGENT_MAX_*_BYTES deben ser >= 1")
+        if self.metrics_latency_samples < 1:
+            raise SettingsError("AGENT_METRICS_LATENCY_SAMPLES debe ser >= 1")
+        if self.flagsmith_poll_seconds < 1:
+            raise SettingsError("FLAGSMITH_POLL_SECONDS debe ser >= 1")
+
+    @property
+    def llm_live(self) -> bool:
+        return bool(self.openrouter_key)
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        return bool(self.langfuse_public_key and self.langfuse_secret_key)
+
+    @property
+    def remote_config_enabled(self) -> bool:
+        return bool(self.flagsmith_environment_key)
+
+    @property
+    def commerce_live(self) -> bool:
+        # Multi-tenant usa aserciones HMAC por petición; la API key global se
+        # conserva solo para despliegues legacy de una empresa.
+        return bool(self.internal_key or self.commerce_api_key)
+
+    @property
+    def checkpoint_path(self) -> Path:
+        return self.data_dir / "threads.sqlite"
+
+    @property
+    def store_path(self) -> Path:
+        return self.data_dir / "memory.sqlite"
+
+    @property
+    def episodes_path(self) -> Path:
+        return self.data_dir / "episodes.sqlite"
+
+    @property
+    def customer_profiles_path(self) -> Path:
+        return self.data_dir / "customer-profiles.sqlite"
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    try:
+        settings = Settings()
+    except SettingsError as exc:
+        # Reempaquetado en RuntimeError: la app solo espera RuntimeError al
+        # arrancar (uvicorn muere si start() lanza), y el detalle original
+        # sigue en `__cause__`.
+        raise RuntimeError(f"Configuración inválida: {exc}") from exc
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    # Fuera de local/desarrollo, degradar a "sin autenticación de servicio"
+    # (comportamiento heredado de v1) deja el puerto abierto a cualquiera
+    # que lo alcance: quien pueda pegarle a /chat puede ejecutar tools con
+    # dinero real. En local se mantiene abierto para no trabar el arranque.
+    if settings.environment not in _OPEN_ENVIRONMENTS and not settings.internal_key:
+        raise RuntimeError(
+            f"AGENT_INTERNAL_KEY_REF es obligatoria con APP_ENV={settings.environment!r}: "
+            "sin ella el servicio queda abierto a cualquiera que alcance el puerto."
+        )
+    _check_secret_key(settings)
+    return settings
+
+
+def _check_secret_key(settings: Settings) -> None:
+    """Niega el arranque desplegado sin una `AGENT_SECRET_KEY` propia.
+
+    "Desplegado" = `APP_ENV` fuera de local/dev/test, O la llave interna
+    puesta: `infra/compose.prod.yaml` no fija `APP_ENV` (queda "local"),
+    pero sí exige `AGENT_INTERNAL_KEY`, así que eso delata producción. En
+    ese caso una key ausente o igual a `INSECURE_DEFAULT_SECRET_KEY` es un
+    `RuntimeError`: sin esto, los secretos por tenant (su OpenRouter key)
+    quedaban cifrados con una llave que está en el repo. En local sin llave
+    interna se sigue aceptando el respaldo para no trabar el desarrollo.
+    """
+    deployed = settings.environment not in _OPEN_ENVIRONMENTS or bool(settings.internal_key)
+    insecure = not settings.secret_key or settings.secret_key == INSECURE_DEFAULT_SECRET_KEY
+    if deployed and insecure:
+        raise RuntimeError(
+            "AGENT_SECRET_KEY es obligatoria (y distinta del valor de desarrollo) cuando el "
+            f"servicio está desplegado (APP_ENV={settings.environment!r}, llave interna "
+            f"{'presente' if settings.internal_key else 'ausente'}): cifra los secretos de cada tenant."
+        )

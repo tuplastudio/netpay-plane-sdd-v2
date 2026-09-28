@@ -8,6 +8,7 @@ on:
       - "apps/commerce-worker/**"
       - "apps/dummy-gateway/**"
       - "apps/agent-v2/**"
+      - "apps/agent-imssbienestar/**"
       - "packages/**"
       - "infra/compose.prod.yaml"
       - "infra/initdb/**"
@@ -244,6 +245,76 @@ jobs:
               exit 1
             fi
 
+      # Chat de prueba de IMSS-Bienestar en su propio dominio, mismo patrón
+      # que el vhost del API arriba: captain-nginx regenera captain.conf y
+      # puede perder este archivo/la conexión de red, así que se restaura en
+      # cada deploy. Requiere DNS de imssbienestar.tupla.dev -> este droplet
+      # y una app en CapRover para ese dominio (solo para que emita el
+      # certificado Let's Encrypt; el tráfico real lo sirve este vhost, no
+      # el contenedor que registre CapRover).
+      - name: Asegurar vhost del chat IMSS-Bienestar en captain-nginx
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            DOMAIN=imssbienestar.tupla.dev
+            VHOST_FILE=/captain/generated/nginx/conf.d/imssbienestar.conf
+            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
+            if [ -z "$NGX" ]; then echo "captain-nginx no encontrado; se omite"; exit 0; fi
+            if [ ! -f "/letencrypt/etc/live/$DOMAIN/fullchain.pem" ]; then
+              echo "Sin certificado para $DOMAIN todavía (crear la app en CapRover primero); se omite el vhost esta corrida"
+              exit 0
+            fi
+            if ! docker network inspect infra_netpay_internal --format '{{range .Containers}}{{.Name}} {{end}}' | grep -q captain-nginx; then
+              docker network connect infra_netpay_internal "$NGX" && echo "captain-nginx conectado a infra_netpay_internal"
+            fi
+            if sudo grep -q "agent-imssbienestar-ui:80" "$VHOST_FILE" 2>/dev/null; then
+              echo "vhost $DOMAIN presente"
+              exit 0
+            fi
+            echo "vhost $DOMAIN ausente: se restaura"
+            sudo tee "$VHOST_FILE" >/dev/null <<'NGINX'
+            # Vhost del chat de prueba de agent-imssbienestar. Archivo propio, NO
+            # dentro de captain.conf: CapRover lo regenera y borra lo manual.
+            # Lo restaura deploy-backend.yml en cada deploy si falta.
+            server {
+                listen 80;
+                listen 443 ssl;
+                http2 on;
+                server_name imssbienestar.tupla.dev;
+                resolver 127.0.0.11 valid=10s ipv6=off;
+                ssl_certificate     /letencrypt/etc/live/imssbienestar.tupla.dev/fullchain.pem;
+                ssl_certificate_key /letencrypt/etc/live/imssbienestar.tupla.dev/privkey.pem;
+
+                location /.well-known/acme-challenge/ {
+                    alias /usr/share/nginx/domains/imssbienestar.tupla.dev/.well-known/acme-challenge/;
+                }
+
+                set $upstream http://agent-imssbienestar-ui:80;
+                location / {
+                    proxy_pass $upstream;
+                    proxy_http_version 1.1;
+                    proxy_set_header Host $host;
+                    proxy_set_header X-Real-IP $remote_addr;
+                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto $scheme;
+                    proxy_connect_timeout 5s;
+                    proxy_read_timeout 60s;
+                }
+            }
+            NGINX
+            if docker exec "$NGX" nginx -t; then
+              docker kill -s HUP "$NGX" && echo "nginx recargado"
+            else
+              echo "nginx -t falló; se retira el vhost para no romper nginx"
+              sudo rm -f "$VHOST_FILE"
+              exit 1
+            fi
+
       - name: Healthcheck
         uses: appleboy/ssh-action@v1
         with:
@@ -265,3 +336,12 @@ jobs:
               echo "  intento $i/12: esperando..."
               sleep 5
             done
+            echo ""
+            # agent-imssbienestar no publica puerto al host: se checa desde
+            # dentro de la red de compose con el propio contenedor de la UI.
+            if docker compose -f compose.prod.yaml --env-file .env.prod exec -T agent-imssbienestar-ui \
+                wget -q -O - http://agent-imssbienestar:8010/healthz | grep -q ok; then
+              echo "OK agent-imssbienestar responde"
+            else
+              echo "AVISO: agent-imssbienestar no respondió healthz"
+            fi

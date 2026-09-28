@@ -246,6 +246,65 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---- agent-imssbienestar: agente de unidades médicas IMSS-Bienestar
+  # Sinaloa (derivado de agent-v2, ver README del app). Standalone: NO habla
+  # con commerce-api (sin AGENT_API_KEY_REF, catálogo propio en data/), así
+  # que no necesita un tenant_id real en la BD comercial.
+  agent-imssbienestar:
+    build:
+      context: ../apps/agent-imssbienestar
+      dockerfile: Dockerfile
+    container_name: netpay_agent_imssbienestar
+    restart: unless-stopped
+    env_file:
+      - path: ./.env.prod
+        required: true
+    environment:
+      APP_ENV: production
+      # Mismo placeholder inerte que agent-v2 (ver ese servicio arriba): el
+      # cliente de langchain-openai exige un valor no vacío al construirse,
+      # pero este agente usa su propia key de tenant si la configuran, o cae
+      # al motor determinista si el placeholder no tiene saldo.
+      OPENROUTER_KEY_REF: ${OPENROUTER_KEY_REF:?Set OPENROUTER_KEY_REF a un placeholder no vacío, nunca una key real de plataforma}
+      # Key propia (NO la de agent-v2): un X-Internal-Key filtrado de este
+      # agente no debe servir para llamar al otro.
+      AGENT_INTERNAL_KEY: ${IMSSBIENESTAR_INTERNAL_KEY:?Set IMSSBIENESTAR_INTERNAL_KEY}
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY:?Set AGENT_SECRET_KEY}
+    volumes:
+      - agent_data_prod:/data
+    # No expuesto al host: solo agent-imssbienestar-ui lo alcanza por la red
+    # interna con la X-Internal-Key (mismo motivo que agent-v2).
+    networks: [netpay_internal]
+    expose: ["8010"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import httpx,sys; sys.exit(0 if httpx.get('http://localhost:8010/healthz', timeout=3).status_code==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  # Chat de prueba (assistant-ui): SPA estático + nginx que reenvía /agent/*
+  # a agent-imssbienestar agregando la X-Internal-Key server-side (el
+  # navegador nunca la ve). captain-nginx apunta acá para imssbienestar.tupla.dev.
+  agent-imssbienestar-ui:
+    build:
+      context: ../apps/agent-imssbienestar/chat-ui
+      dockerfile: Dockerfile
+    container_name: netpay_agent_imssbienestar_ui
+    restart: unless-stopped
+    environment:
+      AGENT_UPSTREAM: agent-imssbienestar:8010
+      AGENT_INTERNAL_KEY: ${IMSSBIENESTAR_INTERNAL_KEY:?Set IMSSBIENESTAR_INTERNAL_KEY}
+    networks: [netpay_internal]
+    expose: ["80"]
+    depends_on:
+      agent-imssbienestar:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
   # ---- Flagsmith (self-hosteado): feature flags / hiperparámetros
   # dinámicos para agent-v2 (ver app/remote_config.py). Solo red interna
   # por ahora — este droplet tiene poco margen de RAM (2 vCPU / 3.8 GiB,

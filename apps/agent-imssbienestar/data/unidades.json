@@ -1,0 +1,2507 @@
+[
+ {
+  "id": "U001",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "BADIRAGUATO",
+  "domicilio": "TEOFILO ALVAREZ Y LOLA BELTRAN, COL. CENTRO",
+  "codigo_postal": "80500",
+  "horario_texto": "LUNES A VIERNES 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Badiraguato"
+ },
+ {
+  "id": "U002",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "SURUTATO",
+  "domicilio": "SURUTATO, BADIRAGUATO",
+  "codigo_postal": "80600",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Surutato, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Surutato"
+ },
+ {
+  "id": "U003",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "EL TRIGUITO",
+  "domicilio": "EL TRIGUITO, BADIRAGUATO",
+  "codigo_postal": "80640",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Triguito, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "El Triguito"
+ },
+ {
+  "id": "U004",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "SANTA RITA DE ABAJO",
+  "domicilio": "SANTA RITA, BADIRAGUATO, SINALOA",
+  "codigo_postal": "80644",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Santa Rita, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Santa Rita"
+ },
+ {
+  "id": "U005",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "TAMEAPA",
+  "domicilio": "TAMEAPA, BADIRAGUATO",
+  "codigo_postal": "80670",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Tameapa, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Tameapa"
+ },
+ {
+  "id": "U006",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "LOS TEPEHUAJES",
+  "domicilio": "LOS TEPEHUAJES, BADIRAGUATO",
+  "codigo_postal": "80678",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 20:00 Y SÁBADO Y DOMINGO DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Los Tepehuajes, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Los Tepehuajes"
+ },
+ {
+  "id": "U007",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "LA TUNA",
+  "domicilio": "LA TUNA, BADIRAGUATO",
+  "codigo_postal": "80627",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 18:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "18:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "La Tuna, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "La Tuna"
+ },
+ {
+  "id": "U008",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "HIGUERAS DE ALVAREZ BORBOA (H DELOS MONZO)",
+  "domicilio": "HIGUERAS DE ALVAREZ BORBOA (HUGUERAS DE LOS MANZO)",
+  "codigo_postal": "80550",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Higueras de los Monzón, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Higueras de los Monzón"
+ },
+ {
+  "id": "U009",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "BADIRAGUATO",
+  "nombre": "PASO DEL HUEJOTE",
+  "domicilio": "PASO DEL HUEJOTE, BADIRAGUATO",
+  "codigo_postal": "80585",
+  "horario_texto": "LUNES A SÁBADO DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Paso del Huejote, Badiraguato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Paso del Huejote"
+ },
+ {
+  "id": "U010",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "COSTA RICA",
+  "domicilio": "COSTA RICA, SINALOA, COL. CENTRO, PRIMERA ENTRE 18 Y 19",
+  "codigo_postal": "80430",
+  "horario_texto": "LUNES A DOMINGO DE 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Costa Rica, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Costa Rica"
+ },
+ {
+  "id": "U011",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "JESÚS MARÍA",
+  "domicilio": "JESÚS MARÍA, CULIACÁN",
+  "codigo_postal": "80310",
+  "horario_texto": "LUNES A DOMINGO 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Jesús María, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Jesús María"
+ },
+ {
+  "id": "U012",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "ADOLFO LÓPEZ MATEOS (EL TAMARINDO)",
+  "domicilio": "AV ANTONIO ROSALES, COL. CENTRO, EL TAMARINDO",
+  "codigo_postal": "80492",
+  "horario_texto": "LUNES A DOMINGO DE 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Tamarindo, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "El Tamarindo"
+ },
+ {
+  "id": "U013",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "PUEBLO NUEVO",
+  "domicilio": "AV. EJIDATARIOS, ESQUINA CON BENITO JUÁREZ, POSTE 78",
+  "codigo_postal": "80430",
+  "horario_texto": "LUNES A VIERNES DE 8:00 AM A 15:30",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "15:30"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Pueblo Nuevo, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Pueblo Nuevo"
+ },
+ {
+  "id": "U014",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CULIACÁN (COL. LOMA DE RODRIGUERA)",
+  "domicilio": "AGUSTINA RAMIREZ E IGNACIO ALLENDE, COL. LOMA DE RODRIGUERA",
+  "codigo_postal": "80319",
+  "horario_texto": "LUNES A DOMINGO 8:00-21:30",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "21:30"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Loma de Rodriguera, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Loma de Rodriguera"
+ },
+ {
+  "id": "U015",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CULIACÁN (VICENTE GUERRERO)",
+  "domicilio": "ANDRÉS TELLO Y MANUEL PAINO, COL. VICENTE GUERRERO",
+  "codigo_postal": "80070",
+  "horario_texto": "LUNES A DOMINGO 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Culiacán Rosales, Sinaloa",
+  "geo_precision": "ciudad",
+  "tipo": "Unidad médica",
+  "localidad": "Culiacán Rosales"
+ },
+ {
+  "id": "U016",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CENTRO DE SALUD EL MIRADOR",
+  "domicilio": "CALLE 7 DE SEPTIEMBRE, COL. EL MIRADOR",
+  "codigo_postal": "80016",
+  "horario_texto": "LUNES A DOMINGO 8:00 A 20:30",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:30"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Mirador, Culiacán Rosales",
+  "tipo": "Centro de salud",
+  "localidad": "El Mirador"
+ },
+ {
+  "id": "U017",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "MIGUEL VALDEZ QUINTERO (EL CORAZON)",
+  "domicilio": "MIGUEL VALDEZ QUINTERO, EL CORAZÓN",
+  "codigo_postal": "80430",
+  "horario_texto": "LUNES A DOMINGO DE 8:00 A 21:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "21:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Corazón, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "El Corazón"
+ },
+ {
+  "id": "U018",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CULIACÁN (PEMEX)",
+  "domicilio": "FRANCISCO SERRANO Y RAFAEL MARTINEZ ESCOBAR, COL. PEMEX",
+  "codigo_postal": "80180",
+  "horario_texto": "LUNES A DOMINGO 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Culiacán Rosales, Sinaloa",
+  "geo_precision": "ciudad",
+  "tipo": "Unidad médica",
+  "localidad": "Culiacán Rosales"
+ },
+ {
+  "id": "U019",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CULIACÁN (AGUARUTO)",
+  "domicilio": "ADOLFO LÓPEZ MATEOS, AGUARUTO, COL. CENTRO",
+  "codigo_postal": "80308",
+  "horario_texto": "LUNES A DOMINGO 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Aguaruto, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Aguaruto"
+ },
+ {
+  "id": "U020",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CENTRO DE SALUD URBANO CULIACÁN",
+  "domicilio": "FRANCISCO ZARCO 320 OTE, COLONIA ANTONIO ROSALES",
+  "codigo_postal": "80230",
+  "horario_texto": "LUNES A DOMINGO 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": true,
+  "geo_query": "Antonio Rosales, Culiacán Rosales, Sinaloa",
+  "battelle": {
+   "jurisdiccion": "IV CULIACÁN",
+   "equipos": "4 equipos completos",
+   "responsable": "PSIC. CLAUDIA VERENICE QUINTERO ZAZUETA",
+   "nombre_fuente": "CENTRO DE SALUD URBANO CULIACÁN"
+  },
+  "geo_precision": "ciudad",
+  "tipo": "Centro de salud",
+  "localidad": "Antonio Rosales",
+  "aliases": [
+   "centro de salud urbano culiacan",
+   "culiacan zarco",
+   "cs zarco"
+  ]
+ },
+ {
+  "id": "U021",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "LAS BATEAS",
+  "domicilio": "LAS BATEAS, CULIACÁN",
+  "codigo_postal": "80398",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 20:00 HRS, SÁBADO Y DOMINGO DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Culiacán Rosales, Sinaloa",
+  "geo_precision": "municipio",
+  "tipo": "Unidad médica",
+  "localidad": "Culiacán Rosales"
+ },
+ {
+  "id": "U022",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CULIACANCITO",
+  "domicilio": "CRISTOBAL COLÓN, CULIACANCITO",
+  "codigo_postal": "80300",
+  "horario_texto": "LUNES A DOMINGO DE 8:00 A 21:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "21:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Culiacancito, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Culiacancito"
+ },
+ {
+  "id": "U023",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "IMALA",
+  "domicilio": "IMALA, CULIACÁN",
+  "codigo_postal": "80384",
+  "horario_texto": "LUNES A DOMINGO 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Imala, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Imala"
+ },
+ {
+  "id": "U024",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "CENTRO REGIONAL DE DESARROLLO INFANTIL Y ESTIMULACIÓN TEMPRANA (CEREDI)",
+  "domicilio": "BULEVAR EMILIANO ZAPATA, COL. JORGE ALMADA Nº 484",
+  "codigo_postal": "80220",
+  "horario_texto": "LUNES A VIERNES 7:00-18:00, SÁBADO 7:00-14:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "07:00",
+    "cierra": "18:00"
+   },
+   {
+    "dias": [
+     5
+    ],
+    "abre": "07:00",
+    "cierra": "14:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": true,
+  "geo_query": "Hospital Pediátrico de Sinaloa, Culiacán",
+  "geo_precision": "ciudad",
+  "tipo": "CEREDI",
+  "localidad": "Hospital Pediátrico de Sinaloa",
+  "aliases": [
+   "ceredi",
+   "centro regional de desarrollo infantil",
+   "estimulacion temprana culiacan"
+  ]
+ },
+ {
+  "id": "U025",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "HOSPITAL PEDIÁTRICO DE SINALOA",
+  "domicilio": "CALLE CONSTITUCIÓN 530, JORGE ALMADA",
+  "codigo_postal": "80200",
+  "horario_texto": "24 HORAS",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "00:00",
+    "cierra": "24:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Hospital Pediátrico de Sinaloa, Culiacán, Sinaloa",
+  "tipo": "Hospital",
+  "localidad": "Hospital Pediátrico de Sinaloa",
+  "aliases": [
+   "hospital pediatrico",
+   "pediatrico de sinaloa",
+   "hospital de ninos",
+   "hospital infantil"
+  ]
+ },
+ {
+  "id": "U026",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "EL DIEZ",
+  "domicilio": "AVENIDA TERCERA FRENTE AL CANAL PRINCIPAL S/N, COL. CENTRO",
+  "codigo_postal": "80396",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Diez, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "El Diez"
+ },
+ {
+  "id": "U027",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "VALLADO",
+  "domicilio": "PUERTO ENSENADA ESQUINA PUERTO ESCONDIDO, EL VALLADO",
+  "codigo_postal": "80110",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Vallado, Culiacán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "El Vallado"
+ },
+ {
+  "id": "U028",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "CULIACÁN",
+  "nombre": "LAZARO CARDENAS",
+  "domicilio": "AVILA CAMACHO POSTE 754, COL. LÁZARO CÁRDENAS",
+  "codigo_postal": "80290",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Culiacán Rosales, Sinaloa",
+  "geo_precision": "ciudad",
+  "tipo": "Unidad médica",
+  "localidad": "Culiacán Rosales"
+ },
+ {
+  "id": "U029",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "NAVOLATO",
+  "nombre": "CAMPO GOBIERNO",
+  "domicilio": "JUNTO A LA CRUZ ROJA S/N, COL. CENTRO, LIC. BENITO JUÁREZ",
+  "codigo_postal": "80449",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Campo Gobierno, Navolato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Campo Gobierno"
+ },
+ {
+  "id": "U030",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "NAVOLATO",
+  "nombre": "SATAYA",
+  "domicilio": "PRINCIPAL S/N, CENTRO",
+  "codigo_postal": "80370",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Sataya, Navolato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Sataya"
+ },
+ {
+  "id": "U031",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "NAVOLATO",
+  "nombre": "NAVOLATO",
+  "domicilio": "ALMADA 349, COL. CENTRO",
+  "codigo_postal": "80320",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 20:00, SÁBADOS Y DOMINGOS DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Navolato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Navolato"
+ },
+ {
+  "id": "U032",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "NAVOLATO",
+  "nombre": "BACHIMETO",
+  "domicilio": "CALLE ALCATRAZ, BACHIMETO, NAVOLATO",
+  "codigo_postal": "80330",
+  "horario_texto": "LUNES A DOMINGO DE 8:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Bachimeto, Navolato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Bachimeto"
+ },
+ {
+  "id": "U033",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "NAVOLATO",
+  "nombre": "CENTRO DE SALUD RURAL EL VERGEL",
+  "domicilio": "EL VERGEL, NAVOLATO",
+  "codigo_postal": "80338",
+  "horario_texto": "MIÉRCOLES A VIERNES DE 8:00 A 20:00, SÁBADO A MARTES DE 8:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6,
+     0,
+     1
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Vergel, Navolato, Sinaloa",
+  "tipo": "Centro de salud",
+  "localidad": "El Vergel"
+ },
+ {
+  "id": "U034",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "NAVOLATO",
+  "nombre": "VILLAMOROS",
+  "domicilio": "VILLAMOROS, NAVOLATO",
+  "codigo_postal": "80337",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO DE 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Villamoros, Navolato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "Villamoros"
+ },
+ {
+  "id": "U035",
+  "region": "REGIÓN 01 - CULIACÁN NORTE",
+  "municipio": "NAVOLATO",
+  "nombre": "SAN PEDRO",
+  "domicilio": "A. RAMÍREZ Y GUILLERMO PRIETO, SAN PEDRO",
+  "codigo_postal": "80376",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO DE 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "San Pedro, Navolato, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "San Pedro"
+ },
+ {
+  "id": "U036",
+  "region": "REGIÓN 02 - CULIACÁN SUR",
+  "municipio": "COSALÁ",
+  "nombre": "USPN COSALÁ",
+  "domicilio": "DOMICILIO CONOCIDO, COSALÁ, SINALOA",
+  "codigo_postal": "80700",
+  "horario_texto": "LUNES A VIERNES DE 08:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Cosalá, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Cosalá"
+ },
+ {
+  "id": "U037",
+  "region": "REGIÓN 02 - CULIACÁN SUR",
+  "municipio": "CULIACÁN",
+  "nombre": "USPN QUILÁ",
+  "domicilio": "DESIDERIO OCHOA S/N, COL. CENTRO, QUILÁ",
+  "codigo_postal": "80400",
+  "horario_texto": "LUNES A VIERNES DE 08:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Quilá, Culiacán, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Quilá"
+ },
+ {
+  "id": "U038",
+  "region": "REGIÓN 02 - CULIACÁN SUR",
+  "municipio": "CULIACÁN",
+  "nombre": "USPN LAS ARENITAS",
+  "domicilio": "PRINCIPAL S/N, LAS ARENITAS",
+  "codigo_postal": "80450",
+  "horario_texto": "LUNES A VIERNES DE 08:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Las Arenitas, Culiacán, Sinaloa",
+  "notas": "Comparte código postal 80450 con USPN ELDORADO.",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Las Arenitas"
+ },
+ {
+  "id": "U039",
+  "region": "REGIÓN 02 - CULIACÁN SUR",
+  "municipio": "CULIACÁN",
+  "nombre": "USPN SAN FRANCISCO DE TACUICHAMONA",
+  "domicilio": "FRENTE A LA PREPARATORIA, SAN FRANCISCO DE TACUICHAMONA",
+  "codigo_postal": "80470",
+  "horario_texto": "LUNES A VIERNES DE 08:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Tacuichamona, Culiacán, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Tacuichamona"
+ },
+ {
+  "id": "U040",
+  "region": "REGIÓN 02 - CULIACÁN SUR",
+  "municipio": null,
+  "nombre": "ILAMA",
+  "domicilio": "JUNTO A LA PLAZUELA FRENTE AL REGISTRO CIVIL S/N, COL. CENTRO",
+  "codigo_postal": "80720",
+  "horario_texto": "LUNES A VIERNES DE 08:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "La Ilama, Cosalá, Sinaloa",
+  "notas": "El catálogo no indica el municipio de esta unidad; ubicación aproximada inferida como La Ilama, Cosalá (verificar).",
+  "tipo": "Unidad médica",
+  "localidad": "La Ilama"
+ },
+ {
+  "id": "U041",
+  "region": "REGIÓN 02 - CULIACÁN SUR",
+  "municipio": "EL DORADO",
+  "nombre": "USPN ELDORADO",
+  "domicilio": "DÉCIMO TERCERA Y CALLEJÓN RASTRO VIEJO, EL DORADO",
+  "codigo_postal": "80450",
+  "horario_texto": "LUNES A VIERNES DE 08:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Eldorado, Culiacán, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Eldorado"
+ },
+ {
+  "id": "U042",
+  "region": "REGIÓN 03 - ESCUINAPA",
+  "municipio": "ESCUINAPA",
+  "nombre": "USPN ESCUINAPA",
+  "domicilio": "AV. SANDRA CALDERON NO. 44, COL. CENTRO",
+  "codigo_postal": "82400",
+  "horario_texto": "L-D DE 08:00 A 08:00 PM",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Escuinapa de Hidalgo, Sinaloa",
+  "battelle": {
+   "jurisdiccion": "VI ESCUINAPA",
+   "equipos": "1 equipo completo",
+   "responsable": "PSIC. SILVIA LÓPEZ GONZÁLEZ",
+   "nombre_fuente": "CENTRO DE SALUD URBANO ESCUINAPA"
+  },
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Escuinapa de Hidalgo",
+  "aliases": [
+   "centro de salud urbano escuinapa"
+  ]
+ },
+ {
+  "id": "U043",
+  "region": "REGIÓN 03 - ESCUINAPA",
+  "municipio": "ESCUINAPA",
+  "nombre": "USPN LA CONCEPCIÓN (LA CONCHA)",
+  "domicilio": "CALLE BENITO JUAREZ S/N, FRENTE A LA BIBLIOTECA",
+  "codigo_postal": "82590",
+  "horario_texto": "L-V DE 08:00 A 04:00 PM",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Escuinapa de Hidalgo, Sinaloa",
+  "geo_precision": "municipio",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Escuinapa de Hidalgo"
+ },
+ {
+  "id": "U044",
+  "region": "REGIÓN 03 - ESCUINAPA",
+  "municipio": "ROSARIO",
+  "nombre": "USPN LOS POZOS",
+  "domicilio": "DOMICILIO CONOCIDO, A UN COSTADO DE LA PRIMARIA Y EL COMISARIADO",
+  "codigo_postal": "82820",
+  "horario_texto": "L-V DE 08:00 A 08:00 PM / S-D DE 08:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Los Pozos, Rosario, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Los Pozos"
+ },
+ {
+  "id": "U045",
+  "region": "REGIÓN 03 - ESCUINAPA",
+  "municipio": "ROSARIO",
+  "nombre": "USPN AGUAVERDE",
+  "domicilio": "CALLE 20 DE NOVIEMBRE S/N, POR LA ENTRADA PRINCIPAL",
+  "codigo_postal": "82872",
+  "horario_texto": "L-V DE 08:00 A 04:00 PM / S-M DE 12:00 A 08:00 PM",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   },
+   {
+    "dias": [
+     5,
+     6,
+     0,
+     1
+    ],
+    "abre": "12:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Agua Verde, Rosario, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Agua Verde"
+ },
+ {
+  "id": "U046",
+  "region": "REGIÓN 03 - ESCUINAPA",
+  "municipio": "ROSARIO",
+  "nombre": "EL ROSARIO",
+  "domicilio": "AV. LUIS DONALDO COLOSIO S/N, A MEDIA CUADRA DEL HOSPITAL INTEGRAL",
+  "codigo_postal": "82800",
+  "horario_texto": "L-D DE 08:00 A 08:00 PM",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Rosario, Rosario, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "El Rosario"
+ },
+ {
+  "id": "U047",
+  "region": "REGIÓN 03 - ESCUINAPA",
+  "municipio": "ROSARIO",
+  "nombre": "USPN TABLON NO 1",
+  "domicilio": "DOMICILIO CONOCIDO, POR LA SEGUNDA ENTRADA",
+  "codigo_postal": "82833",
+  "horario_texto": "M-V DE 08:00 A 08:00 PM / S Y L DE 08:00 A 04:00 PM",
+  "horario": [
+   {
+    "dias": [
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     0
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Tablón, Rosario, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "El Tablón"
+ },
+ {
+  "id": "U048",
+  "region": "REGIÓN 03 - ESCUINAPA",
+  "municipio": "ROSARIO",
+  "nombre": "USPN CHAMETLA",
+  "domicilio": "CALLE GENERAL RUBI S/N, A UN COSTADO DE LA CANCHA DE BASKETBOL",
+  "codigo_postal": "82870",
+  "horario_texto": "L-V DE 08:00 A 08:00 PM / S-D DE 08:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Chametla, Rosario, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Chametla"
+ },
+ {
+  "id": "U049",
+  "region": "REGIÓN 04 - GUAMÚCHIL",
+  "municipio": "SALVADOR ALVARADO",
+  "nombre": "CENTRO DE SALUD GUAMÚCHIL",
+  "domicilio": "CALLE NICOLAS BRAVO ESQUINA CON AGUSTINA RAMIREZ, ENFRENTE DE GASOLINERA ARCO",
+  "codigo_postal": "81400",
+  "horario_texto": "LUNES A VIERNES DE 8:00 A 16:00 HRS",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": true,
+  "geo_query": "Guamúchil, Salvador Alvarado, Sinaloa",
+  "notas": "El listado de Battelle da otro domicilio (Agustina Ramírez 69, col. Juárez, CP 81430) y otro horario (07:00-19:20) que el catálogo general; confirmar por teléfono.",
+  "battelle": {
+   "jurisdiccion": "III GUAMÚCHIL",
+   "equipos": "1 equipo completo",
+   "responsable": "DRA. DORA BEATRIZ MONREAL RODRÍGUEZ",
+   "nombre_fuente": "CENTRO DE SALUD URBANO GUAMÚCHIL",
+   "domicilio": "AGUSTINA RAMÍREZ 69, COL. JUÁREZ",
+   "cp": "81430",
+   "horario_texto": "07:00 - 19:20 LUNES A VIERNES",
+   "horario": [
+    {
+     "dias": [
+      0,
+      1,
+      2,
+      3,
+      4
+     ],
+     "abre": "07:00",
+     "cierra": "19:20"
+    }
+   ]
+  },
+  "tipo": "Centro de salud",
+  "localidad": "Guamúchil",
+  "aliases": [
+   "centro de salud urbano guamuchil",
+   "guamuchil"
+  ]
+ },
+ {
+  "id": "U050",
+  "region": "REGIÓN 05 - GUASAVE",
+  "municipio": "GUASAVE",
+  "nombre": "CENTRO DE SALUD URBANO GUASAVE II",
+  "domicilio": "CALLE PUERTO DE VERACRUZ S/N, COL. LOMAS DEL MAR",
+  "codigo_postal": "81000",
+  "horario_texto": "08:00 - 16:00 LUNES A VIERNES",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": true,
+  "geo_query": "Guasave, Sinaloa",
+  "battelle": {
+   "jurisdiccion": "II GUASAVE",
+   "equipos": "1 equipo completo",
+   "responsable": "PSIC. LESLY AMAYRANI HERNÁNDEZ MARTÍNEZ",
+   "nombre_fuente": "CENTRO DE SALUD URBANO GUASAVE"
+  },
+  "tipo": "Centro de salud",
+  "localidad": "Guasave",
+  "aliases": [
+   "centro de salud urbano guasave",
+   "guasave 2"
+  ]
+ },
+ {
+  "id": "U051",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN BACHOMOBAMPO 1",
+  "domicilio": "CALLE PRINCIPAL FRENTE A LA PRIMARIA",
+  "codigo_postal": "81378",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Bachomobampo, Ahome, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Bachomobampo"
+ },
+ {
+  "id": "U052",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN EJIDO MOCHIS",
+  "domicilio": "EMILIANO ZAPATA Y GABRIEL LEYVA 12 B, EJIDO MOCHIS",
+  "codigo_postal": "81363",
+  "horario_texto": "LUNES A DOMINGO 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Ejido Mochis, Ahome, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Ejido Mochis"
+ },
+ {
+  "id": "U053",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN TOPOLOBAMPO",
+  "domicilio": "MIGUEL HIDALGO S/N, BARRIO PESTALOZZI, TOPOLOBAMPO",
+  "codigo_postal": "81370",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Topolobampo, Ahome, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Topolobampo"
+ },
+ {
+  "id": "U054",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN BACHOMOBAMPO 2",
+  "domicilio": "CALLE VÍCTOR SERRANO POSTE 10, EJIDO BACHOMOBAMPO 2",
+  "codigo_postal": "81378",
+  "horario_texto": "LUNES A VIERNES 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Bachomobampo, Ahome, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Bachomobampo"
+ },
+ {
+  "id": "U055",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN 9 DE DICIEMBRE",
+  "domicilio": "LÁZARO CARDENAS Y BENITO JUÁREZ S/N",
+  "codigo_postal": "81379",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Los Mochis, Sinaloa",
+  "geo_precision": "municipio",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Los Mochis"
+ },
+ {
+  "id": "U056",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN URBANO MOCHIS",
+  "domicilio": "BULEVAR ZACATECAS Y ESQ. DANIEL COTA S/N, COL. LUIS DONALDO COLOSIO",
+  "codigo_postal": "81233",
+  "horario_texto": "LUNES A DOMINGO 7:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "07:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": true,
+  "geo_query": "Los Mochis, Sinaloa",
+  "battelle": {
+   "jurisdiccion": "I LOS MOCHIS",
+   "equipos": "1 equipo completo",
+   "responsable": "PSIC. ULISES ENRIQUE FLORES"
+  },
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Los Mochis",
+  "aliases": [
+   "centro de salud urbano los mochis",
+   "urbano mochis",
+   "los mochis"
+  ]
+ },
+ {
+  "id": "U057",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN AHOME",
+  "domicilio": "CALLE 2 DE ABRIL Y ZARAGOZA S/N, COL. CENTRO, LA VILLA DE AHOME",
+  "codigo_postal": "81315",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Los Mochis, Sinaloa",
+  "geo_precision": "municipio",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Los Mochis"
+ },
+ {
+  "id": "U058",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN GRULLAS MARGEN DERECHO",
+  "domicilio": "CALLE SIN NOMBRE, LAS GRULLAS MARGEN DERECHA",
+  "codigo_postal": "81350",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Las Grullas Margen Derecha, Ahome, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Las Grullas Margen Derecha"
+ },
+ {
+  "id": "U059",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "AHOME",
+  "nombre": "USPN SAN JOSE DE AHOME",
+  "domicilio": "CALLE OSCAR MONZON MOLINA S/N, EJIDO SAN JOSÉ DE AHOME",
+  "codigo_postal": "81336",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "San José de Ahome, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "San José de Ahome"
+ },
+ {
+  "id": "U060",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "EL FUERTE",
+  "nombre": "USPN SAN BLAS",
+  "domicilio": "CARRETERA MOCHIS-SAN BLAS KM 35, COL. 8 DE OCTUBRE",
+  "codigo_postal": "81800",
+  "horario_texto": "LUNES A SÁBADO 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "San Blas, El Fuerte, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "San Blas"
+ },
+ {
+  "id": "U061",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "EL FUERTE",
+  "nombre": "USPN EL FUERTE",
+  "domicilio": "CARRETERA LOS MOCHIS-EL FUERTE",
+  "codigo_postal": "81820",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Fuerte, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "El Fuerte"
+ },
+ {
+  "id": "U062",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "EL FUERTE",
+  "nombre": "USPN CUATRO MILPAS",
+  "domicilio": "CARRETERA 4 MILPAS P65, FRENTE AL CANAL, EJIDO CUATRO MILPAS",
+  "codigo_postal": "81888",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Cuatro Milpas, El Fuerte, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Cuatro Milpas"
+ },
+ {
+  "id": "U063",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "CHOIX",
+  "nombre": "USPN BACA",
+  "domicilio": "DOMICILIO CONOCIDO, BACA, CHOIX",
+  "codigo_postal": "81740",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Baca, Choix, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Baca"
+ },
+ {
+  "id": "U064",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "CHOIX",
+  "nombre": "USPN BAJOSORI",
+  "domicilio": "CALLE PRINCIPAL S/N, BAJOSORI, CHOIX",
+  "codigo_postal": "81715",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO 8:00-15:30",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5
+    ],
+    "abre": "08:00",
+    "cierra": "15:30"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Bajosori, Choix, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Bajosori"
+ },
+ {
+  "id": "U065",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "CHOIX",
+  "nombre": "USPN POTRERO DE CANCIO",
+  "domicilio": "DOMICILIO CONOCIDO, POTRERO DE CANCIO, CHOIX",
+  "codigo_postal": "81737",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Potrero de Cancio, Choix, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Potrero de Cancio"
+ },
+ {
+  "id": "U066",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "CHOIX",
+  "nombre": "USPN SAN JAVIER",
+  "domicilio": "CALLE PRINCIPAL, A UN COSTADO DE PLAZUELA, FRENTE A CENTRO CEREMONIAL, SAN JAVIER, CHOIX",
+  "codigo_postal": "81743",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "San Javier, Choix, Sinaloa",
+  "notas": "Comparte código postal 81743 con USPN SAN JAVIER de Choix; podría ser el mismo registro.",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "San Javier"
+ },
+ {
+  "id": "U067",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "CHOIX",
+  "nombre": "USPN TABUCAHUI",
+  "domicilio": "CALLE PRINCIPAL S/N, TABUCAHUI, CHOIX",
+  "codigo_postal": "81716",
+  "horario_texto": "LUNES A VIERNES 8:00-20:00, SÁBADO Y DOMINGO 8:00-15:30",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   },
+   {
+    "dias": [
+     5,
+     6
+    ],
+    "abre": "08:00",
+    "cierra": "15:30"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Tabucahui, Choix, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Tabucahui"
+ },
+ {
+  "id": "U068",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "CHOIX",
+  "nombre": "USPN YECORATO",
+  "domicilio": "CALLE PRINCIPAL, POSTE #1, YECORATO, CHOIX",
+  "codigo_postal": "81764",
+  "horario_texto": "LUNES A VIERNES 8:00-16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Yecorato, Choix, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Yecorato"
+ },
+ {
+  "id": "U069",
+  "region": "REGIÓN 06 - LOS MOCHIS",
+  "municipio": "CHOIX",
+  "nombre": "USPN CHOIX",
+  "domicilio": "IGNACIO RAMIREZ, COL. BENITO JUÁREZ",
+  "codigo_postal": "81700",
+  "horario_texto": "LUNES A VIERNES 7:00-15:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "07:00",
+    "cierra": "15:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Choix, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Choix"
+ },
+ {
+  "id": "U070",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "USPN MAZATLÁN (CENTRO)",
+  "domicilio": "MIGUEL HIDALGO S/N, COL. CENTRO",
+  "codigo_postal": "82000",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 16:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "16:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": true,
+  "geo_query": "Centro, Mazatlán, Sinaloa",
+  "battelle": {
+   "jurisdiccion": "V MAZATLÁN",
+   "equipos": "1 equipo completo",
+   "responsable": "PSIC. MARÍA ELENA SANTOS DELANDA",
+   "nombre_fuente": "CENTRO DE SALUD URBANO MAZATLÁN"
+  },
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Centro",
+  "aliases": [
+   "centro de salud urbano mazatlan",
+   "mazatlan centro"
+  ]
+ },
+ {
+  "id": "U071",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "USPN FRANCISCO VILLA",
+  "domicilio": "ADRIANA TORRES S/N, COL. LIBERTAD DE EXPRESIÓN",
+  "codigo_postal": "82127",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 19:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "19:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Mazatlán, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Mazatlán"
+ },
+ {
+  "id": "U072",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "20 DE NOVIEMBRE",
+  "domicilio": "DURANGO Y ZACATECAS, COL. CENTRO",
+  "codigo_postal": "82872",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 19:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "19:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Mazatlán, Sinaloa",
+  "notas": "El código postal 82872 coincide con el de USPN AGUAVERDE (Rosario); podría estar mal capturado.",
+  "tipo": "Unidad médica",
+  "localidad": "Mazatlán"
+ },
+ {
+  "id": "U073",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "COL. LA MONTUOSA",
+  "domicilio": "13 DE MAYO 126, COL. CENTRO",
+  "codigo_postal": null,
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 19:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "19:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "La Montuosa, Mazatlán, Sinaloa",
+  "notas": "El catálogo trae el código postal '8200' (4 dígitos, incompleto).",
+  "tipo": "Unidad médica",
+  "localidad": "La Montuosa"
+ },
+ {
+  "id": "U074",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "ISLA DE LA PIEDRA",
+  "domicilio": "CAMARONERO S/N, COL. VICENTE GUERRERO",
+  "codigo_postal": "83139",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 19:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "19:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Isla de la Piedra, Mazatlán, Sinaloa",
+  "notas": "El código postal 83139 no corresponde al rango usual de Mazatlán (82xxx); verificar.",
+  "tipo": "Unidad médica",
+  "localidad": "Isla de la Piedra"
+ },
+ {
+  "id": "U075",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "PALMA SOLA",
+  "domicilio": null,
+  "codigo_postal": null,
+  "horario_texto": null,
+  "horario": [],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Mazatlán, Sinaloa",
+  "notas": "El catálogo no trae domicilio, código postal ni horario.",
+  "geo_precision": "municipio",
+  "tipo": "Unidad médica",
+  "localidad": "Mazatlán"
+ },
+ {
+  "id": "U076",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "IXPALINO",
+  "domicilio": null,
+  "codigo_postal": null,
+  "horario_texto": null,
+  "horario": [],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Ixpalino, San Ignacio, Sinaloa",
+  "notas": "El catálogo no trae domicilio, código postal ni horario.",
+  "tipo": "Unidad médica",
+  "localidad": "Ixpalino"
+ },
+ {
+  "id": "U077",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "VILLA UNIÓN",
+  "domicilio": null,
+  "codigo_postal": null,
+  "horario_texto": null,
+  "horario": [],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Villa Unión, Mazatlán, Sinaloa",
+  "notas": "El catálogo no trae domicilio, código postal ni horario.",
+  "tipo": "Unidad médica",
+  "localidad": "Villa Unión"
+ },
+ {
+  "id": "U078",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "EL QUELITE",
+  "domicilio": "A UN COSTADO DE LA PRIMARIA",
+  "codigo_postal": "82350",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 19:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "19:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "El Quelite, Mazatlán, Sinaloa",
+  "tipo": "Unidad médica",
+  "localidad": "El Quelite"
+ },
+ {
+  "id": "U079",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "MAZATLÁN",
+  "nombre": "USPN URIAS",
+  "domicilio": "DEL PARQUE S/N, COL. GUSTAVO DÍAZ ORDAZ",
+  "codigo_postal": "82090",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 14:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "14:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Urías, Mazatlán, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Urías"
+ },
+ {
+  "id": "U080",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "CONCORDIA",
+  "nombre": "USPN CONCORDIA",
+  "domicilio": "CARRETERA MAZATLÁN-DURANGO S/N, CONCORDIA",
+  "codigo_postal": "82600",
+  "horario_texto": "MARTES A JUEVES DE 08:00 A 14:30",
+  "horario": [
+   {
+    "dias": [
+     1,
+     2,
+     3
+    ],
+    "abre": "08:00",
+    "cierra": "14:30"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Concordia, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Concordia"
+ },
+ {
+  "id": "U081",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "SAN IGNACIO",
+  "nombre": "USPN PIAXTLA DE ABAJO",
+  "domicilio": "AV. EMILIANO ZAPATA S/N, PIAXTLA DE ABAJO",
+  "codigo_postal": "82960",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "Piaxtla de Abajo, San Ignacio, Sinaloa",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "Piaxtla de Abajo"
+ },
+ {
+  "id": "U082",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "SAN IGNACIO",
+  "nombre": "SAN IGNACIO",
+  "domicilio": null,
+  "codigo_postal": null,
+  "horario_texto": null,
+  "horario": [],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "San Ignacio, Sinaloa",
+  "notas": "El catálogo no trae domicilio, código postal ni horario.",
+  "tipo": "Unidad médica",
+  "localidad": "San Ignacio"
+ },
+ {
+  "id": "U083",
+  "region": "REGIÓN 07 - MAZATLÁN",
+  "municipio": "SAN IGNACIO",
+  "nombre": "USPN SAN JAVIER",
+  "domicilio": "CONOCIDO SAN JAVIER, CALLE S/N",
+  "codigo_postal": "81743",
+  "horario_texto": "LUNES A VIERNES DE 08:00 A 20:00",
+  "horario": [
+   {
+    "dias": [
+     0,
+     1,
+     2,
+     3,
+     4
+    ],
+    "abre": "08:00",
+    "cierra": "20:00"
+   }
+  ],
+  "realiza_edi": true,
+  "estimulacion_temprana": false,
+  "geo_query": "San Javier, San Ignacio, Sinaloa",
+  "notas": "Comparte código postal 81743 con USPN SAN JAVIER de Choix; podría ser el mismo registro.",
+  "tipo": "Unidad de salud (USPN)",
+  "localidad": "San Javier"
+ }
+]

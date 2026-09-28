@@ -1,0 +1,10 @@
+version: 1.0.0
+status: stable
+created: 2026-09-28
+description: >-
+  Primer prompt del agente de unidades médicas (IMSS-Bienestar Sinaloa):
+  orienta sobre la unidad más cercana por código postal, ubicación o
+  municipio, con domicilio, horario y servicios (EDI, estimulación temprana,
+  prueba Battelle). No da consejo médico.
+changelog:
+  - Bloques nuevos de identidad, seguridad, ubicación, urgencias y datos.

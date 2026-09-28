@@ -1,0 +1,247 @@
+[
+ {
+  "nombre": "Los Mochis",
+  "municipio": "Ahome",
+  "aliases": [
+   "ahome",
+   "mochis"
+  ],
+  "lat": 25.79281,
+  "lon": -108.99019,
+  "tipo": "city"
+ },
+ {
+  "nombre": "Angostura",
+  "municipio": "Angostura",
+  "aliases": [],
+  "lat": 25.36575,
+  "lon": -108.16152,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Badiraguato",
+  "municipio": "Badiraguato",
+  "aliases": [],
+  "lat": 25.36246,
+  "lon": -107.54998,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Concordia",
+  "municipio": "Concordia",
+  "aliases": [],
+  "lat": 23.28774,
+  "lon": -106.06527,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Cosalá",
+  "municipio": "Cosalá",
+  "aliases": [],
+  "lat": 24.41269,
+  "lon": -106.69127,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Culiacán",
+  "municipio": "Culiacán",
+  "aliases": [
+   "culiacan rosales",
+   "culiacan de rosales"
+  ],
+  "lat": 24.7979,
+  "lon": -107.39339,
+  "tipo": "city"
+ },
+ {
+  "nombre": "Choix",
+  "municipio": "Choix",
+  "aliases": [],
+  "lat": 26.70892,
+  "lon": -108.32528,
+  "tipo": "town"
+ },
+ {
+  "nombre": "La Cruz de Elota",
+  "municipio": "Elota",
+  "aliases": [
+   "elota",
+   "la cruz"
+  ],
+  "lat": 23.92173,
+  "lon": -106.89264,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Escuinapa",
+  "municipio": "Escuinapa",
+  "aliases": [
+   "escuinapa de hidalgo"
+  ],
+  "lat": 22.8338,
+  "lon": -105.77832,
+  "tipo": "town"
+ },
+ {
+  "nombre": "El Fuerte",
+  "municipio": "El Fuerte",
+  "aliases": [
+   "fuerte"
+  ],
+  "lat": 26.41555,
+  "lon": -108.61726,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Guasave",
+  "municipio": "Guasave",
+  "aliases": [],
+  "lat": 25.5738,
+  "lon": -108.46747,
+  "tipo": "city"
+ },
+ {
+  "nombre": "Mazatlán",
+  "municipio": "Mazatlán",
+  "aliases": [],
+  "lat": 23.20358,
+  "lon": -106.42084,
+  "tipo": "city"
+ },
+ {
+  "nombre": "Mocorito",
+  "municipio": "Mocorito",
+  "aliases": [],
+  "lat": 25.48016,
+  "lon": -107.92005,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Navolato",
+  "municipio": "Navolato",
+  "aliases": [],
+  "lat": 24.7633,
+  "lon": -107.69797,
+  "tipo": "city"
+ },
+ {
+  "nombre": "El Rosario",
+  "municipio": "Rosario",
+  "aliases": [
+   "rosario"
+  ],
+  "lat": 22.99205,
+  "lon": -105.85728,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Guamúchil",
+  "municipio": "Salvador Alvarado",
+  "aliases": [
+   "salvador alvarado"
+  ],
+  "lat": 25.45755,
+  "lon": -108.07554,
+  "tipo": "city"
+ },
+ {
+  "nombre": "San Ignacio",
+  "municipio": "San Ignacio",
+  "aliases": [],
+  "lat": 23.94041,
+  "lon": -106.42518,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Sinaloa de Leyva",
+  "municipio": "Sinaloa",
+  "aliases": [
+   "sinaloa municipio",
+   "leyva"
+  ],
+  "lat": 25.82287,
+  "lon": -108.2232,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Eldorado",
+  "municipio": "Eldorado",
+  "aliases": [
+   "el dorado"
+  ],
+  "lat": 24.32294,
+  "lon": -107.36343,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Juan José Ríos",
+  "municipio": "Guasave",
+  "aliases": [
+   "juan jose rios",
+   "j j rios"
+  ],
+  "lat": 25.75751,
+  "lon": -108.82209,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Topolobampo",
+  "municipio": "Ahome",
+  "aliases": [],
+  "lat": 25.60136,
+  "lon": -109.05431,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Villa Unión",
+  "municipio": "Mazatlán",
+  "aliases": [
+   "villa union"
+  ],
+  "lat": 23.18753,
+  "lon": -106.21637,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Higuera de Zaragoza",
+  "municipio": "Ahome",
+  "aliases": [
+   "higuera"
+  ],
+  "lat": 25.96924,
+  "lon": -109.30389,
+  "tipo": "town"
+ },
+ {
+  "nombre": "San Blas",
+  "municipio": "El Fuerte",
+  "aliases": [],
+  "lat": 26.07761,
+  "lon": -108.75987,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Costa Rica",
+  "municipio": "Culiacán",
+  "aliases": [],
+  "lat": 24.58955,
+  "lon": -107.39204,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Ruiz Cortines",
+  "municipio": "Guasave",
+  "aliases": [],
+  "lat": 25.70505,
+  "lon": -108.71964,
+  "tipo": "town"
+ },
+ {
+  "nombre": "Las Tapias",
+  "municipio": "Culiacán",
+  "aliases": [],
+  "lat": 24.65043,
+  "lon": -107.15585,
+  "tipo": "hamlet"
+ }
+]

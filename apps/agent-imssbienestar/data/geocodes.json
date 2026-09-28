@@ -1,0 +1,500 @@
+{
+ "U001": {
+  "lat": 25.36246,
+  "lon": -107.54998,
+  "display": "Badiraguato, Sinaloa, 80500, México",
+  "precision": "localidad"
+ },
+ "U002": {
+  "lat": 25.8065,
+  "lon": -107.5611,
+  "display": "Surutato, Badiraguato, Sinaloa, 80500, México",
+  "precision": "localidad"
+ },
+ "U003": {
+  "lat": 25.87095,
+  "lon": -107.59231,
+  "display": "El Triguito, Badiraguato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U004": {
+  "lat": 25.9275,
+  "lon": -107.50165,
+  "display": "Santa Rita de Abajo, Badiraguato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U005": {
+  "lat": 25.63784,
+  "lon": -107.37641,
+  "display": "Tameapa, Badiraguato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U006": {
+  "lat": 25.59028,
+  "lon": -107.57593,
+  "display": "Los Tepehuajes, Badiraguato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U007": {
+  "lat": 25.69745,
+  "lon": -107.14841,
+  "display": "La Tuna, Badiraguato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U008": {
+  "lat": 25.30606,
+  "lon": -107.67585,
+  "display": "Higueras de Álvarez Borboa, Badiraguato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U009": {
+  "lat": 25.21949,
+  "lon": -107.48125,
+  "display": "Paso del Huejote, Badiraguato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U010": {
+  "lat": 24.58955,
+  "lon": -107.39204,
+  "display": "Costa Rica, Culiacán, Sinaloa, 80450, México",
+  "precision": "localidad"
+ },
+ "U011": {
+  "lat": 25.0893,
+  "lon": -107.45185,
+  "display": "Jesús María, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U012": {
+  "lat": 24.89729,
+  "lon": -107.63214,
+  "display": "Adolfo López Mateos, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U013": {
+  "lat": 24.59409,
+  "lon": -107.35318,
+  "display": "Pueblo Nuevo, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U014": {
+  "lat": 24.86798,
+  "lon": -107.39277,
+  "display": "Callejón Loma de Rodriguera, Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80019, México",
+  "precision": "localidad"
+ },
+ "U017": {
+  "lat": 24.49462,
+  "lon": -107.31721,
+  "display": "Miguel Valdez Quintero (El Corazón), Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U019": {
+  "lat": 24.77852,
+  "lon": -107.50719,
+  "display": "Aguaruto, Culiacán Rosales, Culiacán, Sinaloa, 80308, México",
+  "precision": "localidad"
+ },
+ "U022": {
+  "lat": 24.82517,
+  "lon": -107.53307,
+  "display": "Culiacancito, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U023": {
+  "lat": 24.85733,
+  "lon": -107.21519,
+  "display": "Imala, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U025": {
+  "lat": 24.79857,
+  "lon": -107.39949,
+  "display": "Hospital Pediátrico de Sinaloa, Boulevard Constitución, Jorge Aldama, Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80200, México",
+  "precision": "localidad"
+ },
+ "U026": {
+  "lat": 24.7282,
+  "lon": -107.44835,
+  "display": "El Diez, Culiacán, Sinaloa, 80184, México",
+  "precision": "localidad"
+ },
+ "U027": {
+  "lat": 24.90255,
+  "lon": -107.53579,
+  "display": "El Vallado, Culiacán, El Limón de los Ramos, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U029": {
+  "lat": 24.65745,
+  "lon": -107.54508,
+  "display": "Licenciado Benito Juárez, Navolato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U030": {
+  "lat": 24.62877,
+  "lon": -107.65567,
+  "display": "Sataya, Navolato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U031": {
+  "lat": 24.7633,
+  "lon": -107.69797,
+  "display": "Navolato, Sinaloa, México",
+  "precision": "ciudad"
+ },
+ "U032": {
+  "lat": 24.74248,
+  "lon": -107.74477,
+  "display": "Bachimeto, Navolato, Sinaloa, 80377, México",
+  "precision": "localidad"
+ },
+ "U033": {
+  "lat": 24.71668,
+  "lon": -107.79905,
+  "display": "El Vergel, Navolato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U034": {
+  "lat": 24.66618,
+  "lon": -107.6714,
+  "display": "Villamoros, Navolato, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U035": {
+  "lat": 24.77343,
+  "lon": -107.55045,
+  "display": "San Pedro, Navolato, Sinaloa, 80308, México",
+  "precision": "localidad"
+ },
+ "U037": {
+  "lat": 24.44059,
+  "lon": -107.20655,
+  "display": "Quilá, Culiacán, Sinaloa, 80480, México",
+  "precision": "localidad"
+ },
+ "U038": {
+  "lat": 24.82412,
+  "lon": -107.43263,
+  "display": "Calle Estero Las Arenitas, Pradera Dorada, Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80055, México",
+  "precision": "localidad"
+ },
+ "U039": {
+  "lat": 24.36105,
+  "lon": -107.07763,
+  "display": "San Francisco de Tacuichamona, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U041": {
+  "lat": 24.32294,
+  "lon": -107.36343,
+  "display": "Eldorado, Culiacán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U044": {
+  "lat": 23.00969,
+  "lon": -106.15263,
+  "display": "Los Pozos, Rosario, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U045": {
+  "lat": 22.89243,
+  "lon": -105.97322,
+  "display": "Agua Verde, Rosario, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U047": {
+  "lat": 23.11082,
+  "lon": -106.03217,
+  "display": "El Tablón Numero Dos, Rosario, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U048": {
+  "lat": 22.87791,
+  "lon": -105.95777,
+  "display": "Chametla, Rosario, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U049": {
+  "lat": 25.45755,
+  "lon": -108.07554,
+  "display": "Guamúchil, Salvador Alvarado, Sinaloa, México",
+  "precision": "ciudad"
+ },
+ "U051": {
+  "lat": 25.7391,
+  "lon": -109.1464,
+  "display": "Bachomobampo 1, Ahome, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U052": {
+  "lat": 25.82713,
+  "lon": -109.05151,
+  "display": "Ejido Mochis, Ahome, Sinaloa, 81233, México",
+  "precision": "localidad"
+ },
+ "U053": {
+  "lat": 25.60136,
+  "lon": -109.05431,
+  "display": "Topolobampo, Ahome, Sinaloa, 81370, México",
+  "precision": "localidad"
+ },
+ "U054": {
+  "lat": 25.7391,
+  "lon": -109.1464,
+  "display": "Bachomobampo 1, Ahome, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U058": {
+  "lat": 25.89763,
+  "lon": -109.29562,
+  "display": "San José de Ahome - Las Grullas Márgen Derecha, El Ranchito, Las Grullas M.D., Ahome, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U059": {
+  "lat": 25.94146,
+  "lon": -109.25205,
+  "display": "San José de Ahome, Ahome, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U060": {
+  "lat": 26.07761,
+  "lon": -108.75987,
+  "display": "San Blas, El Fuerte, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U062": {
+  "lat": 25.88983,
+  "lon": -108.88999,
+  "display": "Cuatro Milpas, El Fuerte, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U063": {
+  "lat": 26.79736,
+  "lon": -108.45013,
+  "display": "Baca, Choix, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U064": {
+  "lat": 26.68726,
+  "lon": -108.39321,
+  "display": "Bajosori, Choix, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U065": {
+  "lat": 26.75071,
+  "lon": -108.22037,
+  "display": "Potrero de Cancio, Choix, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U066": {
+  "lat": 26.67208,
+  "lon": -108.45845,
+  "display": "San Javier, Choix, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U067": {
+  "lat": 26.72536,
+  "lon": -108.41599,
+  "display": "Tabucahui, Choix, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U068": {
+  "lat": 26.42949,
+  "lon": -108.21875,
+  "display": "Yecorato, Choix, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U069": {
+  "lat": 26.70892,
+  "lon": -108.32528,
+  "display": "Choix, Sinaloa, 81700, México",
+  "precision": "localidad"
+ },
+ "U070": {
+  "lat": 23.20037,
+  "lon": -106.42105,
+  "display": "CENTRO, Mazatlán, Sinaloa, 82000, México",
+  "precision": "localidad"
+ },
+ "U073": {
+  "lat": 23.20549,
+  "lon": -106.41072,
+  "display": "Embarcadero Isla de La Piedra, Emilio Barragán, Montuosa, Los Pinos, Mazatlán, Sinaloa, 82000, México",
+  "precision": "localidad"
+ },
+ "U074": {
+  "lat": 23.18837,
+  "lon": -106.41034,
+  "display": "Isla de la Piedra (Stone Island), Mazatlán, Sinaloa, 82059, México",
+  "precision": "localidad"
+ },
+ "U076": {
+  "lat": 23.92387,
+  "lon": -106.62057,
+  "display": "Ixpalino, San Ignacio, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U077": {
+  "lat": 23.18753,
+  "lon": -106.21637,
+  "display": "Villa Unión, Mazatlán, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U078": {
+  "lat": 23.55952,
+  "lon": -106.46839,
+  "display": "El Quelite, Mazatlán, Sinaloa, 82350, México",
+  "precision": "localidad"
+ },
+ "U079": {
+  "lat": 23.21787,
+  "lon": -106.37869,
+  "display": "Urias, Mazatlán, Sinaloa, 82000, México",
+  "precision": "localidad"
+ },
+ "U081": {
+  "lat": 23.83277,
+  "lon": -106.65972,
+  "display": "Piaxtla de Abajo, San Ignacio, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U083": {
+  "lat": 23.91985,
+  "lon": -106.50884,
+  "display": "San Javier, San Ignacio, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U015": {
+  "lat": 24.7979,
+  "lon": -107.39339,
+  "display": "Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80220, México",
+  "precision": "ciudad"
+ },
+ "U016": {
+  "lat": 24.85254,
+  "lon": -107.3847,
+  "display": "El Mirador, Culiacán Rosales, Culiacán, Sinaloa, 80017, México",
+  "precision": "localidad"
+ },
+ "U018": {
+  "lat": 24.7979,
+  "lon": -107.39339,
+  "display": "Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80220, México",
+  "precision": "ciudad"
+ },
+ "U020": {
+  "lat": 24.79624,
+  "lon": -107.38472,
+  "display": "Antonio Rosales, Culiacán Rosales, Culiacán, Sinaloa, 80230, México",
+  "precision": "ciudad"
+ },
+ "U021": {
+  "lat": 24.7979,
+  "lon": -107.39339,
+  "display": "Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80220, México",
+  "precision": "municipio"
+ },
+ "U024": {
+  "lat": 24.79857,
+  "lon": -107.39949,
+  "display": "Hospital Pediátrico de Sinaloa, Boulevard Constitución, Jorge Aldama, Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80200, México",
+  "precision": "ciudad"
+ },
+ "U028": {
+  "lat": 24.7979,
+  "lon": -107.39339,
+  "display": "Culiacán, Culiacán Rosales, Culiacán, Sinaloa, 80220, México",
+  "precision": "ciudad"
+ },
+ "U036": {
+  "lat": 24.41269,
+  "lon": -106.69127,
+  "display": "Cosalá, Sinaloa, 80700, México",
+  "precision": "localidad"
+ },
+ "U040": {
+  "lat": 24.6154,
+  "lon": -106.81938,
+  "display": "La Ilama, Cosalá, Sinaloa, México",
+  "precision": "localidad"
+ },
+ "U042": {
+  "lat": 22.8338,
+  "lon": -105.77832,
+  "display": "Escuinapa, Sinaloa, 82400, México",
+  "precision": "localidad"
+ },
+ "U043": {
+  "lat": 22.8338,
+  "lon": -105.77832,
+  "display": "Escuinapa, Sinaloa, 82400, México",
+  "precision": "municipio"
+ },
+ "U050": {
+  "lat": 25.5738,
+  "lon": -108.46747,
+  "display": "Guasave, Sinaloa, 81020, México",
+  "precision": "ciudad"
+ },
+ "U055": {
+  "lat": 25.79281,
+  "lon": -108.99019,
+  "display": "Los Mochis, Ahome, Sinaloa, México",
+  "precision": "municipio"
+ },
+ "U056": {
+  "lat": 25.79281,
+  "lon": -108.99019,
+  "display": "Los Mochis, Ahome, Sinaloa, México",
+  "precision": "ciudad"
+ },
+ "U057": {
+  "lat": 25.79281,
+  "lon": -108.99019,
+  "display": "Los Mochis, Ahome, Sinaloa, México",
+  "precision": "municipio"
+ },
+ "U061": {
+  "lat": 26.41555,
+  "lon": -108.61726,
+  "display": "El Fuerte, Sinaloa, 81820, México",
+  "precision": "localidad"
+ },
+ "U071": {
+  "lat": 23.20358,
+  "lon": -106.42084,
+  "display": "Mazatlán, Sinaloa, 82000, México",
+  "precision": "ciudad"
+ },
+ "U072": {
+  "lat": 23.20358,
+  "lon": -106.42084,
+  "display": "Mazatlán, Sinaloa, 82000, México",
+  "precision": "ciudad"
+ },
+ "U075": {
+  "lat": 23.20358,
+  "lon": -106.42084,
+  "display": "Mazatlán, Sinaloa, 82000, México",
+  "precision": "municipio"
+ },
+ "U080": {
+  "lat": 23.28774,
+  "lon": -106.06527,
+  "display": "Concordia, Sinaloa, 82600, México",
+  "precision": "localidad"
+ },
+ "U082": {
+  "lat": 23.94041,
+  "lon": -106.42518,
+  "display": "San Ignacio, Sinaloa, 82900, México",
+  "precision": "localidad"
+ },
+ "U046": {
+  "lat": 22.99205,
+  "lon": -105.85728,
+  "display": "El Rosario, Rosario, Sinaloa, 82800, México",
+  "precision": "localidad"
+ }
+}

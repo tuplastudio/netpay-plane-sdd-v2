@@ -1,0 +1,21 @@
+server {
+    listen 80;
+    server_tokens off;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # El backend valida X-Internal-Key (ver app/security.py); el navegador
+    # nunca la recibe, solo nginx la agrega al reenviar.
+    location /agent/ {
+        proxy_pass http://${AGENT_UPSTREAM}/;
+        proxy_set_header X-Internal-Key "${AGENT_INTERNAL_KEY}";
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_read_timeout 60s;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
