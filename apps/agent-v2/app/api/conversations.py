@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from ..guards import redact_pii
@@ -76,14 +76,20 @@ async def get_transcript(
     tenantId: str = Query(...),
     limit: int | None = Query(default=None, ge=1, le=500),
     redact: bool = True,
+    x_agent_debug: str | None = Header(default=None),
     rt: Runtime = Depends(ready_runtime),
 ) -> dict[str, Any]:
     """Los últimos mensajes del hilo tal como los ve el modelo.
 
     Para depurar "¿por qué contestó eso?" desde el panel sin abrir el
-    sqlite. Por defecto redacta teléfonos, correos y tarjetas
-    (`redact=false` solo para soporte con acceso al dato).
+    sqlite. Por defecto redacta teléfonos, correos y tarjetas.
+    `redact=false` solo se respeta con el header `x-agent-debug: 1`
+    (soporte con acceso al dato): commerce-api ya quita `redact` para
+    quien no es super-admin, esto es defensa en profundidad por si otro
+    llamante con la llave interna lo manda.
     """
+    if (x_agent_debug or "").strip() != "1":
+        redact = True
     config = {"configurable": {"thread_id": thread_id_for(tenantId, conversation_id)}}
     snapshot = await rt.agent.aget_state(config)
     values = snapshot.values or {}

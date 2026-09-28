@@ -71,8 +71,8 @@ UPLOADS_SUBDIR = "uploads"
 TENANTS_SUBDIR = "tenants"
 DEFAULT_TENANT_ID = "default"
 
-# Reutilizado tanto para sanear nombres de archivo subidos como tenant_id: el
-# criterio de "caracteres seguros para un componente de ruta" es el mismo.
+# Sanea nombres de archivo subidos. (Los tenant_id ya no se sanean: se
+# validan contra `_TENANT_ID_RE` y se rechazan, ver `_sanitize_tenant_id`.)
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_.-]")
 # ~300 KB de texto plano es de sobra para cualquier documento de negocio real;
 # tope defensivo contra un archivo gigante o un ataque de agotamiento de disco.
@@ -91,23 +91,33 @@ INJECTION_PATTERNS = re.compile(
 )
 
 
-def _sanitize_tenant_id(tenant_id: str) -> str:
-    """Nombre de directorio seguro para un tenant: sin ruta, sin traversal.
+_TENANT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
-    Mismo criterio que `_sanitize_upload_name` (abajo): `.name` descarta
-    cualquier componente de ruta, incluido "../"; lo que sobreviva se filtra
-    de caracteres no seguros y se recorta. Vacío, solo puntos (".", "..",
-    "...") o un tenant_id en blanco caen todos al tenant por defecto: es el
-    mismo bucket que ya usa el layout viejo (ver docstring del módulo), así
-    que un tenant_id ausente o malformado nunca cruza a los datos propios de
-    OTRO tenant real — en el peor caso ve la plantilla base + el legado.
+
+class InvalidTenantId(ValueError):
+    """`tenant_id` que no es un UUID ni un slug seguro (``^[A-Za-z0-9_-]{1,64}$``).
+
+    `main.py` la convierte en HTTP 400 para cualquier endpoint.
+    """
+
+
+def _sanitize_tenant_id(tenant_id: str) -> str:
+    """Nombre de directorio de un tenant; rechaza cualquier id malformado.
+
+    Solo se acepta un UUID o un slug ``[A-Za-z0-9_-]{1,64}`` (un UUID ya
+    cumple el patrón). Antes se "arreglaba" el id (``Path(raw).name`` +
+    reemplazo de caracteres, y lo irrecuperable caía a ``default``): así
+    ``"../a"`` y ``"a"`` —o ``"x y"`` y ``"x_y"`` — compartían directorio,
+    caché y conocimiento. Ahora un id raro es un error del llamante
+    (``InvalidTenantId``), nunca otro bucket. Vacío sigue siendo el tenant
+    por defecto (arranque, layout viejo).
     """
     raw = (tenant_id or "").strip()
     if not raw:
         return DEFAULT_TENANT_ID
-    name = Path(raw).name
-    safe = _SAFE_NAME.sub("_", name)[:80].strip(".")
-    return safe or DEFAULT_TENANT_ID
+    if not _TENANT_ID_RE.fullmatch(raw):
+        raise InvalidTenantId("tenantId inválido: solo letras, dígitos, '-' y '_' (máx. 64)")
+    return raw
 
 
 def tenant_knowledge_dir(tenant_id: str, *, root: Path | None = None) -> Path:

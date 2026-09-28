@@ -10,9 +10,14 @@ Verificaciones, en orden:
 1. **Secretos del proceso** (key de OpenRouter, llave interna, API key de
    commerce): si aparecen, se bloquea la respuesta.
 2. **Fuga de prompt**: cualquier línea distintiva del prompt estático
-   (``PromptVersion.protected_lines``) repetida literalmente → bloqueo.
-3. **Fuga de notas internas**: cualquier nota ``> interno:`` del
-   conocimiento repetida literalmente → bloqueo.
+   (``PromptVersion.protected_lines``) repetida literalmente —comparando
+   tokens normalizados, así que cambiar puntuación, acentos o poner una
+   palabra por renglón no la esconde— → bloqueo.
+3. **Fuga de notas internas y contenido dinámico**: notas ``> interno:``,
+   reglas del negocio (``extra_rules``, sin lo entrecomillado), ``<lecciones>``
+   (``protected_blocks``) y temas prohibidos / ``<memoria_cliente>``
+   (``recitation_blocks``). Además de la comparación literal, se detecta
+   copia casi literal por shingles de 8 tokens (ver ``shingle_leak``) → bloqueo.
 4. **Código / formatos ajenos al chat**: bloques ``\`\`\```, ``def ...(``,
    ``SELECT ... FROM``, JSON largo → bloqueo (fuera de alcance).
 5. **Datos sensibles** (tarjeta, CLABE, CURP): se enmascaran, la respuesta
@@ -31,6 +36,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -64,8 +70,70 @@ def _pick(options: tuple[str, ...], seed: str, business: str) -> str:
     return options[digest[0] % len(options)].format(business=business or "nosotros")
 
 
-def _normalize(text: str) -> str:
-    return " ".join((text or "").split()).lower()
+# ---- Detección por shingles (fugas "casi literales") ----
+#
+# La comparación literal no ve una fuga con la puntuación cambiada, una
+# palabra por renglón o acentos quitados. Se compara en TOKENS normalizados
+# (minúsculas, sin acentos, solo letras/dígitos) y en shingles de
+# `SHINGLE_SIZE` tokens seguidos: un shingle de 8 palabras idénticas casi
+# nunca aparece por casualidad en una respuesta de venta.
+SHINGLE_SIZE = 8
+# Un renglón protegido se da por filtrado si al menos este porcentaje de
+# sus shingles aparece en la respuesta (y al menos `_MIN_SEGMENT_HITS`)...
+SHINGLE_RATIO = 0.30
+_MIN_SEGMENT_HITS = 3
+# ...o si la respuesta copia una racha de shingles CONSECUTIVOS del bloque
+# (6 shingles = 13 tokens seguidos), aunque el bloque sea largo.
+SHINGLE_RUN = 6
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# Texto entre comillas en las reglas del negocio suele ser un guion que el
+# bot SÍ debe decir ("responde: “los envíos tardan 3 a 5 días”"): no se
+# protege, o cada respuesta que lo use se bloquearía.
+_QUOTED_RE = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”|«[^»\n]*»")
+
+
+def tokens(text: str) -> list[str]:
+    """Tokens normalizados: minúsculas, sin diacríticos, solo ``\\w+``."""
+    folded = unicodedata.normalize("NFKD", (text or "").lower())
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    return _TOKEN_RE.findall(folded)
+
+
+def _shingles(toks: list[str], size: int = SHINGLE_SIZE) -> list[tuple[str, ...]]:
+    return [tuple(toks[i : i + size]) for i in range(len(toks) - size + 1)]
+
+
+def strip_quoted(text: str) -> str:
+    """Quita los fragmentos entre comillas (guiones que el bot sí dice)."""
+    return _QUOTED_RE.sub(" ", text or "")
+
+
+def shingle_leak(reply_shingles: set[tuple[str, ...]], block: str, *, ratio: bool = True) -> bool:
+    """¿La respuesta reproduce ``block`` casi literal?
+
+    - Racha: ``SHINGLE_RUN`` shingles consecutivos del bloque presentes en la
+      respuesta (siempre).
+    - Proporción (``ratio=True``): algún renglón del bloque con al menos
+      ``_MIN_SEGMENT_HITS`` shingles y ``SHINGLE_RATIO`` de ellos presentes.
+      Se mide por renglón para que una regla larga no diluya la fuga de uno.
+    """
+    if not reply_shingles:
+        return False
+    run = 0
+    for shingle in _shingles(tokens(block)):
+        run = run + 1 if shingle in reply_shingles else 0
+        if run >= SHINGLE_RUN:
+            return True
+    if not ratio:
+        return False
+    for segment in (block or "").splitlines():
+        seg = _shingles(tokens(segment))
+        if len(seg) < _MIN_SEGMENT_HITS:
+            continue
+        hits = sum(1 for s in seg if s in reply_shingles)
+        if hits >= _MIN_SEGMENT_HITS and hits / len(seg) >= SHINGLE_RATIO:
+            return True
+    return False
 
 
 @dataclass
@@ -110,10 +178,20 @@ class OutputGuard:
         business: str = "",
         protected_lines: Iterable[str] = (),
         internal_notes: Iterable[str] = (),
+        protected_blocks: Iterable[str] = (),
+        recitation_blocks: Iterable[str] = (),
         allowed_urls: Iterable[str] = (),
         seed: str = "",
     ) -> OutputVerdict:
-        """Evalúa ``reply``; nunca lanza."""
+        """Evalúa ``reply``; nunca lanza.
+
+        ``protected_blocks``: contenido dinámico que el cliente nunca debe
+        leer (reglas del negocio, ``<lecciones>``); se revisa por racha y por
+        proporción de shingles. ``recitation_blocks``: contenido que el bot
+        puede USAR pero no recitar (temas prohibidos, ``<memoria_cliente>``):
+        solo por racha, para no bloquear un "¿seguimos con la pintura blanca
+        que te interesó?". Las notas internas cuentan como protegidas.
+        """
         text = reply or ""
         if not text.strip():
             return OutputVerdict(True, text)
@@ -124,15 +202,28 @@ class OutputGuard:
             if secret in text:
                 return OutputVerdict(False, _pick(_LEAK_REPLIES, seed, business), ["secreto"])
 
-        normalized = _normalize(text)
+        # Literal, pero sobre tokens normalizados: sobrevive a puntuación
+        # cambiada, acentos quitados y una palabra por renglón.
+        reply_tokens = tokens(text)
+        joined = f" {' '.join(reply_tokens)} "
         for line in protected_lines:
-            candidate = _normalize(line)
-            if len(candidate) >= 40 and candidate in normalized:
+            candidate = " ".join(tokens(line))
+            if len(candidate) >= 40 and f" {candidate} " in joined:
                 return OutputVerdict(False, _pick(_LEAK_REPLIES, seed, business), ["fuga_prompt"])
-        for note in internal_notes:
-            candidate = _normalize(note)
-            if len(candidate) >= 25 and candidate in normalized:
+        notes = [n for n in internal_notes if n]
+        for note in notes:
+            candidate = " ".join(tokens(note))
+            if len(candidate) >= 25 and f" {candidate} " in joined:
                 return OutputVerdict(False, _pick(_LEAK_REPLIES, seed, business), ["fuga_nota_interna"])
+
+        reply_shingles = set(_shingles(reply_tokens))
+        if reply_shingles:
+            if any(shingle_leak(reply_shingles, note) for note in notes):
+                return OutputVerdict(False, _pick(_LEAK_REPLIES, seed, business), ["fuga_nota_interna"])
+            if any(shingle_leak(reply_shingles, block) for block in protected_blocks if block):
+                return OutputVerdict(False, _pick(_LEAK_REPLIES, seed, business), ["fuga_contenido_protegido"])
+            if any(shingle_leak(reply_shingles, block, ratio=False) for block in recitation_blocks if block):
+                return OutputVerdict(False, _pick(_LEAK_REPLIES, seed, business), ["fuga_contenido_protegido"])
 
         for pattern in _CODE_PATTERNS:
             if pattern.search(text):

@@ -86,6 +86,119 @@ async def _safe(coro):
         return None, sanitize_error_message(str(exc))
 
 
+# ---------------------------------------------------------------- identidad del cliente
+#
+# Quién es "el cliente de esta conversación" lo decide SOLO el canal
+# autenticado: `runtime.context["customer_phone"]` lo pone commerce-api desde
+# `WhatsAppConversation.externalPhone` (el número que de verdad escribió), no
+# el modelo ni el cliente. Lo que el cliente DICE ("mi teléfono es 55…", "mi
+# correo es ana@…") es un dato sin verificar: sirve para completar su ficha,
+# nunca para encontrar o leer la ficha de otra persona. Antes,
+# `historial_del_cliente` buscaba con el teléfono que el cliente se había
+# "recordado" y `GET /customers?q=` hace `contains`, así que "mi teléfono es
+# 55" devolvía nombre, correo, RFC e historial de otro cliente del negocio.
+
+_NOT_IN_CONVERSATION_QUOTE = "No encontré esa cotización en esta conversación."
+_NOT_IN_CONVERSATION_ORDER = "No encontré ese pedido en esta conversación."
+
+
+def normalize_phone(value: Any) -> str:
+    """Solo dígitos, con el prefijo móvil mexicano viejo plegado.
+
+    WhatsApp reporta los móviles de México como ``521`` + 10 dígitos y
+    muchas fichas los guardan como ``52`` + 10: son el mismo número. Fuera
+    de eso la comparación es exacta — nunca por sufijo ni por ``contains``.
+    """
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) == 13 and digits.startswith("521"):
+        digits = "52" + digits[3:]
+    return digits
+
+
+def same_phone(a: Any, b: Any) -> bool:
+    """Igualdad exacta de teléfonos normalizados (mínimo 8 dígitos)."""
+    na, nb = normalize_phone(a), normalize_phone(b)
+    return len(na) >= 8 and na == nb
+
+
+def _channel_phone(runtime: ToolRuntime) -> str:
+    """Teléfono autenticado por el canal (WhatsApp), o "" (chat web)."""
+    return str(_ctx(runtime).get("customer_phone") or "").strip()
+
+
+def _customer_items(found: Any) -> list[dict[str, Any]]:
+    items = found.get("items", found) if isinstance(found, dict) else found
+    return [c for c in (items or []) if isinstance(c, dict)]
+
+
+async def _customers_with_phone(client: CommerceClient, phone: str) -> list[dict[str, Any]]:
+    """Clientes del tenant cuyo teléfono es EXACTAMENTE ``phone`` (normalizado).
+
+    commerce-api solo ofrece ``GET /customers?q=`` (``contains``, sirve para
+    el buscador del panel); se consulta con los últimos 10 dígitos y se
+    filtra aquí por igualdad exacta. Un número parcial nunca encuentra nada.
+    """
+    target = normalize_phone(phone)
+    if len(target) < 8:
+        return []
+    found = await client.find_customer(target[-10:])
+    return [c for c in _customer_items(found) if normalize_phone(c.get("phone")) == target]
+
+
+async def _customers_with_email(client: CommerceClient, email: str) -> list[dict[str, Any]]:
+    """Clientes del tenant cuyo correo es EXACTAMENTE ``email`` (sin mayúsculas)."""
+    wanted = (email or "").strip().lower()
+    if "@" not in wanted:
+        return []
+    found = await client.find_customer(wanted)
+    return [c for c in _customer_items(found) if str(c.get("email") or "").strip().lower() == wanted]
+
+
+async def _channel_customer(client: CommerceClient, runtime: ToolRuntime) -> dict[str, Any] | None:
+    """La ficha del cliente autenticado por el canal, o ``None``."""
+    phone = _channel_phone(runtime)
+    if not phone:
+        return None
+    matches = await _customers_with_phone(client, phone)
+    return matches[0] if matches else None
+
+
+async def _owned_by_conversation(
+    client: CommerceClient, runtime: ToolRuntime, record: dict[str, Any], *, kind: str
+) -> bool:
+    """¿La cotización/pedido ``record`` es de ESTA conversación?
+
+    Sí cuando su id ya está en ``state.carts`` (lo creó una tool de este
+    hilo), cuando su cliente es el ``customerId`` que emitir_cotizacion
+    resolvió en este hilo, o cuando el teléfono de su cliente es exactamente
+    el del canal autenticado. Cualquier otro folio del tenant —aunque exista—
+    se trata como inexistente.
+    """
+    record_id = str(record.get("id") or "")
+    carts: dict[str, CartRecord] = runtime.state.get("carts") or {}
+    field_name = "quoteId" if kind == "quote" else "orderId"
+    if record_id and any(str(c.get(field_name) or "") == record_id for c in carts.values()):
+        return True
+    customer_id = str(record.get("customerId") or (record.get("customer") or {}).get("id") or "")
+    known_id = str((runtime.state.get("customer") or {}).get("customerId") or "")
+    if customer_id and known_id and customer_id == known_id:
+        return True
+    phone = _channel_phone(runtime)
+    if not phone:
+        return False
+    if same_phone((record.get("customer") or {}).get("phone"), phone):
+        return True
+    if customer_id:
+        channel_customer, error = await _safe(_channel_customer(client, runtime))
+        if not error and channel_customer and str(channel_customer.get("id")) == customer_id:
+            return True
+    return False
+
+
+def _is_not_found(error: str | None) -> bool:
+    return bool(error) and ("NOT_FOUND" in error or "404" in error or "no accesible" in error.lower())
+
+
 # ---------------------------------------------------------------- carritos
 
 
@@ -376,7 +489,8 @@ def _pending_customer_facts(runtime: ToolRuntime) -> CustomerFacts:
                     facts["name"] = name
                 if email and "@" in email:
                     facts["email"] = email
-                if phone:
+                if phone and not _channel_phone(runtime):
+                    # Con canal autenticado el teléfono ya es el del chat.
                     facts["phone"] = phone
             break
     return facts
@@ -404,6 +518,58 @@ def _delivery_mode(runtime: ToolRuntime, record: CartRecord, explicit: str = "")
         if default in _DELIVERY_MODES:
             return default
     return "PICKUP"
+
+
+async def _quote_identifiers(
+    client: CommerceClient, runtime: ToolRuntime, customer: CustomerFacts
+) -> tuple[str | None, str | None]:
+    """Teléfono y correo con los que ``emitir_cotizacion`` resuelve la ficha.
+
+    ``POST /customers/resolve-channel`` busca una ficha EXISTENTE por
+    teléfono o correo exacto y le cuelga la cotización (el PDF sale con el
+    nombre y correo de esa ficha). Un dato que solo dijo el cliente no puede
+    decidir eso:
+
+    - Con canal autenticado, el teléfono es siempre el del canal; el correo
+      dicho solo se manda si nadie lo tiene o lo tiene la ficha de ESE mismo
+      teléfono (si no, la cotización caería en la ficha de otra persona).
+    - Sin canal (chat web) nada está verificado: teléfono y correo solo se
+      mandan si ninguna ficha existente los tiene; si alguna los tiene, la
+      cotización se emite a una ficha nueva con solo el nombre.
+
+    Si la consulta de verificación falla, el dato se descarta (falla
+    cerrado): una cotización sin correo es mejor que una en la ficha ajena.
+    """
+    ctx = _ctx(runtime)
+    channel_phone = _channel_phone(runtime)
+    email = (customer.get("email") or ctx.get("customer_email") or "").strip() or None
+    # Ficha que ESTA conversación ya creó/usó en una cotización anterior. Sale
+    # de la respuesta del backend (nunca de lo que dice el cliente), así que
+    # que ella tenga el dato no es "de otra persona": sin esto, en chat web la
+    # segunda cotización salía sin teléfono ni correo y duplicaba la ficha.
+    own_id = str(customer.get("customerId") or "")
+
+    async def unclaimed(lookup, value: str | None) -> bool:
+        if not value:
+            return False
+        holders, error = await _safe(lookup(client, value))
+        if error:
+            return False
+        others = [h for h in holders or [] if not own_id or str(h.get("id") or "") != own_id]
+        if channel_phone:
+            return all(same_phone(h.get("phone"), channel_phone) for h in others)
+        return not others
+
+    if channel_phone:
+        return channel_phone, (email if await unclaimed(_customers_with_email, email) else None)
+    # Solo dígitos: el backend compara el teléfono literal, así que mandar el
+    # formato tal cual lo tecleó el cliente ("55 1234 5678") podría pegarle a
+    # una ficha guardada con ese mismo formato que la búsqueda de arriba no ve.
+    phone = normalize_phone(customer.get("phone"))
+    phone = phone if len(phone) >= 8 else None
+    phone_ok = await unclaimed(_customers_with_phone, phone)
+    email_ok = await unclaimed(_customers_with_email, email)
+    return (phone if phone_ok else None), (email if email_ok else None)
 
 
 def _cart_signature(lines: list[CartLine]) -> str:
@@ -841,11 +1007,12 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
             ),
         )
 
+    phone, email = await _quote_identifiers(client, runtime, customer)
     created, error = await _safe(
         client.ensure_customer(
             full_name=full_name,
-            phone=customer.get("phone") or ctx.get("customer_phone"),
-            email=customer.get("email") or ctx.get("customer_email"),
+            phone=phone,
+            email=email,
             conversation_id=ctx.get("conversation_id"),
         )
     )
@@ -922,18 +1089,21 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
 async def detalle_de_cotizacion(quoteId: str, runtime: ToolRuntime) -> str:
     """Líneas, estado, total y vigencia de una cotización por folio.
 
-    Funciona para CUALQUIER cotización del cliente, esté o no entre los
+    Funciona para las cotizaciones de ESTE cliente, estén o no entre los
     carritos abiertos de esta conversación (por ejemplo una de hace unos
-    días, o una que otro carrito de esta misma charla ya emitió): consulta
-    el folio real en el backend, no el estado local.
+    días por el mismo WhatsApp): consulta el folio real en el backend. Un
+    folio de otro cliente responde como si no existiera.
     """
     if denied := _require_scope(runtime, "detalle_de_cotizacion"):
         return _fail(denied)
-    quote, error = await _safe(
-        _client(runtime).get_quote(clamp_text(quoteId, 100, collapse_newlines=True))
-    )
+    client = _client(runtime)
+    quote, error = await _safe(client.get_quote(clamp_text(quoteId, 100, collapse_newlines=True)))
+    if _is_not_found(error):
+        return _NOT_IN_CONVERSATION_QUOTE
     if error:
         return _fail(error)
+    if not quote or not await _owned_by_conversation(client, runtime, quote, kind="quote"):
+        return _NOT_IN_CONVERSATION_QUOTE
     lines = "; ".join(
         f"{line.get('quantity')} x {clamp_text(line.get('title') or '', 200, collapse_newlines=True)} "
         f"(${line.get('unitPrice')})"
@@ -1045,8 +1215,10 @@ async def estado_del_pedido(runtime: ToolRuntime, orderId: str = "", carritoId: 
 
     Úsala siempre que el cliente diga que ya pagó: no confíes en su palabra.
     Si el cliente da el número de pedido, pásalo en `orderId` (funciona
-    aunque no sea de un carrito abierto en esta conversación); si no, se usa
-    el pedido del carrito activo (o de `carritoId` si lo indicas).
+    para pedidos de ESTE cliente aunque no sean de un carrito abierto en
+    esta conversación); si no, se usa el pedido del carrito activo (o de
+    `carritoId` si lo indicas). Un pedido de otro cliente responde como si
+    no existiera.
     """
     if denied := _require_scope(runtime, "estado_del_pedido"):
         return _fail(denied)
@@ -1054,9 +1226,14 @@ async def estado_del_pedido(runtime: ToolRuntime, orderId: str = "", carritoId: 
     target, _owner = _resolve_order_id(runtime, orderId, cart_id)
     if not target:
         return _fail("No tengo número de pedido; pídeselo al cliente o dime a cuál pedido te refieres.")
-    order, error = await _safe(_client(runtime).get_order(target))
+    client = _client(runtime)
+    order, error = await _safe(client.get_order(target))
+    if _is_not_found(error):
+        return _NOT_IN_CONVERSATION_ORDER
     if error:
         return _fail(error)
+    if not order or not await _owned_by_conversation(client, runtime, order, kind="order"):
+        return _NOT_IN_CONVERSATION_ORDER
     return (
         f"Pedido {order.get('id')}: estado {order.get('status')}, total ${order.get('total')}, "
         f"pagado={'sí' if order.get('paidAt') else 'no'}."
@@ -1100,13 +1277,25 @@ async def recordar_cliente(
         facts["name"] = nombre
     if correo and "@" in correo:
         facts["email"] = correo
-    if telefono:
+    note = ""
+    channel_phone = _channel_phone(runtime)
+    if telefono and channel_phone:
+        # En WhatsApp el teléfono del cliente es el del chat, autenticado por
+        # el canal: lo que diga el cliente no lo reemplaza (si no, "mi
+        # teléfono es 55…" apuntaría las búsquedas a la ficha de otra persona).
+        facts["phone"] = channel_phone
+        if not same_phone(telefono, channel_phone):
+            note = (
+                " (el teléfono de este cliente es el de este chat; no lo cambio. Si da "
+                "otro número de contacto, anótalo solo como referencia en la conversación)"
+            )
+    elif telefono:
         facts["phone"] = telefono
     if not facts:
         return _tool_reply(runtime, _fail("No recibí ningún dato válido que guardar."))
     return _tool_reply(
         runtime,
-        "Guardado: " + ", ".join(f"{k}={v}" for k, v in facts.items()),
+        "Guardado: " + ", ".join(f"{k}={v}" for k, v in facts.items()) + note,
         update={"customer": facts},
     )
 
@@ -1116,27 +1305,29 @@ async def historial_del_cliente(runtime: ToolRuntime) -> str:
     """Cotizaciones y pedidos anteriores del cliente de esta conversación.
 
     Úsala cuando pregunte por "mi cotización", "lo que pedí la otra vez" o
-    quiera repetir una compra.
+    quiera repetir una compra. Solo funciona por WhatsApp: busca por el
+    número desde el que escribe el cliente (nunca por un teléfono, correo o
+    nombre que diga en el chat).
     """
     if denied := _require_scope(runtime, "historial_del_cliente"):
         return _fail(denied)
-    customer: CustomerFacts = dict(runtime.state.get("customer") or {})
-    ctx = _ctx(runtime)
-    needle = (
-        customer.get("phone")
-        or ctx.get("customer_phone")
-        or customer.get("email")
-        or customer.get("name")
-    )
-    if not needle:
-        return "Todavía no sé quién es el cliente: pide su teléfono o correo."
+    # Única llave: el teléfono autenticado por el canal (runtime.context).
+    # Nunca `state.customer` (lo escribe recordar_cliente con lo que dice el
+    # cliente) ni correo/nombre: con eso cualquiera leía la ficha de otro.
+    if not _channel_phone(runtime):
+        return (
+            "No puedo consultar compras anteriores en este canal: el historial solo se "
+            "consulta por el WhatsApp del propio cliente. No pidas teléfono ni correo para "
+            "buscarlo; si necesita algo de un pedido anterior, ofrécele pasar con una "
+            "persona del equipo (escalar_a_humano)."
+        )
 
     client = _client(runtime)
-    found, error = await _safe(client.lookup_customer(needle))
+    found, error = await _safe(_channel_customer(client, runtime))
     if error:
         return _fail(error)
     if not found:
-        return "No hay cliente registrado con esos datos todavía."
+        return "No hay compras anteriores registradas con el número de este chat."
 
     history, error = await _safe(client.customer_history(found["id"]))
     if error:
@@ -1215,8 +1406,19 @@ async def solicitar_factura(
     if not re.fullmatch(r"\d{5}", cp_clean):
         return _fail("El código postal debe ser de 5 dígitos.")
 
+    # Mismo criterio que estado_del_pedido: no se factura (ni se escribe el
+    # RFC) sobre el pedido de otro cliente del negocio.
+    client = _client(runtime)
+    order, error = await _safe(client.get_order(order_id))
+    if _is_not_found(error) or (
+        not error and (not order or not await _owned_by_conversation(client, runtime, order, kind="order"))
+    ):
+        return _NOT_IN_CONVERSATION_ORDER
+    if error:
+        return _fail(error)
+
     invoice, error = await _safe(
-        _client(runtime).request_invoice(
+        client.request_invoice(
             order_id,
             rfc=rfc_clean,
             legal_name=clamp_text(razonSocial, 200, collapse_newlines=True),

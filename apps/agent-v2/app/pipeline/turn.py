@@ -47,6 +47,7 @@ from ..guards import (
     neutralize,
     off_scope_category,
     redirect_reply,
+    strip_quoted,
     urls_from_messages,
 )
 from ..knowledge import load_profile
@@ -102,8 +103,8 @@ class PipelineContext:
     - `business_name`: `settings_store` + `load_profile` lo calculan cada
       vez; aquí se cachea tras `_prepare` para que `_stage_*` y el guard de
       salida no repitan la lectura.
-    - `bundle`: el guard de salida lo pide con `include_catalog=False,
-      include_lessons=False`; se cachea para no resolverlo dos veces si
+    - `bundle`: el guard de salida lo pide con `include_catalog=False`
+      (con lecciones, para protegerlas); se cachea para no resolverlo dos veces si
       otra etapa (p. ej. un futuro guard de salida con catálogo) lo pide.
     """
 
@@ -606,14 +607,15 @@ class TurnPipeline:
         ctx.handoff = bool(ctx.result.get("handoff"))
 
     async def _bundle_for_guard(self, ctx: PipelineContext) -> TenantBundle:
-        """Carga el bundle sin catálogo ni lecciones — el guard solo
-        necesita identidad, prompt protegido y notas internas. Cachea en
+        """Carga el bundle sin catálogo — el guard necesita identidad, prompt
+        protegido, notas internas, reglas del panel y lecciones (estas
+        vienen de una caché con TTL del store episódico). Cachea en
         `ctx.bundle` para no resolverlo dos veces (otros hooks del turno lo
         vuelven a usar)."""
         if ctx.bundle is not None:
             return ctx.bundle
         bundle = await resolve_tenant_bundle(
-            ctx.req.tenantId, include_catalog=False, include_lessons=False
+            ctx.req.tenantId, include_catalog=False, include_lessons=True
         )
         ctx.bundle = bundle
         return bundle
@@ -625,11 +627,24 @@ class TurnPipeline:
         internas, código o un enlace inventado, la respuesta se sustituye y
         el AIMessage del hilo también."""
         business = ctx.ensure_business_name()
+        overrides = bundle.overrides
         verdict = ctx.rt.output_guard.check(
             ctx.reply,
             business=business,
             protected_lines=bundle.prompt.protected_lines() if bundle.prompt else (),
             internal_notes=bundle.internal_notes,
+            # Lo que el cliente nunca debe leer: lecciones internas (racha +
+            # proporción de shingles).
+            protected_blocks=(bundle.lessons,),
+            # Lo que el bot USA y hasta comunica ("el envío es gratis arriba de
+            # $1500" sale de una regla del negocio), pero no debe recitar en
+            # bloque: solo racha larga. Por proporción, contestar la política
+            # de envío con palabras de la regla se bloqueaba como fuga.
+            recitation_blocks=(
+                strip_quoted(getattr(overrides, "extra_rules", "") or ""),
+                getattr(overrides, "forbidden_topics", "") or "",
+                str(ctx.context.get("customer_memory") or ""),
+            ),
             allowed_urls=urls_from_messages(messages) | _urls_in(bundle.knowledge),
             seed=f"{ctx.thread_id}:{ctx.req.messageId or ctx.text}",
         )

@@ -1,5 +1,6 @@
 import logging
 from types import SimpleNamespace
+from typing import Any
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -142,3 +143,64 @@ class LoggingFilterTests(TestCase):
         self.assertEqual(len(handler.filters), 1)
         logger.warning("hilo %s falló", "tenant:+526671234567")
         self.assertEqual(records[-1].getMessage(), "hilo tenant:[teléfono] falló")
+
+
+class UvicornLogRedactionTests(TestCase):
+    """Bajo uvicorn el raíz no tiene handlers y ``uvicorn.access`` tiene el
+    suyo con ``propagate=False``: el filtro tiene que llegar a ambos."""
+
+    def setUp(self) -> None:
+        self.root = logging.getLogger()
+        self.saved_root = list(self.root.handlers)
+        self.access = logging.getLogger("uvicorn.access")
+        self.saved_access = (list(self.access.handlers), self.access.propagate, self.access.level)
+
+    def tearDown(self) -> None:
+        self.root.handlers = self.saved_root
+        self.access.handlers, self.access.propagate, level = self.saved_access
+        self.access.setLevel(level)
+
+    def _stream_handler(self, formatter: logging.Formatter) -> tuple[logging.Handler, Any]:
+        import io
+
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(formatter)
+        return handler, stream
+
+    def test_access_log_path_is_redacted_and_formatter_still_works(self) -> None:
+        from uvicorn.logging import AccessFormatter
+
+        handler, stream = self._stream_handler(AccessFormatter('%(client_addr)s "%(request_line)s" %(status_code)s'))
+        self.access.handlers = [handler]
+        self.access.propagate = False
+        self.access.setLevel(logging.INFO)
+        self.root.handlers = []  # como bajo uvicorn
+        pii.install_log_redaction()
+        self.assertTrue(self.root.handlers, "debe crear un handler en el raíz")
+        self.assertTrue(any(isinstance(f, pii.RedactingFilter) for f in self.root.handlers[0].filters))
+        self.access.info(
+            '%s - "%s %s HTTP/%s" %d',
+            "10.0.0.1:5555", "GET",
+            "/conversations/t1%3A5215512345678/messages?phone=%2B525512345678&redact=false", "1.1", 200,
+        )
+        out = stream.getvalue()
+        self.assertNotIn("5215512345678", out)
+        self.assertNotIn("525512345678", out)
+        self.assertIn("[teléfono]", out)
+        self.assertIn("200", out)
+
+    def test_exception_text_is_redacted(self) -> None:
+        handler, stream = self._stream_handler(logging.Formatter("%(message)s"))
+        logger = logging.getLogger("pii-exc-test")
+        logger.propagate = False
+        logger.handlers = [handler]
+        pii.install_log_redaction(logger)
+        try:
+            raise ValueError("cliente ana@example.com con tel 5215512345678")
+        except ValueError:
+            logger.exception("falló el turno de %s", "t1:5215512345678")
+        out = stream.getvalue()
+        self.assertNotIn("5215512345678", out)
+        self.assertNotIn("ana@example.com", out)
+        self.assertIn("ValueError", out)

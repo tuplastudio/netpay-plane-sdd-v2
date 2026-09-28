@@ -16,8 +16,9 @@ import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Carga `.env` del monorepo (un nivel arriba de apps/) **antes** de leer
 # cualquier setting: `get_settings()` cachea, así que esto tiene que ocurrir
@@ -32,7 +33,7 @@ from .api import ROUTERS  # noqa: E402
 from .api.deps import require_internal_key  # noqa: E402
 from .api.health import VERSION  # noqa: E402
 from .guards import install_log_redaction  # noqa: E402
-from .knowledge import DEFAULT_TENANT_ID, load_knowledge  # noqa: E402
+from .knowledge import DEFAULT_TENANT_ID, InvalidTenantId, load_knowledge  # noqa: E402
 from .log_context import install_turn_id_filter  # noqa: E402
 from .runtime import runtime  # noqa: E402
 from .tenant_context import warm_catalog  # noqa: E402
@@ -60,6 +61,9 @@ async def _lifespan(_: FastAPI):
     # "arriba" respondiendo 503 a todo para siempre sin que nadie lo note.
     # Los ids de conversación llevan el teléfono del cliente y los mensajes
     # pueden traer correos: ningún log del proceso debe escribirlos en claro.
+    # Va aquí (no al importar) porque el lifespan corre DESPUÉS de que
+    # uvicorn configuró su logging: así el filtro alcanza también los
+    # handlers de uvicorn.access/uvicorn.error y el raíz ya tiene handler.
     install_log_redaction()
     install_turn_id_filter()
     await runtime.start()
@@ -105,6 +109,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", "X-Internal-Key"],
 )
+
+@app.exception_handler(InvalidTenantId)
+async def _invalid_tenant(_request: Request, exc: InvalidTenantId) -> JSONResponse:
+    """Un `tenantId` malformado es un 400 en cualquier endpoint (ver
+    `knowledge._sanitize_tenant_id`), no un 500 ni el tenant por defecto."""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
 
 for _router in ROUTERS:
     app.include_router(_router)

@@ -14,6 +14,11 @@ SERVICE_DIR = Path(__file__).resolve().parent.parent
 # APP_ENV se trata como productivo y exige la llave.
 _OPEN_ENVIRONMENTS = {"local", "development", "dev", "test", ""}
 
+# Respaldo de `AGENT_SECRET_KEY` SOLO para desarrollo local (ver
+# `agent_settings._secret_key`). Está en el código fuente: cualquier
+# despliegue que lo use cifra las keys de los tenants con una llave pública.
+INSECURE_DEFAULT_SECRET_KEY = "dev-insecure-default-key-change-me"
+
 
 class SettingsError(RuntimeError):
     """Una variable de entorno tiene un valor fuera de rango o incoherente.
@@ -441,4 +446,26 @@ def get_settings() -> Settings:
             f"AGENT_INTERNAL_KEY_REF es obligatoria con APP_ENV={settings.environment!r}: "
             "sin ella el servicio queda abierto a cualquiera que alcance el puerto."
         )
+    _check_secret_key(settings)
     return settings
+
+
+def _check_secret_key(settings: Settings) -> None:
+    """Niega el arranque desplegado sin una `AGENT_SECRET_KEY` propia.
+
+    "Desplegado" = `APP_ENV` fuera de local/dev/test, O la llave interna
+    puesta: `infra/compose.prod.yaml` no fija `APP_ENV` (queda "local"),
+    pero sí exige `AGENT_INTERNAL_KEY`, así que eso delata producción. En
+    ese caso una key ausente o igual a `INSECURE_DEFAULT_SECRET_KEY` es un
+    `RuntimeError`: sin esto, los secretos por tenant (su OpenRouter key)
+    quedaban cifrados con una llave que está en el repo. En local sin llave
+    interna se sigue aceptando el respaldo para no trabar el desarrollo.
+    """
+    deployed = settings.environment not in _OPEN_ENVIRONMENTS or bool(settings.internal_key)
+    insecure = not settings.secret_key or settings.secret_key == INSECURE_DEFAULT_SECRET_KEY
+    if deployed and insecure:
+        raise RuntimeError(
+            "AGENT_SECRET_KEY es obligatoria (y distinta del valor de desarrollo) cuando el "
+            f"servicio está desplegado (APP_ENV={settings.environment!r}, llave interna "
+            f"{'presente' if settings.internal_key else 'ausente'}): cifra los secretos de cada tenant."
+        )

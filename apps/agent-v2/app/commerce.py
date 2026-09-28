@@ -172,6 +172,11 @@ class CommerceClient:
     # ---------- clientes ----------
 
     async def find_customer(self, query: str) -> list[dict[str, Any]]:
+        """``GET /customers?q=`` del buscador del panel: coincidencia PARCIAL
+        (``contains``) en nombre/correo/teléfono/RFC. Nunca tomes el primer
+        resultado como "el cliente": filtra por igualdad exacta (ver
+        ``tools._customers_with_phone``). Aquí vivía ``lookup_customer``, que
+        hacía justo eso y dejaba leer la ficha de otro cliente."""
         return await self._request("GET", "/customers", params={"q": query}) or []
 
     async def create_customer(
@@ -182,12 +187,6 @@ class CommerceClient:
             "/customers",
             json_body={"fullName": full_name, "phone": phone, "email": email},
         )
-
-    async def lookup_customer(self, needle: str) -> dict[str, Any] | None:
-        """Primer cliente que coincida por teléfono/correo/nombre, o None."""
-        existing = await self.find_customer(needle)
-        items = existing.get("items", existing) if isinstance(existing, dict) else existing
-        return items[0] if items else None
 
     async def customer_history(self, customer_id: str) -> dict[str, Any]:
         """Cotizaciones y pedidos previos del cliente (cabeceras, sin líneas)."""

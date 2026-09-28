@@ -38,6 +38,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote
 
 from ..config import get_settings
 from ..remote_config import get_bool as remote_bool
@@ -235,30 +236,106 @@ def redact_names(text: str) -> str:
     return "".join(out)
 
 
-class RedactingFilter(logging.Filter):
-    """Filtro de logging que enmascara PII en el mensaje ya formateado.
+def _redact_log_value(value: Any) -> Any:
+    """Redacta un argumento de log de tipo texto; los demás pasan intactos.
 
-    Se instala en los handlers del logger raíz (no en los loggers) para que
-    aplique también a los registros que propagan desde ``uvicorn`` y
-    ``app.*``. Modifica ``record.msg``/``record.args`` in-place después de
-    formatear, así el formato original del mensaje no se pierde.
+    Se decodifica el percent-encoding antes: uvicorn loguea la ruta tal cual
+    llegó, y en ``/conversations/t%3A5215512345678`` o ``?phone=%2B52…`` el
+    ``%3A``/``%2B`` pegado a los dígitos impide que el regex vea el teléfono.
+    """
+    if not isinstance(value, str):
+        return value
+    decoded = unquote(value) if "%" in value else value
+    redacted = redact(decoded)
+    return redacted if redacted != decoded else value
+
+
+class RedactingFilter(logging.Filter):
+    """Filtro de logging que enmascara PII en mensaje, argumentos y traceback.
+
+    Se instala en HANDLERS (un filtro de logger no aplica a lo que propaga
+    desde loggers hijos): los del raíz y los de ``uvicorn``/``uvicorn.error``/
+    ``uvicorn.access``, que uvicorn configura con ``propagate=False`` y
+    handlers propios (ver ``install_log_redaction``).
+
+    - ``record.args`` en tupla se redacta elemento por elemento conservando
+      la forma: ``uvicorn``'s ``AccessFormatter`` desempaca
+      ``(client, método, ruta, versión, status)`` de ``record.args`` y
+      revienta si se sustituyen por ``()``.
+    - Si aun así el mensaje formateado trae PII (en la plantilla misma o en
+      un argumento no textual), se sustituye ``msg`` y se vacían ``args``,
+      salvo en ``uvicorn.access`` (por lo anterior).
+    - La excepción se formatea aquí y se redacta en ``record.exc_text``:
+      ``Formatter.format`` reutiliza ``exc_text`` si ya viene puesto, así
+      que un ``ValueError("... 5215512345678 ...")`` no sale en claro en el
+      traceback. Igual con ``stack_info``.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
+            self._redact(record)
+        except Exception:  # noqa: BLE001 - el filtro nunca debe tirar el log
+            pass
+        return True
+
+    @staticmethod
+    def _redact(record: logging.LogRecord) -> None:
+        if isinstance(record.args, tuple) and record.args:
+            record.args = tuple(_redact_log_value(a) for a in record.args)
+        elif isinstance(record.args, dict) and record.args:
+            record.args = {k: _redact_log_value(v) for k, v in record.args.items()}
+        try:
             message = record.getMessage()
         except Exception:  # noqa: BLE001 - un mensaje mal formateado no debe romper el logging
-            return True
-        redacted = redact(message)
-        if redacted != message:
-            record.msg = redacted
-            record.args = ()
-        return True
+            message = None
+        if message is not None and record.name != "uvicorn.access":
+            redacted = _redact_log_value(message)
+            if redacted != message:
+                record.msg = redacted
+                record.args = ()
+        if record.exc_info and not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            record.exc_text = redact(record.exc_text)
+        if record.stack_info:
+            record.stack_info = redact(record.stack_info)
+
+
+# Loggers de uvicorn con handlers propios (y `propagate=False` en access):
+# un filtro solo en el raíz no los alcanza.
+_UVICORN_LOGGERS: tuple[str, ...] = ("uvicorn", "uvicorn.error", "uvicorn.access")
+
+
+def _add_filter(handler: logging.Handler) -> None:
+    if not any(isinstance(f, RedactingFilter) for f in handler.filters):
+        handler.addFilter(RedactingFilter())
 
 
 def install_log_redaction(logger: logging.Logger | None = None) -> None:
-    """Agrega ``RedactingFilter`` a todos los handlers del logger (raíz por defecto)."""
-    target = logger or logging.getLogger()
-    for handler in target.handlers:
-        if not any(isinstance(f, RedactingFilter) for f in handler.filters):
-            handler.addFilter(RedactingFilter())
+    """Instala ``RedactingFilter`` en los handlers donde de verdad se escribe.
+
+    Con ``logger`` explícito, solo en los handlers de ese logger. Sin
+    argumento (arranque del proceso, en el ``lifespan`` — es decir DESPUÉS
+    de que uvicorn configuró su logging):
+
+    1. Si el raíz no tiene handlers (lo normal bajo uvicorn: solo configura
+       los suyos) se le agrega un ``StreamHandler``. Sin él, los logs de
+       ``agent-v2``/``app.*`` salían por ``logging.lastResort``, que no pasa
+       por ningún filtro. No se cambia el nivel del raíz.
+    2. El filtro va en los handlers del raíz y en los de ``uvicorn``,
+       ``uvicorn.error`` y ``uvicorn.access``.
+
+    Idempotente: se puede llamar más de una vez.
+    """
+    if logger is not None:
+        for handler in logger.handlers:
+            _add_filter(handler)
+        return
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        root.addHandler(handler)
+    for target in (root, *(logging.getLogger(name) for name in _UVICORN_LOGGERS)):
+        for handler in target.handlers:
+            _add_filter(handler)

@@ -33,7 +33,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .config import SERVICE_DIR, _env
+from .config import INSECURE_DEFAULT_SECRET_KEY, SERVICE_DIR, _env
 
 SALES_STYLES: tuple[str, ...] = ("cerrador", "consultivo", "informativo")
 DELIVERY_MODES: tuple[str, ...] = ("PICKUP", "LOCAL_DELIVERY")
@@ -88,8 +88,11 @@ def _secret_key() -> bytes:
     No es un KMS de producción: una sola clave simétrica de servidor, igual
     para todos los tenants (solo protege el archivo en disco, no separa
     blast radius entre tenants). Suficiente para esta etapa del proyecto.
+
+    El respaldo inseguro solo llega a usarse en local: `config.get_settings`
+    niega el arranque desplegado sin una key propia (`_check_secret_key`).
     """
-    raw = _env("AGENT_SECRET_KEY") or "dev-insecure-default-key-change-me"
+    raw = _env("AGENT_SECRET_KEY") or INSECURE_DEFAULT_SECRET_KEY
     return hashlib.sha256(raw.encode("utf-8")).digest()
 
 

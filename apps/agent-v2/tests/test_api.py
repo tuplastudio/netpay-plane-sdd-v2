@@ -377,6 +377,23 @@ def test_transcript_endpoint_redacts_by_default(client: TestClient) -> None:
     assert detail["failureStreak"] == 0 and detail["handoffReason"] is None
 
 
+def test_transcript_redact_false_requires_debug_header(client: TestClient) -> None:
+    client.fake.seed("t1:c9", messages=[HumanMessage(content="mi cel es 6671234567", id="h0")], stage="DESCUBRIMIENTO")
+    plain = client.get("/conversations/c9/messages?tenantId=t1&redact=false").json()
+    assert plain["redacted"] is True and "6671234567" not in plain["messages"][0]["text"]
+    wrong = client.get("/conversations/c9/messages?tenantId=t1&redact=false", headers={"x-agent-debug": "true"}).json()
+    assert "6671234567" not in wrong["messages"][0]["text"]
+    debug = client.get("/conversations/c9/messages?tenantId=t1&redact=false", headers={"x-agent-debug": "1"}).json()
+    assert debug["redacted"] is False and "6671234567" in debug["messages"][0]["text"]
+
+
+def test_malformed_tenant_id_is_rejected_with_400(client: TestClient) -> None:
+    assert client.get("/knowledge?tenantId=../other").status_code == 400
+    assert client.get("/knowledge?tenantId=a%20b").status_code == 400
+    assert client.get("/knowledge?tenantId=" + "a" * 65).status_code == 400
+    assert client.get("/knowledge?tenantId=3f2c9a1e-8b7d-4c6e-9f00-123456789abc").status_code == 200
+
+
 # ---------------- arquitectura: stages, runtime, context ----------------
 
 

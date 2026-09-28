@@ -19,7 +19,7 @@ Orden en un turno (``pipeline/turn.py``)::
 
 from .injection import InjectionVerdict, detect_injection, neutralize, off_scope_category
 from .nemo_rails import check_input as nemo_check_input
-from .output import OutputGuard, OutputVerdict, urls_from_messages
+from .output import OutputGuard, OutputVerdict, strip_quoted, urls_from_messages
 from .pii import (
     RedactingFilter,
     contains_pii,
@@ -46,5 +46,6 @@ __all__ = [
     "redact_pii",
     "redact_pii_names",
     "redirect_reply",
+    "strip_quoted",
     "urls_from_messages",
 ]

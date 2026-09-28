@@ -248,17 +248,21 @@ Ver `prompts/README.md` para cómo publicar una versión nueva.
 | Inyección por chat ("ignora tus reglas", "modo desarrollador", suplantar al admin) | Heurística determinista antes del LLM; prompt 1.1.0 lo trata como dato | `guards/injection.py`, `prompts/v1.1.0/05_*` |
 | Inyección vía catálogo / documento / imagen | Saneo de texto de tools, delimitadores escapados, prompt | `security.py`, `prompts/assembler.py` |
 | Uso fuera de alcance (clima, código, tareas, ilegal) | Heurística (sin tokens) + clasificador LLM + prompt + guard de salida (código) | `guards/injection.py`, `guards/scope.py`, `guards/output.py` |
-| Fuga del prompt / notas internas / secretos | Guard de salida compara líneas protegidas; sustituye reply y AIMessage | `guards/output.py`, `PromptVersion.protected_lines` |
+| Fuga del prompt / notas internas / secretos | Guard de salida compara líneas protegidas en tokens normalizados (puntuación, acentos y "una palabra por renglón" no la esconden); sustituye reply y AIMessage | `guards/output.py`, `PromptVersion.protected_lines` |
+| Fuga casi literal de contenido dinámico (reglas del panel sin lo entrecomillado, `<lecciones>`, notas internas; temas prohibidos y `<memoria_cliente>` solo contra recitado) | Shingles de 8 tokens: bloqueo si un renglón comparte ≥30 % (y ≥3) de sus shingles con la respuesta, o si hay 6 shingles seguidos (13 tokens) | `guards/output.py` (`shingle_leak`), `pipeline/turn._apply_output_guard` |
+| Ficha/historial de OTRO cliente del mismo negocio ("mi teléfono es 55" → "¿qué pedí?") | `historial_del_cliente` busca SOLO por el teléfono del canal (`runtime.context.customer_phone`) con igualdad exacta normalizada (el `?q=` de commerce es `contains`: se filtra aquí); sin canal (chat web) se niega. `recordar_cliente` no reemplaza el teléfono del canal. `emitir_cotizacion` manda el teléfono del canal y descarta correo/teléfono dichos que ya pertenezcan a otra ficha | `tools.py` (`_channel_customer`, `_quote_identifiers`) |
+| Folio de cotización/pedido ajeno por id (`detalle_de_cotizacion`, `estado_del_pedido`, `solicitar_factura`) | Solo si el id está en `state.carts`, su cliente es el `customerId` resuelto en el hilo o su teléfono es exactamente el del canal; si no, "no encontré … en esta conversación" (igual que un 404) | `tools._owned_by_conversation` |
 | URLs inventadas | Solo URLs de tools, del conocimiento o de `PUBLIC_BASE_URL` | `guards/output.py` |
 | PII en memoria episódica | Esquema cerrado + redacción antes y después del LLM + términos prohibidos + nombres/lugares por NER (Presidio, opcional) | `memory/episodic.py`, `guards/pii.py` |
-| Teléfono en claro en la memoria del cliente | La llave es un HMAC con el `tenant_id` como sal: sirve para buscar, no para leer, y no correlaciona entre negocios | `memory/profile.py` |
+| Teléfono en claro en la memoria del cliente | La llave es un HMAC con el `tenant_id` como sal: sirve para buscar, no para leer, y no correlaciona entre negocios. Pendiente conocido: la sal es el `tenant_id` (no secreta), así que con el tenant se puede probar por fuerza bruta un número; cambiarla a una llave secreta dejaría huérfanos los perfiles existentes (requiere migración) | `memory/profile.py` |
 | Perfil de un cliente visible para otro negocio | Llave primaria `(tenant_id, phone_key)`; toda consulta lleva el tenant | `memory/profile.py` |
 | PII en señales del panel | Redacción antes de guardar | `pipeline/post_turn.py` (`record_learning`) |
-| PII en logs | `RedactingFilter` en todos los handlers | `guards/pii.py`, `main._lifespan` (instala el filtro) |
+| PII en logs | `RedactingFilter` en los handlers del raíz (se crea uno si uvicorn no dejó ninguno) y de `uvicorn`/`uvicorn.error`/`uvicorn.access`; redacta mensaje, cada argumento (rutas con `%3A`/`%2B` decodificadas), traceback (`exc_text`) y `stack_info` | `guards/pii.py`, `main._lifespan` (instala el filtro después de que uvicorn configuró logging) |
+| Transcript sin redactar | `GET /conversations/{id}/messages?redact=false` solo se respeta con header `x-agent-debug: 1` (commerce-api además lo quita a quien no es super-admin) | `api/conversations.py` |
 | Datos sensibles (tarjeta, CLABE, CURP) repetidos por el modelo | Enmascarado en la salida; prompt prohíbe pedirlos | `guards/output.py` |
 | Tenant/scopes decididos por el modelo | Siempre vienen de `runtime.context` (request autenticada) | `tools.py`, `security.py` |
-| Cruce de conocimiento entre negocios | Subárbol por tenant, caché por tenant | `knowledge.py` |
-| Secretos de tenant en disco | AES-256-GCM con `AGENT_SECRET_KEY` | `agent_settings.py` |
+| Cruce de conocimiento entre negocios | Subárbol por tenant, caché por tenant; `tenantId` que no sea UUID/slug `^[A-Za-z0-9_-]{1,64}$` → HTTP 400 (antes se "arreglaba" y podía caer en otro directorio) | `knowledge.py` (`InvalidTenantId`), `main.py` |
+| Secretos de tenant en disco | AES-256-GCM con `AGENT_SECRET_KEY`; el proceso NO arranca si está desplegado (`APP_ENV` fuera de local/dev/test, o `AGENT_INTERNAL_KEY` puesta — compose.prod no fija `APP_ENV`) y la key falta o es el respaldo de desarrollo | `agent_settings.py`, `config._check_secret_key` |
 
 ## Varios pedidos a la vez
 
