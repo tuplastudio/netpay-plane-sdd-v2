@@ -512,7 +512,7 @@ export default function CheckoutPublicPage() {
       </div>
 
       <TrustLine livemode={order.livemode} />
-      <BillingSection />
+      <BillingSection token={token} />
       <ProductDetailSheet
         product={detailLine ? productFor(detailLine) : null}
         open={detailLine !== null}

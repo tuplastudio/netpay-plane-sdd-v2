@@ -5,11 +5,13 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   Clock,
   CreditCard,
   Download,
   FileText,
+  Link2,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -100,7 +102,10 @@ export default function PublicQuotePage() {
               <span className="text-sm font-semibold">Atiende ya</span>
             </span>
           )}
-          <span className="text-xs text-muted-foreground">Documento comercial</span>
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs text-muted-foreground sm:inline">Documento comercial</span>
+            <CopyLinkButton />
+          </div>
         </div>
       </header>
 
@@ -215,7 +220,17 @@ function TerminalNotice({
  * directo al link vigente; si no, lo abre (acepta la cotización, crea el
  * pedido y reserva stock) y redirige al checkout recién emitido.
  */
-function PayButton({ token, checkoutToken }: { token: string; checkoutToken: string | null }) {
+function PayButton({
+  token,
+  checkoutToken,
+  compact = false,
+}: {
+  token: string;
+  checkoutToken: string | null;
+  /** Para la barra fija de móvil: ancho de contenido, no `w-full`. */
+  compact?: boolean;
+}) {
+  const sizeClass = compact ? "h-11 shrink-0 px-6" : "h-12 w-full sm:w-auto sm:px-8";
   const open = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/v1/orders/public/quote/${token}/checkout`, {
@@ -240,7 +255,7 @@ function PayButton({ token, checkoutToken }: { token: string; checkoutToken: str
 
   if (checkoutToken) {
     return (
-      <Button asChild size="lg" className="h-12 w-full sm:w-auto sm:px-8">
+      <Button asChild size="lg" className={sizeClass}>
         <Link href={`/checkout/${checkoutToken}`}>
           <CreditCard aria-hidden className="h-4 w-4" />
           Pagar ahora
@@ -250,10 +265,10 @@ function PayButton({ token, checkoutToken }: { token: string; checkoutToken: str
   }
 
   return (
-    <div className="flex w-full flex-col gap-1 sm:w-auto">
+    <div className={compact ? "flex shrink-0 flex-col gap-1" : "flex w-full flex-col gap-1 sm:w-auto"}>
       <Button
         size="lg"
-        className="h-12 w-full sm:w-auto sm:px-8"
+        className={sizeClass}
         loading={open.isPending}
         onClick={() => open.mutate()}
       >
@@ -270,23 +285,58 @@ function PayButton({ token, checkoutToken }: { token: string; checkoutToken: str
 }
 
 /** Nombre y logo del comercio que emite la cotización. El logo solo se pinta
- * si lo subió (y validó) desde su panel; sin logo queda el nombre solo. */
+ * si lo subió (y validó) desde su panel; sin logo, un avatar con su inicial
+ * (más reconocible en una lista de conversaciones/pestañas que el nombre
+ * solo). */
 function MerchantBrand({ merchant }: { merchant: NonNullable<QuotePublic["merchant"]> }) {
   const [broken, setBroken] = useState(false);
   const showLogo = !!merchant.logoUrl && !broken;
+  const initial = merchant.name.trim().charAt(0).toUpperCase() || "?";
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="flex min-w-0 items-center gap-2.5">
       {showLogo ? (
         // eslint-disable-next-line @next/next/no-img-element -- origen externo (API del comercio), sin optimizador
         <img
           src={merchant.logoUrl ?? undefined}
           alt={`Logo de ${merchant.name}`}
-          className="max-h-12 w-auto max-w-[10rem] object-contain"
+          className="max-h-10 w-auto max-w-[8rem] object-contain"
           onError={() => setBroken(true)}
         />
-      ) : null}
+      ) : (
+        <span
+          aria-hidden
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold"
+        >
+          {initial}
+        </span>
+      )}
       <span className="truncate text-sm font-semibold">{merchant.name}</span>
     </div>
+  );
+}
+
+/** Copia el link actual al portapapeles — el cliente suele reenviarlo a
+ * quien aprueba la compra. */
+function CopyLinkButton() {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1800);
+        } catch {
+          // Clipboard bloqueado (permiso, http sin TLS en dev): sin
+          // feedback, el link sigue visible en la barra del navegador.
+        }
+      }}
+      aria-label="Copiar enlace de la cotización"
+      className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {copied ? <Check aria-hidden className="h-4 w-4 text-success" /> : <Link2 aria-hidden className="h-4 w-4" />}
+    </button>
   );
 }
 
@@ -307,9 +357,11 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
     !orderClosed &&
     !expired &&
     (effectiveStatus === "ISSUED" || effectiveStatus === "ACCEPTED");
+  const hoursLeft = (new Date(quote.expiresAt).getTime() - Date.now()) / 3_600_000;
+  const expiringSoon = payable && hoursLeft > 0 && hoursLeft <= 48;
 
   return (
-    <article className="space-y-5">
+    <article className={`space-y-5 ${payable ? "pb-20 sm:pb-0" : ""}`}>
       <header className="space-y-2">
         <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <span className="uppercase tracking-wider">Cotización</span>
@@ -344,9 +396,18 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
           emphasis
           className="mt-2 block text-4xl leading-none tracking-tight"
         />
-        <p className="mt-3 text-xs text-muted-foreground">
+        <p
+          className={`mt-3 flex items-center justify-center gap-1.5 text-xs ${
+            expiringSoon ? "text-warning-foreground" : "text-muted-foreground"
+          }`}
+        >
+          {expiringSoon ? <Clock aria-hidden className="h-3.5 w-3.5" /> : null}
           Válida hasta <DateTime value={quote.expiresAt} withTime={false} className="font-medium" />
+          {expiringSoon ? " — vence pronto" : ""}
         </p>
+        {/* Botones también aquí (no solo en la barra fija de móvil): en
+            desktop no hay barra fija, y en móvil sirve si ya se llegó al
+            fondo de la página. */}
         <div className="mt-4 flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:items-center">
           {payable ? (
             <PayButton token={token} checkoutToken={quote.checkoutToken} />
@@ -385,8 +446,13 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
         aria-labelledby="quote-lines"
         className="overflow-hidden rounded-card border bg-card shadow-airbnb"
       >
-        <h2 id="quote-lines" className="px-5 pt-5 text-base font-semibold sm:px-6 sm:pt-6">
+        <h2 id="quote-lines" className="flex items-baseline gap-2 px-5 pt-5 text-base font-semibold sm:px-6 sm:pt-6">
           Conceptos
+          {quote.lines.length > 0 ? (
+            <span className="text-xs font-normal text-muted-foreground">
+              ({quote.lines.length} {quote.lines.length === 1 ? "artículo" : "artículos"})
+            </span>
+          ) : null}
         </h2>
 
         {quote.lines.length === 0 ? (
@@ -454,6 +520,35 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
         <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
         Pago seguro con Atiende ya
       </footer>
+
+      {payable ? <StickyPayBar quote={quote} token={token} currency={currency} /> : null}
     </article>
+  );
+}
+
+/**
+ * Barra fija al fondo, solo en móvil: en una cotización con muchas líneas,
+ * el botón de pagar (arriba del todo) queda lejos del scroll. `pb-20` en el
+ * artículo (ver `QuoteView`) le deja espacio para no taparle el pie.
+ */
+function StickyPayBar({
+  quote,
+  token,
+  currency,
+}: {
+  quote: QuotePublic;
+  token: string;
+  currency: string;
+}) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-card/95 p-3 shadow-airbnb-lg backdrop-blur sm:hidden">
+      <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] text-muted-foreground">Total</p>
+          <Money value={quote.total} currency={currency} showCurrency emphasis className="text-lg leading-none" />
+        </div>
+        <PayButton token={token} checkoutToken={quote.checkoutToken} compact />
+      </div>
+    </div>
   );
 }

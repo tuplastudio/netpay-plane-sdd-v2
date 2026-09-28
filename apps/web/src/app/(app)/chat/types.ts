@@ -59,7 +59,6 @@ export interface AgentResponse {
   engine: string;
   node: string;
   latencyMs: number;
-  transcript?: string | null;
 }
 
 /**

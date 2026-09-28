@@ -1,45 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import {
-  Building2,
+  CheckCircle2,
   ChevronDown,
   FileSpreadsheet,
-  Info,
-  Mail,
+  Loader2,
+  Pencil,
+  ShieldAlert,
+  UploadCloud,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 /**
- * Catálogo oficial SAT (c_RegimenFiscal). Lo enumeramos completo porque la
- * lista cambia cada que el SAT publica una actualización y queremos que la
- * UI se quede útil aunque la consulta al SAT no esté disponible. La fuente
- * primaria es `ListaDeCuentas` y `CatalogosCFDI40` del SAT.
- *
- * Persona Física → 605, 606, 612, 621, 626, 628.
- * Persona Moral → 601, 603, 620, 622.
- */
-const TAX_REGIMES = [
-  { value: "601", label: "601 — General de Ley Personas Morales" },
-  { value: "603", label: "603 — Personas Morales con Fines no Lucrativos" },
-  { value: "605", label: "605 — Sueldos y Salarios e Ingresos Asimilados a Salarios" },
-  { value: "606", label: "606 — Arrendamiento" },
-  { value: "612", label: "612 — Personas Físicas con Actividades Empresariales y Profesionales" },
-  { value: "620", label: "620 — Sociedades Cooperativas de Producción" },
-  { value: "621", label: "621 — Incorporación Fiscal" },
-  { value: "622", label: "622 — Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras" },
-  { value: "626", label: "626 — Régimen Simplificado de Confianza (RESICO)" },
-  { value: "628", label: "628 — Hidrocarburos" },
-] as const;
-
-/**
- * Catálogo SAT c_UsoCFDI — los más comunes primero. La lista completa
- * tiene más valores (I01–I08, P01, D01–D11, etc.) pero para una compra
- * típica solo aplican los de la clave G*.
+ * Catálogo SAT c_UsoCFDI — los más comunes primero. La constancia de
+ * situación fiscal NO trae esto (es el propósito del CFDI, lo elige quien
+ * factura en cada compra), así que sigue siendo el único campo manual.
  */
 const CFDI_USES = [
   { value: "G01", label: "G01 — Adquisición de mercancías" },
@@ -49,111 +30,97 @@ const CFDI_USES = [
   { value: "S01", label: "S01 — Sin efectos fiscales" },
 ] as const;
 
-interface BillingData {
-  rfc: string;
-  razonSocial: string;
-  regimen: string;
-  cp: string;
-  usoCfdi: string;
-  email: string;
+interface InvoiceResult {
+  invoiceRfc: string | null;
+  invoiceLegalName: string | null;
+  invoicePostalCode: string | null;
+  invoiceRegimenFiscal: string | null;
+  invoiceCfdiUse: string | null;
+  parseWarnings?: string[];
 }
 
-const EMPTY: BillingData = {
-  rfc: "",
-  razonSocial: "",
-  regimen: "",
-  cp: "",
-  usoCfdi: "G03",
-  email: "",
-};
+interface Overrides {
+  rfc?: string;
+  legalName?: string;
+  postalCode?: string;
+  regimenFiscal?: string;
+}
 
-const STORAGE_KEY = "checkout.billing.draft";
+async function uploadConstancia(
+  token: string,
+  file: File | null,
+  cfdiUse: string,
+  overrides: Overrides,
+): Promise<InvoiceResult> {
+  const form = new FormData();
+  if (file) form.append("file", file);
+  form.append("cfdiUse", cfdiUse);
+  if (overrides.rfc) form.append("rfc", overrides.rfc);
+  if (overrides.legalName) form.append("legalName", overrides.legalName);
+  if (overrides.postalCode) form.append("postalCode", overrides.postalCode);
+  if (overrides.regimenFiscal) form.append("regimenFiscal", overrides.regimenFiscal);
 
-function loadDraft(): BillingData {
-  if (typeof window === "undefined") return EMPTY;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return EMPTY;
-    return { ...EMPTY, ...(JSON.parse(raw) as Partial<BillingData>) };
-  } catch {
-    return EMPTY;
+  const res = await fetch(`/api/v1/orders/public/${token}/invoice`, {
+    method: "POST",
+    credentials: "omit",
+    body: form,
+  });
+  const json = (await res.json().catch(() => null)) as
+    | { data?: InvoiceResult; message?: string; error?: { message?: string } }
+    | null;
+  if (!res.ok || !json?.data) {
+    throw new Error(json?.error?.message ?? json?.message ?? "No se pudo procesar la constancia.");
   }
-}
-
-/** Valida el RFC con el patrón oficial: 3-4 letras + 6 dígitos + 3 alfanum. */
-function validRfc(value: string): boolean {
-  const v = value.trim().toUpperCase();
-  return /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(v);
-}
-
-function validCp(value: string): boolean {
-  return /^\d{5}$/.test(value.trim());
+  return json.data;
 }
 
 /**
- * Bloque colapsable para pedir al cliente los **datos fiscales mínimos**
- * que requiere el SAT para emitir CFDI (RFC, razón social, régimen,
- * código postal, uso CFDI y correo). La emisión real del CFDI no es
- * responsabilidad del checkout público: cuando el cliente marca la
- * casilla, los datos se guardan en `localStorage` y se muestra un
- * mensaje claro de que el vendedor los necesita para facturar.
+ * Facturación desde el checkout público: subir la constancia de situación
+ * fiscal (PDF del SAT) BASTA — RFC, razón social, código postal y régimen
+ * se leen de ahí (`orders/constancia-parser.ts`, servidor). Solo "uso de
+ * CFDI" lo sigue eligiendo el cliente, porque el documento no lo trae.
+ *
+ * Captura manual sigue disponible como respaldo (constancia ilegible, PDF a
+ * la mano en otro momento) detrás de "Prefiero capturarlo a mano".
  */
-export function BillingSection() {
+export function BillingSection({ token }: { token: string }) {
   const [open, setOpen] = useState(false);
-  const [wants, setWants] = useState(false);
-  const [data, setData] = useState<BillingData>(EMPTY);
+  const [manual, setManual] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [cfdiUse, setCfdiUse] = useState<string>("G03");
+  const [overrides, setOverrides] = useState<Overrides>({});
+  const [result, setResult] = useState<InvoiceResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const draft = loadDraft();
-    setData(draft);
-    if (draft.rfc || draft.razonSocial) setOpen(true);
-  }, []);
+  const submit = useMutation({
+    mutationFn: () => uploadConstancia(token, file, cfdiUse, overrides),
+    onSuccess: (data) => setResult(data),
+  });
 
-  function set<K extends keyof BillingData>(key: K, value: BillingData[K]) {
-    setData((prev) => {
-      const next = { ...prev, [key]: value };
-      if (typeof window !== "undefined") {
-        try {
-          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        } catch {
-          // ignore: modo privado o cuota llena
-        }
-      }
-      return next;
-    });
+  function pickFile() {
+    fileInputRef.current?.click();
   }
 
-  function toggleWants() {
-    const next = !wants;
-    setWants(next);
-    if (!next) {
-      setData(EMPTY);
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // ignore
-      }
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0] ?? null;
+    setResult(null);
+    if (picked && picked.type !== "application/pdf") {
+      submit.reset();
+      setFile(null);
+      return;
     }
+    setFile(picked);
   }
 
-  const rfcOk = data.rfc.trim() === "" || validRfc(data.rfc);
-  const cpOk = data.cp.trim() === "" || validCp(data.cp);
-  const emailOk = data.email.trim() === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email.trim());
-  const formValid =
-    data.rfc.trim() !== "" &&
-    validRfc(data.rfc) &&
-    data.razonSocial.trim().length >= 2 &&
-    data.regimen !== "" &&
-    validCp(data.cp) &&
-    data.usoCfdi !== "" &&
-    emailOk;
+  const warnings = result?.parseWarnings?.filter(Boolean) ?? [];
+  const done = Boolean(result);
 
   return (
     <section className="overflow-hidden rounded-card border bg-card shadow-airbnb">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-5 py-4 text-left hover:bg-muted/40 sm:px-6"
+        className="flex w-full items-center justify-between gap-2 px-5 py-4 text-left hover:bg-accent sm:px-6"
         aria-expanded={open}
       >
         <span className="flex items-center gap-2 text-sm font-medium">
@@ -168,176 +135,233 @@ export function BillingSection() {
 
       {open ? (
         <div className="space-y-4 border-t px-5 py-4 sm:px-6">
-          <p className="flex items-start gap-2 text-xs text-muted-foreground">
-            <Info aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            Estos datos no generan un CFDI automático: el vendedor los usa para
-            facturar después. Quedan guardados solo en tu navegador (no se
-            envían a ningún servidor de pago).
-          </p>
+          {done ? (
+            <Alert variant="success">
+              <CheckCircle2 aria-hidden />
+              <AlertDescription className="space-y-1">
+                <p className="font-medium">Listo, tus datos fiscales quedaron guardados.</p>
+                <p>
+                  {result?.invoiceLegalName} · RFC {result?.invoiceRfc} · CP{" "}
+                  {result?.invoicePostalCode}
+                  {result?.invoiceRegimenFiscal ? ` · Régimen ${result.invoiceRegimenFiscal}` : ""}
+                </p>
+                <p className="text-xs">El vendedor emite tu factura con estos datos.</p>
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                Sube tu <strong className="text-foreground">constancia de situación fiscal</strong>{" "}
+                (PDF del SAT) y listo: RFC, razón social, código postal y régimen se leen de ahí. No
+                tienes que dictarlos.
+              </p>
 
-          <label className="flex cursor-pointer items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={wants}
-              onChange={toggleWants}
-              className="mt-0.5 h-4 w-4 rounded border-input accent-primary-strong"
-            />
-            <span>Sí, quiero que me facturen con estos datos.</span>
-          </label>
+              {!manual ? (
+                <div className="space-y-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf"
+                    className="sr-only"
+                    onChange={onFileChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={pickFile}
+                    className="flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed border-input px-4 py-6 text-center transition-colors hover:border-primary hover:bg-accent"
+                  >
+                    <UploadCloud aria-hidden className="h-6 w-6 text-muted-foreground" />
+                    <span className="text-sm font-medium">
+                      {file ? file.name : "Sube tu constancia (PDF)"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">Máximo 8 MB</span>
+                  </button>
 
-          {wants ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="billing-rfc">RFC</Label>
-                <Input
-                  id="billing-rfc"
-                  value={data.rfc}
-                  onChange={(e) => set("rfc", e.target.value.toUpperCase())}
-                  placeholder="XAXX010101000"
-                  inputMode="text"
-                  autoComplete="off"
-                  spellCheck={false}
-                  aria-invalid={!rfcOk}
-                  aria-describedby={!rfcOk ? "billing-rfc-error" : "billing-rfc-hint"}
-                  className="font-mono text-xs uppercase"
-                  maxLength={13}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="billing-uso">Uso del CFDI</Label>
+                    <Select id="billing-uso" value={cfdiUse} onChange={(e) => setCfdiUse(e.target.value)}>
+                      {CFDI_USES.map((u) => (
+                        <option key={u.value} value={u.value}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  {submit.isError ? (
+                    <Alert variant="destructive">
+                      <ShieldAlert aria-hidden />
+                      <AlertDescription>{(submit.error as Error).message}</AlertDescription>
+                    </Alert>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setManual(true)}
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    >
+                      <Pencil aria-hidden className="h-3 w-3" />
+                      Prefiero capturarlo a mano
+                    </button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      loading={submit.isPending}
+                      disabled={!file}
+                      onClick={() => submit.mutate()}
+                    >
+                      {submit.isPending ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : null}
+                      Subir y facturar
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <ManualInvoiceForm
+                  cfdiUse={cfdiUse}
+                  setCfdiUse={setCfdiUse}
+                  overrides={overrides}
+                  setOverrides={setOverrides}
+                  onBack={() => setManual(false)}
+                  submitting={submit.isPending}
+                  error={submit.isError ? (submit.error as Error).message : null}
+                  onSubmit={() => {
+                    setFile(null);
+                    submit.mutate();
+                  }}
                 />
-                {!rfcOk ? (
-                  <p id="billing-rfc-error" className="text-xs text-destructive">
-                    Formato RFC inválido (3-4 letras, 6 dígitos, 3 alfanuméricos).
-                  </p>
-                ) : (
-                  <p id="billing-rfc-hint" className="text-xs text-muted-foreground">
-                    Persona moral (12) o física (13).
-                  </p>
-                )}
-              </div>
+              )}
 
-              <div className="space-y-1.5">
-                <Label htmlFor="billing-razon">Razón social</Label>
-                <Input
-                  id="billing-razon"
-                  value={data.razonSocial}
-                  onChange={(e) => set("razonSocial", e.target.value)}
-                  placeholder="Empresa S.A. de C.V."
-                  autoComplete="off"
-                  maxLength={200}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="billing-regimen">Régimen fiscal</Label>
-                <Select
-                  id="billing-regimen"
-                  value={data.regimen}
-                  onChange={(e) => set("regimen", e.target.value)}
-                >
-                  <option value="">Selecciona…</option>
-                  {TAX_REGIMES.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="billing-cp">Código postal fiscal</Label>
-                <Input
-                  id="billing-cp"
-                  value={data.cp}
-                  onChange={(e) => set("cp", e.target.value.replace(/\D/g, "").slice(0, 5))}
-                  placeholder="64000"
-                  inputMode="numeric"
-                  autoComplete="postal-code"
-                  aria-invalid={!cpOk}
-                  aria-describedby={!cpOk ? "billing-cp-error" : undefined}
-                  className="tabular-nums"
-                  maxLength={5}
-                />
-                {!cpOk ? (
-                  <p id="billing-cp-error" className="text-xs text-destructive">
-                    5 dígitos.
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="billing-uso">Uso del CFDI</Label>
-                <Select
-                  id="billing-uso"
-                  value={data.usoCfdi}
-                  onChange={(e) => set("usoCfdi", e.target.value)}
-                >
-                  {CFDI_USES.map((u) => (
-                    <option key={u.value} value={u.value}>
-                      {u.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="billing-email">Correo para enviar el CFDI</Label>
-                <Input
-                  id="billing-email"
-                  type="email"
-                  inputMode="email"
-                  value={data.email}
-                  onChange={(e) => set("email", e.target.value)}
-                  placeholder="[email protected]"
-                  autoComplete="email"
-                  aria-invalid={!emailOk}
-                  aria-describedby={!emailOk ? "billing-email-error" : undefined}
-                />
-                {!emailOk ? (
-                  <p id="billing-email-error" className="text-xs text-destructive">
-                    Correo inválido.
-                  </p>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-
-          {wants && !formValid ? (
-            <p className="flex items-center gap-2 text-xs text-warning-foreground">
-              <Info aria-hidden className="h-3.5 w-3.5" />
-              Completa RFC, razón social, régimen, código postal y correo para
-              poder facturar.
-            </p>
-          ) : null}
-
-          {wants && formValid ? (
-            <p className="flex items-center gap-2 text-xs text-success-foreground">
-              <Building2 aria-hidden className="h-3.5 w-3.5" />
-              Listo: el vendedor verá estos datos cuando le escribas para
-              facturar.
-            </p>
-          ) : null}
-
-          <div className="flex items-center justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                toast.message(
-                  "Datos guardados en este navegador",
-                  {
-                    description:
-                      "Cuando el vendedor te pida facturar, abre este mismo enlace y vuelve a pegar los datos, o mándale el resumen por correo.",
-                    icon: <Mail aria-hidden className="h-4 w-4" />,
-                  },
-                )
-              }
-              disabled={!formValid}
-            >
-              <Mail aria-hidden className="h-3.5 w-3.5" />
-              Listo, datos guardados
-            </Button>
-          </div>
+              {warnings.length > 0 ? (
+                <Alert variant="warning">
+                  <ShieldAlert aria-hidden />
+                  <AlertDescription>
+                    La constancia no trajo todo: {warnings.join("; ")}. Revisa los datos.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+            </>
+          )}
         </div>
       ) : null}
     </section>
+  );
+}
+
+function ManualInvoiceForm({
+  cfdiUse,
+  setCfdiUse,
+  overrides,
+  setOverrides,
+  onBack,
+  onSubmit,
+  submitting,
+  error,
+}: {
+  cfdiUse: string;
+  setCfdiUse: (v: string) => void;
+  overrides: Overrides;
+  setOverrides: (v: Overrides) => void;
+  onBack: () => void;
+  onSubmit: () => void;
+  submitting: boolean;
+  error: string | null;
+}) {
+  const rfcOk = !overrides.rfc || /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/.test(overrides.rfc);
+  const cpOk = !overrides.postalCode || /^\d{5}$/.test(overrides.postalCode);
+  const formValid =
+    !!overrides.rfc?.trim() &&
+    rfcOk &&
+    (overrides.legalName?.trim().length ?? 0) >= 2 &&
+    !!overrides.postalCode &&
+    cpOk;
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="billing-rfc">RFC</Label>
+          <Input
+            id="billing-rfc"
+            value={overrides.rfc ?? ""}
+            onChange={(e) => setOverrides({ ...overrides, rfc: e.target.value.toUpperCase() })}
+            placeholder="XAXX010101000"
+            aria-invalid={!rfcOk}
+            className="font-mono text-xs uppercase"
+            maxLength={13}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="billing-razon">Razón social</Label>
+          <Input
+            id="billing-razon"
+            value={overrides.legalName ?? ""}
+            onChange={(e) => setOverrides({ ...overrides, legalName: e.target.value })}
+            placeholder="Empresa S.A. de C.V."
+            maxLength={200}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="billing-cp">Código postal fiscal</Label>
+          <Input
+            id="billing-cp"
+            value={overrides.postalCode ?? ""}
+            onChange={(e) =>
+              setOverrides({ ...overrides, postalCode: e.target.value.replace(/\D/g, "").slice(0, 5) })
+            }
+            placeholder="64000"
+            inputMode="numeric"
+            aria-invalid={!cpOk}
+            className="tabular-nums"
+            maxLength={5}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="billing-regimen">Régimen fiscal (clave, opcional)</Label>
+          <Input
+            id="billing-regimen"
+            value={overrides.regimenFiscal ?? ""}
+            onChange={(e) =>
+              setOverrides({ ...overrides, regimenFiscal: e.target.value.replace(/\D/g, "").slice(0, 3) })
+            }
+            placeholder="626"
+            inputMode="numeric"
+            className="tabular-nums"
+            maxLength={3}
+          />
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label htmlFor="billing-uso-manual">Uso del CFDI</Label>
+          <Select id="billing-uso-manual" value={cfdiUse} onChange={(e) => setCfdiUse(e.target.value)}>
+            {CFDI_USES.map((u) => (
+              <option key={u.value} value={u.value}>
+                {u.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+
+      {error ? (
+        <Alert variant="destructive">
+          <ShieldAlert aria-hidden />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          <UploadCloud aria-hidden className="h-3 w-3" />
+          Mejor subo la constancia
+        </button>
+        <Button type="button" size="sm" loading={submitting} disabled={!formValid} onClick={onSubmit}>
+          Guardar datos fiscales
+        </Button>
+      </div>
+    </div>
   );
 }

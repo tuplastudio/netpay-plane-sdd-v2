@@ -151,8 +151,8 @@ export default function ChatPage() {
   }, [messages, busy]);
 
   const send = useCallback(
-    async (text: string, audioBase64?: string) => {
-      if (!text.trim() && !audioBase64) return;
+    async (text: string) => {
+      if (!text.trim()) return;
       // Sin tenant no se manda nada: adivinarlo escribiría el hilo en el
       // comercio equivocado. El redactor ya está bloqueado en ese estado; esto
       // cubre la ruta por teclado y las sugerencias.
@@ -189,8 +189,7 @@ export default function ChatPage() {
             tenantId,
             conversationId,
             messageId: crypto.randomUUID(),
-            text: text || null,
-            audioBase64: audioBase64 ?? null,
+            text,
             channel: "web",
             catalog: catalogPayload,
             principalScopes: [
@@ -219,18 +218,6 @@ export default function ChatPage() {
         if (data.checkout) setCheckout(data.checkout);
         if (data.handoff) setHandoff(true);
 
-        if (data.transcript) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: crypto.randomUUID(),
-              role: "user",
-              content: data.transcript ?? "",
-              createdAt: Date.now(),
-              status: "DELIVERED",
-            },
-          ]);
-        }
         if (data.reply) {
           setMessages((prev) => [
             ...prev,
@@ -288,7 +275,38 @@ export default function ChatPage() {
         });
         const buffer = await blob.arrayBuffer();
         const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
-        await send("", base64);
+        // Se transcribe ANTES de mandar a /chat (mismo orden que ya usa
+        // WhatsApp: commerce-api llama /audio/stt antes del puente al
+        // agente — ver whatsapp.controller.ts). Antes esto mandaba
+        // audioBase64 crudo a /chat, que no lo lee: el modelo nunca oía
+        // la nota de voz.
+        setBusy(true);
+        let text = "";
+        try {
+          const res = await fetch(`${AGENT_BASE}/audio/stt`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ audioBase64: base64 }),
+          });
+          if (!res.ok) {
+            const detail = await res.json().catch(() => ({}));
+            throw new Error(detail.detail ?? "No se pudo transcribir el audio");
+          }
+          const data = (await res.json()) as { text?: string };
+          text = (data.text ?? "").trim();
+        } catch (error) {
+          setBusy(false);
+          toast.error(
+            error instanceof Error ? error.message : "No se pudo transcribir el audio.",
+          );
+          return;
+        }
+        if (!text) {
+          setBusy(false);
+          toast.error("No se entendió el audio; intenta escribiendo tu mensaje.");
+          return;
+        }
+        await send(text);
       };
       recorder.start();
       recorderRef.current = recorder;
