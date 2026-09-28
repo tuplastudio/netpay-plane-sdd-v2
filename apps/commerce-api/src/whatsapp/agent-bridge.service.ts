@@ -64,6 +64,8 @@ export class AgentBridgeService {
     text: string;
     messageId: string;
     imageBase64?: string;
+    videoBase64?: string;
+    videoMimeType?: string;
   }): Promise<AgentReply | null> {
     if (!this.enabled) return null;
 
@@ -78,6 +80,8 @@ export class AgentBridgeService {
       messageId: input.messageId,
       text: input.text,
       imageBase64: input.imageBase64,
+      videoBase64: input.videoBase64,
+      videoMimeType: input.videoMimeType,
       channel: "whatsapp",
       customerPhone: input.externalPhone,
       // Scopes del canal: el agente ya valida cada herramienta con su
@@ -95,7 +99,7 @@ export class AgentBridgeService {
         "chat.write",
       ],
     };
-    const timeoutMs = input.imageBase64 ? 45_000 : 30_000;
+    const timeoutMs = input.videoBase64 ? 53_000 : input.imageBase64 ? 45_000 : 30_000;
 
     let payload = await this.callAgent(body, timeoutMs, input.conversationId);
     if (!payload) return null;

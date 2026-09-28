@@ -703,6 +703,8 @@ export class WhatsAppController {
     let message = parsed.message;
     let messageType: "TEXT" | "AUDIO" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION" = "TEXT";
     let imageBase64: string | undefined;
+    let videoBase64: string | undefined;
+    let videoMimeType: string | undefined;
     let latitude: number | undefined;
     let longitude: number | undefined;
 
@@ -738,6 +740,25 @@ export class WhatsAppController {
         };
         messageType = "IMAGE";
         imageBase64 = media.base64;
+      }
+    }
+
+    if (!message && parsed.video) {
+      // Igual que la foto (visión): se manda tal cual al agente. Antes esto
+      // no se descargaba en absoluto -un video de WhatsApp se perdía sin
+      // dejar rastro, ni siquiera como fila de mensaje.
+      const media = await this.wa.downloadMedia(parsed.video.connectionId, parsed.video.key);
+      if (media) {
+        message = {
+          provider: parsed.video.provider,
+          connectionId: parsed.video.connectionId,
+          externalPhone: parsed.video.externalPhone,
+          body: parsed.video.caption || "[el cliente envió un video]",
+          externalId: parsed.video.externalId,
+        };
+        messageType = "VIDEO";
+        videoBase64 = media.base64;
+        videoMimeType = media.mimetype;
       }
     }
 
@@ -809,6 +830,8 @@ export class WhatsAppController {
       text: message.body,
       messageId: msg.externalId ?? msg.id,
       imageBase64,
+      videoBase64,
+      videoMimeType,
     });
 
     return {
@@ -844,6 +867,14 @@ export class WhatsAppController {
           key: { id: string; remoteJid: string; fromMe?: boolean };
         };
         image?: {
+          provider: "EVOLUTION";
+          connectionId: string;
+          externalPhone: string;
+          externalId: string;
+          key: { id: string; remoteJid: string; fromMe?: boolean };
+          caption?: string;
+        };
+        video?: {
           provider: "EVOLUTION";
           connectionId: string;
           externalPhone: string;
@@ -936,6 +967,7 @@ export class WhatsAppController {
           extendedTextMessage?: { text?: string };
           audioMessage?: { ptt?: boolean; mimetype?: string };
           imageMessage?: { caption?: string; mimetype?: string };
+          videoMessage?: { caption?: string; mimetype?: string };
           locationMessage?: {
             degreesLatitude?: number;
             degreesLongitude?: number;
@@ -976,6 +1008,20 @@ export class WhatsAppController {
             externalId: data.key.id,
             key: { id: data.key.id, remoteJid, fromMe: data.key.fromMe },
             caption: data.message.imageMessage.caption,
+          },
+        };
+      }
+      if (!text && data.message?.videoMessage && data.key?.id) {
+        return {
+          ok: true,
+          message: null,
+          video: {
+            provider: "EVOLUTION",
+            connectionId: connection.id,
+            externalPhone: `+${remoteJid.split("@")[0]}`,
+            externalId: data.key.id,
+            key: { id: data.key.id, remoteJid, fromMe: data.key.fromMe },
+            caption: data.message.videoMessage.caption,
           },
         };
       }
