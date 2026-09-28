@@ -9,7 +9,9 @@ import {
   CheckCircle2,
   Copy,
   Mail,
+  PackageSearch,
   Receipt,
+  SearchX,
   Share2,
   ShieldCheck,
 } from "lucide-react";
@@ -18,18 +20,38 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { SkeletonRegion } from "@/components/ui/skeleton";
 import { Money } from "@/components/app/money";
-import { DateTime } from "@/components/app/date-time";
+
+type PublicOrderStatus =
+  | "DRAFT"
+  | "CHECKOUT_OPEN"
+  | "AWAITING_PAYMENT"
+  | "PAID"
+  | "FULFILLED"
+  | "REFUNDED"
+  | "EXPIRED"
+  | "CANCELLED"
+  | (string & {});
+
+/** Estados en los que el pago ya está aplicado: se deja de hacer polling. */
+const SETTLED: ReadonlyArray<string> = ["PAID", "FULFILLED"];
 
 interface PublicOrder {
   id: string;
-  status: string;
+  status: PublicOrderStatus;
+  /** `false` en sandbox: muestra el aviso "Modo de pruebas". */
+  livemode?: boolean;
+  /** true si el pedido tiene un correo al que enviar el recibo (opcional). */
+  hasCustomerEmail?: boolean;
+  /** Seguimiento durable del pedido (opcional): token o URL completa. */
+  trackingToken?: string | null;
+  trackingUrl?: string | null;
   subtotal: string;
   discount: string;
   tax: string;
   shipping: string;
   total: string;
   merchant: string;
-  customer: { fullName: string };
+  customer: { fullName: string; email?: string | null };
   lines: Array<{ variantId: string; sku: string; title: string; quantity: string }>;
 }
 
@@ -65,6 +87,13 @@ export default function ThanksPage() {
       return res.data.data;
     },
     retry: false,
+    // La pasarela puede redirigir aquí antes de que llegue el webhook: se
+    // consulta cada 4 s hasta ver el pago aplicado (o un error definitivo).
+    refetchInterval: (query) => {
+      if (query.state.error) return false;
+      const status = query.state.data?.status;
+      return status && SETTLED.includes(status) ? false : 4_000;
+    },
   });
 
   // Sin scroll al cargar: el "¡Listo!" grande debe entrar ya en foco.
@@ -89,8 +118,52 @@ export default function ThanksPage() {
     );
   }
 
+  const notFound =
+    (orderQ.error as { response?: { status?: number } } | null)?.response?.status === 404;
+  if (notFound) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
+        <div className="w-full max-w-md space-y-5 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+            <SearchX aria-hidden className="h-6 w-6" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl font-semibold tracking-tight">No encontramos este pago</h1>
+            <p className="text-sm text-muted-foreground">
+              Revisa el enlace: puede estar incompleto o ya no ser válido. Si ya pagaste, pide al
+              vendedor que te confirme el pedido.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (orderQ.isError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
+        <div className="w-full max-w-md space-y-5 text-center">
+          <div className="space-y-2">
+            <h1 className="text-xl font-semibold tracking-tight">No pudimos consultar tu pago</h1>
+            <p className="text-sm text-muted-foreground">
+              Revisa tu conexión e inténtalo de nuevo.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            className="h-11"
+            loading={orderQ.isFetching}
+            onClick={() => void orderQ.refetch()}
+          >
+            Reintentar
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
   // Pago aún no confirmado: caemos al estado de "aún no vemos tu pago".
-  if (!orderQ.data || orderQ.data.status !== "PAID") {
+  if (!orderQ.data || !SETTLED.includes(orderQ.data.status)) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
         <div className="w-full max-w-md space-y-5 text-center">
@@ -101,19 +174,21 @@ export default function ThanksPage() {
             <h1 className="text-xl font-semibold tracking-tight">
               Aún no vemos tu pago
             </h1>
-            <p className="text-sm text-muted-foreground">
-              Si ya pagaste, espera unos segundos y se actualizará solo. Si quieres
+            <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
+              Si ya pagaste, espera unos segundos: esta página se actualiza sola. Si quieres
               revisar el estado del cobro, abre el enlace original.
             </p>
           </div>
           <div className="flex flex-col items-center gap-2">
-            <Button asChild variant="outline" size="sm">
+            <Button asChild variant="secondary" className="h-11">
               <Link href={`/checkout/${token}`}>Volver al cobro</Link>
             </Button>
-            <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-              <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
-              Modo de pruebas · sin dinero real
-            </p>
+            {orderQ.data?.livemode === false ? (
+              <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
+                Modo de pruebas · sin dinero real
+              </p>
+            ) : null}
           </div>
         </div>
       </main>
@@ -122,6 +197,12 @@ export default function ThanksPage() {
 
   const order = orderQ.data;
   const shareUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const hasEmail = order.hasCustomerEmail === true || Boolean(order.customer.email);
+  const trackingHref =
+    order.trackingUrl ??
+    (order.trackingToken
+      ? `/orders/public/track/${encodeURIComponent(order.trackingToken)}`
+      : null);
 
   return (
     <main className="flex min-h-screen justify-center bg-muted/30 px-4 py-6 sm:items-center sm:py-10">
@@ -158,7 +239,7 @@ export default function ThanksPage() {
                 <button
                   type="button"
                   onClick={() => void copyToClipboard(order.id, "ID del pedido")}
-                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+                  className="-my-3 inline-flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
                   aria-label="Copiar ID del pedido"
                 >
                   <Copy aria-hidden className="h-3.5 w-3.5" />
@@ -178,13 +259,15 @@ export default function ThanksPage() {
             Qué sigue
           </h2>
           <ul className="space-y-3 text-sm">
-            <li className="flex gap-3">
-              <Mail aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span>
-                Recibirás un correo con el resumen del cobro y los datos del vendedor
-                para cualquier duda.
-              </span>
-            </li>
+            {hasEmail ? (
+              <li className="flex gap-3">
+                <Mail aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <span>
+                  Recibirás un correo con el resumen del cobro y los datos del vendedor
+                  para cualquier duda.
+                </span>
+              </li>
+            ) : null}
             <li className="flex gap-3">
               <Receipt aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
               <span>
@@ -204,36 +287,38 @@ export default function ThanksPage() {
         </section>
 
         {/* --- Acciones ----------------------------------------------- */}
-        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+        <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:flex-wrap sm:justify-center">
+          {trackingHref ? (
+            <Button asChild className="h-11">
+              <a href={trackingHref}>
+                <PackageSearch aria-hidden className="h-4 w-4" />
+                Seguir mi pedido
+              </a>
+            </Button>
+          ) : null}
           <Button
-            variant="outline"
-            size="sm"
+            variant="secondary"
+            className="h-11"
             onClick={() => void copyToClipboard(`${shareUrl}/checkout/${token}`, "Enlace")}
           >
             <Share2 aria-hidden className="h-3.5 w-3.5" />
             Copiar enlace
           </Button>
-          <Button asChild size="sm">
+          <Button asChild variant={trackingHref ? "secondary" : "default"} className="h-11">
             <Link href={`/checkout/${token}`}>Ver detalle del cobro</Link>
           </Button>
         </div>
 
         <p className="flex flex-wrap items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
           <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
-          Modo de pruebas · sin dinero real · este comprobante{" "}
+          {order.livemode === false ? "Modo de pruebas · sin dinero real · " : null}
+          Este comprobante{" "}
           <strong>no es un CFDI</strong>.
         </p>
 
         <p className="text-center text-[10px] text-muted-foreground">
           Si tu navegador no redirige solo, puedes cerrar esta ventana.
         </p>
-
-        {/* Datetime se importa por si lo quieres usar luego; aquí no se
-            renderiza porque el servidor ya trae createdAt en la respuesta
-            del cobro. */}
-        <span className="hidden">
-          <DateTime value={new Date().toISOString()} />
-        </span>
       </div>
     </main>
   );

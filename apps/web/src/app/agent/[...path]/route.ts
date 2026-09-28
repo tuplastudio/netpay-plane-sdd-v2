@@ -45,7 +45,13 @@ async function authenticatedTenant(req: NextRequest, requested: string | null): 
 }
 
 async function proxy(req: NextRequest, pathParts: string[]): Promise<NextResponse> {
-  const target = new URL(`${AGENT_INTERNAL_URL}/${pathParts.join("/")}`);
+  // Cada segmento se codifica y `.`/`..` se rechazan: sin esto un
+  // `%2F..%2F` decodificado por Next podía escalar fuera de /agent en el
+  // upstream (p. ej. hacia otros endpoints internos de commerce-api).
+  if (pathParts.some((p) => p === "." || p === ".." || p === "")) {
+    return NextResponse.json({ error: "INVALID_PATH" }, { status: 400 });
+  }
+  const target = new URL(`${AGENT_INTERNAL_URL}/${pathParts.map(encodeURIComponent).join("/")}`);
   target.search = req.nextUrl.search;
 
   let jsonBody: Record<string, unknown> | null = null;
@@ -101,8 +107,9 @@ async function proxy(req: NextRequest, pathParts: string[]): Promise<NextRespons
       cache: "no-store",
     });
   } catch (error) {
+    console.error("[agent-proxy] upstream unreachable:", (error as Error).message);
     return NextResponse.json(
-      { error: "AGENT_UNREACHABLE", message: (error as Error).message },
+      { error: "AGENT_UNREACHABLE", message: "El agente no está disponible. Intenta de nuevo en unos segundos." },
       { status: 502 },
     );
   }

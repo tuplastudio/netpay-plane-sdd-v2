@@ -9,6 +9,9 @@ import {
   Clock,
   RefreshCw,
   ChevronRight,
+  MessageCircle,
+  PackageCheck,
+  RotateCcw,
   ShieldCheck,
   Store,
   XCircle,
@@ -52,9 +55,27 @@ function productFor(line: PublicOrderLine): ProductDetailProduct {
   };
 }
 
+/** Estados que el GET público puede devolver; `string` por compatibilidad hacia adelante. */
+type PublicOrderStatus =
+  | "DRAFT"
+  | "CHECKOUT_OPEN"
+  | "AWAITING_PAYMENT"
+  | "PAID"
+  | "FULFILLED"
+  | "REFUNDED"
+  | "EXPIRED"
+  | "CANCELLED"
+  | (string & {});
+
 interface PublicOrder {
   id: string;
-  status: string;
+  status: PublicOrderStatus;
+  /** Resultado del último intento de pago (el backend lo agrega; opcional). */
+  lastPaymentStatus?: "FAILED" | "CAPTURED" | "PENDING" | (string & {}) | null;
+  /** Número de WhatsApp del comercio para volver a la conversación (opcional). */
+  whatsappNumber?: string | null;
+  /** `false` en sandbox: muestra el aviso "Modo de pruebas". */
+  livemode?: boolean;
   subtotal: string;
   discount: string;
   tax: string;
@@ -67,6 +88,12 @@ interface PublicOrder {
 }
 
 const PAYABLE = ["CHECKOUT_OPEN", "AWAITING_PAYMENT"];
+
+/** `https://wa.me/<dígitos>` o null si el número no parece válido. */
+function whatsappHref(raw: string | null | undefined): string | null {
+  const digits = (raw ?? "").replace(/\D/g, "");
+  return digits.length >= 8 ? `https://wa.me/${digits}` : null;
+}
 
 function useCountdown(expiresAt: string | null) {
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
@@ -142,14 +169,16 @@ function BrandMark({ merchant }: { merchant?: string }) {
 }
 
 /** Pie de confianza: siempre visible, incluso en error o carga. */
-function TrustLine() {
+function TrustLine({ livemode }: { livemode?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center gap-1 text-center text-xs text-muted-foreground">
       <p className="flex flex-wrap items-center justify-center gap-1.5">
         <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
         Pago seguro con Atiende ya
       </p>
-      <p className="opacity-70">Modo de pruebas · sin dinero real</p>
+      {livemode === false ? (
+        <p className="opacity-70">Modo de pruebas · sin dinero real</p>
+      ) : null}
     </div>
   );
 }
@@ -237,8 +266,8 @@ export default function CheckoutPublicPage() {
               no hagas ningún pago por otra vía.
             </p>
             <Button
-              variant="outline"
-              size="sm"
+              variant="secondary"
+              className="h-11"
               loading={orderQ.isFetching}
               onClick={() => void orderQ.refetch()}
             >
@@ -256,6 +285,8 @@ export default function CheckoutPublicPage() {
   const effectiveStatus = expired && PAYABLE.includes(order.status) ? "EXPIRED" : order.status;
   const payable = PAYABLE.includes(order.status) && !expired;
   const isExpired = order.status === "EXPIRED" || (expired && PAYABLE.includes(order.status));
+  const paymentFailed = payable && order.lastPaymentStatus === "FAILED";
+  const waHref = whatsappHref(order.whatsappNumber);
 
   return (
     <PublicShell>
@@ -284,13 +315,32 @@ export default function CheckoutPublicPage() {
           {/* 3a. Pagable */}
           {payable && (
             <>
+              {paymentFailed && (
+                <Alert variant="destructive" className="mb-4 text-left">
+                  <XCircle aria-hidden />
+                  <AlertTitle>Pago rechazado — intenta de nuevo</AlertTitle>
+                  <AlertDescription>
+                    El banco o la pasarela no aprobaron el último intento. No se hizo ningún cargo.
+                    Revisa los datos o prueba con otro método de pago.
+                  </AlertDescription>
+                </Alert>
+              )}
               <Button
                 className="h-12 w-full text-base"
                 size="lg"
                 onClick={() => void startCheckout()}
                 loading={paying}
               >
-                {paying ? "Redirigiendo…" : "Pagar ahora"}
+                {paying ? (
+                  "Redirigiendo…"
+                ) : paymentFailed ? (
+                  <>
+                    <RefreshCw aria-hidden className="h-4 w-4" />
+                    Intentar de nuevo
+                  </>
+                ) : (
+                  "Pagar ahora"
+                )}
               </Button>
               {remainingMs !== null && (
                 <p
@@ -313,7 +363,9 @@ export default function CheckoutPublicPage() {
                 role="status"
                 aria-live="polite"
               >
-                {order.status === "AWAITING_PAYMENT"
+                {paymentFailed
+                  ? "Al volver a intentar te llevaremos de nuevo a la pasarela segura."
+                  : order.status === "AWAITING_PAYMENT"
                   ? "Ya abriste la pasarela. Esta página se actualiza sola en cuanto se confirme el pago."
                   : "Te llevaremos a una pasarela segura para pagar con tarjeta, transferencia SPEI o efectivo."}
               </p>
@@ -327,6 +379,29 @@ export default function CheckoutPublicPage() {
               <p className="text-base font-semibold">¡Pago confirmado!</p>
               <p className="text-sm text-muted-foreground">
                 Ya no tienes que hacer nada. Puedes cerrar esta ventana.
+              </p>
+            </div>
+          )}
+
+          {/* 3b'. Entregado */}
+          {order.status === "FULFILLED" && (
+            <div className="space-y-1 text-center">
+              <PackageCheck aria-hidden className="mx-auto h-10 w-10 text-success" />
+              <p className="text-base font-semibold">Pedido entregado</p>
+              <p className="text-sm text-muted-foreground">
+                Tu pago se confirmó y el vendedor ya marcó el pedido como entregado.
+              </p>
+            </div>
+          )}
+
+          {/* 3b''. Reembolsado */}
+          {order.status === "REFUNDED" && (
+            <div className="space-y-1 text-center">
+              <RotateCcw aria-hidden className="mx-auto h-10 w-10 text-warning" />
+              <p className="text-base font-semibold">Pago reembolsado</p>
+              <p className="text-sm text-muted-foreground">
+                El vendedor devolvió este pago. El reembolso puede tardar unos días hábiles en
+                reflejarse en tu estado de cuenta.
               </p>
             </div>
           )}
@@ -351,6 +426,15 @@ export default function CheckoutPublicPage() {
                 Este pedido ya no acepta pagos. Si crees que es un error, contacta al vendedor.
               </p>
             </div>
+          )}
+
+          {waHref && (
+            <Button asChild variant="secondary" className="mt-4 h-11 w-full">
+              <a href={waHref} target="_blank" rel="noopener noreferrer">
+                <MessageCircle aria-hidden className="h-4 w-4" />
+                Volver a WhatsApp
+              </a>
+            </Button>
           )}
         </div>
 
@@ -427,7 +511,7 @@ export default function CheckoutPublicPage() {
         </div>
       </div>
 
-      <TrustLine />
+      <TrustLine livemode={order.livemode} />
       <BillingSection />
       <ProductDetailSheet
         product={detailLine ? productFor(detailLine) : null}

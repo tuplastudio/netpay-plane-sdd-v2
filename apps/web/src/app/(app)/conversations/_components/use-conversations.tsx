@@ -1,5 +1,11 @@
 "use client";
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { providerLabel, useMe } from "../../channels/_components/use-channels";
@@ -123,7 +129,22 @@ export function assigneeFor(filters: ConversationFilters): string | undefined {
  */
 export const CONVERSATIONS_LIMIT = 100;
 
-export type MessageType = "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT" | "TEMPLATE";
+export type MessageType =
+  | "TEXT"
+  | "IMAGE"
+  | "AUDIO"
+  | "VIDEO"
+  | "DOCUMENT"
+  | "LOCATION"
+  | "TEMPLATE";
+
+/**
+ * Quién originó un mensaje saliente. El API todavía NO lo manda: cuando falta,
+ * la UI rotula el saliente como neutro ("Enviado") en vez de inventar la
+ * autoría a partir del estado ACTUAL del hilo (que no dice nada de mensajes
+ * pasados).
+ */
+export type MessageSender = "BOT" | "HUMAN" | "SYSTEM";
 
 export interface Message {
   id: string;
@@ -135,7 +156,36 @@ export interface Message {
   status: string;
   errorMessage: string | null;
   createdAt: string;
+  /** Acuses de WhatsApp (columnas de `WhatsAppMessage`; opcionales por compatibilidad). */
+  sentAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  /** Solo LOCATION: coordenadas compartidas por el cliente. */
+  latitude?: number | null;
+  longitude?: number | null;
+  /** Solo DOCUMENT (cuando el API los exponga): nombre y tamaño del archivo. */
+  filename?: string | null;
+  fileSize?: number | null;
+  /** Autoría por mensaje, si el API la llega a mandar. */
+  sender?: MessageSender | null;
+  senderUser?: { id: string; fullName: string } | null;
 }
+
+/**
+ * Página de `GET conversations/:id/messages?limit=&before=`. `pageInfo` es
+ * opcional: el API anterior devuelve todo el hilo sin paginar, y ahí la UI
+ * simplemente no ofrece "Cargar anteriores".
+ */
+export interface MessagesPage {
+  data: Message[];
+  pageInfo?: { hasMore: boolean; nextBefore: string | null };
+}
+
+/** Tamaño de página del hilo. */
+export const MESSAGES_PAGE_SIZE = 50;
+
+/** Tope de WhatsApp para un mensaje de texto. */
+export const WHATSAPP_TEXT_MAX = 4096;
 
 /** Nota interna del hilo: la ve el equipo, nunca el cliente. */
 export interface ConversationNote {
@@ -182,6 +232,17 @@ function rangeFrom(range: RangeFilter, now = new Date()): string | undefined {
 // Queries
 // ---------------------------------------------------------------------------
 
+/**
+ * Intervalo de refresco que solo corre con la pestaña visible. TanStack ya
+ * pausa `refetchInterval` en segundo plano (`refetchIntervalInBackground`
+ * es `false` por defecto); esta función lo hace explícito y además evita
+ * disparar el primer tick si el documento ya está oculto.
+ */
+function whenVisible(ms: number) {
+  return () =>
+    typeof document === "undefined" || document.visibilityState === "visible" ? ms : false;
+}
+
 export function useConversations(filters: ConversationFilters = DEFAULT_FILTERS) {
   return useQuery({
     queryKey: ["whatsapp-conversations", filters],
@@ -206,24 +267,59 @@ export function useConversations(filters: ConversationFilters = DEFAULT_FILTERS)
     // Al cambiar un filtro la tabla conserva las filas previas en vez de
     // parpadear a skeleton; las KPIs no dependen del filtro y tampoco saltan.
     placeholderData: keepPreviousData,
+    // Bandeja en vivo: lista + KPIs cada 10 s mientras la pestaña se ve.
+    refetchInterval: whenVisible(10_000),
+    refetchIntervalInBackground: false,
   });
 }
 
+/**
+ * Hilo paginado hacia atrás. La primera página es la MÁS RECIENTE (orden
+ * ascendente dentro de la página); `fetchNextPage` trae la anterior con
+ * `before=pageInfo.nextBefore`. Para pintar, usar `flattenMessages`.
+ *
+ * `pollMs`: 5 s si atiende una persona, 15 s si atiende el bot; se pausa con
+ * la pestaña oculta.
+ */
 export function useMessages(
   conversationId: string | undefined,
-  opts?: { /** Refresca cada 5 s mientras una persona atiende el hilo. */ poll?: boolean },
+  opts?: { pollMs?: number | false },
 ) {
-  return useQuery({
+  const pollMs = opts?.pollMs ?? false;
+  return useInfiniteQuery({
     queryKey: ["whatsapp-messages", conversationId],
-    queryFn: async () => {
-      const res = await api.get<{ data: Message[] }>(
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }): Promise<MessagesPage> => {
+      const res = await api.get<MessagesPage>(
         `/whatsapp/conversations/${conversationId!}/messages`,
+        { params: { limit: MESSAGES_PAGE_SIZE, before: pageParam ?? undefined } },
       );
-      return res.data.data;
+      return { data: res.data.data, pageInfo: res.data.pageInfo };
     },
+    getNextPageParam: (last) =>
+      last.pageInfo?.hasMore && last.pageInfo.nextBefore ? last.pageInfo.nextBefore : undefined,
     enabled: !!conversationId,
-    refetchInterval: opts?.poll ? 5_000 : false,
+    refetchInterval: pollMs ? whenVisible(pollMs) : false,
+    refetchIntervalInBackground: false,
   });
+}
+
+/**
+ * Páginas (más reciente primero) → lista ascendente sin duplicados. Si el API
+ * todavía no pagina, hay una sola página y esto la devuelve tal cual.
+ */
+export function flattenMessages(pages: MessagesPage[] | undefined): Message[] {
+  if (!pages) return [];
+  const seen = new Set<string>();
+  const out: Message[] = [];
+  for (let i = pages.length - 1; i >= 0; i--) {
+    for (const m of pages[i]!.data) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      out.push(m);
+    }
+  }
+  return out;
 }
 
 export function useNotes(conversationId: string | undefined) {

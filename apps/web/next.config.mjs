@@ -1,3 +1,21 @@
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' blob: data: https:",
+  // En dev Next usa eval (react-refresh) y websocket para HMR.
+  process.env.NODE_ENV === "production"
+    ? "connect-src 'self' https:"
+    : "connect-src 'self' https: ws: wss:",
+  "font-src 'self' data:",
+  "style-src 'self' 'unsafe-inline'",
+  process.env.NODE_ENV === "production"
+    ? "script-src 'self' 'unsafe-inline'"
+    : "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+].join("; ");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -12,6 +30,11 @@ const nextConfig = {
   // --prebuilt` con ENOENT en chunks de jest-worker).
   ...(process.env.STANDALONE_BUILD === "1" ? { output: "standalone" } : {}),
   poweredByHeader: false,
+  // CSP compatible con la app actual: `layout.tsx` lleva un script inline de
+  // tema y Next inyecta scripts inline de hidratación, así que script-src
+  // conserva 'unsafe-inline' hasta implementar nonces. La página hosted de
+  // `/pay/*` trae su propio CSP (mismo 'self' + 'unsafe-inline'); ambos se
+  // aplican y la intersección sigue permitiéndola. No hay iframes propios.
   async headers() {
     return [
       {
@@ -22,6 +45,7 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "camera=(), geolocation=(), payment=()" },
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+          { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
         ],
       },
     ];

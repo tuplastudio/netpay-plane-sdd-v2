@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { api, syncSessionAfterAuth } from "@/lib/api";
+import { safeRedirect } from "@/lib/safe-redirect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,9 +22,7 @@ type FormValues = z.infer<typeof schema>;
 
 function readSafeNext(): string {
   if (typeof window === "undefined") return "/";
-  const raw = new URLSearchParams(window.location.search).get("next");
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/";
-  return raw;
+  return safeRedirect(new URLSearchParams(window.location.search).get("next"));
 }
 
 export default function LoginPage() {

@@ -39,6 +39,20 @@ function hasSessionCookie(req: NextRequest): boolean {
   );
 }
 
+/**
+ * IP del cliente tal como la fija la plataforma: `request.ip` (Vercel/Next
+ * ≤14), `x-real-ip` (Vercel y nginx) o el primer salto de `x-forwarded-for`
+ * (Vercel sobrescribe ese header; no es el valor que mandó el navegador).
+ */
+function clientIpOf(req: NextRequest): string | null {
+  const fromPlatform = (req as NextRequest & { ip?: string }).ip;
+  if (fromPlatform) return fromPlatform;
+  const realIp = req.headers.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  const firstHop = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return firstHop || null;
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
@@ -56,6 +70,20 @@ export async function middleware(req: NextRequest) {
     if (reqContentType) headers.set("content-type", reqContentType);
     const cookie = req.headers.get("cookie");
     if (cookie) headers.set("cookie", cookie);
+    // commerce-api valida `Origin`/`Referer` contra su allowlist (CSRF) en
+    // las mutaciones con cookie: sin reenviarlos ese chequeo no corre.
+    const origin = req.headers.get("origin");
+    if (origin) headers.set("origin", origin);
+    const referer = req.headers.get("referer");
+    if (referer) headers.set("referer", referer);
+    // IP real del cliente para que el rate limit sea por cliente y no por IP
+    // de salida de Vercel. Solo la reenviamos nosotros (no se concatena lo
+    // que mande el navegador más allá del primer salto que fija el edge).
+    const clientIp = clientIpOf(req);
+    if (clientIp) {
+      headers.set("x-forwarded-for", clientIp);
+      headers.set("x-real-ip", clientIp);
+    }
 
     let upstream: Response;
     try {
@@ -69,11 +97,12 @@ export async function middleware(req: NextRequest) {
         cache: "no-store",
       });
     } catch (err) {
+      // El detalle (URL interna, mensaje de red) solo al log del servidor.
+      console.error("[middleware] commerce-api unreachable:", (err as Error).message);
       return NextResponse.json(
         {
           error: "BACKEND_UNREACHABLE",
-          message: (err as Error).message,
-          target,
+          message: "El servicio no está disponible. Intenta de nuevo en unos segundos.",
         },
         { status: 502 },
       );

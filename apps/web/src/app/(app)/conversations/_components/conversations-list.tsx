@@ -294,7 +294,10 @@ export function ConversationsList({
         columns={columns}
         rows={rows}
         isLoading={query.isLoading}
-        isError={query.isError}
+        // Con la bandeja en vivo (refresco cada 10 s) un tropiezo de red no
+        // debe tapar las filas que ya se ven: el error a pantalla completa es
+        // solo para cuando no hay nada que mostrar.
+        isError={query.isError && !query.data}
         error={query.error}
         onRetry={() => void query.refetch()}
         onRowClick={onSelect}

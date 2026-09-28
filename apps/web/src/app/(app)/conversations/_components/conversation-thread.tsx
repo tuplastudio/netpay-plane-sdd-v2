@@ -1,15 +1,23 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { flushSync } from "react-dom";
 import {
   AlertCircle,
+  ArrowDown,
   AudioLines,
   Bot,
+  Check,
+  CheckCheck,
   CheckCircle2,
   ChevronLeft,
+  Clock,
+  ExternalLink,
   FileText,
   Hand,
+  History,
   Image as ImageIcon,
+  MapPin,
   MessageSquare,
   Mic,
   MoreHorizontal,
@@ -40,8 +48,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { SkeletonText } from "@/components/ui/skeleton";
-import { StatusBadge, statusLabel } from "@/components/ui/status-badge";
+import { Skeleton, SkeletonRegion, SkeletonText } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -49,7 +57,9 @@ import { DateTime } from "@/components/app/date-time";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
   MAX_ATTACHMENT_BYTES,
+  WHATSAPP_TEXT_MAX,
   apiErrorMessage,
+  flattenMessages,
   providerLabel,
   useAddNote,
   useAddMessageNote,
@@ -66,8 +76,10 @@ import {
   type Conversation,
   type ConversationNote,
   type Message,
+  type MessageNote,
   type MessageType,
 } from "./use-conversations";
+import { EntityDetailSheet, type EntityTarget } from "./entity-detail-sheet";
 import { blobToBase64, formatDuration, useVoiceRecorder } from "./use-voice-recorder";
 import { EmojiPickerPanel } from "./emoji-picker-panel";
 import { linkify } from "./linkify";
@@ -114,67 +126,123 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Notas internas de UN mensaje: se abren bajo demanda, no en cada mensaje visible. */
-function MessageNotesInline({ messageId }: { messageId: string }) {
+/** "14:05" en hora local, para el pie de cada burbuja. */
+function formatTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** "27 sep 2026, 14:05": fecha completa para los tooltips de acuse. */
+function formatFull(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
+}
+
+/**
+ * Nombre legible de un documento: el que mande el API o, si no, el último
+ * segmento de la URL (solo si parece un archivo con extensión).
+ */
+function documentName(message: Message): string | null {
+  if (message.filename) return message.filename;
+  if (!message.mediaUrl) return null;
+  try {
+    const last = new URL(message.mediaUrl).pathname.split("/").pop() ?? "";
+    const name = decodeURIComponent(last);
+    return /\.[a-z0-9]{2,5}$/i.test(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Notas internas de UN mensaje. El botón es barato (sin query ni mutación);
+ * el panel con la query y la mutación solo se monta al abrirlo, así un hilo
+ * de 200 mensajes no registra 200 observadores de TanStack Query.
+ */
+function MessageNotesInline({ messageId, outbound }: { messageId: string; outbound: boolean }) {
   const [open, setOpen] = useState(false);
-  const notes = useMessageNotes(open ? messageId : undefined);
-  const addNote = useAddMessageNote(messageId);
-  const [draft, setDraft] = useState("");
-  const count = notes.data?.length ?? 0;
+  const queryClient = useQueryClient();
+  // Lectura no reactiva del caché: solo sirve para el rótulo con el panel
+  // cerrado; al abrirlo, el panel se suscribe de verdad.
+  const cached = queryClient.getQueryData<MessageNote[]>(["whatsapp-message-notes", messageId]);
+  const count = cached?.length ?? 0;
 
   return (
-    <div className="mt-1">
+    <div className={cn("mt-0.5 flex flex-col", outbound ? "items-end" : "items-start")}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-1 rounded p-0.5 text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+        className={cn(
+          "inline-flex items-center gap-1 rounded p-0.5 text-[11px] text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          // En escritorio solo aparece al pasar por el mensaje (menos ruido);
+          // en táctil siempre está visible.
+          !open && count === 0 && "sm:opacity-0 sm:group-hover:opacity-100",
+        )}
         aria-expanded={open}
       >
         <StickyNote aria-hidden className="h-3 w-3" />
         {open ? "Ocultar nota" : count > 0 ? `Nota (${count})` : "Nota"}
       </button>
-      {open ? (
-        <div className="mt-1.5 max-w-[85%] space-y-1.5 rounded-card border border-border bg-background p-2">
-          {notes.isLoading ? (
-            <p className="text-[11px] text-muted-foreground">Cargando…</p>
-          ) : notes.data && notes.data.length > 0 ? (
-            <ul className="space-y-1">
-              {notes.data.map((n) => (
-                <li key={n.id} className="text-[11px]">
-                  <p className="whitespace-pre-wrap break-words text-foreground">{n.body}</p>
-                  <p className="text-muted-foreground">
-                    {n.author?.fullName ?? "Sin autor"} · <DateTime value={n.createdAt} />
-                  </p>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[11px] text-muted-foreground">Sin notas en este mensaje.</p>
-          )}
-          <div className="flex gap-1.5">
-            <Input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Nota interna…"
-              className="h-7 text-xs"
-              aria-label="Nueva nota sobre este mensaje"
-            />
-            <Button
-              type="button"
-              size="sm"
-              className="h-7 shrink-0 px-2 text-xs"
-              disabled={!draft.trim()}
-              loading={addNote.isPending}
-              onClick={() => {
-                if (!draft.trim()) return;
-                addNote.mutate(draft.trim(), { onSuccess: () => setDraft("") });
-              }}
-            >
-              Guardar
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      {open ? <MessageNotesPanel messageId={messageId} /> : null}
+    </div>
+  );
+}
+
+function MessageNotesPanel({ messageId }: { messageId: string }) {
+  const notes = useMessageNotes(messageId);
+  const addNote = useAddMessageNote(messageId);
+  const [draft, setDraft] = useState("");
+
+  return (
+    <div className="mt-1.5 w-72 max-w-full space-y-1.5 rounded-card border border-border bg-card p-2">
+      {notes.isLoading ? (
+        <p className="text-[11px] text-muted-foreground">Cargando…</p>
+      ) : notes.data && notes.data.length > 0 ? (
+        <ul className="space-y-1">
+          {notes.data.map((n) => (
+            <li key={n.id} className="text-[11px]">
+              <p className="whitespace-pre-wrap break-words text-foreground">{n.body}</p>
+              <p className="text-muted-foreground">
+                {n.author?.fullName ?? "Sin autor"} · <DateTime value={n.createdAt} />
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">Sin notas en este mensaje.</p>
+      )}
+      <div className="flex gap-1.5">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Nota interna…"
+          className="h-7 text-xs"
+          aria-label="Nueva nota sobre este mensaje"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && draft.trim()) {
+              e.preventDefault();
+              addNote.mutate(draft.trim(), { onSuccess: () => setDraft("") });
+            }
+          }}
+        />
+        <Button
+          type="button"
+          size="sm"
+          className="h-7 shrink-0 px-2 text-xs"
+          disabled={!draft.trim()}
+          loading={addNote.isPending}
+          onClick={() => {
+            if (!draft.trim()) return;
+            addNote.mutate(draft.trim(), { onSuccess: () => setDraft("") });
+          }}
+        >
+          Guardar
+        </Button>
+      </div>
     </div>
   );
 }
@@ -183,137 +251,237 @@ function MessageNotesInline({ messageId }: { messageId: string }) {
 const PREVIEWABLE_TYPES = new Set<MessageType>(["IMAGE", "VIDEO", "AUDIO"]);
 
 /**
- * Marcador (etiqueta + ícono + hora + estado) que se pinta ARRIBA de cada
- * burbuja del hilo. Sustituye al único "destinatario" implícito del color de
- * fondo: un nuevo captador del hilo debe poder escanearlo y saber, sin abrir
- * detalle, quién dijo qué y cuándo.
- *
- * - Entrante (cliente) → ícono `UserRound` y el nombre del cliente (o el
- *   teléfono si todavía no hay ficha).
- * - Saliente por el agente de IA → ícono `Bot` y etiqueta "Agente".
- * - Saliente por una persona → ícono `UserCog` y etiqueta "Asesor" + el nombre
- *   de la persona dueña del hilo, si la sabemos.
- *
- * El estado (PENDING / SENT / DELIVERED / READ / FAILED) solo se pinta en
- * mensajes salientes: WhatsApp nunca expone estado para los entrantes, y
- * pintarlo sería ruido.
+ * Quién mandó un saliente. El API todavía no manda autoría por mensaje; sin
+ * ella el rótulo es neutro ("Enviado"). NUNCA se deduce del estado actual del
+ * hilo: que hoy lo atienda una persona no dice quién escribió hace una hora.
  */
-function MessageMarker({
-  message,
-  customerName,
-  agentLabel,
-  agentName,
-  compact = false,
-}: {
-  message: Message;
-  customerName: string;
-  agentLabel: "Agente" | "Asesor";
-  agentName?: string;
-  /** Sin icono ni nombre del sender: concatenación visual con el mensaje
-   *  anterior (mismo sender, < 5 min). La fecha sigue, alineada al borde
-   *  correcto, para que la cronología no se pierda. */
-  compact?: boolean;
-}) {
-  const outbound = message.direction === "OUTBOUND";
-  const Icon = outbound ? (agentLabel === "Asesor" ? UserCog : Bot) : UserRound;
-  const label = outbound ? (agentName ? `${agentLabel} · ${agentName}` : agentLabel) : customerName;
+function outboundSender(message: Message): { label: string; icon: typeof Bot | null } {
+  switch (message.sender) {
+    case "BOT":
+      return { label: "Bot", icon: Bot };
+    case "HUMAN":
+      return { label: message.senderUser?.fullName ?? "Asesor", icon: UserCog };
+    case "SYSTEM":
+      return { label: "Sistema", icon: null };
+    default:
+      return { label: "Enviado", icon: null };
+  }
+}
+
+/** Clave de "mismo remitente" para agrupar burbujas consecutivas. */
+function senderKey(message: Message): string {
+  if (message.direction === "INBOUND") return "in";
+  return `out:${message.sender ?? ""}:${message.senderUser?.id ?? ""}`;
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  PENDING: "Enviando",
+  SENT: "Enviado",
+  DELIVERED: "Entregado",
+  READ: "Leído",
+  FAILED: "No se entregó",
+};
+
+/**
+ * Acuse estilo WhatsApp: reloj (enviando), ✓ (enviado), ✓✓ (entregado),
+ * ✓✓ en acento (leído). El tooltip lista las horas que WhatsApp confirmó.
+ */
+function DeliveryTicks({ message }: { message: Message }) {
+  const status = message.status;
+  const text = STATUS_TEXT[status] ?? status;
+  const Icon =
+    status === "PENDING"
+      ? Clock
+      : status === "FAILED"
+        ? AlertCircle
+        : status === "SENT"
+          ? Check
+          : CheckCheck;
+  const lines = [
+    message.sentAt ? `Enviado: ${formatFull(message.sentAt)}` : null,
+    message.deliveredAt ? `Entregado: ${formatFull(message.deliveredAt)}` : null,
+    message.readAt ? `Leído: ${formatFull(message.readAt)}` : null,
+  ].filter(Boolean) as string[];
   return (
-    <div
-      className={cn(
-        "flex items-baseline gap-1.5 px-1 pb-0.5 text-[11px] text-muted-foreground",
-        outbound ? "justify-end" : "justify-start",
-      )}
-    >
-      {compact ? (
-        <span aria-hidden className="h-3 w-3 shrink-0" />
-      ) : (
-        <Icon aria-hidden className="h-3 w-3 shrink-0" />
-      )}
-      {compact ? null : (
-        <span className="truncate font-medium text-foreground">{label}</span>
-      )}
-      <span aria-hidden>·</span>
-      <DateTime value={message.createdAt} className="text-[11px]" />
-      {outbound ? (
-        <>
-          <span aria-hidden>·</span>
-          <StatusBadge
-            status={message.status}
-            domain="message"
-            size="sm"
-            label={
-              message.status === "FAILED"
-                ? "Falló"
-                : message.status === "DELIVERED"
-                  ? "Entregado"
-                  : message.status === "READ"
-                    ? "Leído"
-                    : message.status === "SENT"
-                      ? "Enviado"
-                      : message.status === "PENDING"
-                        ? "Enviando"
-                        : statusLabel(message.status, "message")
-            }
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          tabIndex={0}
+          role="img"
+          aria-label={text}
+          className="inline-flex rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Icon
+            aria-hidden
+            className={cn(
+              "h-3.5 w-3.5",
+              status === "READ" && "text-primary",
+              status === "FAILED" && "text-destructive",
+            )}
           />
-        </>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {lines.length > 0 ? (
+          <div className="space-y-0.5">
+            {lines.map((l) => (
+              <p key={l}>{l}</p>
+            ))}
+          </div>
+        ) : (
+          text
+        )}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Tarjeta de ubicación con enlace a Google Maps. */
+function LocationCard({ message }: { message: Message }) {
+  const hasCoords = typeof message.latitude === "number" && typeof message.longitude === "number";
+  const href = hasCoords
+    ? `https://www.google.com/maps?q=${message.latitude},${message.longitude}`
+    : message.body
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(message.body)}`
+      : null;
+  return (
+    <div className="mb-1 flex items-start gap-2">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-background/60">
+        <MapPin aria-hidden className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-medium">Ubicación</p>
+        {message.body ? <p className="text-xs opacity-80">{message.body}</p> : null}
+        {hasCoords ? (
+          <p className="font-mono text-[11px] opacity-70">
+            {message.latitude!.toFixed(5)}, {message.longitude!.toFixed(5)}
+          </p>
+        ) : null}
+        {href ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-0.5 inline-flex items-center gap-1 rounded text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Abrir en Google Maps
+            <ExternalLink aria-hidden className="h-3 w-3" />
+          </a>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Documento: nombre + tamaño (si se conocen) + abrir. */
+function DocumentCard({ message }: { message: Message }) {
+  const name = documentName(message);
+  return (
+    <div className="mb-1 flex items-center gap-2 rounded-card bg-background/40 px-2 py-1.5">
+      <FileText aria-hidden className="h-5 w-5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-medium" title={name ?? undefined}>
+          {name ?? "Archivo"}
+        </p>
+        {typeof message.fileSize === "number" ? (
+          <p className="text-[11px] opacity-70">{formatBytes(message.fileSize)}</p>
+        ) : null}
+      </div>
+      {message.mediaUrl ? (
+        <a
+          href={message.mediaUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Abrir ${name ?? "archivo"}`}
+          className="shrink-0 rounded text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Abrir
+        </a>
       ) : null}
     </div>
   );
 }
 
-function MessageBubble({
-  message,
-  customerName,
-  agentLabel,
-  agentName,
-  compactMarker = false,
-}: {
+type BubbleProps = {
   message: Message;
   customerName: string;
-  agentLabel: "Agente" | "Asesor";
-  agentName?: string;
-  /** Concatenación visual con el mensaje anterior. */
-  compactMarker?: boolean;
-}) {
+  /** Primer mensaje de un grupo (cambia el remitente o pasaron > 5 min). */
+  groupStart: boolean;
+};
+
+/**
+ * Burbuja del hilo. El remitente se rotula una vez por grupo; la hora y el
+ * acuse viven al pie de la burbuja, como en WhatsApp. Memoizada: gracias al
+ * `structuralSharing` de TanStack, un mensaje que no cambió conserva su
+ * referencia entre sondeos y la burbuja no se vuelve a pintar.
+ */
+const MessageBubble = memo(function MessageBubble({
+  message,
+  customerName,
+  groupStart,
+}: BubbleProps) {
   const outbound = message.direction === "OUTBOUND";
   const failed = message.status === "FAILED";
   const media = MEDIA_LABELS[message.messageType];
   const MediaIcon = media?.icon;
   const [mediaError, setMediaError] = useState(false);
-  const hasPreview = !!message.mediaUrl && !mediaError && PREVIEWABLE_TYPES.has(message.messageType);
+  const hasPreview =
+    !!message.mediaUrl && !mediaError && PREVIEWABLE_TYPES.has(message.messageType);
+  const sender = outbound ? outboundSender(message) : { label: customerName, icon: UserRound };
+  const SenderIcon = sender.icon;
+  const isDocument = message.messageType === "DOCUMENT";
+  const isLocation = message.messageType === "LOCATION";
+  // En documentos el cuerpo suele repetir el nombre del archivo.
+  const body =
+    isDocument && message.body && message.body === documentName(message) ? "" : message.body;
+  const showBody = !!body && !isLocation;
 
   return (
-    <li className={cn("flex flex-col", outbound ? "items-end" : "items-start")}>
-      <div className={cn("flex max-w-[85%] flex-col gap-0 sm:max-w-[75%]", outbound && "items-end")}>
-        <MessageMarker
-          message={message}
-          customerName={customerName}
-          agentLabel={agentLabel}
-          agentName={agentName}
-          compact={compactMarker}
-        />
+    <li
+      className={cn("group flex flex-col", outbound ? "items-end" : "items-start", groupStart ? "mt-3" : "mt-0.5")}
+    >
+      <div className={cn("flex max-w-[85%] flex-col sm:max-w-[75%]", outbound && "items-end")}>
+        {groupStart ? (
+          <div
+            className={cn(
+              "flex items-center gap-1 px-1 pb-0.5 text-[11px] text-muted-foreground",
+              outbound ? "justify-end" : "justify-start",
+            )}
+          >
+            {SenderIcon ? <SenderIcon aria-hidden className="h-3 w-3 shrink-0" /> : null}
+            <span className="truncate font-medium">{sender.label}</span>
+          </div>
+        ) : null}
         <div
           className={cn(
             "overflow-hidden whitespace-pre-wrap break-words rounded-card px-2.5 py-1.5 text-sm",
-            outbound
-              ? "rounded-br-sm bg-primary-strong text-primary-foreground"
-              : "rounded-bl-sm bg-muted text-foreground",
-            failed && "ring-2 ring-destructive",
+            failed
+              ? "bg-destructive-subtle text-destructive-subtle-foreground ring-1 ring-destructive/60"
+              : outbound
+                ? "bg-primary-strong text-primary-foreground"
+                : "bg-secondary text-foreground",
+            groupStart && (outbound ? "rounded-tr-sm" : "rounded-tl-sm"),
           )}
         >
           <span className="sr-only">
-            {outbound ? "Mensaje saliente" : "Mensaje del cliente"}.{" "}
+            {outbound ? `Mensaje saliente (${sender.label})` : `Mensaje de ${customerName}`}.{" "}
           </span>
-          {hasPreview ? (
+          {isLocation ? (
+            <LocationCard message={message} />
+          ) : isDocument ? (
+            <DocumentCard message={message} />
+          ) : hasPreview ? (
             message.messageType === "IMAGE" ? (
-              // eslint-disable-next-line @next/next/no-img-element -- URL externa (WhatsApp/Evolution), sin optimizador
-              <img
-                src={message.mediaUrl!}
-                alt="Imagen adjunta"
-                loading="lazy"
-                className="mb-1.5 max-h-64 w-auto max-w-full rounded-card object-contain"
-                onError={() => setMediaError(true)}
-              />
+              <a href={message.mediaUrl!} target="_blank" rel="noreferrer" className="block">
+                {/* eslint-disable-next-line @next/next/no-img-element -- URL externa (WhatsApp/Evolution), sin optimizador */}
+                <img
+                  src={message.mediaUrl!}
+                  alt="Imagen adjunta"
+                  loading="lazy"
+                  className="mb-1.5 max-h-64 w-auto max-w-full rounded-card object-contain"
+                  onError={() => setMediaError(true)}
+                />
+              </a>
             ) : message.messageType === "VIDEO" ? (
               <video
                 controls
@@ -329,12 +497,7 @@ function MessageBubble({
               </audio>
             )
           ) : media && MediaIcon ? (
-            <p
-              className={cn(
-                "mb-1 flex items-center gap-1.5 text-xs font-medium",
-                outbound ? "opacity-90" : "text-muted-foreground",
-              )}
-            >
+            <p className="mb-1 flex items-center gap-1.5 text-xs font-medium opacity-80">
               <MediaIcon aria-hidden className="h-3.5 w-3.5" />
               {media.label}
               {message.mediaUrl ? (
@@ -349,169 +512,362 @@ function MessageBubble({
               ) : null}
             </p>
           ) : null}
-          {message.body ? (
-            <p>
-              {linkify(message.body, "underline underline-offset-2 font-medium")}
-            </p>
+          {showBody ? (
+            <p>{linkify(body, "underline underline-offset-2 font-medium")}</p>
           ) : null}
-          {failed ? (
-            <p role="alert" className="mt-1 text-xs">
-              No se entregó{message.errorMessage ? `: ${message.errorMessage}` : "."}
-            </p>
-          ) : null}
+          <span
+            className={cn(
+              "float-right ml-2 mt-0.5 inline-flex translate-y-0.5 items-center gap-1 text-[10px] leading-none",
+              failed ? "" : "opacity-70",
+            )}
+          >
+            <time dateTime={message.createdAt} title={formatFull(message.createdAt)}>
+              {formatTime(message.createdAt)}
+            </time>
+            {outbound ? <DeliveryTicks message={message} /> : null}
+          </span>
         </div>
+        {failed ? (
+          <p
+            role="alert"
+            className="mt-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-destructive"
+          >
+            <AlertCircle aria-hidden className="h-3 w-3 shrink-0" />
+            No se entregó{message.errorMessage ? `: ${message.errorMessage}` : "."}
+          </p>
+        ) : null}
       </div>
-      <MessageNotesInline messageId={message.id} />
+      <MessageNotesInline messageId={message.id} outbound={outbound} />
     </li>
   );
-}
+});
 
 /**
- * Separador de día dentro del hilo. Pinta la fecha corta (es-MX) sobre una
- * línea tenue; cuando no hay separador (mismo día) no se rinde nada.
+ * Separador de día: "Hoy", "Ayer" o la fecha (con año solo si no es el actual).
  */
 function DaySeparator({ iso }: { iso: string }) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  const label = date.toLocaleDateString("es-MX", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const label =
+    date.toDateString() === today.toDateString()
+      ? "Hoy"
+      : date.toDateString() === yesterday.toDateString()
+        ? "Ayer"
+        : date.toLocaleDateString("es-MX", {
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+            ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}),
+          });
   return (
     <li
       role="separator"
-      aria-label={`Mensajes del ${label}`}
-      className="my-3 flex items-center gap-2 text-[11px] text-muted-foreground"
+      aria-label={`Día: ${label}`}
+      className="sticky top-0 z-[1] my-3 flex justify-center"
     >
-      <span aria-hidden className="h-px flex-1 bg-border" />
-      <span className="font-medium uppercase tracking-wide">{label}</span>
-      <span aria-hidden className="h-px flex-1 bg-border" />
+      <span className="rounded-pill bg-card px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm ring-1 ring-border">
+        {label}
+      </span>
     </li>
   );
 }
 
+/** Skeleton del hilo: burbujas alternadas en vez de renglones de texto. */
+function ThreadSkeleton() {
+  const widths = ["w-48", "w-64", "w-40", "w-56", "w-32", "w-60"];
+  return (
+    <SkeletonRegion label="Cargando la conversación…" className="space-y-3 py-2">
+      {widths.map((w, i) => (
+        <div key={w} className={cn("flex", i % 2 ? "justify-end" : "justify-start")}>
+          <Skeleton className={cn("h-10 max-w-[75%] rounded-card", w)} />
+        </div>
+      ))}
+    </SkeletonRegion>
+  );
+}
+
+/** Distancia al fondo (px) bajo la cual se considera que la persona "está al día". */
+const NEAR_BOTTOM_PX = 120;
+/** Mismo remitente y menos de esto entre mensajes → misma burbuja-grupo. */
+const GROUP_GAP_MS = 5 * 60_000;
+
 /**
- * Hilo de mensajes con scroll pegado al final: cada mensaje nuevo (del
- * cliente por el polling, o del operador al enviar) baja la vista.
+ * Hilo de mensajes.
  *
- * El nombre del cliente y el "asesor/agente" del que viene un mensaje
- * saliente vienen del prop porque vienen del API de la conversación, no del
- * de mensajes: con esa info en mano, `MessageBubble` puede pintar su marcador.
+ * Scroll: al abrir el hilo baja al final. Después, un mensaje nuevo solo baja
+ * la vista si la persona ya estaba a menos de `NEAR_BOTTOM_PX` del fondo o si
+ * es el saliente que ella misma acaba de mandar (`ownSendRef`); si está
+ * leyendo más arriba, no se la jala: el botón de "ir al final" cuenta los
+ * nuevos.
  *
- * Los mensajes vienen intercalados con separadores de día (`DaySeparator`),
- * que aparecen cuando cambia la fecha local del mensaje anterior.
+ * "Cargar anteriores" pide la página previa (`before=pageInfo.nextBefore`) y
+ * conserva la posición de lectura al anteponerla. Sin `pageInfo` (API sin
+ * paginar) el control no aparece.
  */
 function MessagesPane({
   conversationId,
   handedOff,
   customerName,
-  agentLabel,
-  agentName,
-  scrollContainerRef,
+  ownSendRef,
 }: {
   conversationId: string;
   handedOff: boolean;
   customerName: string;
-  agentLabel: "Agente" | "Asesor";
-  agentName?: string;
-  /** Ref externo al contenedor scrollable: si el padre (ConversationThread)
-   *  lo pasa, lo usamos. ScrollToEndButton comparte el mismo nodo y
-   *  necesita el mismo ref para detectar posición. */
-  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
+  /** Lo prende el redactor al enviar: el siguiente saliente sí baja la vista. */
+  ownSendRef: React.MutableRefObject<boolean>;
 }) {
-  const messages = useMessages(conversationId, { poll: handedOff });
-  const internalRef = useRef<HTMLDivElement>(null);
-  const listRef = scrollContainerRef ?? internalRef;
-  const lastId = messages.data?.[messages.data.length - 1]?.id;
+  const queryClient = useQueryClient();
+  const messages = useMessages(conversationId, { pollMs: handedOff ? 5_000 : 15_000 });
+  const list = useMemo(() => flattenMessages(messages.data?.pages), [messages.data]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const nearBottomRef = useRef(true);
+  const [nearBottom, setNearBottom] = useState(true);
+  const [unseen, setUnseen] = useState(0);
+  const [announcement, setAnnouncement] = useState("");
+  const initialScrollDoneRef = useRef(false);
+  const prevFirstIdRef = useRef<string | undefined>(undefined);
+  const prevLastIdRef = useRef<string | undefined>(undefined);
+  const restoreRef = useRef<{ height: number; top: number } | null>(null);
 
+  const lastPage = messages.data?.pages[messages.data.pages.length - 1];
+  const paginated = !!lastPage?.pageInfo;
+  const lastId = list[list.length - 1]?.id;
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+    nearBottomRef.current = near;
+    setNearBottom(near);
+    if (near) setUnseen(0);
+  }, []);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    nearBottomRef.current = true;
+    setUnseen(0);
+  }, []);
+
+  // Antes de pintar: posición inicial, restauración al anteponer y decisión
+  // de seguir (o no) al fondo cuando llega algo nuevo.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || list.length === 0) return;
+    const firstId = list[0]!.id;
+    const last = list[list.length - 1]!;
+
+    if (!initialScrollDoneRef.current) {
+      el.scrollTop = el.scrollHeight;
+      initialScrollDoneRef.current = true;
+      nearBottomRef.current = true;
+    } else {
+      if (firstId !== prevFirstIdRef.current && restoreRef.current) {
+        el.scrollTop = el.scrollHeight - restoreRef.current.height + restoreRef.current.top;
+        restoreRef.current = null;
+      }
+      if (last.id !== prevLastIdRef.current) {
+        const prevIdx = list.findIndex((m) => m.id === prevLastIdRef.current);
+        const fresh = prevIdx >= 0 ? list.slice(prevIdx + 1) : [last];
+        const mine = last.direction === "OUTBOUND" && ownSendRef.current;
+        if (nearBottomRef.current || mine) {
+          el.scrollTop = el.scrollHeight;
+          nearBottomRef.current = true;
+          if (mine) ownSendRef.current = false;
+        } else {
+          setUnseen((n) => n + fresh.length);
+        }
+        const inbound = fresh.filter((m) => m.direction === "INBOUND");
+        if (inbound.length > 0) {
+          const preview = inbound[inbound.length - 1]!.body?.slice(0, 120) ?? "";
+          setAnnouncement(
+            inbound.length === 1
+              ? `Nuevo mensaje de ${customerName}: ${preview}`
+              : `${inbound.length} mensajes nuevos de ${customerName}`,
+          );
+        }
+      }
+    }
+    prevFirstIdRef.current = firstId;
+    prevLastIdRef.current = last.id;
+  }, [list, customerName, ownSendRef]);
+
+  // Llegó algo nuevo (no la carga inicial): el panel de contexto puede haber
+  // cambiado (el bot creó una cotización, se pagó un pedido…).
+  const seenLastIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [lastId]); // eslint-disable-line react-hooks/exhaustive-deps -- listRef es ref estable
+    if (!lastId) return;
+    if (seenLastIdRef.current && seenLastIdRef.current !== lastId) {
+      void queryClient.invalidateQueries({ queryKey: ["whatsapp-context", conversationId] });
+    }
+    seenLastIdRef.current = lastId;
+  }, [lastId, conversationId, queryClient]);
 
-  /** Lista con separadores de día y marcadores compactos; una sola pasada.
-   *
-   * Concatenación visual: cuando el sender no cambia entre dos mensajes y
-   * pasaron menos de 5 minutos, el segundo oculta ícono+nombre (la fecha
-   * sí se pinta — la cronología se mantiene). En un hilo de 100 mensajes
-   * del mismo cliente, esto recorta el alto a la mitad. WhatsApp/IMessage
-   * colapsan igual. */
-  const SENDER_GAP_MINUTES = 5;
-  const interleaved = useMemo(() => {
-    if (!messages.data) return [];
+  // Imágenes/videos que terminan de cargar agrandan el hilo: si la persona
+  // estaba al día, se mantiene pegada al fondo.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const ol = listRef.current;
+    if (!el || !ol || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (nearBottomRef.current && !restoreRef.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(ol);
+    return () => ro.disconnect();
+  }, [list.length > 0]); // eslint-disable-line react-hooks/exhaustive-deps -- se engancha cuando existe la lista
+
+  const loadOlder = () => {
+    const el = scrollRef.current;
+    if (el) restoreRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    void messages.fetchNextPage().then((r) => {
+      if (r.isError) restoreRef.current = null;
+    });
+  };
+
+  const nodes = useMemo(() => {
     const out: Array<
-      | { kind: "bubble"; key: string; message: Message; compactMarker: boolean }
+      | { kind: "bubble"; key: string; message: Message; groupStart: boolean }
       | { kind: "day"; key: string; iso: string }
     > = [];
     let prevDay = "";
-    let prevMessage: Message | null = null;
-    for (const m of messages.data) {
+    let prev: Message | null = null;
+    for (const m of list) {
       const d = new Date(m.createdAt);
       const day = Number.isNaN(d.getTime()) ? "" : d.toDateString();
+      let dayChanged = false;
       if (day !== prevDay) {
         out.push({ kind: "day", key: `day-${m.id}`, iso: m.createdAt });
         prevDay = day;
+        dayChanged = true;
       }
-      let compact = false;
-      if (prevMessage) {
-        const sameDirection = prevMessage.direction === m.direction;
-        // Para INBOUND el sender siempre es el cliente de la conversación.
-        // Para OUTBOUND asumimos mismo agente mientras el dueño no haya
-        // cambiado el `handoffUser` (transición visible en el panel y rara
-        // en la práctica): si pasa, el marcador aparece de nuevo — es
-        // información útil, no ruido.
-        const close =
-          Math.abs(d.getTime() - new Date(prevMessage.createdAt).getTime()) <
-          SENDER_GAP_MINUTES * 60_000;
-        compact = close && sameDirection;
-      }
-      out.push({ kind: "bubble", key: m.id, message: m, compactMarker: compact });
-      prevMessage = m;
+      const groupStart =
+        !prev ||
+        dayChanged ||
+        senderKey(prev) !== senderKey(m) ||
+        d.getTime() - new Date(prev.createdAt).getTime() > GROUP_GAP_MS;
+      out.push({ kind: "bubble", key: m.id, message: m, groupStart });
+      prev = m;
     }
     return out;
-  }, [messages.data]);
+  }, [list]);
+
+  const hardError = messages.isError && !messages.data;
 
   return (
-    <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-      {messages.isError ? (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertTitle>No se pudieron cargar los mensajes</AlertTitle>
-          <AlertDescription>
-            <Button variant="outline" size="sm" className="mt-3" onClick={() => void messages.refetch()}>
-              Reintentar
-            </Button>
-          </AlertDescription>
-        </Alert>
-      ) : messages.isLoading ? (
-        <SkeletonText lines={5} announce label="Cargando la conversación…" />
-      ) : !messages.data || messages.data.length === 0 ? (
-        <EmptyState
-          icon={<MessageSquare className="h-6 w-6" />}
-          title="Sin mensajes"
-          description="Este hilo aún no tiene mensajes registrados."
-        />
-      ) : (
-        <ol aria-label="Mensajes de la conversación" className="space-y-1">
-          {interleaved.map((node) =>
-            node.kind === "day" ? (
-              <DaySeparator key={node.key} iso={node.iso} />
-            ) : (
-              <MessageBubble
-                key={node.key}
-                message={node.message}
-                customerName={customerName}
-                agentLabel={agentLabel}
-                agentName={agentName}
-                compactMarker={node.compactMarker}
-              />
-            ),
+    <>
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto px-3 pb-3"
+      >
+        {hardError ? (
+          <Alert variant="destructive" className="mt-2">
+            <AlertCircle />
+            <AlertTitle>No se pudieron cargar los mensajes</AlertTitle>
+            <AlertDescription>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => void messages.refetch()}>
+                Reintentar
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : messages.isLoading ? (
+          <ThreadSkeleton />
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon={<MessageSquare className="h-6 w-6" />}
+            title="Sin mensajes"
+            description="Este hilo aún no tiene mensajes registrados."
+          />
+        ) : (
+          <>
+            {paginated ? (
+              <div className="flex justify-center pt-2">
+                {messages.hasNextPage ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 text-xs"
+                    loading={messages.isFetchingNextPage}
+                    onClick={loadOlder}
+                  >
+                    <History aria-hidden className="h-3.5 w-3.5" />
+                    Cargar anteriores
+                  </Button>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">Inicio de la conversación</p>
+                )}
+              </div>
+            ) : null}
+            {messages.isFetchNextPageError ? (
+              <p role="alert" className="mt-1 text-center text-[11px] text-destructive">
+                No se pudieron cargar los mensajes anteriores.
+              </p>
+            ) : null}
+            <ol ref={listRef} aria-label="Mensajes de la conversación">
+              {nodes.map((node) =>
+                node.kind === "day" ? (
+                  <DaySeparator key={node.key} iso={node.iso} />
+                ) : (
+                  <MessageBubble
+                    key={node.key}
+                    message={node.message}
+                    customerName={customerName}
+                    groupStart={node.groupStart}
+                  />
+                ),
+              )}
+            </ol>
+          </>
+        )}
+      </div>
+
+      {messages.isError && messages.data ? (
+        <div
+          role="status"
+          className="absolute left-1/2 top-2 z-10 inline-flex -translate-x-1/2 items-center gap-2 rounded-pill bg-destructive-subtle px-3 py-1 text-[11px] text-destructive-subtle-foreground shadow-sm"
+        >
+          <AlertCircle aria-hidden className="h-3 w-3" />
+          Sin conexión; reintentando…
+          <button
+            type="button"
+            onClick={() => void messages.refetch()}
+            className="rounded font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Reintentar
+          </button>
+        </div>
+      ) : null}
+
+      {!nearBottom && list.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => scrollToBottom(true)}
+          aria-label={
+            unseen > 0
+              ? `${unseen} ${unseen === 1 ? "mensaje nuevo" : "mensajes nuevos"}; ir al más reciente`
+              : "Ir al mensaje más reciente"
+          }
+          className={cn(
+            "absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-pill px-3 py-1.5 text-xs font-medium shadow-airbnb-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            unseen > 0
+              ? "bg-primary-strong text-primary-foreground hover:bg-primary-strong-hover"
+              : "bg-secondary text-foreground hover:bg-accent",
           )}
-        </ol>
-      )}
-    </div>
+        >
+          <ArrowDown aria-hidden className="h-3.5 w-3.5" />
+          {unseen > 0 ? `${unseen} ${unseen === 1 ? "nuevo" : "nuevos"}` : "Ir al más reciente"}
+        </button>
+      ) : null}
+
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </div>
+    </>
   );
 }
 
@@ -519,7 +875,19 @@ function MessagesPane({
  * Lo que una persona puede hacer en un hilo transferido: escribir, adjuntar,
  * grabar una nota de voz y devolver el hilo al agente.
  */
-function Composer({ conversationId, onReturn }: { conversationId: string; onReturn: () => void }) {
+/** A partir de cuántos caracteres se muestra el contador (tope: `WHATSAPP_TEXT_MAX`). */
+const COUNTER_FROM = 3500;
+
+function Composer({
+  conversationId,
+  onReturn,
+  onSend,
+}: {
+  conversationId: string;
+  onReturn: () => void;
+  /** Avisa al hilo que el próximo saliente es propio (para bajar la vista). */
+  onSend?: () => void;
+}) {
   const reply = useReply(conversationId);
   const attach = useSendAttachment(conversationId);
   const [draft, setDraft] = useState("");
@@ -534,9 +902,12 @@ function Composer({ conversationId, onReturn }: { conversationId: string; onRetu
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const dragCounterRef = useRef(0);
 
+  const overLimit = draft.length > WHATSAPP_TEXT_MAX;
+
   const sendText = () => {
     const body = draft.trim();
-    if (!body || reply.isPending) return;
+    if (!body || reply.isPending || overLimit) return;
+    onSend?.();
     reply.mutate(body, { onSuccess: () => setDraft("") });
   };
 
@@ -553,6 +924,7 @@ function Composer({ conversationId, onReturn }: { conversationId: string; onRetu
       return true;
     });
     if (accepted.length === 0) return;
+    onSend?.();
     setQueue(
       accepted.map((f, i) => ({
         name: f.name,
@@ -584,9 +956,10 @@ function Composer({ conversationId, onReturn }: { conversationId: string; onRetu
   const onRecorded = useCallback(
     ({ base64, mimetype }: { base64: string; mimetype: string }) => {
       const ext = mimetype.includes("mp4") ? "m4a" : mimetype.includes("ogg") ? "ogg" : "webm";
+      onSend?.();
       attach.mutate({ filename: `nota-de-voz.${ext}`, mimetype, base64 });
     },
-    [attach],
+    [attach, onSend],
   );
   const recorder = useVoiceRecorder(onRecorded);
 
@@ -747,6 +1120,8 @@ function Composer({ conversationId, onReturn }: { conversationId: string; onRetu
         placeholder="Escribe una respuesta… (Enter envía, Shift+Enter salta de línea)"
         rows={2}
         className="min-h-[56px] resize-none"
+        aria-invalid={overLimit || undefined}
+        aria-describedby={draft.length > COUNTER_FROM ? `composer-count-${conversationId}` : undefined}
         value={draft}
         disabled={reply.isPending}
         onChange={(e) => setDraft(e.target.value)}
@@ -781,6 +1156,19 @@ function Composer({ conversationId, onReturn }: { conversationId: string; onRetu
           }
         }}
       />
+      {draft.length > COUNTER_FROM ? (
+        <p
+          id={`composer-count-${conversationId}`}
+          aria-live="polite"
+          className={cn(
+            "-mt-1 text-right text-[11px] tabular-nums",
+            overLimit ? "font-medium text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {draft.length.toLocaleString("es-MX")} / {WHATSAPP_TEXT_MAX.toLocaleString("es-MX")}
+          {overLimit ? " · WhatsApp no acepta mensajes tan largos" : ""}
+        </p>
+      ) : null}
       <input
         ref={fileInputRef}
         type="file"
@@ -856,7 +1244,7 @@ function Composer({ conversationId, onReturn }: { conversationId: string; onRetu
         <Button
           size="sm"
           className="ml-auto"
-          disabled={!draft.trim() || recorder.recording}
+          disabled={!draft.trim() || overLimit || recorder.recording}
           loading={reply.isPending}
           onClick={sendText}
         >
@@ -1073,17 +1461,17 @@ function HeaderAction({
 
 /**
  * Resumen del hilo ARRIBA de los mensajes: cliente, total gastado y lo que
- * está abierto AHORA (pedido/cotización pendiente). Antes toda esta info
- * vivía en la columna derecha, fuera de vista en móvil (ahí es un Sheet
- * que hay que abrir) y enterrada en una columna larga en escritorio.
+ * está abierto AHORA (pedido/cotización pendiente). En móvil el panel derecho
+ * es un Sheet que hay que abrir, así que este resumen es la única forma de ver
+ * "qué está abierto" sin tocar la barra.
  *
- * El resumen es de UNA fila en desktop y dos en móvil. El pedido/cotización
- * en curso lleva badge de estado + monto; el resto son chips planos. No es
- * navegable: para detalle del pedido se usa el panel derecho (o el Sheet
- * en móvil); el resumen es de un vistazo, no de acción.
+ * Los chips del pedido/cotización en curso son botones: abren la misma hoja de
+ * detalle (`EntityDetailSheet`) que usa el panel de contexto. La hoja vive
+ * aquí con su propio estado; Radix la cierra con Esc.
  */
 function ThreadContextBar({ conversation }: { conversation: Conversation }) {
   const ctx = useConversationContext(conversation.id);
+  const [target, setTarget] = useState<EntityTarget | null>(null);
   const data = ctx.data;
   const customerName = conversation.customer?.fullName ?? conversation.externalPhone;
   const totalSpend = data?.metrics.totalSpend ?? "0";
@@ -1092,12 +1480,14 @@ function ThreadContextBar({ conversation }: { conversation: Conversation }) {
   const openOrder = data?.orders.find((o) => o.id === data.openOrderId) ?? null;
   const openQuote = data?.quotes.find((q) => q.id === data.openQuoteId) ?? null;
   const loading = ctx.isLoading;
+  const chipClass =
+    "inline-flex items-center gap-1.5 rounded-pill bg-card px-2 py-0.5 text-xs ring-1 ring-border transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
     <div
       role="group"
       aria-label="Resumen del hilo"
-      className="shrink-0 border-b border-border bg-muted/30 px-3 py-2"
+      className="shrink-0 border-b border-border px-3 py-2"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         <span className="inline-flex items-center gap-1.5">
@@ -1105,39 +1495,59 @@ function ThreadContextBar({ conversation }: { conversation: Conversation }) {
           <span className="font-medium text-foreground">{customerName}</span>
         </span>
         <span aria-hidden className="text-muted-foreground/50">·</span>
-        <span
-          className="text-muted-foreground"
-          title={`${data?.metrics.paidOrders ?? 0} pagado(s)`}
-        >
-          {orderCount} {orderCount === 1 ? "pedido" : "pedidos"} ·{" "}
-          {quoteCount} {quoteCount === 1 ? "cotización" : "cotizaciones"}
-        </span>
-        <span aria-hidden className="text-muted-foreground/50">·</span>
-        <span className="text-muted-foreground">
-          <Money value={totalSpend} className="font-medium text-foreground" /> gastado
-        </span>
+        {loading && !data ? (
+          <Skeleton className="h-3 w-40" />
+        ) : (
+          <>
+            <span
+              className="text-muted-foreground"
+              title={`${data?.metrics.paidOrders ?? 0} pagado(s)`}
+            >
+              {orderCount} {orderCount === 1 ? "pedido" : "pedidos"} ·{" "}
+              {quoteCount} {quoteCount === 1 ? "cotización" : "cotizaciones"}
+            </span>
+            <span aria-hidden className="text-muted-foreground/50">·</span>
+            <span className="text-muted-foreground">
+              <Money value={totalSpend} className="font-medium text-foreground" /> gastado
+            </span>
+          </>
+        )}
       </div>
 
       {(openOrder || openQuote) && (
         <ul className="mt-1.5 flex flex-wrap gap-1.5">
           {openOrder ? (
-            <li className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-card px-2 py-0.5 text-xs">
-              <Badge variant="info" size="sm">
-                Pedido
-              </Badge>
-              <StatusBadge status={openOrder.status} domain="order" size="sm" />
-              <Money value={openOrder.total} className="font-medium tabular-nums" />
+            <li>
+              <button
+                type="button"
+                className={chipClass}
+                aria-label="Ver el detalle del pedido en curso"
+                onClick={() => setTarget({ kind: "order", id: openOrder.id })}
+              >
+                <Badge variant="info" size="sm">
+                  Pedido
+                </Badge>
+                <StatusBadge status={openOrder.status} domain="order" size="sm" />
+                <Money value={openOrder.total} className="font-medium tabular-nums" />
+              </button>
             </li>
           ) : null}
           {openQuote ? (
-            <li className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-card px-2 py-0.5 text-xs">
-              <Badge variant="neutral" size="sm">
-                Cotización
-              </Badge>
-              <StatusBadge status={openQuote.status} domain="quote" size="sm" />
-              <Money value={openQuote.total} className="font-medium tabular-nums" />
-              <span className="text-muted-foreground">· vence</span>
-              <DateTime value={openQuote.expiresAt} className="text-muted-foreground" />
+            <li>
+              <button
+                type="button"
+                className={chipClass}
+                aria-label="Ver el detalle de la cotización en curso"
+                onClick={() => setTarget({ kind: "quote", id: openQuote.id })}
+              >
+                <Badge variant="neutral" size="sm">
+                  Cotización
+                </Badge>
+                <StatusBadge status={openQuote.status} domain="quote" size="sm" />
+                <Money value={openQuote.total} className="font-medium tabular-nums" />
+                <span className="text-muted-foreground">· vence</span>
+                <DateTime value={openQuote.expiresAt} className="text-muted-foreground" />
+              </button>
             </li>
           ) : null}
         </ul>
@@ -1147,54 +1557,80 @@ function ThreadContextBar({ conversation }: { conversation: Conversation }) {
           Cargando resumen del cliente…
         </p>
       ) : null}
+
+      <EntityDetailSheet
+        target={target}
+        conversation={conversation}
+        onOpenChange={(open) => {
+          if (!open) setTarget(null);
+        }}
+      />
     </div>
   );
 }
 
 /**
- * Botón flotante "ir al final" que aparece cuando el usuario está scroll
- * arriba en una conversación larga: scrollear 14 000 px para encontrar el
- * último mensaje no es trabajo, es castigo.
+ * Barra que reemplaza al redactor cuando la persona no puede escribir: el bot
+ * atiende (→ "Tomar conversación") o el hilo está cerrado (→ "Reabrir").
  */
-function ScrollToEndButton({
-  containerRef,
+function HandoffBar({
+  conversation,
+  userId,
 }: {
-  containerRef: React.RefObject<HTMLDivElement | null>;
+  conversation: Conversation;
+  userId: string | undefined;
 }) {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    function check() {
-      if (!el) return;
-      const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-      // Muestra cuando hay > 200 px por debajo del borde inferior: un usuario
-      // que lee un mensaje largo debería poder saltar al final sin scrollear.
-      setShow(distance > 200);
-    }
-    check();
-    el.addEventListener("scroll", check, { passive: true });
-    return () => el.removeEventListener("scroll", check);
-  }, [containerRef]);
-
-  function go() {
-    const el = containerRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }
-
-  if (!show) return null;
+  const claim = useClaim();
+  const setStatus = useSetConversationStatus();
+  const closed = conversation.status === "CLOSED";
   return (
-    <button
-      type="button"
-      onClick={go}
-      aria-label="Ir al mensaje más reciente"
-      className="absolute bottom-3 left-1/2 z-10 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-airbnb-lg hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
-    >
-      <ChevronLeft aria-hidden className="h-3.5 w-3.5 rotate-[270deg]" />
-      Ir al más reciente
-    </button>
+    <div className="shrink-0 border-t border-border p-3">
+      <div
+        role="status"
+        className="flex flex-wrap items-center gap-3 rounded-card bg-secondary px-3 py-2.5"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card">
+          {closed ? (
+            <CheckCircle2 aria-hidden className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <Bot aria-hidden className="h-4 w-4 text-muted-foreground" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">
+            {closed ? "Conversación cerrada" : "El bot está atendiendo esta conversación"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {closed
+              ? "Reábrela para escribirle al cliente. Si el cliente escribe primero, se reabre sola."
+              : "Tómala para responder tú; el bot deja de contestar mientras la atiendas."}
+          </p>
+        </div>
+        {closed ? (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="shrink-0"
+            loading={setStatus.isPending}
+            onClick={() => setStatus.mutate({ id: conversation.id, status: "OPEN" })}
+          >
+            <RotateCcw aria-hidden className="h-3.5 w-3.5" />
+            Reabrir
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            className="shrink-0"
+            disabled={!userId}
+            loading={claim.isPending && claim.variables === conversation.id}
+            onClick={() => claim.mutate(conversation.id)}
+          >
+            <Hand aria-hidden className="h-3.5 w-3.5" />
+            Tomar conversación
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1219,10 +1655,12 @@ export function ConversationThread({
   const setStatus = useSetConversationStatus();
   const [confirmReturn, setConfirmReturn] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
-  // Ref compartido entre MessagesPane (auto-scroll al fondo al cargar) y
-  // ScrollToEndButton (detectar si el usuario está lejos del fondo para
-  // mostrar el atajo).
-  const messagesListRef = useRef<HTMLDivElement | null>(null);
+  // El redactor lo prende al enviar; MessagesPane lo consume para bajar la
+  // vista con el saliente propio aunque la persona estuviera leyendo arriba.
+  const ownSendRef = useRef(false);
+  const markOwnSend = useCallback(() => {
+    ownSendRef.current = true;
+  }, []);
 
   // Regla de Escape en el hilo: si el foco está en el textarea del redactor
   // (o el de notas) y tiene texto sin enviar, el primer Escape solo le quita
@@ -1236,6 +1674,10 @@ export function ConversationThread({
   const handleThreadKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key !== "Escape" || !onBack) return;
+      // Los eventos de React burbujean a través de portales: un Esc dentro de
+      // una hoja, diálogo o menú (que Radix ya usa para cerrarse) no debe
+      // además sacar a la persona del hilo.
+      if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target)) return;
       const active = document.activeElement;
       if (active instanceof HTMLTextAreaElement && active.value.trim().length > 0) {
         active.blur();
@@ -1398,11 +1840,8 @@ export function ConversationThread({
               conversationId={current.id}
               handedOff={current.handoffToHuman}
               customerName={current.customer?.fullName ?? current.externalPhone}
-              agentLabel={current.handoffToHuman ? "Asesor" : "Agente"}
-              agentName={current.handoffUser?.fullName.split(" ")[0]}
-              scrollContainerRef={messagesListRef}
+              ownSendRef={ownSendRef}
             />
-            <ScrollToEndButton containerRef={messagesListRef} />
           </div>
           {/* Aviso suave, no bloqueante: el agente exige nombre antes de cotizar.
               Aparece solo cuando el hilo todavía no tiene ficha de cliente, para
@@ -1419,17 +1858,14 @@ export function ConversationThread({
               derecha.
             </div>
           ) : null}
-          {current.status === "CLOSED" ? (
-            <p className="shrink-0 border-t border-border p-3 text-xs text-muted-foreground">
-              Esta conversación está cerrada. Reábrela para volver a escribirle al cliente (si el
-              cliente escribe primero, se reabre sola).
-            </p>
-          ) : current.handoffToHuman ? (
-            <Composer conversationId={current.id} onReturn={() => setConfirmReturn(true)} />
+          {current.status !== "CLOSED" && current.handoffToHuman ? (
+            <Composer
+              conversationId={current.id}
+              onReturn={() => setConfirmReturn(true)}
+              onSend={markOwnSend}
+            />
           ) : (
-            <p className="shrink-0 border-t border-border p-3 text-xs text-muted-foreground">
-              El agente atiende este hilo. Transfiérelo o tómalo para responder tú.
-            </p>
+            <HandoffBar conversation={current} userId={userId} />
           )}
         </TabsContent>
         <TabsContent value="notes" className="mt-2 flex min-h-0 flex-1 flex-col">
