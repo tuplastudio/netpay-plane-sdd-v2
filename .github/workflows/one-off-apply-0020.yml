@@ -1,4 +1,4 @@
-name: One-off - aplicar migracion 0020 (CheckoutSession.externalId) antes del deploy
+name: One-off - aplicar migraciones 0020 y 0021 antes del deploy
 
 on:
   push:
@@ -30,6 +30,9 @@ jobs:
               'ALTER TABLE "CheckoutSession" ADD COLUMN IF NOT EXISTS "hostedPath" TEXT',
               'CREATE UNIQUE INDEX IF NOT EXISTS "CheckoutSession_externalId_key" ON "CheckoutSession"("externalId")',
               'CREATE INDEX IF NOT EXISTS "CheckoutSession_orderId_status_idx" ON "CheckoutSession"("orderId", "status")',
+              // 0021: WhatsAppMessage.externalId unico por tenant (primero el compuesto, luego se retira el global).
+              'CREATE UNIQUE INDEX IF NOT EXISTS "WhatsAppMessage_tenantId_externalId_key" ON "WhatsAppMessage"("tenantId", "externalId")',
+              'DROP INDEX IF EXISTS "WhatsAppMessage_externalId_key"',
             ];
             (async () => {
               for (const s of stmts) { await p.$executeRawUnsafe(s); console.log("OK:", s.slice(0, 70)); }
@@ -37,6 +40,10 @@ jobs:
                 "select column_name from information_schema.columns where table_name='CheckoutSession' and column_name in ('externalId','hostedPath')"
               );
               console.log("columnas:", JSON.stringify(cols));
+              const idx = await p.$queryRawUnsafe(
+                "select indexname from pg_indexes where tablename in ('CheckoutSession','WhatsAppMessage') and indexname like '%xternalId%'"
+              );
+              console.log("indices:", JSON.stringify(idx));
               await p.$disconnect();
             })().catch((e) => { console.error("FAIL:", e.message); process.exit(1); });
             JS
