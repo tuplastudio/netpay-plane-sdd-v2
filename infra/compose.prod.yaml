@@ -288,11 +288,16 @@ services:
     # sin decidirlo aparte.
     expose: ["8000"]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      # No usa wget/curl: la imagen de flagsmith no los trae (el healthcheck
+      # daba "unhealthy" aunque /health respondía 200 bien — confirmado con
+      # un curl interno desde agent-v2). python3 sí está, es la imagen base
+      # del propio Django.
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status==200 else 1)"]
       interval: 15s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      # Migraciones (~200+) tardan 2-3 min en frío en este droplet.
+      start_period: 180s
 
 networks:
   netpay_internal:
