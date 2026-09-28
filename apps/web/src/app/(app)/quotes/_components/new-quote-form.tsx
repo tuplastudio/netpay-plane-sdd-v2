@@ -713,7 +713,7 @@ function ProductCard({
       onClick={onSelect}
       aria-pressed={active}
       className={
-        "group flex flex-col gap-1 rounded-lg border bg-card p-2.5 text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background " +
+        "group flex flex-col gap-1 rounded-lg border bg-card p-2.5 text-left transition-colors hover:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background " +
         (active ? "border-primary-strong ring-2 ring-primary-strong/30" : "")
       }
     >

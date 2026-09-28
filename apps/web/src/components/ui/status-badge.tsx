@@ -400,15 +400,16 @@ export function statusLabel(status: string, domain: StatusDomain = "generic"): s
 // ---------------------------------------------------------------------------
 
 export const statusBadgeVariants = cva(
-  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-pill border border-transparent px-2.5 py-0.5 text-xs font-medium",
+  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-sm border border-transparent px-2.5 py-0.5 text-xs font-medium",
   {
     variants: {
       tone: {
-        success: "bg-success-subtle text-success-foreground",
-        warning: "bg-warning-subtle text-warning-foreground",
-        info: "bg-info-subtle text-info-foreground",
-        neutral: "bg-neutral-subtle text-neutral-foreground",
-        destructive: "bg-destructive-subtle text-destructive-subtle-foreground",
+        // Superficie neutra + punto y texto de color: el estado es señal, no relleno.
+        success: "bg-secondary text-success-foreground",
+        warning: "bg-secondary text-warning-foreground",
+        info: "bg-secondary text-info-foreground",
+        neutral: "bg-secondary text-neutral-foreground",
+        destructive: "bg-secondary text-destructive-subtle-foreground",
       },
       size: {
         sm: "px-2 py-0 text-[11px]",
@@ -430,7 +431,7 @@ export interface StatusBadgeProps
   tone?: Tone;
   /** Sobrescribe la etiqueta calculada. */
   label?: string;
-  /** Punto de color a la izquierda, útil en tablas densas. */
+  /** Punto de color a la izquierda (activo por defecto). */
   withDot?: boolean;
 }
 
@@ -451,7 +452,7 @@ const DOT_TONE: Record<Tone, string> = {
  * <StatusBadge status={payment.status} domain="payment" withDot />
  */
 export const StatusBadge = React.forwardRef<HTMLSpanElement, StatusBadgeProps>(
-  ({ className, status, domain = "generic", tone, label, size, withDot = false, ...props }, ref) => {
+  ({ className, status, domain = "generic", tone, label, size, withDot = true, ...props }, ref) => {
     const resolvedTone = tone ?? statusTone(status, domain);
     const text = label ?? statusLabel(status, domain);
     return (

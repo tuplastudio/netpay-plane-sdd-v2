@@ -1398,7 +1398,7 @@ function TagsEditor({
           type="button"
           onClick={() => setAdding(true)}
           aria-label="Agregar etiqueta a la conversación"
-          className="inline-flex shrink-0 items-center gap-0.5 rounded-pill border border-dashed border-border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:border-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+          className="inline-flex shrink-0 items-center gap-0.5 rounded-pill border border-dashed border-border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:border-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           <Tag aria-hidden className="h-3 w-3" />
           <Plus aria-hidden className="h-2.5 w-2.5" />
@@ -1735,7 +1735,7 @@ export function ConversationThread({
           <TooltipTrigger asChild>
             <span
               tabIndex={0}
-              className="min-w-0 shrink truncate rounded font-mono text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+              className="min-w-0 shrink truncate rounded font-mono text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
             >
               {current.externalPhone}
             </span>

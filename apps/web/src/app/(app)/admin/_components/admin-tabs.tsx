@@ -86,7 +86,7 @@ export function AdminTabs() {
                     onClick={() => setSection(value)}
                     className={cn(
                       "flex w-full items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm font-medium transition-colors",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       isActive
                         ? "bg-primary-subtle text-primary-strong"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",

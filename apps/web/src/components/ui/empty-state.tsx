@@ -35,7 +35,7 @@ export const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
       {icon ? (
         <span
           aria-hidden
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-muted-foreground"
         >
           {icon}
         </span>

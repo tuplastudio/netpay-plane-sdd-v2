@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
  * mismos tokens que `StatusBadge`, así que no hay dos verdes en la app.
  */
 const badgeVariants = cva(
-  "inline-flex items-center rounded-pill border font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+  "inline-flex items-center rounded-sm border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
   {
     variants: {
       // Idénticos a `statusBadgeVariants` para que un chip y una insignia de
@@ -21,12 +21,9 @@ const badgeVariants = cva(
         default: "px-2.5 py-0.5 text-xs",
       },
       variant: {
-        // Nivel fuerte del acento: lleva texto encima, así que el ornamento
-        // (`bg-primary`, pensado para objeto gráfico) no alcanza — hace falta
-        // `bg-primary-strong` (texto/relleno, ver globals.css).
-        default: "border-transparent bg-primary-strong text-primary-foreground",
+        default: "border-transparent bg-secondary text-foreground",
         secondary: "border-transparent bg-secondary text-secondary-foreground",
-        outline: "border-border text-foreground",
+        outline: "border-hairline text-foreground",
         success: "border-transparent bg-success-subtle text-success-foreground",
         warning: "border-transparent bg-warning-subtle text-warning-foreground",
         info: "border-transparent bg-info-subtle text-info-foreground",

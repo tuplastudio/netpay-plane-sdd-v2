@@ -80,7 +80,7 @@ export function ImageGallery({
               aria-label="Eliminar foto"
               disabled={remove.isPending && remove.variables === image.id}
               onClick={() => remove.mutate(image.id)}
-              className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground group-hover:opacity-100 disabled:opacity-60"
+              className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-60"
             >
               {remove.isPending && remove.variables === image.id ? (
                 <Spinner size="sm" />

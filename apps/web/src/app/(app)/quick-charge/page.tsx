@@ -275,7 +275,7 @@ export default function QuickChargePage() {
                 href={paymentLink}
                 target="_blank"
                 rel="noreferrer"
-                className="block break-all rounded-sm underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
+                className="block break-all rounded-sm underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 {paymentLink}
               </a>

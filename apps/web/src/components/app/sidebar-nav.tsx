@@ -385,12 +385,11 @@ function SidebarLink({
             onClick={onClick}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group relative flex h-10 items-center justify-center rounded-lg transition-colors",
-              "before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-pill before:content-['']",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              "group relative flex h-10 items-center justify-center rounded-pill transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               active
-                ? "bg-muted text-foreground before:bg-primary"
-                : "text-foreground/80 before:bg-transparent hover:bg-muted hover:text-foreground",
+                ? "bg-secondary text-foreground"
+                : "text-foreground/80 hover:bg-card hover:text-foreground",
             )}
           >
             <Icon
@@ -414,18 +413,15 @@ function SidebarLink({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
-        // Tres señales de "activo", ninguna dependiente del color por sí sola:
-        // la barra de la izquierda (forma), `font-semibold` (peso), el fondo
-        // `bg-muted` (superficie) y `aria-current="page"` para lectores. Aunque
-        // el acento cambie de tono, la ruta activa se sigue distinguiendo.
-        "group relative flex gap-3 rounded-lg pl-4 pr-2.5 text-sm transition-colors",
+        // Activo = píldora surface-2 (superficie), tinta plena y
+        // `aria-current="page"` para lectores. Sin color de acento.
+        "group relative flex min-h-10 gap-3 rounded-pill px-3.5 text-sm transition-colors",
         dense ? "py-1.5" : "py-2",
         withDescription ? "items-start" : "items-center",
-        "before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-1 before:rounded-pill before:content-['']",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         active
-          ? "bg-muted font-semibold text-foreground before:bg-primary"
-          : "font-medium text-foreground/80 before:bg-transparent hover:bg-muted hover:text-foreground",
+          ? "bg-secondary font-medium text-foreground"
+          : "font-medium text-muted-foreground hover:bg-card hover:text-foreground",
       )}
     >
       <Icon
@@ -433,10 +429,6 @@ function SidebarLink({
         className={cn(
           "h-4 w-4 shrink-0",
           withDescription && "mt-0.5",
-          // El ícono activo hereda la tinta, no el acento: si `--primary` se
-          // vuelve un tono decorativo, un glifo de 16px en ese color sobre
-          // `bg-muted` puede quedarse sin contraste. El color de marca lo lleva
-          // la barra, que es forma y no información.
           active ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
         )}
       />
@@ -499,7 +491,7 @@ export function Brand({ className, collapsed = false }: { className?: string; co
         // rompa al cruzar del sidebar al contenido.
         "flex h-14 shrink-0 items-center gap-2",
         collapsed ? "justify-center px-2" : "px-3",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
         className,
       )}
       aria-label={`${displayName} — ir al inicio`}
@@ -554,9 +546,9 @@ export function SidebarCollapseToggle({
       aria-label={label}
       aria-expanded={!collapsed}
       className={cn(
-        "flex h-9 items-center gap-3 rounded-lg text-sm font-medium text-foreground/80 transition-colors",
-        "hover:bg-muted hover:text-foreground",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "flex h-10 items-center gap-3 rounded-pill text-sm font-medium text-muted-foreground transition-colors",
+        "hover:bg-card hover:text-foreground",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         collapsed ? "w-full justify-center" : "w-full px-3",
         className,
       )}
@@ -594,7 +586,7 @@ export function EnvBadge({ compact = false, className }: { compact?: boolean; cl
           variant="warning"
           tabIndex={0}
           className={cn(
-            "gap-1.5 focus-visible:ring-foreground focus-visible:ring-offset-background",
+            "gap-1.5 focus-visible:ring-ring focus-visible:ring-offset-background",
             className,
           )}
         >
@@ -625,7 +617,7 @@ export function EnvFooter({
           <TooltipTrigger asChild>
             <span
               tabIndex={0}
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-warning-subtle text-warning-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-warning-subtle text-warning-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <FlaskConical className="h-4 w-4" aria-hidden />
               <span className="sr-only">Pagos en modo de pruebas — livemode=false</span>

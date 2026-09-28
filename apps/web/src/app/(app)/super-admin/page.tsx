@@ -260,7 +260,7 @@ export default function SuperAdminOverviewPage() {
               <li>
                 <Link
                   href="/super-admin/tenants"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <Building2 aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -274,7 +274,7 @@ export default function SuperAdminOverviewPage() {
               <li>
                 <Link
                   href="/super-admin/users"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <Users aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -288,7 +288,7 @@ export default function SuperAdminOverviewPage() {
               <li>
                 <Link
                   href="/super-admin/usage"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <Coins aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -303,7 +303,7 @@ export default function SuperAdminOverviewPage() {
                 <button
                   type="button"
                   onClick={() => setCreateOpen(true)}
-                  className="flex w-full items-center justify-between rounded-md border border-dashed border-border bg-background px-3 py-2 text-left text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="flex w-full items-center justify-between rounded-md border border-dashed border-border bg-background px-3 py-2 text-left text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <Plus aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />

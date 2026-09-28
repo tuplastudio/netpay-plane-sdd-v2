@@ -82,7 +82,7 @@ export default function PublicQuotePage() {
   const merchant = q.data?.merchant ?? null;
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="min-h-screen bg-background">
       <header className="border-b bg-background">
         <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-2 px-4 py-4">
           {merchant ? (
@@ -95,7 +95,7 @@ export default function PublicQuotePage() {
             <span className="flex items-center gap-2">
               <span
                 aria-hidden
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-strong text-primary-foreground"
               >
                 <Sparkles className="h-4 w-4" />
               </span>
@@ -367,7 +367,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
           <span className="uppercase tracking-wider">Cotización</span>
           <EntityId value={quote.id} toastLabel="Folio de la cotización" />
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight">
+        <h1 className="font-display text-display-md">
           {quote.customer.fullName || "Cliente"}
         </h1>
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -385,20 +385,20 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
       {/* Total arriba de todo: en un teléfono es el dato que se busca primero. */}
       <section
         aria-labelledby="quote-total"
-        className="rounded-card border bg-card p-5 text-center shadow-airbnb sm:p-6"
+        className="spotlight spotlight-violet p-6 text-center sm:p-[30px]"
       >
-        <h2 id="quote-total" className="text-sm text-muted-foreground">
+        <h2 id="quote-total" className="text-caption text-white/75">
           Total de la cotización
         </h2>
         <Money
           value={quote.total}
           currency={currency}
           emphasis
-          className="mt-2 block text-4xl leading-none tracking-tight"
+          className="mt-3 block font-display text-display-lg font-medium text-white"
         />
         <p
           className={`mt-3 flex items-center justify-center gap-1.5 text-xs ${
-            expiringSoon ? "text-warning-foreground" : "text-muted-foreground"
+            expiringSoon ? "font-medium text-white" : "text-white/75"
           }`}
         >
           {expiringSoon ? <Clock aria-hidden className="h-3.5 w-3.5" /> : null}
@@ -415,7 +415,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
           <Button
             asChild
             size="lg"
-            variant={payable ? "outline" : "default"}
+            variant={payable ? "translucent" : "default"}
             className="h-12 w-full sm:w-auto sm:px-8"
           >
             <a href={`/api/v1/quotes/public/${token}/pdf`} target="_blank" rel="noreferrer">

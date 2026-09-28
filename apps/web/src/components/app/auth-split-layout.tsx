@@ -81,7 +81,7 @@ function Brand() {
     <Link
       href="/login"
       aria-label="Atiende ya — ir a iniciar sesión"
-      className="flex w-fit items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      className="flex w-fit items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <SellLogo className="h-8 w-8" />
       <span className="flex flex-col leading-tight">

@@ -80,7 +80,7 @@ export function TabsList({
       role="tablist"
       onKeyDown={onKeyDown}
       className={cn(
-        "inline-flex items-center gap-1 rounded-pill bg-muted p-1 text-sm",
+        "inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-pill bg-card p-1 text-sm",
         className,
       )}
     >
@@ -111,7 +111,7 @@ export function TabsTrigger({
       onClick={() => ctx.setValue(value)}
       onFocus={() => ctx.setValue(value)}
       className={cn(
-        "rounded-pill px-3 py-1.5 font-medium transition-colors",
+        "min-h-10 shrink-0 whitespace-nowrap rounded-pill px-4 py-2 font-medium transition-colors focus-visible:outline-none focus-visible:shadow-selected sm:min-h-9 sm:py-1.5",
         // Seleccionado = subir de superficie (surface-2), no color.
         active
           ? "bg-secondary text-foreground"

@@ -453,7 +453,7 @@ export default function ChatPage() {
               aria-relevant="additions text"
               aria-label="Mensajes"
               tabIndex={0}
-              className="min-h-0 flex-1 overflow-y-auto p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-foreground"
+              className="min-h-0 flex-1 overflow-y-auto p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               {messages.length === 0 && conversationId === null ? (
                 <EmptyState

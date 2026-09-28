@@ -96,7 +96,7 @@ export const EntityId = React.forwardRef<HTMLSpanElement, EntityIdProps>(
             type="button"
             onClick={onCopy}
             aria-label={copyLabel}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           >
             {copied ? (
               <Check aria-hidden className="h-3.5 w-3.5 text-success" />

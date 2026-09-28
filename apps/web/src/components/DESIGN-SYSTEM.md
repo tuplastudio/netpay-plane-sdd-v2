@@ -1,36 +1,17 @@
-# Sistema de diseño — Atiende ya (portal operativo)
+# Sistema de diseño — portal operativo
 
 Referencia de la capa de primitivas. Todo lo de aquí ya existe y compila: no
 reimplementes nada, no copies clases de una pantalla a otra.
 
-- Identidad: **Canvas** (desde 2026-09-28) — lienzo casi negro con dejo
-  cálido (`canvas` `#0b0a09`), todo monocromo: tinta blanca, gris secundario
-  `muted-foreground` `#999`, superficies por pasos `canvas` → `card`
-  (surface-1) → `secondary`/`popover` (surface-2). La jerarquía la dan el
-  contraste tinta/tinta-muted y la elevación por superficie, no el color.
-  - **Un solo acento**: azul `primary` `#0099ff` — enlaces (`text-legal-link`),
-    anillos de foco (`ring`, `shadow-selected`) y selección. Nunca relleno de
-    botón ni fondo.
-  - **CTA = píldora**: `Button` default/`cta` = píldora BLANCA con tinta
-    oscura; `secondary`/`outline` = píldora carbón. Sin botones con borde.
-    "Presionado" encoge (`active:scale`), no oscurece.
-  - **Tarjetas spotlight** (`.spotlight .spotlight-violet|magenta|orange|coral`,
-    radio 30px): degradados como TARJETA dentro de la grilla, nunca fondo de
-    sección; una o dos por pantalla (hoy: panel de marca del login).
-  - Tipografía: display `font-display` = Geist 500 con tracking negativo
-    proporcional al tamaño (`text-display-xl|lg|md`, `tracking-display`);
-    cuerpo Inter con variantes `cv01 cv05 cv09 cv11 ss03 ss07`.
-  - Radios: 10px controles (`rounded-lg`), 20px tarjetas (`rounded-card`),
-    30px spotlight (`rounded-spotlight`), píldora (`rounded-pill`).
-  - Estado (success/warning/info/destructive/neutral) se conserva: es función,
-    no marca.
-  Fuente del tema: `src/app/globals.css` + `tailwind.config.ts` (contrastes
-  documentados ahí). Las secciones de abajo que hablan de "indigo", "verde
-  cta" o Space Grotesk describen el sistema anterior "Arcade"; los nombres de
-  token siguen siendo los mismos, solo cambió su valor.
+- Identidad: sistema **"póster" oscuro**. Lienzo casi negro, titulares grandes
+  en blanco con tracking muy negativo, CTA en píldora blanca, tarjetas carbón,
+  un solo color de señal (azul) y una familia pequeña de tarjetas con
+  degradado que se usan con cuentagotas.
+- **Solo modo oscuro.** `<html class="dark">` es fijo en `app/layout.tsx`; no
+  hay ThemeProvider ni selector de tema.
+- Fuente del tema: `src/app/globals.css` (variables CSS) + `tailwind.config.ts`.
 - Idioma de UI: **es-MX**. Todo texto visible en español.
-- Dueño de esta capa: Design System Lead. Si te falta una prop, **pídela**; no
-  hagas un fork del componente en tu pantalla.
+- Si te falta una prop, **pídela**; no hagas un fork del componente en tu pantalla.
 
 ---
 
@@ -73,132 +54,106 @@ export default function OrdersPage() {
 `PageHeader` ya trae su propio `mb-6`. Entre secciones: **`space-y-6`**.
 Dentro de una sección: `space-y-4`. Entre etiqueta y control: `space-y-1.5`.
 
-### Tipografía
-
-| Rol | Clases |
-| --- | --- |
-| h1 (título de página) | `text-2xl font-semibold tracking-tight` (lo pone `PageHeader`) |
-| h2 (título de sección) | `text-base font-semibold` (lo pone `Section`) |
-| cuerpo | `text-sm` |
-| meta / secundario | `text-xs text-muted-foreground` |
-| ids, SKUs, tokens | `font-mono text-xs` |
-| importes y conteos | `tabular-nums` (lo ponen `Money` y `numeric`) |
-
-Un solo `<h1>` por pantalla. `Section` rinde `<h2>`; si anidas, pasa `as="h3"`.
-
 ### Color
 
-| Token | Uso |
-| --- | --- |
-| `primary` | acento de marca **ornamento**: íconos, bordes de selección, rieles, `accent-color`, tintes. Nunca texto encima, nunca como tinta |
-| `primary-strong` (+ `-hover`, `-active`) | acento de marca **texto y relleno**: todo lo que renderiza texto sobre el acento o usa el acento como tinta |
-| `cta` (+ `-hover`, `-active`) | acento de **mayor intención** (verde): la acción con la que de verdad se quiere que el usuario salga de la pantalla. Una por pantalla, nunca decoración |
-| `highlight` / `highlight-strong` | acento de **resalte** (magenta): insignias, "nuevo", categoría destacada. Nunca botones de acción, nunca comunica estado |
-| `primary-disabled` | relleno de control inhabilitado (exento de contraste) |
-| `foreground` `body-text` `muted-foreground` | tinta |
-| `canvas` `background` `card` `muted` `secondary` `popover` | superficies (todas oscuras — sin light mode) |
-| `input` | **límite de control**: borde de `Input`/`Select`/`Textarea`/`Checkbox`/`RadioCard` |
-| `border` / `hairline` `hairline-soft` `hairline-strong` | separadores estructurales y hairlines decorativas |
-| `success` `warning` `info` `neutral` `destructive` | **solo estado**, nunca decoración |
+Los nombres de token de Tailwind (`background`, `card`, `secondary`, …) son
+los mismos de siempre; aquí está a qué valor de la paleta apunta cada uno.
 
-#### El acento de marca tiene dos niveles — y en oscuro el porqué cambia
+| Paleta | Valor | Token(s) Tailwind | Uso |
+| --- | --- | --- | --- |
+| canvas | `#090909` | `bg-background`, `bg-canvas` | Fondo de toda página |
+| surface-1 | `#141414` | `bg-card` | Tarjetas, inputs, tiles, píldora de pestañas |
+| surface-2 | `#1c1c1c` | `bg-secondary`, `bg-popover` | Tarjeta destacada, pestaña/ítem seleccionado, botón secundario, menús |
+| — | `#0f0f0f` | `bg-muted` | Zonas hundidas entre canvas y surface-1 |
+| — | `#232323` | `bg-accent` | Hover sobre surface-1/2 |
+| hairline | `#262626` | `border-border`, `border-hairline` | Bordes estructurales, divisores de tabla |
+| hairline-soft | `#1a1a1a` | `border-hairline-soft` | Divisores sutiles (filas, FAQ, canto de tarjeta) |
+| — | `#333333` | `border-input` | Borde de control |
+| ink / primary | `#ffffff` | `text-foreground`, `bg-primary-strong`, `bg-cta` | Titulares, cuerpo, relleno de la píldora primaria |
+| on-primary | `#000000` | `text-primary-foreground` | Tinta sobre la píldora blanca |
+| ink-muted | `#999999` | `text-muted-foreground` | Texto secundario, meta, pestañas no seleccionadas |
+| accent-blue | `#0099ff` | `ring`, `primary`, `text-legal-link` (`#33adff`) | **Solo** enlaces, foco y selección. Nunca relleno |
+| semantic-success | `#22c55e` | `success` | Estado |
+| warning | `#f5a524` | `warning` | Estado |
+| danger | `#ff4d4f` | `destructive` | Estado / texto destructivo |
 
-En un canvas claro, "texto del acento sobre el canvas" y "texto claro sobre
-el acento como relleno" mejoran con el MISMO cambio (más oscuro). Sobre un
-canvas oscuro dejan de tirar en la misma dirección: un violeta más claro
-mejora su lectura como texto-sobre-negro pero empeora la de un texto blanco
-encima suyo (el relleno se acerca al blanco). La solución: el relleno lleva
-SIEMPRE tinta oscura (`primary-foreground`, casi negro), nunca blanca — así
-"más claro" vuelve a mejorar los dos contrastes a la vez. Mismo patrón en
-`cta` y en el relleno sólido de `destructive`.
+La jerarquía es binaria: `foreground` o `muted-foreground`. La profundidad
+se marca subiendo de superficie (canvas → card → secondary), no con opacidad
+sobre texto blanco.
 
-| Si el acento… | usa | mide |
+Estados (success/warning/info/neutral/destructive): cada uno tiene
+`--<tono>` (punto/ícono), `--<tono>-subtle` (tinte) y `--<tono>-foreground`
+(texto). `StatusBadge` usa superficie neutra + punto + texto de color: el
+estado es señal, no relleno.
+
+#### Degradados (tarjetas spotlight)
+
+| Clase | Ancla | Degradado (135°) |
 | --- | --- | --- |
-| lleva texto encima (`Button` default, `Badge` default) | `bg-primary-strong` + `text-primary-foreground` | 4.85:1 |
-| **es** la tinta (`Button` link, `text-…`) | `text-primary-strong` | 4.85:1 sobre `canvas` |
-| es adorno: ícono, riel, borde de opción marcada, `accent-color` | `primary` | 3.51:1 ✓ 1.4.11 |
+| `.spotlight-violet` / `bg-gradient-violet` | `#6a4cf5` | `#1e1450` → `#6a4cf5` 55% → `#b3a3fb` |
+| `.spotlight-magenta` / `bg-gradient-magenta` | `#d44df0` | `#3d0f47` → `#d44df0` 55% → `#eeaaf8` |
+| `.spotlight-orange` / `bg-gradient-orange` | `#ff7a3d` | `#4a1a06` → `#ff7a3d` 55% → `#ffc2a0` |
+| `.spotlight-coral` / `bg-gradient-coral` | `#ff5577` | `#4a0d1a` → `#ff5577` 55% → `#ffaabb` |
 
-Rampa del nivel fuerte — mismo tono 245° y misma saturación, solo cambia la
-luminosidad. En oscuro el hover/activo ACLARA (al revés que en un sistema
-claro: sobre canvas negro, más claro = más énfasis):
+`.spotlight` pone radio 30px, texto blanco y un velo oscuro en el tercio
+inferior izquierdo para que el texto se lea. Son TARJETAS dentro de la
+grilla, nunca fondo de sección. **Una o dos por pantalla.** Hoy: panel de
+marca del login, cifra del mes en Panorama, total de la cotización pública.
+Botones encima de un degradado: `variant="translucent"` o la píldora blanca.
 
-| estado | token | hex | contraste |
-| --- | --- | --- | --- |
-| reposo | `primary-strong` | `#776cef` | 4.85:1 sobre `canvas` y con `primary-foreground` |
-| hover | `primary-strong-hover` | `#9088f2` | 6.55:1 |
-| activo | `primary-strong-active` | `#a29af4` | 7.93:1 |
+### Tipografía
 
-Los tres son sólidos, **no** `bg-primary/90`: el alfa sobre un canvas oscuro
-mueve el contraste de forma impredecible según lo que haya debajo.
-`primary-active` sigue existiendo como alias de `primary-strong-active` para
-call sites viejos; no lo uses en código nuevo.
+- Display: **Geist 500** (`font-display`), tracking negativo proporcional al
+  tamaño. Si hace falta achicar, baja el TAMAÑO, no el porcentaje.
+- Cuerpo: **Inter** con `cv01 cv05 cv09 cv11 ss03 ss07` siempre activas
+  (en `body`). Tablas, `.tabular-nums` y `[data-money]` agregan `tnum`.
 
-`cta` (verde, `#44e499`, 12.00:1 sobre `canvas`) y `highlight` (magenta,
-ornamento/texto `#ee63bb` 6.69:1 · relleno `highlight-strong` `#dc1895` con
-tinta BLANCA 4.56:1 — este relleno sí es lo bastante oscuro) siguen la misma
-lógica de niveles. `highlight-strong` es la única excepción con tinta blanca
-en el relleno: es notablemente más oscuro que `primary-strong`/`cta`.
+| Token | Tamaño | Peso | Interlínea | Tracking | Uso |
+| --- | --- | --- | --- | --- | --- |
+| `text-display-xxl` | 48→110px | 500 | 0.85 | -0.05em | Hero de página pública |
+| `text-display-xl` | 40→85px | 500 | 0.95 | -0.05em | Apertura de sección grande |
+| `text-display-lg` | 32→62px | 500 | 1.00 | -0.05em | Cifra protagonista, hero de login |
+| `text-display-md` | 26→32px | 500 | 1.13 | -0.031em | h1 de página (`PageHeader`) |
+| `text-headline` | 22px | 700 | 1.20 | -0.036em | Títulos de tarjeta de precio / categoría |
+| `text-subhead` | 24px | 400 | 1.30 | 0 | Texto guía dentro de spotlight |
+| `text-body-lg` | 18px | 400 | 1.30 | -0.01em | Párrafo principal |
+| `text-body` | 15px | 400 | 1.30 | -0.01em | Cuerpo por defecto (el `body` ya trae 15px) |
+| `text-body-sm` | 14px | 500 | 1.40 | -0.01em | Datos densos |
+| `text-caption` | 13px | 500 | 1.20 | -0.01em | Eyebrows, meta |
+| `text-micro` | 12px | 400 | 1.20 | -0.01em | Notas al pie |
 
-#### Las líneas tienen tres papeles
+h1 → `PageHeader` (display-md). h2 → `Section` (Geist 17px). Un solo `<h1>`
+por pantalla. Ids/SKUs → `font-mono text-xs`.
 
-WCAG 1.4.11 exige 3:1 solo a los límites que son la **única** forma de
-identificar un control. No a toda hairline. Por eso hay un token que pasa y dos
-que a propósito no:
+### Espaciado, radios y elevación
 
-| Token | Papel | Contraste | ¿3:1? |
-| --- | --- | --- | --- |
-| `input` `#5c5f84` | **límite de control**: el campo es `bg-background` sobre canvas del mismo tono, el borde es lo único que lo delimita | 3.21:1 sobre `canvas` | **sí, obligatorio** |
-| `border` / `hairline` `#2d2d43` | **separador estructural**: canto de `Card`, reglas de `Table`, `Separator`, capas flotantes, `Badge outline` | 1.47:1 | no aplica |
-| `hairline-soft` `#232337` | **hairline decorativa**: `divide-hairline-soft` entre pares etiqueta/valor | aún más tenue | no aplica |
-| `hairline-strong` | **relleno**, no borde: solo `active:bg-hairline-strong/40` | — | no aplica |
+- Espaciado en ritmo de 5px: 4 · 8 · 12 · 15 · 20 · 30 · 40, sección 96px
+  (`p-section`). Entre secciones `space-y-6`; dentro `space-y-4`.
+- Radios: `rounded-xs` 4 · `rounded-sm` 6 (insignias) · `rounded-md` 10
+  (inputs, ítems de lista) · `rounded-lg` 15 (miniaturas) · `rounded-xl` /
+  `rounded-card` 20 (tarjetas) · `rounded-2xl` / `rounded-spotlight` 30
+  (spotlight, paneles grandes) · `rounded-pill` (TODO CTA de texto) ·
+  `rounded-full` (botones de ícono, avatares).
+- Elevación: 0 plano sobre canvas · 1 `bg-card` · 2 `shadow-airbnb` /
+  `shadow-elevation-2` (canto de luz 0.5px + caída negra: menús, tooltips,
+  tarjetas flotantes) y `shadow-airbnb-lg` (diálogos, sheets) · 3
+  `shadow-selected` (foco/seleccionado: anillo azul).
 
-Los estructurales se quedan tenues a propósito: la tarjeta ya se separa por el
-resplandor violeta y el padding, las filas por posición y contenido, el badge
-por su propio texto. Subirlos a 3:1 dibujaría una retícula sobre toda la app
-sin resolver ninguna barrera real. **Si un control nuevo necesita borde, es
-`border-input`, nunca `border-border`.**
+### Responsive
 
-Cada tono semántico tiene tres slots:
+Cortes: escritorio ≥1199 · tableta 810 (grillas 4→2, navegación al drawer) ·
+móvil <810 (una columna). Canal lateral 16px en teléfono, sin scroll
+horizontal de página (`html { overflow-x: clip }`). Botones e inputs miden
+44px de alto en móvil y se compactan a 40px desde `sm`.
 
-- `--<tono>` → sólido (`bg-success`), para íconos, puntos y bordes.
-- `--<tono>-subtle` → tinte de fondo (`bg-success-subtle`).
-- `--<tono>-foreground` → tinta sobre ese tinte (`text-success-foreground`).
+### Hacer / no hacer
 
-Contraste tinta/tinte verificado (WCAG 2.1) sobre el canvas oscuro: success
-9.54:1 · warning 9.27:1 · info 8.96:1 · neutral 8.74:1 · destructive 7.70:1.
-Todos AA y AAA.
+Hacer: píldora en todo CTA; subir de superficie para jerarquía; azul solo
+como señal; una o dos spotlight por pantalla; variantes de Inter siempre.
 
-**Excepción:** `--destructive-foreground` es tinta OSCURA (no blanca — ver
-"por qué cambia" arriba) porque además es relleno sólido de `Button`/`Badge`
-(`variant="destructive"`). La tinta sobre el tinte rojo es
-`text-destructive-subtle-foreground`. El `:active` del botón destructivo usa
-`destructive-active` (`#f3a198`, más claro, mismo patrón "aclarar = énfasis"
-en oscuro) y no `bg-destructive/80`.
-
-#### Exento de contraste, dicho en voz alta
-
-- `primary-disabled` y `muted-soft` no cumplen 4.5:1 **y no tienen que
-  hacerlo**: WCAG 2.1 exime explícitamente a los componentes inhabilitados de
-  1.4.3 y 1.4.11. El estado tampoco depende solo del color — los primitivos
-  ponen `disabled:opacity-50` y el atributo `disabled`.
-- `legal-link` es `#47bef5` (9.33:1 sobre `canvas`).
-
-Anillo de foco: `ring-foreground` (`#f5f7f9`) da 18.33:1 contra el canvas
-oscuro. `ring-offset-background` intercala 2px del color de fondo entre el
-anillo y el relleno.
-
-### Sombras y radios
-
-- En oscuro una sombra negra no se ve: `shadow-airbnb` y `shadow-airbnb-lg`
-  son un resplandor violeta muy sutil (tono de `primary`) + un borde de 1px
-  casi invisible. `shadow-airbnb` → superficies en reposo. `shadow-airbnb-lg`
-  → capas flotantes (dialog, sheet, dropdown, tooltip). No hay una tercera.
-- `rounded-lg` (12px) botones e inputs · `rounded-card` (20px) tarjetas ·
-  `rounded-pill` insignias.
-- `font-display` (Space Grotesk 600/700) en h1 (`PageHeader`) y h2 (`Section`)
-  únicamente. Todo lo demás — cuerpo, tablas, controles — se queda en
-  `font-sans` (Inter): el salto de peso es la voz del sistema, no algo para
-  párrafos densos.
+No hacer: modo claro; grises intermedios fuera de `muted-foreground`;
+rellenos azules; CTA cuadrados; degradados como fondo de sección; más de un
+acento cromático; botones con borde tipo "fantasma".
 
 ---
 
@@ -207,7 +162,7 @@ anillo y el relleno.
 ### `Button`
 
 ```ts
-variant: "default" | "secondary" | "outline" | "ghost" | "destructive" | "warning" | "link" | "cta"
+variant: "default" | "secondary" | "outline" | "ghost" | "destructive" | "destructive-solid" | "warning" | "translucent" | "link" | "cta"
 size:    "sm" | "default" | "lg" | "icon"
 loading?: boolean   // muestra Spinner, aplica aria-busy y disabled
 asChild?: boolean   // con asChild, `loading` se ignora
@@ -218,6 +173,13 @@ asChild?: boolean   // con asChild, `loading` se ignora
 <Button variant="outline" size="sm" asChild><Link href="/orders">Ver pedidos</Link></Button>
 <Button variant="ghost" size="icon" aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
 ```
+
+- `default`/`cta`: píldora blanca, tinta negra. La acción principal.
+- `secondary`/`outline`: píldora carbón (surface-2). `outline` rinde igual (no hay botones con borde).
+- `destructive`: píldora carbón con texto rojo. `destructive-solid`: relleno rojo, solo para confirmar algo irreversible.
+- `translucent`: sobre degradados o imágenes.
+- `size="icon"`: círculo de 44px (40px desde `sm`).
+- Presionado = `scale(0.97)`, no oscurecer. Foco = anillo azul.
 
 `loading` **no** cambia el texto: si quieres "Guardando…" ponlo tú como children.
 

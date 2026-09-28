@@ -25,19 +25,27 @@ export const buttonVariants = cva(
         outline:
           "bg-secondary text-secondary-foreground hover:bg-accent active:bg-accent",
         ghost: "text-foreground hover:bg-secondary active:bg-accent",
+        /** Píldora carbón con tinta roja: el rojo es señal, no relleno. */
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive-active",
+          "bg-secondary text-destructive hover:bg-destructive-subtle active:bg-destructive-subtle",
+        /** Relleno rojo: solo el botón que confirma algo irreversible. */
+        "destructive-solid":
+          "bg-destructive text-destructive-foreground hover:bg-destructive-active active:bg-destructive-active",
         warning:
-          "border border-warning bg-warning-subtle text-warning-foreground hover:bg-warning/15 active:bg-warning/25",
+          "bg-secondary text-warning-foreground hover:bg-warning-subtle active:bg-warning-subtle",
+        /** Sobre fondos con degradado o imagen: superficie levantada translúcida. */
+        translucent:
+          "rounded-2xl bg-white/15 text-white backdrop-blur hover:bg-white/25 active:bg-white/25",
         link: "rounded-none text-legal-link underline-offset-4 hover:underline active:scale-100",
         /** Misma píldora blanca que `default`: un solo lenguaje de CTA. */
         cta: "bg-cta text-cta-foreground hover:bg-cta-hover active:bg-cta-active",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 px-3.5",
+        // Móvil: alto táctil ≥44px; en escritorio se compacta.
+        default: "h-11 px-[15px] sm:h-10",
+        sm: "h-10 px-3.5 sm:h-9",
         lg: "h-12 px-7 text-[15px]",
-        icon: "h-10 w-10 rounded-full",
+        icon: "h-11 w-11 rounded-full sm:h-10 sm:w-10",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

@@ -128,7 +128,7 @@ export default function ThanksPage() {
             <SearchX aria-hidden className="h-6 w-6" />
           </div>
           <div className="space-y-2">
-            <h1 className="text-xl font-semibold tracking-tight">No encontramos este pago</h1>
+            <h1 className="font-display text-display-md">No encontramos este pago</h1>
             <p className="text-sm text-muted-foreground">
               Revisa el enlace: puede estar incompleto o ya no ser válido. Si ya pagaste, pide al
               vendedor que te confirme el pedido.
@@ -144,7 +144,7 @@ export default function ThanksPage() {
       <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
         <div className="w-full max-w-md space-y-5 text-center">
           <div className="space-y-2">
-            <h1 className="text-xl font-semibold tracking-tight">No pudimos consultar tu pago</h1>
+            <h1 className="font-display text-display-md">No pudimos consultar tu pago</h1>
             <p className="text-sm text-muted-foreground">
               Revisa tu conexión e inténtalo de nuevo.
             </p>
@@ -171,7 +171,7 @@ export default function ThanksPage() {
             <ShieldCheck aria-hidden className="h-6 w-6" />
           </div>
           <div className="space-y-2">
-            <h1 className="text-xl font-semibold tracking-tight">
+            <h1 className="font-display text-display-md">
               Aún no vemos tu pago
             </h1>
             <p className="text-sm text-muted-foreground" role="status" aria-live="polite">
@@ -213,7 +213,7 @@ export default function ThanksPage() {
             <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-success text-success-foreground shadow-airbnb">
               <CheckCircle2 aria-hidden className="h-8 w-8" />
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight">¡Listo! Tu pago se aplicó</h1>
+            <h1 className="font-display text-display-md">¡Listo! Tu pago se aplicó</h1>
             <p className="mt-1 text-sm">
               Gracias por tu compra en <strong>{order.merchant}</strong>.
             </p>
@@ -239,7 +239,7 @@ export default function ThanksPage() {
                 <button
                   type="button"
                   onClick={() => void copyToClipboard(order.id, "ID del pedido")}
-                  className="-my-3 inline-flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+                  className="-my-3 inline-flex h-11 w-11 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label="Copiar ID del pedido"
                 >
                   <Copy aria-hidden className="h-3.5 w-3.5" />

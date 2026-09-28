@@ -144,7 +144,7 @@ function humanRemaining(ms: number): string {
 /** Columna centrada de ancho acotado: la misma en los cuatro estados. */
 function PublicShell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-screen justify-center bg-muted/30 px-4 py-6 sm:items-center sm:py-10">
+    <main className="flex min-h-screen justify-center bg-background px-4 py-6 sm:items-center sm:py-10">
       <div className="w-full max-w-md space-y-4">{children}</div>
     </main>
   );
@@ -292,7 +292,7 @@ export default function CheckoutPublicPage() {
     <PublicShell>
       <header className="flex flex-col items-center gap-2 text-center">
         <BrandMark merchant={order.merchant} />
-        <h1 className="text-xl font-semibold tracking-tight">Pago del pedido</h1>
+        <h1 className="font-display text-display-md">Pago del pedido</h1>
         <p className="text-sm text-muted-foreground">{order.customer.fullName}</p>
       </header>
 
@@ -451,7 +451,7 @@ export default function CheckoutPublicPage() {
                     type="button"
                     onClick={() => setDetailLine(l)}
                     aria-label={`Ver detalle de ${l.title}`}
-                    className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+                    className="flex w-full items-center justify-between gap-3 rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="min-w-0">
                       <span className="block break-words font-medium">

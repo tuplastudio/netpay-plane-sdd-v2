@@ -61,7 +61,7 @@ export function AuthBrand({ className }: { className?: string }) {
       aria-label="Atiende ya — ir a iniciar sesión"
       className={cn(
         "flex w-fit items-center gap-2.5",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         className,
       )}
     >

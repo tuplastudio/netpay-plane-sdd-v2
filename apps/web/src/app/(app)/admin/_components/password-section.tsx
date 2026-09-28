@@ -113,7 +113,7 @@ export function PasswordSection() {
                 type="button"
                 onClick={() => setShowCurrent((v) => !v)}
                 aria-label={showCurrent ? "Ocultar contraseña actual" : "Mostrar contraseña actual"}
-                className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+                className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {showCurrent ? (
                   <EyeOff aria-hidden className="h-4 w-4" />
@@ -143,7 +143,7 @@ export function PasswordSection() {
                 type="button"
                 onClick={() => setShowNext((v) => !v)}
                 aria-label={showNext ? "Ocultar nueva contraseña" : "Mostrar nueva contraseña"}
-                className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+                className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {showNext ? (
                   <EyeOff aria-hidden className="h-4 w-4" />

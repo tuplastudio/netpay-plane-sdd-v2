@@ -878,7 +878,7 @@ export function EntityRowButton({
       className={[
         "flex w-full items-center justify-between gap-2 rounded-lg border border-transparent px-2 py-1.5 text-left text-xs",
         "transition-colors hover:border-border hover:bg-muted",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         className ?? "",
       ].join(" ")}
     >

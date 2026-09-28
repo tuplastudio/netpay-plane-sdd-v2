@@ -67,18 +67,36 @@ export default function HomePage() {
       <PageHeader
         title="Panorama"
         description="Cobros, pedidos por cobrar, cotizaciones y canales — de un vistazo."
-        actions={
-          <Button asChild>
-            <Link href="/chat">
-              <MessageSquare className="h-4 w-4" />
-              Probar el agente
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-        }
       />
 
       <div className="space-y-6">
+        {/* Tarjeta spotlight: la cifra del mes y la acción principal. Es la
+            única tarjeta con degradado de la pantalla. */}
+        <section aria-labelledby="mes-titulo" className="spotlight spotlight-violet p-6 sm:p-[30px]">
+          <div className="relative z-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0 space-y-2">
+              <p id="mes-titulo" className="text-caption text-white/75">
+                Ventas cobradas este mes
+              </p>
+              <p className="font-display text-display-lg tabular-nums text-white">
+                {unified.isLoading ? "…" : formatMoney(unified.data?.kpis.revenue.mtd)}
+              </p>
+              <p className="text-body text-white/75">
+                {unified.data
+                  ? `${unified.data.kpis.orders.mtd} pedidos en el mes · ${formatMoney(unified.data.kpis.revenue.today)} hoy`
+                  : "Cargando cifras del mes…"}
+              </p>
+            </div>
+            <Button asChild variant="translucent" className="self-start sm:self-auto">
+              <Link href="/chat">
+                <MessageSquare className="h-4 w-4" />
+                Probar el agente
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </section>
+
         {/* Fila 1: KPIs financieros clásicos. */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
           <StatTile size="compact"
@@ -209,7 +227,7 @@ export default function HomePage() {
               <li>
                 <Link
                   href="/chat"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <MessageSquare aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -221,7 +239,7 @@ export default function HomePage() {
               <li>
                 <Link
                   href="/quotes"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <FileText aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -233,7 +251,7 @@ export default function HomePage() {
               <li>
                 <Link
                   href="/orders"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <ShoppingCart aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -245,7 +263,7 @@ export default function HomePage() {
               <li>
                 <Link
                   href="/customers"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <UserPlus aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -257,7 +275,7 @@ export default function HomePage() {
               <li>
                 <Link
                   href="/agent"
-                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+                  className="group flex items-center justify-between rounded-md border border-border bg-background px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                 >
                   <span className="flex items-center gap-2">
                     <Bot aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
@@ -444,7 +462,7 @@ function RecentOrders({
         <li key={o.id} className="px-4 py-3">
           <Link
             href={`/orders/${o.id}`}
-            className="flex items-center justify-between gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+            className="flex items-center justify-between gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           >
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">
@@ -494,7 +512,7 @@ function RecentConversations({
         <li key={c.id} className="px-4 py-3">
           <Link
             href={`/conversations?id=${c.id}`}
-            className="flex items-center justify-between gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+            className="flex items-center justify-between gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           >
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">

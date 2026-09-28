@@ -2,13 +2,9 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Campo de texto. Mismo alto (h-10), radio y foco que `Select`.
- * Para marcar error pasa `aria-invalid` — el borde rojo sale solo.
- *
- * `border-input` (#8a8a8a) es el nivel "límite de control": el campo es blanco
- * sobre página blanca, así que el borde es lo único que lo delimita y tiene que
- * pasar 3:1 (WCAG 1.4.11). No lo cambies por `border-border`, que es el token
- * de separador estructural y vive en 1.35:1. Ver globals.css.
+ * Campo de texto: surface-1 con borde fino, radio md (10px). Mismo alto,
+ * radio y foco que `Select`. Foco = anillo azul. Para marcar error pasa
+ * `aria-invalid` — el borde rojo sale solo.
  *
  * @example
  * <Input aria-invalid={!!errors.sku} {...register("sku")} />
@@ -18,8 +14,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       type={type}
       className={cn(
-        "flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground",
-        // muted-foreground (no muted-soft): 5.33:1 sobre blanco, pasa AA.
+        "flex h-11 w-full sm:h-10 rounded-md border border-input bg-card px-3.5 py-2.5 text-sm text-foreground",
         "placeholder:text-muted-foreground",
         // Foco nivel 3: mismo borde, anillo azul translúcido (no engrosar).
         "transition-shadow focus-visible:border-primary focus-visible:shadow-selected focus-visible:outline-none",

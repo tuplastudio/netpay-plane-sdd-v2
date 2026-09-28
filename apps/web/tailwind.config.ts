@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: ["class"],
+  darkMode: ["class"], // solo oscuro: <html class="dark"> fijo en layout.tsx
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
     container: {
@@ -21,10 +21,17 @@ const config: Config = {
          (~5% en los más grandes, ~1% en cuerpo). Si hace falta achicar,
          se baja el TAMAÑO, no el porcentaje. */
       fontSize: {
+        "display-xxl": ["clamp(3rem, 8vw, 6.875rem)", { lineHeight: "0.85", letterSpacing: "-0.05em", fontWeight: "500" }],
         "display-xl": ["clamp(2.5rem, 6vw, 5.3rem)", { lineHeight: "0.95", letterSpacing: "-0.05em", fontWeight: "500" }],
         "display-lg": ["clamp(2rem, 4.5vw, 3.875rem)", { lineHeight: "1", letterSpacing: "-0.05em", fontWeight: "500" }],
-        "display-md": ["2rem", { lineHeight: "1.13", letterSpacing: "-0.031em", fontWeight: "500" }],
-        headline: ["1.375rem", { lineHeight: "1.2", letterSpacing: "-0.036em", fontWeight: "600" }],
+        "display-md": ["clamp(1.625rem, 3vw, 2rem)", { lineHeight: "1.13", letterSpacing: "-0.031em", fontWeight: "500" }],
+        headline: ["1.375rem", { lineHeight: "1.2", letterSpacing: "-0.036em", fontWeight: "700" }],
+        subhead: ["1.5rem", { lineHeight: "1.3", letterSpacing: "0" }],
+        "body-lg": ["1.125rem", { lineHeight: "1.3", letterSpacing: "-0.01em" }],
+        body: ["0.9375rem", { lineHeight: "1.3", letterSpacing: "-0.01em" }],
+        "body-sm": ["0.875rem", { lineHeight: "1.4", letterSpacing: "-0.01em", fontWeight: "500" }],
+        caption: ["0.8125rem", { lineHeight: "1.2", letterSpacing: "-0.01em", fontWeight: "500" }],
+        micro: ["0.75rem", { lineHeight: "1.2", letterSpacing: "-0.01em" }],
       },
       letterSpacing: {
         display: "-0.035em",
@@ -122,10 +129,15 @@ const config: Config = {
           foreground: "hsl(var(--popover-foreground))",
         },
       },
+      // Escala: xs 4 · sm 6 · md 10 · lg 15 · xl 20 · 2xl/xxl 30 · pill.
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xs: "4px",
+        sm: "6px",
+        md: "var(--radius)",
+        lg: "15px",
+        xl: "var(--radius-card)",
+        "2xl": "var(--radius-spotlight)",
+        xxl: "var(--radius-spotlight)",
         card: "var(--radius-card)",
         spotlight: "var(--radius-spotlight)",
         pill: "var(--radius-pill)",
@@ -134,6 +146,17 @@ const config: Config = {
         airbnb: "var(--shadow-airbnb)",
         "airbnb-lg": "var(--shadow-airbnb-lg)",
         selected: "var(--shadow-selected)",
+        "elevation-2": "var(--shadow-airbnb)",
+      },
+      backgroundImage: {
+        "gradient-violet": "var(--gradient-violet)",
+        "gradient-magenta": "var(--gradient-magenta)",
+        "gradient-orange": "var(--gradient-orange)",
+        "gradient-coral": "var(--gradient-coral)",
+      },
+      spacing: {
+        hair: "1px",
+        section: "96px",
       },
     },
   },

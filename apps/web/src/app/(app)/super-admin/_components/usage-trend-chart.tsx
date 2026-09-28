@@ -149,7 +149,7 @@ export function UsageTrendChart({
         </span>
         <Link
           href="/super-admin/usage"
-          className="ml-auto inline-flex items-center gap-1 rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+          className="ml-auto inline-flex items-center gap-1 rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           Ver detalle
           <ArrowRight aria-hidden className="h-3 w-3" />

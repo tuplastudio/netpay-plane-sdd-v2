@@ -319,7 +319,7 @@ export function TagsInput({
             type="button"
             onClick={() => onChange(value.filter((t) => t !== term))}
             aria-label={`Quitar ${term}`}
-            className="rounded-full p-0.5 transition-colors hover:bg-neutral-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
+            className="rounded-full p-0.5 transition-colors hover:bg-neutral-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X aria-hidden className="h-3 w-3" />
           </button>

@@ -74,7 +74,7 @@ const columns: Array<DataTableColumn<PlatformUser>> = [
             <li key={m.id}>
               <Link
                 href={`/super-admin/${m.tenant.id}`}
-                className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-background px-2 py-0.5 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
+                className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-background px-2 py-0.5 text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <span className="font-medium">{m.tenant.name}</span>
                 <span aria-hidden className="text-muted-foreground">

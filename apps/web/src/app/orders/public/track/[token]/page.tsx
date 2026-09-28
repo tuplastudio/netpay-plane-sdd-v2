@@ -150,7 +150,7 @@ function TrackingCard({ tracking }: { tracking: TrackingView }) {
     <article className="space-y-5">
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-wider text-muted-foreground">Pedido</p>
-        <h1 className="text-2xl font-semibold tracking-tight">{tracking.customer.fullName}</h1>
+        <h1 className="font-display text-display-md">{tracking.customer.fullName}</h1>
         <p className="text-sm text-muted-foreground">
           Folio <span className="font-mono">{tracking.id.slice(0, 8)}</span>
         </p>

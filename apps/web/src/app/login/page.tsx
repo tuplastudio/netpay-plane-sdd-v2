@@ -81,7 +81,7 @@ export default function LoginPage() {
     <AuthSplitLayout>
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="text-2xl font-bold tracking-tight">Iniciar sesión</h1>
+          <h1 className="font-display text-display-md">Iniciar sesión</h1>
           <p className="text-balance text-sm text-muted-foreground">
             Ingresa con tu correo del portal para abrir tu tienda.
           </p>

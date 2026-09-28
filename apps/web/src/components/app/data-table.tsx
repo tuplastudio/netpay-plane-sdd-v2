@@ -279,7 +279,7 @@ export function DataTable<T>({
           // con role inventado: así el teclado, el foco y el lector de
           // pantalla se comportan como el usuario espera.
           const focusRing =
-            "block w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1";
+            "block w-full rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1";
 
           return (
             <TableRow

@@ -105,7 +105,7 @@ RadioGroup.displayName = "RadioGroup";
  * Rausch de marca visible en el formulario.
  */
 const radioInputClass =
-  "h-4 w-4 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+  "h-4 w-4 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
 export interface RadioProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {
   /** Etiqueta visible. Si la omites, pon `aria-label`. */
@@ -183,7 +183,7 @@ export const RadioCard = React.forwardRef<HTMLInputElement, RadioCardProps>(
           // `border-input`, no el `border` heredado: la tarjeta ES el blanco
           // de clic de la opción, así que su límite cae bajo 1.4.11 (3:1) y no
           // bajo la regla de separador estructural. Ver globals.css.
-          "flex gap-2.5 rounded-lg border border-input p-3 text-left text-sm transition-colors",
+          "flex gap-2.5 rounded-md border border-hairline bg-card p-3 text-left text-sm transition-colors",
           "focus-within:outline-none focus-within:ring-2 focus-within:ring-foreground focus-within:ring-offset-2",
           disabled
             ? "cursor-not-allowed opacity-50"

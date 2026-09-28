@@ -53,7 +53,7 @@ const TableHeader = React.forwardRef<
   <thead
     ref={ref}
     className={cn(
-      "[&_tr]:border-b",
+      "[&_tr]:border-b [&_tr]:border-hairline",
       // El sticky se activa desde el <table data-sticky-header>.
       "[[data-sticky-header]_&]:sticky [[data-sticky-header]_&]:top-0 [[data-sticky-header]_&]:z-10 [[data-sticky-header]_&]:bg-card",
       className,
@@ -77,7 +77,7 @@ const TableFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <tfoot
     ref={ref}
-    className={cn("border-t bg-muted/50 font-medium [&>tr]:last:border-b-0", className)}
+    className={cn("border-t border-hairline bg-card font-medium [&>tr]:last:border-b-0", className)}
     {...props}
   />
 ));
@@ -93,8 +93,8 @@ const TableRow = React.forwardRef<HTMLTableRowElement, TableRowProps>(
     <tr
       ref={ref}
       className={cn(
-        "border-b transition-colors",
-        interactive && "hover:bg-muted/60 data-[state=selected]:bg-muted",
+        "border-b border-hairline-soft transition-colors",
+        interactive && "hover:bg-card data-[state=selected]:bg-secondary",
         className,
       )}
       {...props}

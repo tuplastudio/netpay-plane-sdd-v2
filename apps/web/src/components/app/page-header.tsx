@@ -84,7 +84,7 @@ export function PageHeader({
                   {crumb.href && !isLast ? (
                     <Link
                       href={crumb.href}
-                      className="rounded-sm underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
+                      className="rounded-sm underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                     >
                       {crumb.label}
                     </Link>
@@ -106,13 +106,13 @@ export function PageHeader({
             <Link
               href={backHref}
               aria-label={resolvedBackLabel}
-              className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2"
+              className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <ChevronLeft aria-hidden className="h-4 w-4" />
             </Link>
           ) : null}
           <div className="min-w-0 space-y-1">
-            <h1 className="font-display text-[1.75rem] font-medium leading-[1.1] tracking-display">{title}</h1>
+            <h1 className="font-display text-display-md">{title}</h1>
             {description ? (
               <p className="text-sm text-muted-foreground">{description}</p>
             ) : null}

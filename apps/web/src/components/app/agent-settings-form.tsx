@@ -1344,7 +1344,7 @@ function InfoTip({ label, text }: { label: string; text: string }) {
           aria-label={`Qué hace «${label}»`}
           className={cn(
             "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground",
-            "hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1",
+            "hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
           )}
         >
           <CircleHelp aria-hidden className="h-3.5 w-3.5" />
@@ -1379,7 +1379,7 @@ function DefaultMeta({
           type="button"
           onClick={onReset}
           aria-label={resetLabel}
-          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1"
+          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           <Undo2 aria-hidden className="h-3 w-3" />
           Usar predeterminado

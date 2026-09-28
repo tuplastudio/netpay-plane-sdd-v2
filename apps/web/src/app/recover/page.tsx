@@ -41,7 +41,7 @@ export default function RecoverPage() {
     <AuthSplitLayout>
       <div className="flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="text-2xl font-bold tracking-tight">Recuperar contraseña</h1>
+          <h1 className="font-display text-display-md">Recuperar contraseña</h1>
           <p className="text-balance text-sm text-muted-foreground">
             Te enviamos un correo con un enlace para restablecer tu contraseña.
           </p>

@@ -286,7 +286,7 @@ export function ConversationsView() {
     return (
       <>
         <header className="mb-2 flex shrink-0 items-center justify-between gap-2">
-          <h1 className="text-base font-semibold tracking-tight">Conversaciones</h1>
+          <h1 className="font-display text-lg font-medium tracking-[-0.02em]">Conversaciones</h1>
           <p className="text-xs text-muted-foreground">
             Hilo seleccionado. Vuelve a la bandeja con Esc.
           </p>
@@ -332,7 +332,7 @@ export function ConversationsView() {
       {/* Fila 1: título + chips de KPIs (una sola línea, sin wrap). */}
       <div className="flex shrink-0 flex-nowrap items-center justify-between gap-3">
         <div className="flex min-w-0 shrink items-baseline gap-2 whitespace-nowrap">
-          <h1 className="text-base font-semibold tracking-tight">Conversaciones</h1>
+          <h1 className="font-display text-lg font-medium tracking-[-0.02em]">Conversaciones</h1>
           <p className="hidden text-xs text-muted-foreground xl:block">
             Bandeja de WhatsApp; filtros, orden y vista viven en la URL.
           </p>
@@ -416,7 +416,7 @@ export function ConversationsView() {
                 aria-pressed={active}
                 onClick={() => setFilters({ agent: active ? "" : a.userId })}
                 className={cn(
-                  "flex shrink-0 items-center gap-1 rounded-pill border px-2 py-0.5 tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-1",
+                  "flex shrink-0 items-center gap-1 rounded-pill border px-2 py-0.5 tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
                   active
                     ? "border-foreground bg-foreground text-background"
                     : "border-border bg-card text-foreground hover:bg-muted",
