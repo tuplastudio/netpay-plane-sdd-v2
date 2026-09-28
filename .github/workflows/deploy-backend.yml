@@ -179,13 +179,18 @@ jobs:
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
               sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"ProductImage\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"ProductImage\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS ProductImage\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
 
-      # El API público (api-easysell.tupla.dev: Vercel y el webhook de
-      # Evolution dependen de él) se sirve desde captain-nginx de CapRover
-      # con un vhost manual. CapRover regenera captain.conf y puede recrear
-      # el contenedor de nginx: ambas cosas borran el vhost / la conexión a
-      # la red del compose y tiran el API de frente aunque los contenedores
-      # sigan sanos (pasó el 2026-09-20). Este paso lo deja siempre en pie.
-      - name: Asegurar vhost del API en captain-nginx
+      # El API público (api-easysell.tupla.dev) y el chat de IMSS-Bienestar
+      # (imssbienestar.tupla.dev) se sirven desde captain-nginx de CapRover
+      # con vhosts manuales. CapRover regenera captain.conf y puede recrear
+      # el contenedor de nginx: ambas cosas borran los vhosts / la conexión a
+      # la red del compose (pasó con el API el 2026-09-20). Este paso los deja
+      # siempre en pie. Los DOS vhosts van en UNA sola conexión SSH: el
+      # droplet tiene `ufw limit ssh` (máx. ~6 conexiones nuevas por 30s
+      # desde el mismo origen) y este job ya hace varias; separarlos en dos
+      # pasos (dos conexiones) tumbaba el Healthcheck siguiente con
+      # "dial tcp ...:22: i/o timeout" (visto 3 veces seguidas el 2026-09-28
+      # al agregar el vhost de IMSS-Bienestar como paso aparte).
+      - name: Asegurar vhosts en captain-nginx (API + chat IMSS-Bienestar)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
@@ -245,22 +250,12 @@ jobs:
               exit 1
             fi
 
-      # Chat de prueba de IMSS-Bienestar en su propio dominio, mismo patrón
-      # que el vhost del API arriba: captain-nginx regenera captain.conf y
-      # puede perder este archivo/la conexión de red, así que se restaura en
-      # cada deploy. Requiere DNS de imssbienestar.tupla.dev -> este droplet
-      # y una app en CapRover para ese dominio (solo para que emita el
-      # certificado Let's Encrypt; el tráfico real lo sirve este vhost, no
-      # el contenedor que registre CapRover).
-      - name: Asegurar vhost del chat IMSS-Bienestar en captain-nginx
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.APP_HOST }}
-          username: ${{ secrets.APP_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 5m
-          script: |
-            set -uo pipefail
+            # ---- Segundo vhost, misma conexión SSH ----
+            # Chat de prueba de IMSS-Bienestar. Requiere DNS de
+            # imssbienestar.tupla.dev -> este droplet y una app en CapRover
+            # para ese dominio (solo para que emita el certificado Let's
+            # Encrypt; el tráfico real lo sirve este vhost, no el contenedor
+            # que registre CapRover).
             DOMAIN=imssbienestar.tupla.dev
             VHOST_FILE=/captain/generated/nginx/conf.d/imssbienestar.conf
             NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
