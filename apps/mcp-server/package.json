@@ -1,6 +1,6 @@
 {
   "name": "atiendeya-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Servidor MCP sobre la API de Atiende ya: catálogo, clientes, cotizaciones, pedidos, pagos, envíos, reportes, notificaciones, integraciones, conversaciones de WhatsApp, auditoría y administración de plataforma, autenticado con tu API key.",
   "keywords": ["mcp", "model-context-protocol", "atiendeya", "whatsapp", "ecommerce"],
   "license": "MIT",
