@@ -13,6 +13,9 @@ import { CustomerService } from "../src/customers/customer.service.js";
  */
 
 const TENANT = "11111111-1111-1111-1111-111111111111";
+// Debe ser UUID: el servicio ignora ids que no lo son (el chat web manda
+// ids arbitrarios y Prisma tiraba 500 al castearlos).
+const CONV = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 interface FakeCustomer {
   id: string;
@@ -132,7 +135,7 @@ function makeService(prisma: ReturnType<typeof makeFakePrisma>) {
 describe("resolveChannelContact", () => {
   it("crea el cliente, la identidad y liga la conversación cuando no existe nada", async () => {
     const conversation = {
-      id: "conv-1",
+      id: CONV,
       tenantId: TENANT,
       customerId: null,
       externalPhone: "+5216671234567",
@@ -143,7 +146,7 @@ describe("resolveChannelContact", () => {
 
     const customer = await service.resolveChannelContact(TENANT, {
       fullName: "Ana López",
-      conversationId: "conv-1",
+      conversationId: CONV,
     });
 
     expect(customer.fullName).toBe("Ana López");
@@ -156,7 +159,7 @@ describe("resolveChannelContact", () => {
 
   it("reutiliza al cliente ya identificado por el canal y no crea un duplicado", async () => {
     const conversation = {
-      id: "conv-1",
+      id: CONV,
       tenantId: TENANT,
       customerId: null,
       externalPhone: "+5216671234567",
@@ -171,7 +174,7 @@ describe("resolveChannelContact", () => {
 
     const customer = await service.resolveChannelContact(TENANT, {
       fullName: "Ana López",
-      conversationId: "conv-1",
+      conversationId: CONV,
     });
 
     expect(customer.id).toBe("cust-1");
@@ -237,7 +240,7 @@ describe("resolveChannelContact", () => {
 
   it("nunca pisa un vínculo manual ya hecho desde el panel", async () => {
     const conversation = {
-      id: "conv-1",
+      id: CONV,
       tenantId: TENANT,
       customerId: "cust-manual",
       externalPhone: "+5216671234567",
@@ -251,7 +254,7 @@ describe("resolveChannelContact", () => {
     });
     const service = makeService(prisma);
 
-    await service.resolveChannelContact(TENANT, { fullName: "Ana López", conversationId: "conv-1" });
+    await service.resolveChannelContact(TENANT, { fullName: "Ana López", conversationId: CONV });
 
     // Se crea/ resuelve un cliente distinto para el contacto del chat, pero
     // la conversación se queda con el que el operador ya vinculó.
@@ -274,7 +277,7 @@ describe("resolveChannelContact", () => {
 
   it("otorga WHATSAPP automáticamente la primera vez que resuelve por ese canal", async () => {
     const conversation = {
-      id: "conv-1",
+      id: CONV,
       tenantId: TENANT,
       customerId: null,
       externalPhone: "+5216671234567",
@@ -284,7 +287,7 @@ describe("resolveChannelContact", () => {
     const service = makeService(prisma);
     const customer = await service.resolveChannelContact(TENANT, {
       fullName: "Ana López",
-      conversationId: "conv-1",
+      conversationId: CONV,
     });
     expect(prisma.consents).toEqual([
       expect.objectContaining({ customerId: customer.id, scope: "WHATSAPP", granted: true, source: "auto" }),
@@ -293,7 +296,7 @@ describe("resolveChannelContact", () => {
 
   it("nunca reactiva un consentimiento que un humano ya revocó a mano", async () => {
     const conversation = {
-      id: "conv-1",
+      id: CONV,
       tenantId: TENANT,
       customerId: "cust-1",
       externalPhone: "+5216671234567",
@@ -306,7 +309,7 @@ describe("resolveChannelContact", () => {
     prisma.consents.push({ customerId: "cust-1", scope: "WHATSAPP", granted: false, note: "El cliente pidió no recibir más mensajes", source: "manual" });
 
     const service = makeService(prisma);
-    await service.resolveChannelContact(TENANT, { fullName: "Ana López", conversationId: "conv-1" });
+    await service.resolveChannelContact(TENANT, { fullName: "Ana López", conversationId: CONV });
 
     expect(prisma.consents).toHaveLength(1);
     expect(prisma.consents[0]!.granted).toBe(false);

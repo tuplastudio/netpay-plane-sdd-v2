@@ -169,3 +169,126 @@ export class LinkCustomerIdentityDto {
   @MaxLength(128)
   externalId!: string;
 }
+
+// ---------------------------------------------------------------------------
+// Perfil 360° (0026): etiquetas, datos fiscales, notas y direcciones.
+// ---------------------------------------------------------------------------
+
+/** Clave SAT c_RegimenFiscal: 3 dígitos. */
+const REGIMEN_RE = /^\d{3}$/;
+/** Clave SAT c_UsoCFDI: letra(s) + 2 dígitos (G03, P01, S01, CP01…). */
+const CFDI_USE_RE = /^[A-Z]{1,2}\d{2}$/;
+
+export class UpdateCustomerProfileDto extends UpdateCustomerDto {
+  /** Razón social para CFDI. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  legalName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{5}$/, { message: "fiscalPostalCode debe ser 5 dígitos" })
+  fiscalPostalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CFDI_USE_RE, { message: "fiscalCfdiUse inválido (ej. G03)" })
+  fiscalCfdiUse?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(REGIMEN_RE, { message: "fiscalRegimenFiscal inválido (ej. 626)" })
+  fiscalRegimenFiscal?: string;
+
+  /** Etiquetas libres; se normalizan en minúsculas y sin duplicados. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  tags?: string[];
+}
+
+export class UpdateCustomerAddressDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  label?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  line1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  line2?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{5}$/, { message: "postalCode debe ser 5 dígitos" })
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  country?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+}
+
+export class CustomerNoteDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(4000)
+  body!: string;
+}
+
+/**
+ * Datos fiscales que acompañan (opcionalmente) a la constancia: lo que venga
+ * aquí manda sobre lo leído del PDF. Multipart: todo llega como string.
+ */
+export class CustomerConstanciaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  rfc?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  legalName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(5)
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  regimenFiscal?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4)
+  cfdiUse?: string;
+}

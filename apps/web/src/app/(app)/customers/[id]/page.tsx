@@ -1,18 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Archive,
   ArchiveRestore,
   AlertCircle,
-  MapPin,
+  Mail,
   MessageCircle,
+  MessagesSquare,
   Pencil,
+  Phone,
   ShieldCheck,
+  Tag,
   UserX,
 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -21,79 +24,41 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonRegion, SkeletonTable, SkeletonText } from "@/components/ui/skeleton";
-import {
-  CHANNEL_LABELS,
-  CONSENT_SCOPE_LABELS,
-  StatusBadge,
-} from "@/components/ui/status-badge";
+import { CHANNEL_LABELS, CONSENT_SCOPE_LABELS, StatusBadge } from "@/components/ui/status-badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { EntityId } from "@/components/app/entity-id";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { CustomerHistorySection } from "./_components/customer-history";
-import { CustomerEditSheet } from "./_components/customer-edit-sheet";
 import { usePermissions } from "@/components/app/use-permissions";
-
-/**
- * Forma real de `GET /customers/:id` (`customer.service.ts#get`): el registro
- * completo de Prisma más `addresses`, `identities` y `consents`.
- */
-interface CustomerAddress {
-  id: string;
-  label: string;
-  line1: string;
-  line2: string | null;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;
-  isDefault: boolean;
-}
-
-interface CustomerIdentity {
-  id: string;
-  /** `Channel` — WHATSAPP_META | WHATSAPP_EVOLUTION. */
-  channel: string;
-  externalId: string;
-  verifiedAt: string | null;
-}
-
-interface CustomerConsent {
-  id: string;
-  /** `ConsentScope` — WHATSAPP | MARKETING | DATA_PROCESSING. */
-  scope: string;
-  granted: boolean;
-  grantedAt: string | null;
-  revokedAt: string | null;
-}
-
-interface CustomerDetail {
-  id: string;
-  fullName: string;
-  email: string | null;
-  phone: string | null;
-  taxId: string | null;
-  notes: string | null;
-  /** `CustomerStatus` — ACTIVE | ARCHIVED. */
-  status: string;
-  /** Versión actual (optimistic concurrency en PATCH). */
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-  addresses: CustomerAddress[];
-  identities: CustomerIdentity[];
-  consents: CustomerConsent[];
-}
+import { CustomerAddresses } from "./_components/customer-addresses";
+import { CustomerEditSheet } from "./_components/customer-edit-sheet";
+import { CustomerFiscal } from "./_components/customer-fiscal";
+import { CustomerNotes } from "./_components/customer-notes";
+import { CustomerSummaryTiles, useCustomerSummary } from "./_components/customer-summary-tiles";
+import { CustomerTimeline } from "./_components/customer-timeline";
+import { httpStatus, whatsappDigits, type CustomerDetail } from "./_components/customer-types";
 
 /** Orden fijo del enum `ConsentScope`: los tres alcances se muestran siempre. */
 const CONSENT_SCOPES = ["WHATSAPP", "MARKETING", "DATA_PROCESSING"] as const;
 
 const BREADCRUMB_ROOT = { label: "Clientes", href: "/customers" };
 
-function httpStatus(error: unknown): number | undefined {
-  return (error as { response?: { status?: number } })?.response?.status;
+const TABS = [
+  { value: "resumen", label: "Resumen" },
+  { value: "cotizaciones", label: "Cotizaciones" },
+  { value: "pedidos", label: "Pedidos" },
+  { value: "pagos", label: "Pagos" },
+  { value: "conversaciones", label: "Conversaciones" },
+  { value: "fiscal", label: "Datos fiscales" },
+  { value: "notas", label: "Notas" },
+] as const;
+type TabValue = (typeof TABS)[number]["value"];
+
+function isTab(v: string | null): v is TabValue {
+  return TABS.some((t) => t.value === v);
 }
 
 /**
@@ -106,19 +71,31 @@ function isMissing(error: unknown): boolean {
   return status === 404 || status === 403;
 }
 
-function formatAddress(a: CustomerAddress): string {
-  return [a.line1, a.line2, `${a.postalCode} ${a.city}`.trim(), a.state, a.country]
-    .filter((part): part is string => !!part && part.trim().length > 0)
-    .join(" · ");
-}
-
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const canWrite = usePermissions().can("customers.write");
+
+  // Pestaña en la URL (`?tab=`) para que "atrás" y los links compartidos
+  // abran la misma vista. La paginación de cada pestaña ya vive en la URL.
+  const rawTab = searchParams.get("tab");
+  const tab: TabValue = isTab(rawTab) ? rawTab : "resumen";
+  const setTab = useCallback(
+    (next: string) => {
+      const sp = new URLSearchParams(searchParams.toString());
+      if (next === "resumen") sp.delete("tab");
+      else sp.set("tab", next);
+      const qs = sp.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
 
   const customerQ = useQuery({
     queryKey: ["customer", params.id],
@@ -130,6 +107,7 @@ export default function CustomerDetailPage() {
     // "no encontrado" en el acto en vez de tres reintentos de spinner.
     retry: (failureCount, error) => !isMissing(error) && failureCount < 2,
   });
+  const summaryQ = useCustomerSummary(params.id);
 
   const customer = customerQ.data;
 
@@ -173,19 +151,13 @@ export default function CustomerDetailPage() {
   if (customerQ.isLoading) {
     return (
       <div>
-        <PageHeader
-          title="Cliente"
-          backHref="/customers"
-          breadcrumbs={[BREADCRUMB_ROOT, { label: "Detalle" }]}
-        />
-        {/* Una sola región viva para los dos bloques: el lector anuncia
-            "Cargando el cliente…" una vez, no una por skeleton. */}
+        <PageHeader title="Cliente" backHref="/customers" breadcrumbs={[BREADCRUMB_ROOT, { label: "Detalle" }]} />
         <SkeletonRegion label="Cargando el cliente…">
           <div className="space-y-6">
             <Section title="Ficha">
-              <SkeletonText lines={5} />
+              <SkeletonText lines={4} />
             </Section>
-            <Section title="Historial" padded={false}>
+            <Section title="Línea de tiempo" padded={false}>
               <SkeletonTable rows={4} cols={6} />
             </Section>
           </div>
@@ -209,9 +181,10 @@ export default function CustomerDetailPage() {
             title="No encontramos este cliente"
             description={
               <>
-                El identificador <EntityId value={params.id} copyLabel="Copiar el identificador buscado" toastLabel="Identificador" />{" "}
-                no corresponde a ningún cliente de este comercio. Puede que se haya eliminado o que
-                el enlace esté incompleto.
+                El identificador{" "}
+                <EntityId value={params.id} copyLabel="Copiar el identificador buscado" toastLabel="Identificador" /> no
+                corresponde a ningún cliente de este comercio. Puede que se haya eliminado o que el enlace esté
+                incompleto.
               </>
             }
             action={
@@ -229,11 +202,7 @@ export default function CustomerDetailPage() {
   if (customerQ.isError || !customer) {
     return (
       <div>
-        <PageHeader
-          title="Cliente"
-          backHref="/customers"
-          breadcrumbs={[BREADCRUMB_ROOT, { label: "Detalle" }]}
-        />
+        <PageHeader title="Cliente" backHref="/customers" breadcrumbs={[BREADCRUMB_ROOT, { label: "Detalle" }]} />
         <Alert variant="destructive">
           <AlertCircle />
           <AlertTitle>No se pudo cargar el cliente</AlertTitle>
@@ -257,6 +226,15 @@ export default function CustomerDetailPage() {
   const c = customer;
   const isArchived = c.status === "ARCHIVED";
   const consentByScope = new Map(c.consents.map((x) => [x.scope, x]));
+  const wa = whatsappDigits(c.phone);
+  const lastConversationId = summaryQ.data?.lastConversationId ?? null;
+  const conversationHref = lastConversationId
+    ? `/conversations?id=${lastConversationId}`
+    : c.phone
+      ? `/conversations?q=${encodeURIComponent(c.phone)}`
+      : null;
+  const conversationsCount = summaryQ.data?.conversationsCount;
+  const notesCount = summaryQ.data?.notesCount;
 
   return (
     <div>
@@ -269,34 +247,63 @@ export default function CustomerDetailPage() {
             <StatusBadge status={c.status} domain="customer" withDot />
             <span aria-hidden>·</span>
             <span>
-              Alta <DateTime value={c.createdAt} withTime={false} />
+              Cliente desde <DateTime value={summaryQ.data?.firstContactAt ?? c.createdAt} withTime={false} />
             </span>
             <span aria-hidden>·</span>
             <EntityId value={c.id} toastLabel="ID del cliente" />
+            {c.tags.length > 0 ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="inline-flex flex-wrap items-center gap-1" aria-label="Etiquetas">
+                  <Tag aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+                  {c.tags.map((t) => (
+                    <Badge key={t} variant="info" size="sm">
+                      {t}
+                    </Badge>
+                  ))}
+                </span>
+              </>
+            ) : null}
           </>
         }
         actions={
-          canWrite ? (
           <>
-            {!isArchived ? (
-              <Button variant="outline" onClick={() => setEditOpen(true)}>
+            {wa ? (
+              <Button variant="outline" asChild>
+                <a href={`https://wa.me/${wa}`} target="_blank" rel="noreferrer">
+                  <MessageCircle className="h-4 w-4" aria-hidden />
+                  Abrir WhatsApp
+                </a>
+              </Button>
+            ) : null}
+            {conversationHref ? (
+              <Button variant="outline" asChild>
+                <Link href={conversationHref}>
+                  <MessagesSquare className="h-4 w-4" aria-hidden />
+                  {lastConversationId ? "Ver conversación" : "Buscar en bandeja"}
+                </Link>
+              </Button>
+            ) : null}
+            {canWrite && !isArchived ? (
+              <Button onClick={() => setEditOpen(true)}>
                 <Pencil className="h-4 w-4" aria-hidden />
                 Editar
               </Button>
             ) : null}
-            {isArchived ? (
-              <Button variant="outline" onClick={() => setRestoreOpen(true)}>
-                <ArchiveRestore className="h-4 w-4" aria-hidden />
-                Restaurar cliente
-              </Button>
-            ) : (
-              <Button variant="destructive" onClick={() => setArchiveOpen(true)}>
-                <Archive className="h-4 w-4" aria-hidden />
-                Archivar cliente
-              </Button>
-            )}
+            {canWrite ? (
+              isArchived ? (
+                <Button variant="outline" onClick={() => setRestoreOpen(true)}>
+                  <ArchiveRestore className="h-4 w-4" aria-hidden />
+                  Restaurar
+                </Button>
+              ) : (
+                <Button variant="destructive" onClick={() => setArchiveOpen(true)}>
+                  <Archive className="h-4 w-4" aria-hidden />
+                  Archivar
+                </Button>
+              )
+            ) : null}
           </>
-          ) : undefined
         }
       />
 
@@ -306,151 +313,225 @@ export default function CustomerDetailPage() {
             <Archive />
             <AlertTitle>Cliente archivado</AlertTitle>
             <AlertDescription>
-              No aparece en el listado de clientes activos ni se le puede cotizar. Su historial se
-              conserva completo; restáuralo para volver a operarlo.
+              No aparece en el listado de clientes activos ni se le puede cotizar. Su historial se conserva
+              completo; restáuralo para volver a operarlo.
             </AlertDescription>
           </Alert>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
-            <Section title="Ficha" description="Datos de contacto e identidad fiscal.">
-              <DescriptionList divided>
-                <FieldRow label="Nombre">{c.fullName}</FieldRow>
-                <FieldRow label="Correo">{c.email}</FieldRow>
-                <FieldRow label="Teléfono" mono>{c.phone}</FieldRow>
-                <FieldRow label="RFC" mono>
-                  {c.taxId}
-                </FieldRow>
-                <FieldRow label="Notas">{c.notes}</FieldRow>
-                <FieldRow label="Alta">
-                  <DateTime value={c.createdAt} />
-                </FieldRow>
-                <FieldRow label="Última actualización">
-                  <DateTime value={c.updatedAt} />
-                </FieldRow>
-                <FieldRow label="ID del cliente">
-                  <EntityId value={c.id} length={36} toastLabel="ID del cliente" />
-                </FieldRow>
-              </DescriptionList>
-            </Section>
-
-            <CustomerHistorySection customerId={c.id} />
-          </div>
-
-          <div className="space-y-6">
-            <Section
-              title="Direcciones"
-              headerIcon={<MapPin className="h-4 w-4" />}
-              density="compact"
-            >
-              {c.addresses.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Este cliente no tiene direcciones registradas.
-                </p>
-              ) : (
-                <DescriptionList divided>
-                  {c.addresses.map((a) => (
-                    <FieldRow
-                      key={a.id}
-                      label={
-                        <span className="inline-flex flex-wrap items-center gap-1.5">
-                          {a.label}
-                          {a.isDefault ? (
-                            <Badge variant="info" size="sm">
-                              Predeterminada
-                            </Badge>
-                          ) : null}
-                        </span>
-                      }
-                    >
-                      {formatAddress(a)}
-                    </FieldRow>
-                  ))}
-                </DescriptionList>
-              )}
-            </Section>
-
-            <Section
-              title="Identidades"
-              description="Cuentas de mensajería vinculadas a este cliente."
-              headerIcon={<MessageCircle className="h-4 w-4" />}
-              density="compact"
-            >
-              {c.identities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Sin identidades vinculadas. El cliente aún no ha escrito desde un canal
-                  reconocido.
-                </p>
-              ) : (
-                <DescriptionList divided>
-                  {c.identities.map((i) => (
-                    <FieldRow
-                      key={i.id}
-                      label={CHANNEL_LABELS[i.channel] ?? i.channel}
-                      mono
-                      hint={
-                        i.verifiedAt ? (
-                          <>
-                            Verificada <DateTime value={i.verifiedAt} withTime={false} />
-                          </>
-                        ) : (
-                          "Sin verificar"
-                        )
-                      }
-                    >
-                      {i.externalId}
-                    </FieldRow>
-                  ))}
-                </DescriptionList>
-              )}
-            </Section>
-
-            <Section
-              title="Consentimientos"
-              description="Permisos otorgados por el cliente para contactarlo y tratar sus datos."
-              headerIcon={<ShieldCheck className="h-4 w-4" />}
-              density="compact"
-            >
-              <DescriptionList divided>
-                {CONSENT_SCOPES.map((scope) => {
-                  const consent = consentByScope.get(scope);
-                  return (
-                    <FieldRow key={scope} label={CONSENT_SCOPE_LABELS[scope]}>
-                      {!consent ? (
-                        <Badge variant="neutral" size="sm">
-                          Sin registro
-                        </Badge>
-                      ) : consent.granted ? (
-                        <span className="inline-flex flex-wrap items-center gap-2">
-                          <Badge variant="success" size="sm">
-                            Otorgado
-                          </Badge>
-                          <DateTime
-                            value={consent.grantedAt}
-                            withTime={false}
-                            className="text-xs text-muted-foreground"
-                          />
-                        </span>
-                      ) : (
-                        <span className="inline-flex flex-wrap items-center gap-2">
-                          <Badge variant="neutral" size="sm">
-                            Revocado
-                          </Badge>
-                          <DateTime
-                            value={consent.revokedAt}
-                            withTime={false}
-                            className="text-xs text-muted-foreground"
-                          />
-                        </span>
-                      )}
-                    </FieldRow>
-                  );
-                })}
-              </DescriptionList>
-            </Section>
-          </div>
+        {/* Contacto directo: teléfono y correo como enlaces reales. */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+          <span className="inline-flex items-center gap-1.5">
+            <Phone aria-hidden className="h-4 w-4 text-muted-foreground" />
+            {c.phone ? (
+              <a href={`tel:${c.phone}`} className="font-mono text-code-sm text-primary hover:underline">
+                {c.phone}
+              </a>
+            ) : (
+              <span className="text-muted-foreground">Sin teléfono</span>
+            )}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Mail aria-hidden className="h-4 w-4 text-muted-foreground" />
+            {c.email ? (
+              <a href={`mailto:${c.email}`} className="text-primary hover:underline">
+                {c.email}
+              </a>
+            ) : (
+              <span className="text-muted-foreground">Sin correo</span>
+            )}
+          </span>
+          {c.taxId ? (
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+              RFC <span className="font-mono text-code-sm text-foreground">{c.taxId}</span>
+            </span>
+          ) : null}
         </div>
+
+        <CustomerSummaryTiles customerId={c.id} />
+
+        <Tabs value={tab} onValueChange={setTab} defaultValue="resumen">
+          <TabsList aria-label="Secciones de la ficha" className="overflow-x-auto">
+            {TABS.map((t) => (
+              <TabsTrigger key={t.value} value={t.value}>
+                {t.label}
+                {t.value === "conversaciones" && conversationsCount ? (
+                  <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">{conversationsCount}</span>
+                ) : null}
+                {t.value === "notas" && notesCount ? (
+                  <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">{notesCount}</span>
+                ) : null}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <TabsContent value="resumen">
+            <div className="grid gap-6 pt-6 lg:grid-cols-3">
+              <div className="space-y-6 lg:col-span-2">
+                <Section
+                  title="Línea de tiempo"
+                  description="Cotizaciones, pedidos, pagos, conversaciones y notas, de lo más reciente a lo más antiguo."
+                  padded={false}
+                >
+                  <CustomerTimeline customerId={c.id} kind="all" />
+                </Section>
+              </div>
+              <div className="space-y-6">
+                <CustomerAddresses customerId={c.id} addresses={c.addresses} canWrite={canWrite && !isArchived} />
+
+                <Section
+                  title="Identidades"
+                  description="Cuentas de mensajería vinculadas a este cliente."
+                  headerIcon={<MessageCircle className="h-4 w-4" />}
+                  density="compact"
+                >
+                  {c.identities.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      Sin identidades vinculadas. El cliente aún no ha escrito desde un canal reconocido.
+                    </p>
+                  ) : (
+                    <DescriptionList divided>
+                      {c.identities.map((i) => (
+                        <FieldRow
+                          key={i.id}
+                          label={CHANNEL_LABELS[i.channel] ?? i.channel}
+                          mono
+                          hint={
+                            i.verifiedAt ? (
+                              <>
+                                Verificada <DateTime value={i.verifiedAt} withTime={false} />
+                              </>
+                            ) : (
+                              "Sin verificar"
+                            )
+                          }
+                        >
+                          {i.externalId}
+                        </FieldRow>
+                      ))}
+                    </DescriptionList>
+                  )}
+                </Section>
+
+                <Section
+                  title="Consentimientos"
+                  description="Permisos otorgados por el cliente para contactarlo y tratar sus datos."
+                  headerIcon={<ShieldCheck className="h-4 w-4" />}
+                  density="compact"
+                >
+                  <DescriptionList divided>
+                    {CONSENT_SCOPES.map((scope) => {
+                      const consent = consentByScope.get(scope);
+                      return (
+                        <FieldRow key={scope} label={CONSENT_SCOPE_LABELS[scope]}>
+                          {!consent ? (
+                            <Badge variant="neutral" size="sm">
+                              Sin registro
+                            </Badge>
+                          ) : consent.granted ? (
+                            <span className="inline-flex flex-wrap items-center gap-2">
+                              <Badge variant="success" size="sm">
+                                Otorgado
+                              </Badge>
+                              <DateTime value={consent.grantedAt} withTime={false} className="text-xs text-muted-foreground" />
+                            </span>
+                          ) : (
+                            <span className="inline-flex flex-wrap items-center gap-2">
+                              <Badge variant="neutral" size="sm">
+                                Revocado
+                              </Badge>
+                              <DateTime value={consent.revokedAt} withTime={false} className="text-xs text-muted-foreground" />
+                            </span>
+                          )}
+                        </FieldRow>
+                      );
+                    })}
+                  </DescriptionList>
+                </Section>
+
+                <Section title="Ficha" density="compact">
+                  <DescriptionList divided>
+                    <FieldRow label="Alta">
+                      <DateTime value={c.createdAt} />
+                    </FieldRow>
+                    <FieldRow label="Última actualización">
+                      <DateTime value={c.updatedAt} />
+                    </FieldRow>
+                    <FieldRow label="Último contacto">
+                      {summaryQ.data?.lastContactAt ? <DateTime value={summaryQ.data.lastContactAt} /> : null}
+                    </FieldRow>
+                    <FieldRow label="Notas de la ficha">{c.notes}</FieldRow>
+                  </DescriptionList>
+                </Section>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="cotizaciones">
+            <Section
+              className="mt-6"
+              title="Cotizaciones"
+              description="Todas las cotizaciones de este cliente. Abre una para verla o compartirla."
+              padded={false}
+              actions={
+                canWrite && !isArchived ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href="/quotes">Nueva cotización</Link>
+                  </Button>
+                ) : undefined
+              }
+            >
+              <CustomerTimeline customerId={c.id} kind="quote" />
+            </Section>
+          </TabsContent>
+
+          <TabsContent value="pedidos">
+            <Section className="mt-6" title="Pedidos" description="Pedidos de este cliente, con origen y factura." padded={false}>
+              <CustomerTimeline customerId={c.id} kind="order" />
+            </Section>
+          </TabsContent>
+
+          <TabsContent value="pagos">
+            <Section
+              className="mt-6"
+              title="Pagos"
+              description="Sesiones de cobro de sus pedidos: cobradas, pendientes y reembolsos."
+              padded={false}
+            >
+              <CustomerTimeline customerId={c.id} kind="payment" />
+            </Section>
+          </TabsContent>
+
+          <TabsContent value="conversaciones">
+            <Section
+              className="mt-6"
+              title="Conversaciones"
+              description="Hilos de WhatsApp vinculados a esta ficha. Abre uno para verlo en la bandeja."
+              padded={false}
+              actions={
+                conversationHref ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href={conversationHref}>Ir a la bandeja</Link>
+                  </Button>
+                ) : undefined
+              }
+            >
+              <CustomerTimeline customerId={c.id} kind="conversation" />
+            </Section>
+          </TabsContent>
+
+          <TabsContent value="fiscal">
+            <div className="pt-6">
+              <CustomerFiscal customer={c} canWrite={canWrite && !isArchived} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="notas">
+            <div className="pt-6">
+              <CustomerNotes customerId={c.id} canWrite={canWrite} fixedNotes={c.notes} />
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
 
       <ConfirmDialog
@@ -475,11 +556,7 @@ export default function CustomerDetailPage() {
         onConfirm={() => unarchive.mutate()}
       />
 
-      <CustomerEditSheet
-        customer={customer}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-      />
+      <CustomerEditSheet customer={customer} open={editOpen} onOpenChange={setEditOpen} />
     </div>
   );
 }

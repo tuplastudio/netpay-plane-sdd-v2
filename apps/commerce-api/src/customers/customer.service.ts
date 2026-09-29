@@ -11,19 +11,46 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
-import type { Prisma, Customer } from "@prisma/client";
+import { Prisma, type Customer } from "@prisma/client";
 import type { Paging } from "../common/pagination.js";
+import {
+  PAID_ORDER_STATUSES,
+  PENDING_ORDER_STATUSES,
+  csvCell,
+  normalizeTags,
+} from "./customer-profile.service.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Tope de filas de la exportación CSV. */
+const EXPORT_MAX_ROWS = 5000;
+
+export interface CustomerListFilters {
+  q?: string;
+  includeArchived?: boolean;
+  /** Etiqueta exacta (se normaliza en minúsculas). */
+  tag?: string;
+  /** Solo clientes con al menos un pedido esperando pago. */
+  hasPendingPayment?: boolean;
+}
+
+/** Cifras de por vida que acompañan a cada fila del listado. */
+export interface CustomerListStats {
+  totalPaid: string;
+  paidOrdersCount: number;
+  lastPurchaseAt: string | null;
+  pendingPaymentsCount: number;
+}
 
 @Injectable()
 export class CustomerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(tenantId: string, q: string | undefined, includeArchived: boolean, paging: Paging) {
-    const where: Prisma.CustomerWhereInput = {
+  private listWhere(tenantId: string, filters: CustomerListFilters): Prisma.CustomerWhereInput {
+    const q = filters.q?.trim();
+    return {
       tenantId,
-      ...(includeArchived ? {} : { status: "ACTIVE" }),
+      ...(filters.includeArchived ? {} : { status: "ACTIVE" }),
       ...(q
         ? {
             OR: [
@@ -31,11 +58,68 @@ export class CustomerService {
               { email: { contains: q, mode: "insensitive" } },
               { phone: { contains: q } },
               { taxId: { contains: q, mode: "insensitive" } },
+              { legalName: { contains: q, mode: "insensitive" } },
             ],
           }
         : {}),
+      ...(filters.tag ? { tags: { has: filters.tag.trim().toLowerCase() } } : {}),
+      ...(filters.hasPendingPayment
+        ? { orders: { some: { status: PENDING_ORDER_STATUSES } } }
+        : {}),
     };
-    const [items, total] = await Promise.all([
+  }
+
+  /**
+   * Cifras de por vida por cliente para el listado (última compra, total
+   * pagado, cobros pendientes). Dos `groupBy` sobre los ids de la página en
+   * vez de un `include` de todos los pedidos: la fila no carga el historial.
+   */
+  private async listStats(
+    tenantId: string,
+    ids: string[],
+  ): Promise<Map<string, CustomerListStats>> {
+    const stats = new Map<string, CustomerListStats>();
+    if (ids.length === 0) return stats;
+    for (const id of ids) {
+      stats.set(id, {
+        totalPaid: "0.00",
+        paidOrdersCount: 0,
+        lastPurchaseAt: null,
+        pendingPaymentsCount: 0,
+      });
+    }
+    const [paid, pending] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ["customerId"],
+        where: { tenantId, customerId: { in: ids }, status: PAID_ORDER_STATUSES },
+        _sum: { total: true },
+        _count: { _all: true },
+        _max: { paidAt: true, createdAt: true },
+      }),
+      this.prisma.order.groupBy({
+        by: ["customerId"],
+        where: { tenantId, customerId: { in: ids }, status: PENDING_ORDER_STATUSES },
+        _count: { _all: true },
+      }),
+    ]);
+    for (const g of paid) {
+      const s = stats.get(g.customerId);
+      if (!s) continue;
+      s.totalPaid = new Prisma.Decimal(g._sum.total ?? 0).toFixed(2);
+      s.paidOrdersCount = g._count._all;
+      const last = g._max.paidAt ?? g._max.createdAt;
+      s.lastPurchaseAt = last ? last.toISOString() : null;
+    }
+    for (const g of pending) {
+      const s = stats.get(g.customerId);
+      if (s) s.pendingPaymentsCount = g._count._all;
+    }
+    return stats;
+  }
+
+  async list(tenantId: string, filters: CustomerListFilters, paging: Paging) {
+    const where = this.listWhere(tenantId, filters);
+    const [rows, total] = await Promise.all([
       this.prisma.customer.findMany({
         where,
         include: { addresses: true, identities: true, consents: true },
@@ -45,7 +129,80 @@ export class CustomerService {
       }),
       this.prisma.customer.count({ where }),
     ]);
+    const stats = await this.listStats(
+      tenantId,
+      rows.map((r) => r.id),
+    );
+    const items = rows.map((r) => ({ ...r, stats: stats.get(r.id) }));
     return { items, total };
+  }
+
+  /**
+   * Exportación CSV del listado con los mismos filtros (tope de filas para
+   * no armar un archivo gigante en memoria). BOM al inicio para que Excel
+   * abra los acentos bien.
+   */
+  async exportCsv(tenantId: string, filters: CustomerListFilters): Promise<string> {
+    const where = this.listWhere(tenantId, filters);
+    const rows = await this.prisma.customer.findMany({
+      where,
+      orderBy: [{ fullName: "asc" }, { id: "asc" }],
+      take: EXPORT_MAX_ROWS,
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        taxId: true,
+        legalName: true,
+        tags: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+    const stats = await this.listStats(
+      tenantId,
+      rows.map((r) => r.id),
+    );
+    const header = [
+      "Nombre",
+      "Correo",
+      "Teléfono",
+      "RFC",
+      "Razón social",
+      "Etiquetas",
+      "Estado",
+      "Alta",
+      "Última compra",
+      "Total pagado",
+      "Pedidos pagados",
+      "Cobros pendientes",
+      "ID",
+    ];
+    const lines = [header.map(csvCell).join(",")];
+    for (const r of rows) {
+      const s = stats.get(r.id);
+      lines.push(
+        [
+          r.fullName,
+          r.email,
+          r.phone,
+          r.taxId,
+          r.legalName,
+          r.tags.join("|"),
+          r.status,
+          r.createdAt.toISOString(),
+          s?.lastPurchaseAt ?? "",
+          s?.totalPaid ?? "0.00",
+          s?.paidOrdersCount ?? 0,
+          s?.pendingPaymentsCount ?? 0,
+          r.id,
+        ]
+          .map(csvCell)
+          .join(","),
+      );
+    }
+    return `\uFEFF${lines.join("\r\n")}\r\n`;
   }
 
   async get(tenantId: string, id: string) {
@@ -118,6 +275,11 @@ export class CustomerService {
       phone?: string;
       taxId?: string;
       notes?: string;
+      legalName?: string;
+      fiscalPostalCode?: string;
+      fiscalCfdiUse?: string;
+      fiscalRegimenFiscal?: string;
+      tags?: string[];
     },
   ) {
     const c = await this.prisma.customer.findFirst({ where: { id, tenantId } });
@@ -136,8 +298,14 @@ export class CustomerService {
         phone: input.phone,
         taxId: input.taxId?.toUpperCase(),
         notes: input.notes,
+        legalName: input.legalName,
+        fiscalPostalCode: input.fiscalPostalCode,
+        fiscalCfdiUse: input.fiscalCfdiUse?.toUpperCase(),
+        fiscalRegimenFiscal: input.fiscalRegimenFiscal,
+        tags: normalizeTags(input.tags),
         version: { increment: 1 },
       },
+      include: { addresses: true, identities: true, consents: true },
     });
   }
 
