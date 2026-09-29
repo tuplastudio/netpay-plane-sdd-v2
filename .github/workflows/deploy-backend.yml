@@ -179,6 +179,36 @@ jobs:
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
               sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"ProductImage\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"ProductImage\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS ProductImage\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
 
+      # Mismo caso, para CannedResponse (migrations/0025, mesa de ayuda de
+      # conversaciones): `db push` crea la tabla pero no aplica RLS.
+      - name: RLS CannedResponse
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
+              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"CannedResponse\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"ALTER TABLE \\\"CannedResponse\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"CannedResponse\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"CannedResponse\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS CannedResponse\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
+
+      # Mismo caso, para CustomerNote (migrations/0026, perfil 360 de cliente):
+      # `db push` crea la tabla pero no aplica RLS.
+      - name: RLS CustomerNote
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            cd /opt/netpay-build/infra
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
+              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"CustomerNote\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"CustomerNote\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"CustomerNote\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS CustomerNote\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
+
       # El API público (api-easysell.tupla.dev) y el chat de IMSS-Bienestar
       # (imssbienestar.tupla.dev) se sirven desde captain-nginx de CapRover
       # con vhosts manuales. CapRover regenera captain.conf y puede recrear
