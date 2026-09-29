@@ -86,15 +86,26 @@ function jsonForScript(value: unknown): string {
 const BASE_CSS = `
   :root{
     color-scheme:light;
-    --bg:#ffffff;--bg-muted:#f6f8fa;--text:#1a1f36;--text-2:#697386;--text-3:#8792a2;
-    --border:#e3e8ee;--border-strong:#c9d0d9;--primary:#0f172a;--primary-hover:#1e293b;
-    --focus:rgba(15,23,42,.18);--danger:#df1b41;--danger-bg:#fff5f7;--success:#1f8a4c;--success-bg:#ecfdf3;
-    --warn-bg:#fff7e6;--warn-text:#8a5a00;--warn-border:#f5d78e;--radius:8px;
-    --shadow:0 1px 3px rgba(26,31,54,.06),0 6px 20px rgba(26,31,54,.06);
+    /* Homologado con apps/web/src/app/globals.css (modo claro): mismos
+       tokens HSL traducidos a hex fijo, porque esta página no tiene build
+       (CSS inline, sin Tailwind) y se sirve bajo un CSP sin orígenes
+       externos, así que tampoco puede cargar la fuente Inter del sistema. */
+    --bg:#ffffff;--bg-muted:#f7f8f8;--text:#0f1211;--text-2:#5a625f;--text-3:#6f7774;
+    --border:#e2e6e4;--border-strong:#b9c0bd;
+    /* CTA = píldora negra (--primary-strong/--cta del sistema). */
+    --primary:#0f1211;--primary-hover:#2a2f2d;--primary-active:#3f4644;
+    /* Menta de marca (--brand): SOLO para el borde del método de pago
+       elegido, igual que "borde de tarjeta destacada" en el resto del
+       portal. Foco de formulario = menta profunda (--ring/--brand-text),
+       igual que <Input> ahí. */
+    --accent:#00d4a4;--ring:#0a6b54;--focus:rgba(10,107,84,.18);
+    --danger:#c62a36;--danger-bg:#fdeaec;--success:#0f7a4f;--success-bg:#e3f8f1;
+    --warn-bg:#fdf1e0;--warn-text:#8a4308;--warn-border:#f0d9a8;--radius:8px;
+    --shadow:0 4px 12px rgba(0,0,0,.08);
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Ubuntu,sans-serif;
+  body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Ubuntu,sans-serif;
     font-size:15px;line-height:1.45;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
   a{color:inherit}
   .banner{position:sticky;top:0;z-index:5;background:var(--warn-bg);color:var(--warn-text);border-bottom:1px solid var(--warn-border);
@@ -106,10 +117,11 @@ const BASE_CSS = `
   .powered{color:var(--text-3);font-size:12.5px;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}
   .powered b{color:var(--text-2);font-weight:600}
   .powered .sep{width:1px;height:12px;background:var(--border-strong)}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;width:100%;padding:.8rem 1rem;border-radius:var(--radius);
-    border:1px solid transparent;font:inherit;font-weight:600;font-size:15.5px;cursor:pointer;text-decoration:none;transition:background .15s,box-shadow .15s}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;width:100%;padding:.8rem 1rem;border-radius:999px;
+    border:1px solid transparent;font:inherit;font-weight:500;font-size:15.5px;cursor:pointer;text-decoration:none;transition:background .15s,box-shadow .15s,transform .1s}
   .btn-primary{background:var(--primary);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12)}
   .btn-primary:hover{background:var(--primary-hover)}
+  .btn-primary:active{background:var(--primary-active);transform:scale(.97)}
   .btn-primary:disabled{opacity:.6;cursor:progress}
   .btn-secondary{background:#fff;color:var(--text);border-color:var(--border-strong)}
   .btn-secondary:hover{background:var(--bg-muted)}
@@ -221,7 +233,7 @@ const CHECKOUT_CSS = `
   .method{border:1px solid var(--border-strong);border-radius:var(--radius);background:#fff;padding:.65rem .4rem;font:inherit;font-size:13px;
     font-weight:500;color:var(--text-2);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.35rem;transition:border-color .15s,box-shadow .15s}
   .method:hover{background:var(--bg-muted)}
-  .method[aria-selected="true"]{border-color:var(--primary);color:var(--text);box-shadow:0 0 0 1px var(--primary)}
+  .method[aria-selected="true"]{border-color:var(--accent);color:var(--text);box-shadow:0 0 0 1px var(--accent)}
   .method svg{width:22px;height:22px}
   .panel[hidden]{display:none}
   .ref-box{border:1px dashed var(--border-strong);border-radius:var(--radius);background:var(--bg-muted);padding:.9rem 1rem;margin-bottom:1rem}
@@ -234,14 +246,14 @@ const CHECKOUT_CSS = `
   .field label,.legend{display:block;font-size:13.5px;font-weight:500;color:var(--text-2);margin-bottom:.35rem}
   .control{width:100%;padding:.62rem .75rem;border:1px solid var(--border-strong);border-radius:var(--radius);font:inherit;font-size:15px;color:var(--text);
     background:#fff;outline:none;box-shadow:0 1px 1px rgba(0,0,0,.03);transition:border-color .15s,box-shadow .15s;appearance:none;-webkit-appearance:none}
-  .control::placeholder{color:#a3acb9}
-  .control:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--focus)}
-  .control[aria-invalid="true"]{border-color:var(--danger);box-shadow:0 0 0 3px rgba(223,27,65,.12)}
-  select.control{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%23697386' stroke-width='1.5'/%3E%3C/svg%3E");
+  .control::placeholder{color:var(--text-3)}
+  .control:focus{border-color:var(--ring);box-shadow:0 0 0 3px var(--focus)}
+  .control[aria-invalid="true"]{border-color:var(--danger);box-shadow:0 0 0 3px rgba(198,42,54,.12)}
+  select.control{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%235a625f' stroke-width='1.5'/%3E%3C/svg%3E");
     background-repeat:no-repeat;background-position:right .75rem center;padding-right:2rem}
   .group{border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:0 1px 1px rgba(0,0,0,.03);overflow:hidden;background:#fff}
   .group .control{border:0;border-radius:0;box-shadow:none}
-  .group .control:focus{box-shadow:inset 0 0 0 2px var(--primary)}
+  .group .control:focus{box-shadow:inset 0 0 0 2px var(--ring)}
   .group .control[aria-invalid="true"]{box-shadow:inset 0 0 0 2px var(--danger)}
   .group-row{display:flex;border-top:1px solid var(--border-strong)}
   .group-row .control:first-child{border-right:1px solid var(--border-strong)}
@@ -264,7 +276,7 @@ const CHECKOUT_CSS = `
   .billing-body .field:first-child{margin-top:.9rem}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
   @media(max-width:420px){.row2{grid-template-columns:1fr}}
-  .form-error{display:none;background:var(--danger-bg);color:var(--danger);border:1px solid #f7c7d1;border-radius:var(--radius);padding:.7rem .85rem;font-size:13.5px;margin-bottom:1rem}
+  .form-error{display:none;background:var(--danger-bg);color:var(--danger);border:1px solid rgba(198,42,54,.3);border-radius:var(--radius);padding:.7rem .85rem;font-size:13.5px;margin-bottom:1rem}
   .form-error.show{display:block}
   .terms{color:var(--text-3);font-size:12.5px;margin:1rem 0 0;text-align:center}
   .checkout .powered{margin-top:2rem;justify-content:center}
@@ -274,7 +286,7 @@ const CARD_BRAND_SVGS = `
   <svg class="b-visa" viewBox="0 0 32 20" aria-label="Visa"><rect width="32" height="20" rx="3" fill="#1a1f71"/><text x="16" y="14" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-style="italic" font-size="10" fill="#fff">VISA</text></svg>
   <svg class="b-mc" viewBox="0 0 32 20" aria-label="Mastercard"><rect width="32" height="20" rx="3" fill="#252525"/><circle cx="13" cy="10" r="5.5" fill="#eb001b"/><circle cx="19" cy="10" r="5.5" fill="#f79e1b" fill-opacity=".9"/></svg>
   <svg class="b-amex" viewBox="0 0 32 20" aria-label="American Express"><rect width="32" height="20" rx="3" fill="#2e77bc"/><text x="16" y="13.5" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="7" fill="#fff">AMEX</text></svg>
-  <svg class="b-generic" viewBox="0 0 32 20" aria-hidden="true"><rect x=".5" y=".5" width="31" height="19" rx="3" fill="#fff" stroke="#c9d0d9"/><rect x="3" y="5" width="26" height="3" fill="#c9d0d9"/><rect x="3" y="11" width="10" height="2" fill="#e3e8ee"/></svg>
+  <svg class="b-generic" viewBox="0 0 32 20" aria-hidden="true"><rect x=".5" y=".5" width="31" height="19" rx="3" fill="#fff" stroke="#b9c0bd"/><rect x="3" y="5" width="26" height="3" fill="#b9c0bd"/><rect x="3" y="11" width="10" height="2" fill="#e2e6e4"/></svg>
 `;
 
 const COUNTRIES: Array<[string, string]> = [
