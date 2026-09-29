@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Section } from "@/components/app/section";
+import { Tip } from "@/components/app/info-tip";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { apiErrorMessage } from "./api-error";
 
@@ -280,14 +281,16 @@ export function MfaSection() {
                     <code className="break-all rounded-md bg-muted px-2 py-1 font-mono text-xs">
                       {groupSecret(enrollment.secretBase32)}
                     </code>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label="Copiar clave TOTP"
-                      onClick={() => void copyToClipboard(enrollment.secretBase32, "Clave")}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
+                    <Tip label="Copiar clave">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label="Copiar clave TOTP"
+                        onClick={() => void copyToClipboard(enrollment.secretBase32, "Clave")}
+                      >
+                        <Copy aria-hidden className="h-3.5 w-3.5" />
+                      </Button>
+                    </Tip>
                   </div>
                 ) : null}
               </div>

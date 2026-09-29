@@ -90,7 +90,7 @@ const BASE_CSS = `
        tokens HSL traducidos a hex fijo, porque esta página no tiene build
        (CSS inline, sin Tailwind) y se sirve bajo un CSP sin orígenes
        externos, así que tampoco puede cargar la fuente Inter del sistema. */
-    --bg:#ffffff;--bg-muted:#f7f8f8;--text:#0f1211;--text-2:#5a625f;--text-3:#6f7774;
+    --bg:#ffffff;--on-primary:#ffffff;--bg-muted:#f7f8f8;--text:#0f1211;--text-2:#5a625f;--text-3:#6f7774;
     --border:#e2e6e4;--border-strong:#b9c0bd;
     /* CTA = píldora negra (--primary-strong/--cta del sistema). */
     --primary:#0f1211;--primary-hover:#2a2f2d;--primary-active:#3f4644;
@@ -119,11 +119,11 @@ const BASE_CSS = `
   .powered .sep{width:1px;height:12px;background:var(--border-strong)}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;width:100%;padding:.8rem 1rem;border-radius:999px;
     border:1px solid transparent;font:inherit;font-weight:500;font-size:15.5px;cursor:pointer;text-decoration:none;transition:background .15s,box-shadow .15s,transform .1s}
-  .btn-primary{background:var(--primary);color:#fff;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+  .btn-primary{background:var(--primary);color:var(--on-primary);box-shadow:0 1px 2px rgba(0,0,0,.12)}
   .btn-primary:hover{background:var(--primary-hover)}
   .btn-primary:active{background:var(--primary-active);transform:scale(.97)}
   .btn-primary:disabled{opacity:.6;cursor:progress}
-  .btn-secondary{background:#fff;color:var(--text);border-color:var(--border-strong)}
+  .btn-secondary{background:var(--bg);color:var(--text);border-color:var(--border-strong)}
   .btn-secondary:hover{background:var(--bg-muted)}
   .spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;display:none}
   .btn.loading .spinner{display:inline-block}
@@ -211,7 +211,7 @@ const CHECKOUT_CSS = `
   .back{display:inline-flex;align-items:center;gap:.5rem;text-decoration:none;color:var(--text-2);font-size:14px;font-weight:500;margin-bottom:1.25rem}
   .back svg{width:14px;height:14px}
   .merchant{display:flex;align-items:center;gap:.6rem;margin-bottom:1.5rem}
-  .merchant-mark{width:28px;height:28px;border-radius:7px;background:var(--primary);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+  .merchant-mark{width:28px;height:28px;border-radius:7px;background:var(--primary);color:var(--on-primary);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
   .merchant-name{font-weight:600;font-size:15px}
   .pay-to{margin:0;color:var(--text-2);font-size:15px;font-weight:500}
   .total-big{margin:.15rem 0 1.75rem;font-size:36px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
@@ -230,7 +230,7 @@ const CHECKOUT_CSS = `
   .summary .powered{margin-top:2rem}
   .checkout h2{font-size:17px;font-weight:600;margin:0 0 1.15rem}
   .methods{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:.5rem;margin-bottom:1.15rem}
-  .method{border:1px solid var(--border-strong);border-radius:var(--radius);background:#fff;padding:.65rem .4rem;font:inherit;font-size:13px;
+  .method{border:1px solid var(--border-strong);border-radius:var(--radius);background:var(--bg);padding:.65rem .4rem;font:inherit;font-size:13px;
     font-weight:500;color:var(--text-2);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.35rem;transition:border-color .15s,box-shadow .15s}
   .method:hover{background:var(--bg-muted)}
   .method[aria-selected="true"]{border-color:var(--accent);color:var(--text);box-shadow:0 0 0 1px var(--accent)}
@@ -245,13 +245,13 @@ const CHECKOUT_CSS = `
   .field{margin-bottom:1rem}
   .field label,.legend{display:block;font-size:13.5px;font-weight:500;color:var(--text-2);margin-bottom:.35rem}
   .control{width:100%;padding:.62rem .75rem;border:1px solid var(--border-strong);border-radius:var(--radius);font:inherit;font-size:15px;color:var(--text);
-    background:#fff;outline:none;box-shadow:0 1px 1px rgba(0,0,0,.03);transition:border-color .15s,box-shadow .15s;appearance:none;-webkit-appearance:none}
+    background:var(--bg);outline:none;box-shadow:0 1px 1px rgba(0,0,0,.03);transition:border-color .15s,box-shadow .15s;appearance:none;-webkit-appearance:none}
   .control::placeholder{color:var(--text-3)}
   .control:focus{border-color:var(--ring);box-shadow:0 0 0 3px var(--focus)}
   .control[aria-invalid="true"]{border-color:var(--danger);box-shadow:0 0 0 3px rgba(198,42,54,.12)}
   select.control{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%235a625f' stroke-width='1.5'/%3E%3C/svg%3E");
     background-repeat:no-repeat;background-position:right .75rem center;padding-right:2rem}
-  .group{border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:0 1px 1px rgba(0,0,0,.03);overflow:hidden;background:#fff}
+  .group{border:1px solid var(--border-strong);border-radius:var(--radius);box-shadow:0 1px 1px rgba(0,0,0,.03);overflow:hidden;background:var(--bg)}
   .group .control{border:0;border-radius:0;box-shadow:none}
   .group .control:focus{box-shadow:inset 0 0 0 2px var(--ring)}
   .group .control[aria-invalid="true"]{box-shadow:inset 0 0 0 2px var(--danger)}
@@ -264,7 +264,7 @@ const CHECKOUT_CSS = `
   .brand[data-brand="visa"] .b-visa,.brand[data-brand="mastercard"] .b-mc,.brand[data-brand="amex"] .b-amex,.brand[data-brand="unknown"] .b-generic{display:block}
   .error{display:none;color:var(--danger);font-size:13px;margin-top:.35rem}
   .error.show{display:block}
-  .billing{margin:1.25rem 0 1.25rem;border:1px solid var(--border);border-radius:var(--radius);background:#fff}
+  .billing{margin:1.25rem 0 1.25rem;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)}
   .billing-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.8rem .9rem}
   .billing-head h3{margin:0;font-size:14.5px;font-weight:600}
   .billing-head p{margin:.1rem 0 0;color:var(--text-2);font-size:13px}
@@ -807,7 +807,7 @@ ${testModeBanner()}
 const RESULT_CSS = `
   body{background:var(--bg-muted)}
   .wrap{min-height:calc(100vh - 41px);display:flex;align-items:flex-start;justify-content:center;padding:2.5rem 1rem 3rem}
-  .card{background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:480px;padding:2rem 1.75rem}
+  .card{background:var(--bg);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);width:100%;max-width:480px;padding:2rem 1.75rem}
   @media(max-width:480px){.card{padding:1.5rem 1.15rem}}
   .icon{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1.15rem}
   .icon svg{width:34px;height:34px}

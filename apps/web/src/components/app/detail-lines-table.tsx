@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Money } from "@/components/app/money";
+import { InfoTip } from "@/components/app/info-tip";
 import {
   ProductDetailSheet,
   type ProductDetailProduct,
@@ -173,7 +174,14 @@ export function DetailLinesTable({
             <TableHead>Producto</TableHead>
             <TableHead numeric>Cantidad</TableHead>
             <TableHead numeric>Precio</TableHead>
-            {showDiscount ? <TableHead numeric>Desc%</TableHead> : null}
+            {showDiscount ? (
+              <TableHead numeric>
+                <span className="inline-flex items-center gap-1">
+                  Desc%
+                  <InfoTip label="Descuento" text="Descuento por línea, en porcentaje sobre el precio unitario. Ya está aplicado en el subtotal." />
+                </span>
+              </TableHead>
+            ) : null}
             <TableHead numeric>Subtotal</TableHead>
           </TableRow>
         </TableHeader>

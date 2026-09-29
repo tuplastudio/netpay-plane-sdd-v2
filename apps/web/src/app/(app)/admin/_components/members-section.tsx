@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ROLE_LABELS, StatusBadge } from "@/components/ui/status-badge";
 import { Section } from "@/components/app/section";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { ClientPagination, usePagination } from "@/components/app/client-pagination";
 import { DateTime } from "@/components/app/date-time";
@@ -237,7 +238,12 @@ export function MembersSection() {
     },
     {
       key: "agent",
-      header: "Agente WhatsApp",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Agente WhatsApp
+          <InfoTip label="Agente WhatsApp" text="Si está activo, se le pueden asignar conversaciones de WhatsApp en la bandeja y cuenta en el reporte de atención." />
+        </span>
+      ),
       width: "10rem",
       cell: (m) =>
         m.kind === "INVITATION" || m.status === "DISABLED" ? (
@@ -296,11 +302,13 @@ export function MembersSection() {
 
         return (
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label={`Acciones de ${m.fullName}`}>
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tip label="Acciones">
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={`Acciones de ${m.fullName}`}>
+                  <MoreHorizontal aria-hidden className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </Tip>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 className="text-destructive"

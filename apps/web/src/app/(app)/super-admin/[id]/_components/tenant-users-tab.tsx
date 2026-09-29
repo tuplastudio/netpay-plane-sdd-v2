@@ -30,6 +30,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
+import { Tip } from "@/components/app/info-tip";
 import { InviteUserSheet } from "./invite-user-sheet";
 import {
   ALL_ROLES,
@@ -169,16 +170,18 @@ export function TenantUsersTab({ tenant }: { tenant: TenantDetail }) {
         }
         return (
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Acciones de ${displayName(m)}`}
-                disabled={busy}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tip label="Acciones">
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Acciones de ${displayName(m)}`}
+                  disabled={busy}
+                >
+                  <MoreHorizontal aria-hidden className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </Tip>
             <DropdownMenuContent align="end">
               {m.status === "ACTIVE" ? (
                 <>

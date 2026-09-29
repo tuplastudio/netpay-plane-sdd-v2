@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CHANNEL_LABELS } from "@/components/ui/status-badge";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import {
   Sheet,
   SheetContent,
@@ -144,15 +145,17 @@ export function ConnectSheet({
                   <code className="min-w-0 flex-1 break-all rounded-lg bg-background/60 p-2 font-mono text-xs">
                     {webhookInfo.url}
                   </code>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-9 w-9 shrink-0"
-                    aria-label="Copiar URL de webhook"
-                    onClick={() => void copyToClipboard(webhookInfo.url, "URL de webhook")}
-                  >
-                    <Copy aria-hidden className="h-3.5 w-3.5" />
-                  </Button>
+                  <Tip label="Copiar URL de webhook">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 shrink-0"
+                      aria-label="Copiar URL de webhook"
+                      onClick={() => void copyToClipboard(webhookInfo.url, "URL de webhook")}
+                    >
+                      <Copy aria-hidden className="h-3.5 w-3.5" />
+                    </Button>
+                  </Tip>
                 </div>
                 {webhookInfo.secret ? (
                   <p className="text-xs">
@@ -199,7 +202,13 @@ export function ConnectSheet({
             {form.provider === "META" ? (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="connect-meta-token">Token de acceso</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="connect-meta-token">Token de acceso</Label>
+                    <InfoTip
+                      label="Token de acceso"
+                      text="Token permanente del usuario de sistema en Meta Business (WhatsApp → Configuración de la API). Se guarda cifrado y no se vuelve a mostrar."
+                    />
+                  </div>
                   <Input
                     id="connect-meta-token"
                     type="password"
@@ -210,7 +219,13 @@ export function ConnectSheet({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="connect-meta-phone-id">ID del número (Phone number ID)</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="connect-meta-phone-id">ID del número (Phone number ID)</Label>
+                    <InfoTip
+                      label="ID del número"
+                      text="Identificador numérico que Meta asigna al número de WhatsApp Business; aparece en la misma pantalla de configuración de la API, no es el teléfono."
+                    />
+                  </div>
                   <Input
                     id="connect-meta-phone-id"
                     autoComplete="off"
@@ -223,7 +238,10 @@ export function ConnectSheet({
             ) : (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="connect-evo-url">URL base</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="connect-evo-url">URL base</Label>
+                    <InfoTip label="URL base" text="Dirección pública de tu servidor de Evolution API, sin ruta al final." />
+                  </div>
                   <Input
                     id="connect-evo-url"
                     type="url"
@@ -234,7 +252,10 @@ export function ConnectSheet({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="connect-evo-key">API key</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="connect-evo-key">API key</Label>
+                    <InfoTip label="API key" text="La clave global (AUTHENTICATION_API_KEY) o la de la instancia en Evolution. Se guarda cifrada." />
+                  </div>
                   <Input
                     id="connect-evo-key"
                     type="password"
@@ -245,7 +266,10 @@ export function ConnectSheet({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="connect-evo-instance">Instancia</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Label htmlFor="connect-evo-instance">Instancia</Label>
+                    <InfoTip label="Instancia" text="Nombre exacto de la instancia creada en Evolution para este número." />
+                  </div>
                   <Input
                     id="connect-evo-instance"
                     autoComplete="off"

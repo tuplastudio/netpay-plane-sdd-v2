@@ -28,6 +28,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Section } from "@/components/app/section";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
 import { EntityId } from "@/components/app/entity-id";
@@ -158,7 +159,12 @@ export function ApiKeysSection({
     },
     {
       key: "prefix",
-      header: "Prefijo",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Prefijo
+          <InfoTip label="Prefijo" text="Primeros caracteres de la key, para identificarla en logs e integraciones. El secreto completo solo se mostró al crearla." />
+        </span>
+      ),
       width: "12rem",
       cell: (k) => (
         <EntityId
@@ -213,7 +219,12 @@ export function ApiKeysSection({
     },
     {
       key: "lastUsedAt",
-      header: "Último uso",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Último uso
+          <InfoTip label="Último uso" text="Última petición autenticada con esta key. Si dice Nunca, ninguna integración la ha usado todavía." />
+        </span>
+      ),
       width: "11rem",
       cell: (k) =>
         k.lastUsedAt ? (
@@ -229,11 +240,13 @@ export function ApiKeysSection({
       className: "text-right",
       cell: (k) => (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label={`Acciones de ${k.name}`}>
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
+          <Tip label="Acciones">
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label={`Acciones de ${k.name}`}>
+                <MoreHorizontal aria-hidden className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </Tip>
           <DropdownMenuContent align="end">
             <DropdownMenuItem className="text-destructive" onSelect={() => setRevokeTarget(k)}>
               Revocar key

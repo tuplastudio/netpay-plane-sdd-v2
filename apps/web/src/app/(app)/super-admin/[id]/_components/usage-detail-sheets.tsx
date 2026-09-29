@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/sheet";
 import { StatTile } from "@/components/app/stat-tile";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { COL_TIPS, ColHead } from "../../_components/col-head";
 import { Money } from "@/components/app/money";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import {
@@ -150,17 +151,17 @@ const PERCENT = new Intl.NumberFormat("es-MX", { style: "percent", maximumFracti
 // ---------------------------------------------------------------------------
 
 const tokensColumns: Array<DataTableColumn<GroupedRow>> = [
-  { key: "events", header: "Turnos", numeric: true, width: "5.5rem", cell: (r) => formatInt(r.events) },
+  { key: "events", header: <ColHead label="Turnos" tip={COL_TIPS.events} />, numeric: true, width: "5.5rem", cell: (r) => formatInt(r.events) },
   {
     key: "tokens",
-    header: "Tokens",
+    header: <ColHead label="Tokens" tip={COL_TIPS.tokens} />,
     numeric: true,
     width: "7rem",
     cell: (r) => formatInt(r.inputTokens + r.outputTokens),
   },
   {
     key: "costUsd",
-    header: "Costo",
+    header: <ColHead label="Costo" tip={COL_TIPS.cost} />,
     numeric: true,
     width: "7.5rem",
     cell: (r) => <Money value={cost(r.costUsd)} currency="USD" />,

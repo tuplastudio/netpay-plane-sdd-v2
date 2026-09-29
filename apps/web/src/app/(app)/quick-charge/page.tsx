@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { InfoTip } from "@/components/app/info-tip";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { formatMoney } from "@/components/app/money";
@@ -243,7 +244,13 @@ export default function QuickChargePage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="amount">Importe total (IVA incluido)</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="amount">Importe total (IVA incluido)</Label>
+                  <InfoTip
+                    label="Importe total"
+                    text="Es lo que paga el cliente. El IVA se desglosa hacia atrás con la tasa configurada en Admin; no se suma encima."
+                  />
+                </div>
                 <Input
                   id="amount"
                   inputMode="decimal"

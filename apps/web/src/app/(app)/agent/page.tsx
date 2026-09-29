@@ -38,6 +38,7 @@ import { AgentSettingsForm } from "@/components/app/agent-settings-form";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { EntityId } from "@/components/app/entity-id";
+import { DateTime } from "@/components/app/date-time";
 import {
   Sheet,
   SheetContent,
@@ -45,6 +46,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 
 /**
  * Consola del agente organizada en 4 pestañas:
@@ -457,14 +459,32 @@ export default function AgentConsolePage() {
     },
     {
       key: "scope",
-      header: "Scope",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Scope
+          <InfoTip
+            label="Scope"
+            text="Permiso de la API comercial que necesita la herramienta. Si el agente no tiene ese scope, la herramienta no se le ofrece."
+            className="h-4 w-4"
+          />
+        </span>
+      ),
       width: "10rem",
       className: "font-mono text-xs",
       cell: (t) => t.scope,
     },
     {
       key: "mutating",
-      header: "Efecto",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Efecto
+          <InfoTip
+            label="Efecto"
+            text="«Lee» solo consulta datos. «Escribe» crea o cambia algo (cotizaciones, pedidos, enlaces de pago)."
+            className="h-4 w-4"
+          />
+        </span>
+      ),
       width: "7rem",
       cell: (t) => (
         <Badge variant={t.mutating ? "warning" : "neutral"}>
@@ -729,25 +749,29 @@ export default function AgentConsolePage() {
                             </span>
                             {uploaded ? (
                               <div className="flex shrink-0 items-center gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                  aria-label={`Ver o editar el documento ${doc}`}
-                                  onClick={() => setDocToView(doc)}
-                                >
-                                  <FileText aria-hidden className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                  aria-label={`Borrar el documento ${doc}`}
-                                  onClick={() => setDocToDelete(doc)}
-                                  disabled={deleteDoc.isPending}
-                                >
-                                  <Trash2 aria-hidden className="h-3.5 w-3.5" />
-                                </Button>
+                                <Tip label={`Ver o editar el documento ${doc}`}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                    aria-label={`Ver o editar el documento ${doc}`}
+                                    onClick={() => setDocToView(doc)}
+                                  >
+                                    <FileText aria-hidden className="h-3.5 w-3.5" />
+                                  </Button>
+                                </Tip>
+                                <Tip label={`Borrar el documento ${doc}`}>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                    aria-label={`Borrar el documento ${doc}`}
+                                    onClick={() => setDocToDelete(doc)}
+                                    disabled={deleteDoc.isPending}
+                                  >
+                                    <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                                  </Button>
+                                </Tip>
                               </div>
                             ) : null}
                           </li>
@@ -1059,12 +1083,10 @@ export default function AgentConsolePage() {
                                   ? "Handoff a humano"
                                   : "Sin respuesta"}
                               </Badge>
-                              <span className="text-xs text-muted-foreground tabular-nums">
-                                {new Date(signal.createdAt * 1000).toLocaleString("es-MX", {
-                                  dateStyle: "medium",
-                                  timeStyle: "short",
-                                })}
-                              </span>
+                              <DateTime
+                                value={signal.createdAt * 1000}
+                                className="text-xs text-muted-foreground"
+                              />
                             </div>
                             <p className="break-words text-sm font-medium">{signal.question}</p>
                             {signal.reason ? (
@@ -1073,16 +1095,18 @@ export default function AgentConsolePage() {
                               </p>
                             ) : null}
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                            aria-label={`Descartar la sugerencia "${signal.question}"`}
-                            onClick={() => dismissSignal.mutate(signal.id)}
-                            disabled={dismissSignal.isPending}
-                          >
-                            <X aria-hidden className="h-4 w-4" />
-                          </Button>
+                          <Tip label={`Descartar la sugerencia "${signal.question}"`}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                              aria-label={`Descartar la sugerencia "${signal.question}"`}
+                              onClick={() => dismissSignal.mutate(signal.id)}
+                              disabled={dismissSignal.isPending}
+                            >
+                              <X aria-hidden className="h-4 w-4" />
+                            </Button>
+                          </Tip>
                         </div>
                         <div className="mt-3 space-y-1.5">
                           <Label htmlFor={answerId} className="text-xs">

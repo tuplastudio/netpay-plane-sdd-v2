@@ -9,14 +9,9 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { AuthBrand, AuthError, authErrorMessage } from "@/components/app/auth-card";
+import { Label } from "@/components/ui/label";
+import { AuthSplitLayout } from "@/components/app/auth-split-layout";
+import { AuthError, authErrorMessage } from "@/components/app/auth-card";
 
 const schema = z
   .object({
@@ -70,18 +65,19 @@ function AcceptInviteForm() {
   });
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-muted px-4 py-12">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <AuthBrand className="justify-center mb-4" />
-          <CardTitle className="text-2xl font-bold">Activar cuenta</CardTitle>
-          <CardDescription>Elige una contraseña para completar tu invitación.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form noValidate onSubmit={onSubmit} className="grid gap-4">
-            <AuthError message={formError} title="No se pudo activar" />
+    <AuthSplitLayout>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <h1 className="font-display text-display-md">Activar cuenta</h1>
+          <p className="text-balance text-sm text-muted-foreground">
+            Elige una contraseña para completar tu invitación.
+          </p>
+        </div>
+        <form noValidate onSubmit={onSubmit} className="flex flex-col gap-6">
+          <AuthError message={formError} title="No se pudo activar" />
+          <div className="grid gap-4">
             <div className="grid gap-2">
-              <label htmlFor="password" className="text-sm font-medium">Contraseña</label>
+              <Label htmlFor="password">Contraseña</Label>
               <Input
                 id="password"
                 type="password"
@@ -99,7 +95,7 @@ function AcceptInviteForm() {
               )}
             </div>
             <div className="grid gap-2">
-              <label htmlFor="confirmPassword" className="text-sm font-medium">Confirmar contraseña</label>
+              <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
               <Input
                 id="confirmPassword"
                 type="password"
@@ -118,15 +114,15 @@ function AcceptInviteForm() {
             <Button type="submit" className="w-full" loading={submitting} disabled={!token}>
               Activar cuenta
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              ¿Ya activaste tu cuenta?{" "}
-              <Link href="/login" className="underline underline-offset-4 hover:text-foreground">
-                Inicia sesión
-              </Link>
-            </p>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+          <p className="text-center text-sm text-muted-foreground">
+            ¿Ya activaste tu cuenta?{" "}
+            <Link href="/login" className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-foreground sm:min-h-0">
+              Inicia sesión
+            </Link>
+          </p>
+        </form>
+      </div>
+    </AuthSplitLayout>
   );
 }

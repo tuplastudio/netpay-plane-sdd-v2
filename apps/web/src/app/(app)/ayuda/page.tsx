@@ -19,12 +19,12 @@ export default function AyudaIndexPage() {
         className="hero-dark p-6 sm:p-8"
       >
         <p className={cn("text-caption font-medium", ON_HERO_MUTED)}>Empieza aquí</p>
-        <h2
+        <h1
           id="ayuda-empieza"
           className="mt-2 max-w-xl font-display text-display-lg"
         >
           Todo lo que necesitas para vender con Easy Sell.
-        </h2>
+        </h1>
         <p className={cn("mt-3 max-w-xl text-body", ON_HERO_MUTED)}>
           Guías paso a paso de cada pantalla, con ejemplos y soluciones a los problemas más comunes. Usa el
           buscador de la izquierda si ya sabes lo que buscas.

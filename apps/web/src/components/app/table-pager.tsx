@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { Tip } from "./info-tip";
 
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
 
@@ -78,17 +79,19 @@ export function TablePager({
         ) : null}
 
         <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            disabled={atStart || loading}
-            onClick={() => onPageChange(1)}
-            aria-label="Primera página"
-          >
-            <ChevronsLeft aria-hidden className="h-3.5 w-3.5" />
-          </Button>
+          <Tip label="Primera página">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              disabled={atStart || loading}
+              onClick={() => onPageChange(1)}
+              aria-label="Primera página"
+            >
+              <ChevronsLeft aria-hidden className="h-3.5 w-3.5" />
+            </Button>
+          </Tip>
           <Button
             type="button"
             variant="outline"
@@ -114,17 +117,19 @@ export function TablePager({
             Siguiente
             <ChevronRight aria-hidden className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-7 w-7"
-            disabled={atEnd || loading}
-            onClick={() => onPageChange(totalPages)}
-            aria-label="Última página"
-          >
-            <ChevronsRight aria-hidden className="h-3.5 w-3.5" />
-          </Button>
+          <Tip label="Última página">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-7 w-7"
+              disabled={atEnd || loading}
+              onClick={() => onPageChange(totalPages)}
+              aria-label="Última página"
+            >
+              <ChevronsRight aria-hidden className="h-3.5 w-3.5" />
+            </Button>
+          </Tip>
         </div>
       </div>
     </div>

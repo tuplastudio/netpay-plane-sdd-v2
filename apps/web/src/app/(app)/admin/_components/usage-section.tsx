@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bot, Coins, Gauge } from "lucide-react";
 import { api } from "@/lib/api";
 import { Section } from "@/components/app/section";
+import { InfoTip } from "@/components/app/info-tip";
 import { StatTile } from "@/components/app/stat-tile";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { Money } from "@/components/app/money";
@@ -37,24 +38,50 @@ const columns: Array<DataTableColumn<UsageByModel>> = [
     className: "font-mono text-xs",
     cell: (m) => m.model,
   },
-  { key: "events", header: "Turnos", numeric: true, width: "7rem", cell: (m) => formatCount(m.events) },
+  {
+    key: "events",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Turnos
+        <InfoTip label="Turnos" text="Respuestas del agente: cada mensaje que contesta cuenta como un turno." />
+      </span>
+    ),
+    numeric: true,
+    width: "7rem",
+    cell: (m) => formatCount(m.events),
+  },
   {
     key: "input",
-    header: "Entrada",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Entrada
+        <InfoTip label="Entrada" text="Tokens que el modelo leyó: contexto, catálogo y mensajes del cliente." />
+      </span>
+    ),
     numeric: true,
     width: "9rem",
     cell: (m) => formatCount(m.inputTokens),
   },
   {
     key: "output",
-    header: "Salida",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Salida
+        <InfoTip label="Salida" text="Tokens que el modelo escribió en sus respuestas." />
+      </span>
+    ),
     numeric: true,
     width: "9rem",
     cell: (m) => formatCount(m.outputTokens),
   },
   {
     key: "cost",
-    header: "Costo",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Costo
+        <InfoTip label="Costo" text="Estimado en USD con la tarifa pública de cada modelo; la factura real puede variar." />
+      </span>
+    ),
     numeric: true,
     width: "9rem",
     cell: (m) => <Money value={m.costUsd} currency="USD" />,

@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { COL_TIPS, ColHead } from "../../_components/col-head";
 import { Money, formatMoney } from "@/components/app/money";
 import {
   type ModelUsageRow,
@@ -30,24 +31,24 @@ interface MonthUsage {
 
 const modelColumns: Array<DataTableColumn<ModelUsageRow>> = [
   { key: "model", header: "Modelo", className: "font-mono text-xs", cell: (r) => r.model },
-  { key: "events", header: "Turnos", numeric: true, width: "6rem", cell: (r) => formatInt(r.events) },
+  { key: "events", header: <ColHead label="Turnos" tip={COL_TIPS.events} />, numeric: true, width: "6rem", cell: (r) => formatInt(r.events) },
   {
     key: "inputTokens",
-    header: "Tokens entrada",
+    header: <ColHead label="Tokens entrada" tip={COL_TIPS.inputTokens} />,
     numeric: true,
     width: "9rem",
     cell: (r) => formatInt(r.inputTokens),
   },
   {
     key: "outputTokens",
-    header: "Tokens salida",
+    header: <ColHead label="Tokens salida" tip={COL_TIPS.outputTokens} />,
     numeric: true,
     width: "9rem",
     cell: (r) => formatInt(r.outputTokens),
   },
   {
     key: "costUsd",
-    header: "Costo estimado",
+    header: <ColHead label="Costo estimado" tip={COL_TIPS.cost} />,
     numeric: true,
     width: "9rem",
     cell: (r) => <Money value={r.costUsd} currency="USD" />,
@@ -58,21 +59,21 @@ const historyColumns: Array<DataTableColumn<MonthUsage>> = [
   { key: "month", header: "Mes", cell: (r) => monthLabel(r.month) },
   {
     key: "events",
-    header: "Turnos",
+    header: <ColHead label="Turnos" tip={COL_TIPS.events} />,
     numeric: true,
     width: "6rem",
     cell: (r) => formatInt(r.events),
   },
   {
     key: "totalTokens",
-    header: "Tokens",
+    header: <ColHead label="Tokens" tip={COL_TIPS.tokens} />,
     numeric: true,
     width: "8rem",
     cell: (r) => formatInt(r.totalTokens),
   },
   {
     key: "costUsd",
-    header: "Costo estimado",
+    header: <ColHead label="Costo estimado" tip={COL_TIPS.cost} />,
     numeric: true,
     width: "10rem",
     cell: (r) => <Money value={r.costUsd} currency="USD" />,

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  AlertCircle,
   Archive,
   CheckCircle2,
   ChevronRight,
@@ -20,7 +21,10 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -32,6 +36,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { TablePager } from "@/components/app/table-pager";
@@ -40,6 +45,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatMoney } from "@/components/app/money";
 import { cn } from "@/lib/utils";
 import {
+  CATALOG_FIELD_HELP,
   CATALOG_STATUS_OPTIONS,
   apiErrorMessage,
   type CatalogStatus,
@@ -395,7 +401,10 @@ export default function CatalogPage() {
               </div>
             </div>
             <div className="space-y-1.5 sm:w-52">
-              <Label htmlFor="catalog-status">Estado</Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="catalog-status">Estado</Label>
+                <InfoTip label="Estado" text={CATALOG_FIELD_HELP.status} />
+              </div>
               <Select
                 id="catalog-status"
                 value={status}
@@ -444,7 +453,13 @@ export default function CatalogPage() {
               className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-5"
             >
               <div className="space-y-1.5">
-                <Label htmlFor="catalog-stock">Existencias</Label>
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="catalog-stock">Existencias</Label>
+                  <InfoTip
+                    label="Existencias"
+                    text="«Sin control de inventario» son variantes con existencias vacías: se venden siempre y no descuentan stock."
+                  />
+                </div>
                 <Select
                   id="catalog-stock"
                   value={stockFilter}
@@ -531,31 +546,29 @@ export default function CatalogPage() {
         >
           <div className="p-4 sm:p-6">
             {list.isLoading ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div
-                    key={i}
-                    role="status"
-                    aria-label="Cargando producto…"
-                    className="h-32 animate-pulse rounded-lg border bg-card"
-                  />
-                ))}
-              </div>
+              <SkeletonRegion label="Cargando catálogo…">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} className="h-40 rounded-lg" />
+                  ))}
+                </div>
+              </SkeletonRegion>
             ) : list.isError ? (
-              <div className="rounded-md border border-destructive/30 bg-destructive-subtle p-4 text-sm text-destructive-subtle-foreground">
-                <p className="font-semibold">No se pudo cargar el catálogo.</p>
-                <p className="mt-1 text-xs">
-                  {apiErrorMessage(list.error, "Revisa tu conexión.")}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-3"
-                  onClick={() => void list.refetch()}
-                >
-                  Reintentar
-                </Button>
-              </div>
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertTitle>No se pudo cargar el catálogo</AlertTitle>
+                <AlertDescription>
+                  <p>{apiErrorMessage(list.error, "Revisa tu conexión.")}</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => void list.refetch()}
+                  >
+                    Reintentar
+                  </Button>
+                </AlertDescription>
+              </Alert>
             ) : !visible || visible.length === 0 ? (
               <EmptyCatalog
                 isFiltered={isFiltered}
@@ -639,45 +652,49 @@ function EmptyCatalog({
 }) {
   if (isFiltered) {
     return (
-      <div className="rounded-lg border border-dashed bg-muted/30 p-6 text-center">
-        <SearchX aria-hidden className="mx-auto h-8 w-8 text-muted-foreground" />
-        <p className="mt-3 font-medium">Sin coincidencias</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {searchTerm ? (
+      <EmptyState
+        className="py-8"
+        icon={<SearchX className="h-6 w-6" />}
+        title="Sin coincidencias"
+        description={
+          searchTerm ? (
             <>
               Nada en el catálogo coincide con{" "}
-              <code className="rounded bg-muted px-1 font-mono text-xs">
-                {searchTerm}
-              </code>
-              . Prueba con un fragmento más corto o revisa el SKU.
+              <code className="rounded bg-muted px-1 font-mono text-xs">{searchTerm}</code>. Prueba
+              con un fragmento más corto o revisa el SKU.
             </>
           ) : (
-            "Ningún producto coincide con el filtro de estado."
-          )}
-        </p>
-        <Button variant="outline" size="sm" className="mt-4" onClick={onClear}>
-          <X aria-hidden className="h-3.5 w-3.5" />
-          Limpiar filtros
-        </Button>
-      </div>
+            "Ningún producto coincide con los filtros activos."
+          )
+        }
+        action={
+          <Button variant="outline" size="sm" onClick={onClear}>
+            <X aria-hidden className="h-3.5 w-3.5" />
+            Limpiar filtros
+          </Button>
+        }
+      />
     );
   }
   return (
-    <div className="rounded-lg border border-dashed bg-muted/30 p-6 text-center">
-      <PackageOpen aria-hidden className="mx-auto h-8 w-8 text-muted-foreground" />
-      <p className="mt-3 font-medium">Aún no hay productos</p>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {onCreate
+    <EmptyState
+      className="py-8"
+      icon={<PackageOpen className="h-6 w-6" />}
+      title="Aún no hay productos"
+      description={
+        onCreate
           ? "Crea el primero con su variante y precio para que el agente pueda cotizarlo."
-          : "Cuando alguien con permiso de catálogo los dé de alta, aparecerán aquí."}
-      </p>
-      {onCreate ? (
-        <Button size="sm" className="mt-4" onClick={onCreate}>
-          <Plus aria-hidden className="h-3.5 w-3.5" />
-          Crear producto
-        </Button>
-      ) : null}
-    </div>
+          : "Cuando alguien con permiso de catálogo los dé de alta, aparecerán aquí."
+      }
+      action={
+        onCreate ? (
+          <Button size="sm" onClick={onCreate}>
+            <Plus aria-hidden className="h-3.5 w-3.5" />
+            Crear producto
+          </Button>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -732,17 +749,19 @@ function ProductCard({
         </div>
         {canEdit ? (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={`Acciones de ${product.title}`}
-              className="h-11 w-11 shrink-0 sm:h-8 sm:w-8"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
+          <Tip label="Más acciones">
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={`Acciones de ${product.title}`}
+                className="h-11 w-11 shrink-0 sm:h-8 sm:w-8"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </Tip>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={onEdit}>
               <Pencil aria-hidden className="h-4 w-4" />

@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Check,
-  Loader2,
   Plug,
   QrCode,
   RefreshCw,
@@ -14,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Sheet,
@@ -273,7 +273,7 @@ export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
               <AlertTitle>Listo</AlertTitle>
               <AlertDescription>
                 La instancia <code className="font-mono">{step.instanceName}</code> ya recibió
-                mensajes. La fila aparece como <strong>Activa</strong> en la tabla de canales.
+                mensajes. La fila aparece como <strong className="font-medium">Conectado</strong> en la tabla de canales.
               </AlertDescription>
             </Alert>
             <div className="mt-auto flex justify-end">
@@ -287,8 +287,8 @@ export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
               <AlertTitle>Escanea este QR con el WhatsApp del cliente</AlertTitle>
               <AlertDescription className="space-y-1 text-sm">
                 <p>
-                  Desde el WhatsApp del número a vincular: <em>Dispositivos vinculados</em> →{" "}
-                  <em>Vincular un dispositivo</em>.
+                  Desde el WhatsApp del número a vincular: <strong className="font-medium">Dispositivos vinculados</strong> →{" "}
+                  <strong className="font-medium">Vincular un dispositivo</strong>.
                 </p>
                 <p className="text-muted-foreground">
                   El código rota. Esta página lo refresca sola mientras esté abierto.
@@ -305,13 +305,13 @@ export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
                 />
               ) : (
                 <div className="flex h-64 w-64 items-center justify-center rounded-lg border bg-muted">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <Spinner size="lg" label="Generando el código QR…" className="text-muted-foreground" />
                 </div>
               )}
             </div>
 
             <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <RefreshCw className={`h-3 w-3 ${refreshQr.isPending ? "animate-spin" : ""}`} />
+              <RefreshCw aria-hidden className={`h-3 w-3 ${refreshQr.isPending ? "animate-spin" : ""}`} />
               {stateQuery.isPending
                 ? "Consultando estado…"
                 : "Esperando escaneo del cliente…"}

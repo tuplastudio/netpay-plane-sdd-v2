@@ -12,6 +12,7 @@ import { StatusBadge, TENANT_STATUS_LABELS } from "@/components/ui/status-badge"
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { COL_TIPS, ColHead } from "../_components/col-head";
 import { DateTime } from "@/components/app/date-time";
 import { Money } from "@/components/app/money";
 import { CreateTenantSheet } from "../create-tenant-sheet";
@@ -22,7 +23,7 @@ const columns: Array<DataTableColumn<TenantRow>> = [
   { key: "slug", header: "Slug", className: "font-mono text-xs", cell: (t) => t.slug },
   {
     key: "status",
-    header: "Estado",
+    header: <ColHead label="Estado" tip={COL_TIPS.tenantStatus} />,
     width: "8rem",
     cell: (t) => <StatusBadge status={t.status} domain="tenant" />,
   },
@@ -49,7 +50,7 @@ const columns: Array<DataTableColumn<TenantRow>> = [
   },
   {
     key: "cost",
-    header: "Gasto mes (USD)",
+    header: <ColHead label="Gasto mes (USD)" tip={COL_TIPS.costMonth} />,
     numeric: true,
     width: "9rem",
     cell: (t) => <Money value={t.usageMtd?.costUsd} currency="USD" />,

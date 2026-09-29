@@ -12,7 +12,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Spinner } from "@/components/ui/spinner";
 import { Section } from "@/components/app/section";
 import { Money } from "@/components/app/money";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import {
+  CATALOG_FIELD_HELP,
   CATALOG_STATUS_OPTIONS,
   Field,
   ORIGIN_SYSTEM_OPTIONS,
@@ -83,7 +85,11 @@ export function VariantsSection({
                   <Input inputMode="decimal" placeholder="99.00" {...p} {...addForm.register("price")} />
                 )}
               </Field>
-              <Field label="Clave SAT de producto" error={addErrors.satProductCode?.message}>
+              <Field
+                label="Clave SAT de producto"
+                labelExtra={<InfoTip label="Clave SAT de producto" text={CATALOG_FIELD_HELP.satProductCode} />}
+                error={addErrors.satProductCode?.message}
+              >
                 {(p) => (
                   <Input
                     inputMode="numeric"
@@ -93,11 +99,16 @@ export function VariantsSection({
                   />
                 )}
               </Field>
-              <Field label="Clave SAT de unidad" error={addErrors.satUnitCode?.message}>
+              <Field
+                label="Clave SAT de unidad"
+                labelExtra={<InfoTip label="Clave SAT de unidad" text={CATALOG_FIELD_HELP.satUnitCode} />}
+                error={addErrors.satUnitCode?.message}
+              >
                 {(p) => <Input placeholder="H87" {...p} {...addForm.register("satUnitCode")} />}
               </Field>
               <Field
                 label="Existencias"
+                labelExtra={<InfoTip label="Existencias" text={CATALOG_FIELD_HELP.stock} />}
                 hint="Vacío = sin control de inventario. Formato 25 o 25.500."
                 error={addErrors.stock?.message}
               >
@@ -251,15 +262,17 @@ function VariantRow({
             {saving ? (
               <Spinner size="sm" label="Guardando variante…" />
             ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Editar variante ${variant.sku}`}
-                onClick={() => setEditing(true)}
-              >
-                <Pencil aria-hidden className="h-4 w-4" />
-              </Button>
+              <Tip label="Editar variante">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Editar variante ${variant.sku}`}
+                  onClick={() => setEditing(true)}
+                >
+                  <Pencil aria-hidden className="h-4 w-4" />
+                </Button>
+              </Tip>
             )}
           </div>
         </div>
@@ -296,7 +309,11 @@ function VariantRow({
         <Field label="Precio" hint="Formato 99.00" error={errors.price?.message}>
           {(p) => <Input inputMode="decimal" placeholder="99.00" {...p} {...form.register("price")} />}
         </Field>
-        <Field label="Estado" error={errors.status?.message}>
+        <Field
+          label="Estado"
+          labelExtra={<InfoTip label="Estado" text={CATALOG_FIELD_HELP.status} />}
+          error={errors.status?.message}
+        >
           {(p) => (
             <Select {...p} {...form.register("status")}>
               {CATALOG_STATUS_OPTIONS.map((o) => (
@@ -307,14 +324,23 @@ function VariantRow({
             </Select>
           )}
         </Field>
-        <Field label="Clave SAT de producto" error={errors.satProductCode?.message}>
+        <Field
+          label="Clave SAT de producto"
+          labelExtra={<InfoTip label="Clave SAT de producto" text={CATALOG_FIELD_HELP.satProductCode} />}
+          error={errors.satProductCode?.message}
+        >
           {(p) => <Input inputMode="numeric" placeholder="01010101" {...p} {...form.register("satProductCode")} />}
         </Field>
-        <Field label="Clave SAT de unidad" error={errors.satUnitCode?.message}>
+        <Field
+          label="Clave SAT de unidad"
+          labelExtra={<InfoTip label="Clave SAT de unidad" text={CATALOG_FIELD_HELP.satUnitCode} />}
+          error={errors.satUnitCode?.message}
+        >
           {(p) => <Input placeholder="H87" {...p} {...form.register("satUnitCode")} />}
         </Field>
         <Field
           label="Existencias"
+          labelExtra={<InfoTip label="Existencias" text={CATALOG_FIELD_HELP.stock} />}
           hint="Vacío = sin control de inventario. Formato 25 o 25.500."
           error={errors.stock?.message}
         >

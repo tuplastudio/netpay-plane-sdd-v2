@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Section } from "@/components/app/section";
+import { Tip } from "@/components/app/info-tip";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "./api-error";
 import { cn } from "@/lib/utils";
@@ -109,18 +110,20 @@ export function PasswordSection() {
                 disabled={change.isPending}
                 required
               />
-              <button
-                type="button"
-                onClick={() => setShowCurrent((v) => !v)}
-                aria-label={showCurrent ? "Ocultar contraseña actual" : "Mostrar contraseña actual"}
-                className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {showCurrent ? (
-                  <EyeOff aria-hidden className="h-4 w-4" />
-                ) : (
-                  <Eye aria-hidden className="h-4 w-4" />
-                )}
-              </button>
+              <Tip label={showCurrent ? "Ocultar contraseña actual" : "Mostrar contraseña actual"}>
+                <button
+                  type="button"
+                  onClick={() => setShowCurrent((v) => !v)}
+                  aria-label={showCurrent ? "Ocultar contraseña actual" : "Mostrar contraseña actual"}
+                  className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {showCurrent ? (
+                    <EyeOff aria-hidden className="h-4 w-4" />
+                  ) : (
+                    <Eye aria-hidden className="h-4 w-4" />
+                  )}
+                </button>
+              </Tip>
             </div>
           </div>
 
@@ -139,18 +142,20 @@ export function PasswordSection() {
                 required
                 aria-describedby="pwd-next-hint"
               />
-              <button
-                type="button"
-                onClick={() => setShowNext((v) => !v)}
-                aria-label={showNext ? "Ocultar nueva contraseña" : "Mostrar nueva contraseña"}
-                className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {showNext ? (
-                  <EyeOff aria-hidden className="h-4 w-4" />
-                ) : (
-                  <Eye aria-hidden className="h-4 w-4" />
-                )}
-              </button>
+              <Tip label={showNext ? "Ocultar nueva contraseña" : "Mostrar nueva contraseña"}>
+                <button
+                  type="button"
+                  onClick={() => setShowNext((v) => !v)}
+                  aria-label={showNext ? "Ocultar nueva contraseña" : "Mostrar nueva contraseña"}
+                  className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {showNext ? (
+                    <EyeOff aria-hidden className="h-4 w-4" />
+                  ) : (
+                    <Eye aria-hidden className="h-4 w-4" />
+                  )}
+                </button>
+              </Tip>
             </div>
           </div>
         </div>

@@ -84,9 +84,7 @@ export function ProductDetailSheet({
               {product.description ? (
                 <p className="text-sm text-muted-foreground">{product.description}</p>
               ) : (
-                <p className="text-sm italic text-muted-foreground">
-                  Sin descripción del producto.
-                </p>
+                <p className="text-sm text-muted-foreground">Sin descripción del producto.</p>
               )}
 
               <p className="mt-6 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { COL_TIPS, ColHead } from "../../_components/col-head";
 import { Money, formatMoney } from "@/components/app/money";
 import {
   type ModelUsageRow,
@@ -22,24 +23,24 @@ import { ModelUsageSheet } from "./usage-detail-sheets";
 
 const columns: Array<DataTableColumn<ModelUsageRow>> = [
   { key: "model", header: "Modelo", className: "font-mono text-xs", cell: (r) => r.model },
-  { key: "events", header: "Turnos", numeric: true, width: "6rem", cell: (r) => formatInt(r.events) },
+  { key: "events", header: <ColHead label="Turnos" tip={COL_TIPS.events} />, numeric: true, width: "6rem", cell: (r) => formatInt(r.events) },
   {
     key: "inputTokens",
-    header: "Tokens entrada",
+    header: <ColHead label="Tokens entrada" tip={COL_TIPS.inputTokens} />,
     numeric: true,
     width: "9rem",
     cell: (r) => formatInt(r.inputTokens),
   },
   {
     key: "outputTokens",
-    header: "Tokens salida",
+    header: <ColHead label="Tokens salida" tip={COL_TIPS.outputTokens} />,
     numeric: true,
     width: "9rem",
     cell: (r) => formatInt(r.outputTokens),
   },
   {
     key: "costUsd",
-    header: "Costo estimado",
+    header: <ColHead label="Costo estimado" tip={COL_TIPS.cost} />,
     numeric: true,
     width: "9rem",
     cell: (r) => <Money value={r.costUsd} currency="USD" />,

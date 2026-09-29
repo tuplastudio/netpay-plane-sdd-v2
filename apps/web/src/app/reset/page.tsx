@@ -9,14 +9,9 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { AuthBrand, AuthError, authErrorMessage } from "@/components/app/auth-card";
+import { Label } from "@/components/ui/label";
+import { AuthSplitLayout } from "@/components/app/auth-split-layout";
+import { AuthError, authErrorMessage } from "@/components/app/auth-card";
 
 const schema = z
   .object({
@@ -70,18 +65,19 @@ function ResetForm() {
   });
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-muted px-4 py-12">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <AuthBrand className="justify-center mb-4" />
-          <CardTitle className="text-2xl font-bold">Nueva contraseña</CardTitle>
-          <CardDescription>Elige una contraseña de al menos 12 caracteres.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form noValidate onSubmit={onSubmit} className="grid gap-4">
-            <AuthError message={formError} title="No se pudo actualizar" />
+    <AuthSplitLayout>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <h1 className="font-display text-display-md">Nueva contraseña</h1>
+          <p className="text-balance text-sm text-muted-foreground">
+            Elige una contraseña de al menos 12 caracteres.
+          </p>
+        </div>
+        <form noValidate onSubmit={onSubmit} className="flex flex-col gap-6">
+          <AuthError message={formError} title="No se pudo actualizar" />
+          <div className="grid gap-4">
             <div className="grid gap-2">
-              <label htmlFor="newPassword" className="text-sm font-medium">Nueva contraseña</label>
+              <Label htmlFor="newPassword">Nueva contraseña</Label>
               <Input
                 id="newPassword"
                 type="password"
@@ -99,7 +95,7 @@ function ResetForm() {
               )}
             </div>
             <div className="grid gap-2">
-              <label htmlFor="confirmPassword" className="text-sm font-medium">Confirmar contraseña</label>
+              <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
               <Input
                 id="confirmPassword"
                 type="password"
@@ -118,21 +114,23 @@ function ResetForm() {
             <Button type="submit" className="w-full" loading={submitting} disabled={!token}>
               Actualizar contraseña
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
+          </div>
+          <div className="space-y-1 text-center text-sm text-muted-foreground">
+            <p>
               ¿Ya tienes cuenta?{" "}
-              <Link href="/login" className="underline underline-offset-4 hover:text-foreground">
+              <Link href="/login" className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-foreground sm:min-h-0">
                 Inicia sesión
               </Link>
             </p>
-            <p className="text-center text-sm text-muted-foreground">
+            <p>
               ¿Tu link expiró?{" "}
-              <Link href="/recover" className="underline underline-offset-4 hover:text-foreground">
+              <Link href="/recover" className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-foreground sm:min-h-0">
                 Solicita uno nuevo
               </Link>
             </p>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+        </form>
+      </div>
+    </AuthSplitLayout>
   );
 }

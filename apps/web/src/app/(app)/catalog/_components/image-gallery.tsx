@@ -6,6 +6,7 @@ import { ImageIcon, Trash2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { Tip } from "@/components/app/info-tip";
 import { apiErrorMessage, type ProductImage } from "../catalog-shared";
 
 const ACCEPT = "image/png,image/jpeg,image/webp";
@@ -75,19 +76,21 @@ export function ImageGallery({
               alt=""
               className="h-full w-full rounded-md border object-cover"
             />
-            <button
-              type="button"
-              aria-label="Eliminar foto"
-              disabled={remove.isPending && remove.variables === image.id}
-              onClick={() => remove.mutate(image.id)}
-              className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-60"
-            >
-              {remove.isPending && remove.variables === image.id ? (
-                <Spinner size="sm" />
-              ) : (
-                <Trash2 aria-hidden className="h-3 w-3" />
-              )}
-            </button>
+            <Tip label="Eliminar foto">
+              <button
+                type="button"
+                aria-label="Eliminar foto"
+                disabled={remove.isPending && remove.variables === image.id}
+                onClick={() => remove.mutate(image.id)}
+                className="absolute -right-1.5 -top-1.5 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 shadow transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-60"
+              >
+                {remove.isPending && remove.variables === image.id ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <Trash2 aria-hidden className="h-3 w-3" />
+                )}
+              </button>
+            </Tip>
           </div>
         ))}
 

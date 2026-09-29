@@ -6,13 +6,7 @@ import { ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { api, syncSessionAfterAuth } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { AuthSplitLayout } from "@/components/app/auth-split-layout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AuthError, authErrorMessage } from "@/components/app/auth-card";
@@ -63,52 +57,54 @@ function MfaVerifyForm() {
   }
 
   return (
-    <div className="flex min-h-svh w-full items-center justify-center bg-muted p-6 md:p-10">
-      <Card className="mx-auto w-full max-w-sm">
-        <CardHeader>
-          <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <ShieldCheck className="h-5 w-5" aria-hidden />
+    <AuthSplitLayout>
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <div
+            aria-hidden
+            className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-primary-strong text-primary-foreground"
+          >
+            <ShieldCheck className="h-5 w-5" />
           </div>
-          <CardTitle className="text-2xl">Verificación en dos pasos</CardTitle>
-          <CardDescription>
+          <h1 className="font-display text-display-md">Verificación en dos pasos</h1>
+          <p className="text-balance text-sm text-muted-foreground">
             Ingresa el código de tu app autenticadora o un código de recuperación.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form noValidate onSubmit={onSubmit}>
-            <AuthError message={formError} title="No se pudo verificar" />
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="code">Código de verificación</Label>
-                <Input
-                  id="code"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  autoFocus
-                  placeholder="123456"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  maxLength={16}
-                  className="text-center font-mono text-lg tracking-widest"
-                />
-                <p className="text-xs text-muted-foreground">
-                  6 dígitos de tu app autenticadora. También aceptamos un código de recuperación.
-                </p>
-              </div>
-              <Button type="submit" className="w-full" loading={submitting} disabled={!code}>
-                Verificar
-              </Button>
+          </p>
+        </div>
+        <form noValidate onSubmit={onSubmit} className="flex flex-col gap-6">
+          <AuthError message={formError} title="No se pudo verificar" />
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="code">Código de verificación</Label>
+              <Input
+                id="code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                placeholder="123456"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                maxLength={16}
+                aria-describedby="code-hint"
+                className="text-center font-mono text-lg tracking-widest"
+              />
+              <p id="code-hint" className="text-xs text-muted-foreground">
+                6 dígitos de tu app autenticadora. También aceptamos un código de recuperación.
+              </p>
             </div>
-            <div className="mt-4 text-center text-sm">
-              ¿Problemas para verificar?{" "}
-              <Link href="/login" className="underline underline-offset-4">
-                Volver a iniciar sesión
-              </Link>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+            <Button type="submit" className="w-full" loading={submitting} disabled={!code}>
+              Verificar
+            </Button>
+          </div>
+          <p className="text-center text-sm text-muted-foreground">
+            ¿Problemas para verificar?{" "}
+            <Link href="/login" className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-foreground sm:min-h-0">
+              Volver a iniciar sesión
+            </Link>
+          </p>
+        </form>
+      </div>
+    </AuthSplitLayout>
   );
 }

@@ -25,6 +25,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { COL_TIPS, ColHead } from "./_components/col-head";
 import { Money } from "@/components/app/money";
 import { DateTime } from "@/components/app/date-time";
 import { CreateTenantSheet } from "./create-tenant-sheet";
@@ -65,14 +66,14 @@ const topColumns: Array<DataTableColumn<TenantRow>> = [
   },
   {
     key: "tokens",
-    header: "Tokens",
+    header: <ColHead label="Tokens" tip={COL_TIPS.tokens} />,
     numeric: true,
     width: "8rem",
     cell: (t) => formatInt(t.usageMtd?.totalTokens),
   },
   {
     key: "cost",
-    header: "Gasto mes",
+    header: <ColHead label="Gasto mes" tip={COL_TIPS.costMonth} />,
     numeric: true,
     width: "9rem",
     cell: (t) => <Money value={t.usageMtd?.costUsd} currency="USD" />,

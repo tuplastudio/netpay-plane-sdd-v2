@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/sheet";
 import { Brand, EnvBadge, EnvFooter, SidebarNav } from "./sidebar-nav";
 import { GlobalSearch } from "./global-search";
+import { Tip } from "./info-tip";
 import { TenantSwitcher } from "./tenant-switcher";
 import { ThemeToggle } from "./theme-toggle";
 import { UserMenu } from "./user-menu";
@@ -33,16 +34,18 @@ export function Topbar() {
     // app-shell.tsx; cámbiala solo de la mano de ese archivo.
     <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:gap-3 sm:px-4">
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 lg:hidden"
-            aria-label="Abrir navegación"
-          >
-            <Menu className="h-5 w-5" aria-hidden />
-          </Button>
-        </SheetTrigger>
+        <Tip label="Abrir navegación">
+          <SheetTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0 lg:hidden"
+              aria-label="Abrir navegación"
+            >
+              <Menu className="h-5 w-5" aria-hidden />
+            </Button>
+          </SheetTrigger>
+        </Tip>
         <SheetContent side="left" className="flex w-[85vw] max-w-72 flex-col gap-0 p-0">
           {/* Radix exige título y descripción en el diálogo; aquí son para
               lectores de pantalla porque la marca ya identifica el panel. */}

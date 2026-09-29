@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Section } from "@/components/app/section";
+import { Tip } from "@/components/app/info-tip";
 import { apiErrorMessage } from "./api-error";
 import { apiKeysQueryKey } from "./api-keys-section";
 
@@ -52,15 +53,17 @@ function CodeBlock({ code, copyLabel }: { code: string; copyLabel: string }) {
       <pre className="overflow-x-auto rounded-md border bg-muted p-3 pr-10 text-xs">
         <code>{code}</code>
       </pre>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="absolute right-1.5 top-1.5 h-7 w-7"
-        aria-label={`Copiar ${copyLabel}`}
-        onClick={() => void copy(code, copyLabel)}
-      >
-        <Copy className="h-3.5 w-3.5" />
-      </Button>
+      <Tip label="Copiar">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-1.5 top-1.5 h-7 w-7"
+          aria-label={`Copiar ${copyLabel}`}
+          onClick={() => void copy(code, copyLabel)}
+        >
+          <Copy aria-hidden className="h-3.5 w-3.5" />
+        </Button>
+      </Tip>
     </div>
   );
 }

@@ -103,7 +103,7 @@ export default function ThanksPage() {
 
   if (orderQ.isLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
+      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
         <SkeletonRegion
           label="Cargando tu pago…"
           className="w-full max-w-md overflow-hidden rounded-card border bg-card shadow-airbnb"
@@ -122,7 +122,7 @@ export default function ThanksPage() {
     (orderQ.error as { response?: { status?: number } } | null)?.response?.status === 404;
   if (notFound) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
+      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
         <div className="w-full max-w-md space-y-5 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <SearchX aria-hidden className="h-6 w-6" />
@@ -141,7 +141,7 @@ export default function ThanksPage() {
 
   if (orderQ.isError) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
+      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
         <div className="w-full max-w-md space-y-5 text-center">
           <div className="space-y-2">
             <h1 className="font-display text-display-md">No pudimos consultar tu pago</h1>
@@ -165,7 +165,7 @@ export default function ThanksPage() {
   // Pago aún no confirmado: caemos al estado de "aún no vemos tu pago".
   if (!orderQ.data || !SETTLED.includes(orderQ.data.status)) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-10">
+      <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
         <div className="w-full max-w-md space-y-5 text-center">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-warning-subtle text-warning-foreground">
             <ShieldCheck aria-hidden className="h-6 w-6" />
@@ -205,12 +205,12 @@ export default function ThanksPage() {
       : null);
 
   return (
-    <main className="flex min-h-screen justify-center bg-muted/30 px-4 py-6 sm:items-center sm:py-10">
+    <main className="flex min-h-screen justify-center bg-background px-4 py-6 sm:items-center sm:py-10">
       <div className="w-full max-w-md space-y-4">
         {/* --- Tarjeta de "¡Listo!" ---------------------------------- */}
         <section className="overflow-hidden rounded-card border bg-card text-center shadow-airbnb">
           <div className="bg-success-subtle px-6 py-8 text-success-foreground">
-            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-success text-success-foreground shadow-airbnb">
+            <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full border border-success/30 bg-background text-success-foreground">
               <CheckCircle2 aria-hidden className="h-8 w-8" />
             </div>
             <h1 className="font-display text-display-md">¡Listo! Tu pago se aplicó</h1>

@@ -230,12 +230,15 @@ export interface FieldRenderProps {
  */
 export function Field({
   label,
+  labelExtra,
   error,
   hint,
   className,
   children,
 }: {
   label: string;
+  /** Hermano de la etiqueta (p. ej. un `InfoTip`); fuera del `<label>` para que un clic no enfoque el control. */
+  labelExtra?: React.ReactNode;
   error?: string;
   hint?: string;
   className?: string;
@@ -250,7 +253,14 @@ export function Field({
 
   return (
     <div className={className ? `space-y-1.5 ${className}` : "space-y-1.5"}>
-      <Label htmlFor={id}>{label}</Label>
+      {labelExtra ? (
+        <div className="flex items-center gap-1.5">
+          <Label htmlFor={id}>{label}</Label>
+          {labelExtra}
+        </div>
+      ) : (
+        <Label htmlFor={id}>{label}</Label>
+      )}
       {children({
         id,
         "aria-invalid": error ? true : undefined,
@@ -352,3 +362,18 @@ export const CATALOG_STATUS_OPTIONS: Array<{ value: CatalogStatus; label: string
   { value: "ACTIVE", label: "Activo" },
   { value: "ARCHIVED", label: "Archivado" },
 ];
+
+/** Textos de ayuda de los campos no obvios del catálogo (compartidos por alta, edición y variantes). */
+export const CATALOG_FIELD_HELP = {
+  sku: "Clave única del producto. Solo letras, números y . _ - ; se usa para buscar y para importar/exportar.",
+  satProductCode:
+    "Clave de producto o servicio del catálogo del SAT (8 dígitos). Se usa al facturar; si no facturas, puedes dejarla vacía.",
+  satUnitCode:
+    "Clave de unidad del SAT (p. ej. H87 = pieza, KGM = kilogramo). Necesaria para el CFDI.",
+  stock:
+    "Existencias disponibles. Vacío = sin control de inventario: el producto se vende siempre y no se descuenta nada.",
+  status:
+    "Borrador: no se ofrece. Activo: el agente lo cotiza y se vende. Archivado: oculto, pero conserva su historial.",
+  originSystem:
+    "Tienda o ERP de donde viene el producto (Shopify, SAP…). Sirve para conciliar cuando sincronizas catálogos.",
+} as const;

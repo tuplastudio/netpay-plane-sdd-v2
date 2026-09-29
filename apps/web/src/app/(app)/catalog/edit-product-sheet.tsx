@@ -15,8 +15,10 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { DateTime } from "@/components/app/date-time";
 import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { InfoTip } from "@/components/app/info-tip";
 import { ImageGallery } from "./_components/image-gallery";
 import {
+  CATALOG_FIELD_HELP,
   CATALOG_STATUS_OPTIONS,
   Field,
   TagsInput,
@@ -261,6 +263,7 @@ export function EditProductSheet({
                   </div>
                   <Field
                     label="Estado"
+                    labelExtra={<InfoTip label="Estado" text={CATALOG_FIELD_HELP.status} />}
                     hint="Solo los productos activos se ofrecen al cliente."
                     error={editErrors.status?.message}
                   >

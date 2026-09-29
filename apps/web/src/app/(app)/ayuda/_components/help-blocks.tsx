@@ -1,5 +1,6 @@
 import { Info, CheckCircle2, AlertTriangle, ChevronDown } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { HelpBlock } from "../_content/types";
 
 const CALLOUT_ICON = { info: Info, success: CheckCircle2, warning: AlertTriangle } as const;
@@ -71,37 +72,29 @@ export function HelpBlocks({ blocks }: { blocks: HelpBlock[] }) {
             );
           case "table":
             return (
-              <div key={i} className="overflow-x-auto rounded-lg border">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-muted text-micro-uppercase uppercase text-muted-foreground">
-                    <tr>
-                      {block.headers.map((h, j) => (
-                        <th key={j} scope="col" className="px-3 py-2.5 font-medium">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {block.rows.map((row, j) => (
-                      <tr key={j} className="border-t">
-                        {row.map((cell, k) => (
-                          <td
-                            key={k}
-                            className={
-                              k === 0
-                                ? "px-3 py-2.5 align-top font-medium text-foreground"
-                                : "px-3 py-2.5 align-top text-foreground"
-                            }
-                          >
-                            {cell}
-                          </td>
-                        ))}
-                      </tr>
+              <Table key={i} containerClassName="rounded-lg border">
+                <TableHeader>
+                  <TableRow interactive={false}>
+                    {block.headers.map((h, j) => (
+                      <TableHead key={j}>{h}</TableHead>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {block.rows.map((row, j) => (
+                    <TableRow key={j} interactive={false}>
+                      {row.map((cell, k) => (
+                        <TableCell
+                          key={k}
+                          className={k === 0 ? "align-top font-medium text-foreground" : "align-top text-foreground"}
+                        >
+                          {cell}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             );
           case "faq":
             return (

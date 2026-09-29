@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { COL_TIPS, ColHead } from "../_components/col-head";
 import { Money } from "@/components/app/money";
 import {
   SA_TENANTS_KEY,
@@ -42,24 +43,24 @@ interface UsageSummary {
 const columns: Array<DataTableColumn<TenantUsageRow>> = [
   { key: "tenantName", header: "Empresa", cell: (r) => <span className="font-medium">{r.tenantName}</span> },
   { key: "tenantSlug", header: "Slug", className: "font-mono text-xs", cell: (r) => r.tenantSlug },
-  { key: "events", header: "Turnos", numeric: true, width: "6rem", cell: (r) => formatInt(r.events) },
+  { key: "events", header: <ColHead label="Turnos" tip={COL_TIPS.events} />, numeric: true, width: "6rem", cell: (r) => formatInt(r.events) },
   {
     key: "inputTokens",
-    header: "Tokens entrada",
+    header: <ColHead label="Tokens entrada" tip={COL_TIPS.inputTokens} />,
     numeric: true,
     width: "9rem",
     cell: (r) => formatInt(r.inputTokens),
   },
   {
     key: "outputTokens",
-    header: "Tokens salida",
+    header: <ColHead label="Tokens salida" tip={COL_TIPS.outputTokens} />,
     numeric: true,
     width: "9rem",
     cell: (r) => formatInt(r.outputTokens),
   },
   {
     key: "costUsd",
-    header: "Costo estimado",
+    header: <ColHead label="Costo estimado" tip={COL_TIPS.cost} />,
     numeric: true,
     width: "9rem",
     cell: (r) => <Money value={r.costUsd} currency="USD" />,

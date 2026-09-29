@@ -25,6 +25,9 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton, SkeletonRegion, SkeletonText } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
@@ -382,18 +385,23 @@ function SalesTrendMini({
 }) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-7 items-end gap-2 px-1 pt-2" aria-label="Cargando tendencia de ventas…">
-        {Array.from({ length: 7 }).map((_, i) => (
-          <div key={i} className="h-24 w-full animate-pulse rounded-md bg-muted" />
-        ))}
-      </div>
+      <SkeletonRegion label="Cargando tendencia de ventas…">
+        <div className="grid grid-cols-7 items-end gap-2 px-1 pt-2">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full rounded-md" />
+          ))}
+        </div>
+      </SkeletonRegion>
     );
   }
   if (data.length === 0) {
     return (
-      <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-        Sin ventas cobradas en los últimos 7 días.
-      </div>
+      <EmptyState
+        className="py-6"
+        icon={<TrendingUp className="h-5 w-5" />}
+        title="Sin ventas cobradas en los últimos 7 días"
+        description="La gráfica se llena con los pedidos pagados o entregados de cada día."
+      />
     );
   }
   const maxRevenue = data.reduce((acc, p) => Math.max(acc, Number(p.revenueUsd)), 0);
@@ -470,13 +478,26 @@ function RecentOrders({
   }>;
   isLoading: boolean;
 }) {
-  if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Cargando…</div>;
+  if (isLoading) {
+    return (
+      <div className="p-4">
+        <SkeletonText lines={3} label="Cargando pedidos recientes…" />
+      </div>
+    );
+  }
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
-        <ShoppingCart aria-hidden className="h-6 w-6" />
-        <p>Sin pedidos todavía.</p>
-      </div>
+      <EmptyState
+        className="py-8"
+        icon={<ShoppingCart className="h-5 w-5" />}
+        title="Sin pedidos todavía"
+        description="El primer pedido aparecerá aquí en cuanto se cobre o se abra un checkout."
+        action={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/quotes">Crear cotización</Link>
+          </Button>
+        }
+      />
     );
   }
   return (
@@ -520,13 +541,26 @@ function RecentConversations({
   }>;
   isLoading: boolean;
 }) {
-  if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Cargando…</div>;
+  if (isLoading) {
+    return (
+      <div className="p-4">
+        <SkeletonText lines={3} label="Cargando conversaciones recientes…" />
+      </div>
+    );
+  }
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
-        <MessagesSquare aria-hidden className="h-6 w-6" />
-        <p>Sin conversaciones todavía.</p>
-      </div>
+      <EmptyState
+        className="py-8"
+        icon={<MessagesSquare className="h-5 w-5" />}
+        title="Sin conversaciones todavía"
+        description="Cuando un cliente escriba por WhatsApp, el hilo aparecerá aquí."
+        action={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/channels">Conectar WhatsApp</Link>
+          </Button>
+        }
+      />
     );
   }
   return (
@@ -545,18 +579,14 @@ function RecentConversations({
                 {c.externalPhone}
               </span>
             </span>
-            <span className="shrink-0 text-xs">
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-pill border px-2 py-0.5 text-[10px] font-medium",
-                  c.handoffToHuman
-                    ? "border-warning bg-warning-subtle text-warning-foreground"
-                    : "border-info bg-info-subtle text-info-foreground",
-                )}
-              >
-                {c.handoffToHuman ? "Con persona" : "Bot"}
-              </span>
-            </span>
+            <StatusBadge
+              status={c.handoffToHuman ? "HANDOFF" : "BOT"}
+              tone={c.handoffToHuman ? "warning" : "info"}
+              label={c.handoffToHuman ? "Con persona" : "Bot"}
+              size="sm"
+              withDot
+              className="shrink-0"
+            />
           </Link>
         </li>
       ))}
@@ -579,13 +609,15 @@ function RecentActivity({
   }>;
   isLoading: boolean;
 }) {
-  if (isLoading) return <div className="p-4 text-xs text-muted-foreground">Cargando…</div>;
+  if (isLoading) return <SkeletonText lines={3} label="Cargando actividad reciente…" />;
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 py-6 text-center text-sm text-muted-foreground">
-        <Activity aria-hidden className="h-6 w-6" />
-        <p>Sin actividad reciente.</p>
-      </div>
+      <EmptyState
+        className="py-6"
+        icon={<Activity className="h-5 w-5" />}
+        title="Sin actividad reciente"
+        description="Aquí se listan los últimos eventos de la bitácora: pedidos, cotizaciones, usuarios."
+      />
     );
   }
   return (

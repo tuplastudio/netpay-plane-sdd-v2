@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "./use-permissions";
+import { Tip } from "./info-tip";
 
 /**
  * Búsqueda global de la Topbar.
@@ -361,16 +362,18 @@ export function GlobalSearch({ className }: { className?: string }) {
   return (
     <>
     {mobileOpen ? null : (
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="shrink-0 md:hidden"
-        aria-label="Buscar producto o cliente"
-        onClick={() => setMobileOpen(true)}
-      >
-        <Search aria-hidden className="h-4 w-4" />
-      </Button>
+      <Tip label="Buscar producto o cliente">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="shrink-0 md:hidden"
+          aria-label="Buscar producto o cliente"
+          onClick={() => setMobileOpen(true)}
+        >
+          <Search aria-hidden className="h-4 w-4" />
+        </Button>
+      </Tip>
     )}
     <div
       ref={wrapperRef}
@@ -450,19 +453,21 @@ export function GlobalSearch({ className }: { className?: string }) {
       </div>
 
       {mobileOpen ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="shrink-0 md:hidden"
-          aria-label="Cerrar búsqueda"
-          onClick={() => {
-            close();
-            setMobileOpen(false);
-          }}
-        >
-          <X aria-hidden className="h-4 w-4" />
-        </Button>
+        <Tip label="Cerrar búsqueda">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="shrink-0 md:hidden"
+            aria-label="Cerrar búsqueda"
+            onClick={() => {
+              close();
+              setMobileOpen(false);
+            }}
+          >
+            <X aria-hidden className="h-4 w-4" />
+          </Button>
+        </Tip>
       ) : null}
 
       {/* Una sola región viva para toda la búsqueda. */}

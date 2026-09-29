@@ -23,6 +23,7 @@ import {
   Gauge,
   KeyRound,
   HelpCircle,
+  LifeBuoy,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -100,7 +101,10 @@ const NAV: NavGroup[] = [
  * sin importar qué combinación de `NAV`/`PLATFORM_NAV` esté activa.
  */
 const HELP_NAV_GROUP: NavGroup = {
-  items: [{ href: "/ayuda", label: "Ayuda", icon: HelpCircle, description: "Guías de uso del panel" }],
+  items: [
+    { href: "/ayuda", label: "Ayuda", icon: HelpCircle, description: "Guías de uso del panel" },
+    { href: "/soporte", label: "Soporte", icon: LifeBuoy, description: "Cómo pedir ayuda al equipo" },
+  ],
 };
 
 /**
@@ -123,8 +127,15 @@ const PLATFORM_NAV: NavGroup = {
       label: "Empresas",
       icon: Building2,
       description: "Alta, gestión y usuarios por tenant",
-      // El detalle vive en /super-admin/{id}; usage tiene su propia entrada.
-      activePattern: /^\/super-admin\/(?!usage(?:\/|$))[^/]+/,
+      // El detalle vive en /super-admin/{id}; usage, users y api-keys tienen
+      // su propia entrada y no deben encender "Empresas".
+      activePattern: /^\/super-admin\/(?!(?:usage|users|api-keys)(?:\/|$))[^/]+/,
+    },
+    {
+      href: "/super-admin/users",
+      label: "Usuarios",
+      icon: Users,
+      description: "Cuentas de toda la plataforma",
     },
     {
       href: "/super-admin/usage",

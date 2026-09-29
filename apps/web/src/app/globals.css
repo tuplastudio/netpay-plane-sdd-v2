@@ -341,3 +341,71 @@
     background-attachment: local, local, scroll, scroll;
   }
 }
+
+/* Leaflet: modo oscuro
+   El mapa de zonas de envío (admin → Envío a domicilio) usa teselas de
+   OpenStreetMap, que son claras. En oscuro se invierten y desaturan para que
+   el mapa no sea un rectángulo blanco sobre el lienzo; los polígonos de zona
+   van en una capa aparte (overlay-pane) y conservan su color. Controles,
+   atribución y tooltips usan los tokens del tema en ambos modos. */
+.leaflet-container {
+  font-family: inherit;
+  background: hsl(var(--muted));
+}
+.dark .leaflet-tile-pane {
+  filter: brightness(0.6) invert(1) contrast(3) hue-rotate(200deg) saturate(0.3) brightness(0.7);
+}
+.leaflet-bar {
+  border: 1px solid hsl(var(--border-strong)) !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+.leaflet-bar a,
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-bottom-color: hsl(var(--border)) !important;
+}
+.leaflet-bar a:hover,
+.leaflet-bar a:focus {
+  background: hsl(var(--accent)) !important;
+}
+.leaflet-bar a:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+.leaflet-bar a.leaflet-disabled {
+  color: hsl(var(--muted-foreground)) !important;
+  background: hsl(var(--muted)) !important;
+}
+.leaflet-control-attribution {
+  background: hsl(var(--card) / 0.85) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  font-size: 10px;
+}
+.leaflet-control-attribution a {
+  color: hsl(var(--primary)) !important;
+}
+.leaflet-tooltip,
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow: none !important;
+}
+.leaflet-tooltip {
+  border-radius: 6px;
+  font-size: 12px;
+}
+.leaflet-tooltip-top::before,
+.leaflet-tooltip-bottom::before,
+.leaflet-tooltip-left::before,
+.leaflet-tooltip-right::before {
+  border-top-color: hsl(var(--popover));
+  border-bottom-color: hsl(var(--popover));
+  border-left-color: hsl(var(--popover));
+  border-right-color: hsl(var(--popover));
+}

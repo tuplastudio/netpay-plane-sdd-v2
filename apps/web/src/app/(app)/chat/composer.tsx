@@ -5,6 +5,7 @@ import { Mic, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tip } from "@/components/app/info-tip";
 
 /**
  * Redactor del hilo. Va anclado al pie del panel de conversación (fuera del
@@ -66,21 +67,23 @@ export function Composer({
           placeholder="Pregunta por un producto, precios o envíos…"
           className="max-h-40 min-h-[2.5rem] flex-1 resize-y py-2"
         />
-        <Button
-          type="button"
-          variant={recording ? "destructive" : "outline"}
-          size="icon"
-          aria-label={recording ? "Detener la nota de voz" : "Grabar una nota de voz"}
-          aria-pressed={recording}
-          onClick={onToggleRecording}
-          disabled={busy || disabled}
-        >
-          {recording ? (
-            <Square aria-hidden className="h-4 w-4" />
-          ) : (
-            <Mic aria-hidden className="h-4 w-4" />
-          )}
-        </Button>
+        <Tip label={recording ? "Detener la nota de voz" : "Grabar una nota de voz"}>
+          <Button
+            type="button"
+            variant={recording ? "destructive" : "outline"}
+            size="icon"
+            aria-label={recording ? "Detener la nota de voz" : "Grabar una nota de voz"}
+            aria-pressed={recording}
+            onClick={onToggleRecording}
+            disabled={busy || disabled}
+          >
+            {recording ? (
+              <Square aria-hidden className="h-4 w-4" />
+            ) : (
+              <Mic aria-hidden className="h-4 w-4" />
+            )}
+          </Button>
+        </Tip>
         <Button type="submit" loading={busy} disabled={!canSend}>
           <Send aria-hidden className="h-4 w-4" />
           Enviar

@@ -7,6 +7,8 @@ import { TablePager } from "@/components/app/table-pager";
 import { usePagedQuery } from "@/components/app/use-paged-query";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
+import { EntityId } from "@/components/app/entity-id";
+import { InfoTip } from "@/components/app/info-tip";
 import { AuditEventSheet, auditActorLabel, type AuditEvent } from "./audit-event-sheet";
 
 const columns: Array<DataTableColumn<AuditEvent>> = [
@@ -37,16 +39,19 @@ const columns: Array<DataTableColumn<AuditEvent>> = [
   },
   {
     key: "target",
-    header: "Objetivo",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Objetivo
+        <InfoTip label="Objetivo" text="Registro sobre el que se hizo la acción (cotización, pedido, cliente…). Abre el evento para ir a él." />
+      </span>
+    ),
     width: "13rem",
     cell: (e) =>
       e.targetType || e.targetId ? (
         <span className="inline-flex items-baseline gap-1.5">
           {e.targetType ? <span className="text-xs">{e.targetType}</span> : null}
           {e.targetId ? (
-            <span className="font-mono text-xs text-muted-foreground" title={e.targetId}>
-              {e.targetId.slice(0, 8)}…
-            </span>
+            <EntityId value={e.targetId} copyable={false} className="text-muted-foreground" />
           ) : null}
         </span>
       ) : (

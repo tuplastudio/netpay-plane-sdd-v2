@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Activity, KeyRound, ShieldCheck } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 import { PasswordSection } from "./password-section";
 import { MfaSection } from "./mfa-section";
 import { AuditSection } from "./audit-section";
@@ -97,7 +98,7 @@ export function SecurityTabs() {
 function ActivityIntro() {
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      <div className="rounded-card border bg-card p-4">
+      <Card className="p-4">
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <KeyRound aria-hidden className="h-3.5 w-3.5" />
           Contraseña
@@ -105,8 +106,8 @@ function ActivityIntro() {
         <p className="mt-2 text-sm">
           Tu llave de acceso al portal. Se cambia escribiendo la actual.
         </p>
-      </div>
-      <div className="rounded-card border bg-card p-4">
+      </Card>
+      <Card className="p-4">
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <ShieldCheck aria-hidden className="h-3.5 w-3.5" />
           Verificación en dos pasos
@@ -114,8 +115,8 @@ function ActivityIntro() {
         <p className="mt-2 text-sm">
           Segundo factor con una app autenticadora. <Badge variant="muted" size="sm">Recomendado</Badge>
         </p>
-      </div>
-      <div className="rounded-card border bg-card p-4">
+      </Card>
+      <Card className="p-4">
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <Activity aria-hidden className="h-3.5 w-3.5" />
           Actividad
@@ -123,7 +124,7 @@ function ActivityIntro() {
         <p className="mt-2 text-sm">
           Cambios importantes de tu cuenta y de tu tenant. Solo lectura.
         </p>
-      </div>
+      </Card>
     </div>
   );
 }

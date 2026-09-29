@@ -13,7 +13,9 @@ import { Select } from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { InfoTip } from "@/components/app/info-tip";
 import {
+  CATALOG_FIELD_HELP,
   Field,
   ORIGIN_SYSTEM_OPTIONS,
   ORIGIN_SYSTEM_OTHER_VALUE,
@@ -139,7 +141,11 @@ export function CreateProductSheet({
                 <legend className="text-sm font-semibold">Producto</legend>
                 <div className="mt-3 space-y-4">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field label="SKU" error={errors.sku?.message}>
+                    <Field
+                      label="SKU"
+                      labelExtra={<InfoTip label="SKU" text={CATALOG_FIELD_HELP.sku} />}
+                      error={errors.sku?.message}
+                    >
                       {(p) => (
                         <Input
                           autoFocus
@@ -221,7 +227,11 @@ export function CreateProductSheet({
                       <Input inputMode="decimal" placeholder="99.00" {...p} {...form.register("price")} />
                     )}
                   </Field>
-                  <Field label="Clave SAT de producto" error={errors.satProductCode?.message}>
+                  <Field
+                    label="Clave SAT de producto"
+                    labelExtra={<InfoTip label="Clave SAT de producto" text={CATALOG_FIELD_HELP.satProductCode} />}
+                    error={errors.satProductCode?.message}
+                  >
                     {(p) => (
                       <Input
                         inputMode="numeric"
@@ -231,11 +241,16 @@ export function CreateProductSheet({
                       />
                     )}
                   </Field>
-                  <Field label="Clave SAT de unidad" error={errors.satUnitCode?.message}>
+                  <Field
+                    label="Clave SAT de unidad"
+                    labelExtra={<InfoTip label="Clave SAT de unidad" text={CATALOG_FIELD_HELP.satUnitCode} />}
+                    error={errors.satUnitCode?.message}
+                  >
                     {(p) => <Input placeholder="H87" {...p} {...form.register("satUnitCode")} />}
                   </Field>
                   <Field
                     label="Existencias"
+                    labelExtra={<InfoTip label="Existencias" text={CATALOG_FIELD_HELP.stock} />}
                     hint="Vacío = sin control de inventario. Formato 25 o 25.500."
                     error={errors.stock?.message}
                   >
@@ -245,6 +260,7 @@ export function CreateProductSheet({
                   </Field>
                   <Field
                     label="Sistema de origen"
+                    labelExtra={<InfoTip label="Sistema de origen" text={CATALOG_FIELD_HELP.originSystem} />}
                     hint="Si este producto viene de una tienda o ERP externo."
                     error={errors.originSystem?.message}
                   >

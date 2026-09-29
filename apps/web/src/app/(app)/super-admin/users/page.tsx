@@ -12,6 +12,7 @@ import { Section } from "@/components/app/section";
 import { TablePager } from "@/components/app/table-pager";
 import { usePagedQuery } from "@/components/app/use-paged-query";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { COL_TIPS, ColHead } from "../_components/col-head";
 import { DateTime } from "@/components/app/date-time";
 import { type PlatformUser, formatInt } from "../_shared";
 
@@ -26,7 +27,7 @@ const columns: Array<DataTableColumn<PlatformUser>> = [
   { key: "email", header: "Correo", className: "text-muted-foreground", cell: (u) => u.email },
   {
     key: "mfa",
-    header: "MFA",
+    header: <ColHead label="MFA" tip={COL_TIPS.mfa} />,
     width: "7rem",
     cell: (u) =>
       u.totpEnabled ? (
@@ -41,7 +42,7 @@ const columns: Array<DataTableColumn<PlatformUser>> = [
   },
   {
     key: "superAdmin",
-    header: "Super-admin",
+    header: <ColHead label="Super-admin" tip={COL_TIPS.superAdmin} />,
     width: "8rem",
     cell: (u) =>
       u.isSuperAdmin ? (

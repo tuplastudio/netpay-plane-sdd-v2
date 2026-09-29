@@ -5,6 +5,7 @@ import { HeartPulse, Plug, PlugZap, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Section } from "@/components/app/section";
+import { InfoTip } from "@/components/app/info-tip";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { ClientPagination, usePagination } from "@/components/app/client-pagination";
 import { DateTime } from "@/components/app/date-time";
@@ -71,7 +72,15 @@ export function ConnectionsTable({
     },
     {
       key: "status",
-      header: "Estado",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Estado
+          <InfoTip
+            label="Estado"
+            text="Conectado: recibe y envía mensajes. Esperando confirmación: falta el primer webhook. Con error: revisa credenciales y pulsa Verificar."
+          />
+        </span>
+      ),
       width: "14rem",
       cell: (c) => (
         <div className="space-y-1">
@@ -89,7 +98,12 @@ export function ConnectionsTable({
     },
     {
       key: "connectedAt",
-      header: "Conectado desde",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Conectado desde
+          <InfoTip label="Conectado desde" text="Fecha en que el canal quedó activo por última vez." />
+        </span>
+      ),
       width: "12rem",
       cell: (c) => <DateTime value={c.connectedAt} className="text-muted-foreground" />,
     },
