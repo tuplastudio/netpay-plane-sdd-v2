@@ -17,6 +17,7 @@ import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { CreateQuoteDto, UpdateQuoteDto, ShareQuoteDto } from "./quote.dto.js";
 import { renderQuotePdf, type QuotePdfData } from "./quote-pdf.js";
+import { buildPageInfo, parsePaging } from "../common/pagination.js";
 
 @Controller("quotes")
 @UseGuards(RoleGuard)
@@ -25,10 +26,17 @@ export class QuoteController {
 
   @Get()
   @RequireScopes("quotes.read")
-  async list(@Query("status") status?: string) {
+  async list(
+    @Query("status") status?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
     const tenantId = this.requireTenant();
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 25, maxLimit: 100 });
+    const { items, total } = await this.quotes.list(tenantId, status, paging);
     return {
-      data: await this.quotes.list(tenantId, status),
+      data: items,
+      pageInfo: buildPageInfo(total, paging),
       requestId: RequestContext.requestId,
     };
   }

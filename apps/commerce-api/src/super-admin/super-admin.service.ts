@@ -10,6 +10,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { UsageService } from "../usage/usage.service.js";
+import type { Paging } from "../common/pagination.js";
 
 export interface UsageMtd {
   costUsd: string;
@@ -290,7 +291,7 @@ export class SuperAdminService {
   // Usuarios (directorio cross-tenant)
   // -------------------------------------------------------------------------
 
-  async listUsers(q?: string) {
+  async listUsers(q: string | undefined, paging: Paging) {
     const term = q?.trim();
     const where: Prisma.UserWhereInput | undefined = term
       ? {
@@ -300,24 +301,29 @@ export class SuperAdminService {
           ],
         }
       : undefined;
-    return this.prisma.user.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      take: 200,
-      // Selección explícita: nunca passwordHash, totpSecret ni recoveryCodesHash.
-      select: {
-        ...SAFE_USER_SELECT,
-        totpEnabled: true,
-        memberships: {
-          select: {
-            id: true,
-            role: true,
-            status: true,
-            tenant: { select: { id: true, name: true, slug: true, status: true } },
+    const [items, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
+        // Selección explícita: nunca passwordHash, totpSecret ni recoveryCodesHash.
+        select: {
+          ...SAFE_USER_SELECT,
+          totpEnabled: true,
+          memberships: {
+            select: {
+              id: true,
+              role: true,
+              status: true,
+              tenant: { select: { id: true, name: true, slug: true, status: true } },
+            },
           },
         },
-      },
-    });
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+    return { items, total };
   }
 
   private tenantNotFound(): NotFoundException {

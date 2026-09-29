@@ -5,6 +5,7 @@ import { Controller, Get, NotFoundException, Param, Query, UseGuards } from "@ne
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
+import { buildPageInfo, parsePaging } from "../common/pagination.js";
 
 /** El actor se expone con lo mínimo para nombrarlo en el UI; nunca hashes ni TOTP. */
 const ACTOR_INCLUDE = {
@@ -22,20 +23,28 @@ export class AuditController {
     @Query("action") action?: string,
     @Query("targetType") targetType?: string,
     @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
   ) {
     const tenantId = RequestContext.tenantId!;
-    const take = Math.min(Number(limit ?? 50), 200);
-    return {
-      data: await this.prisma.auditLog.findMany({
-        where: {
-          tenantId,
-          ...(action ? { action } : {}),
-          ...(targetType ? { targetType } : {}),
-        },
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 50, maxLimit: 200 });
+    const where = {
+      tenantId,
+      ...(action ? { action } : {}),
+      ...(targetType ? { targetType } : {}),
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
         include: ACTOR_INCLUDE,
-        orderBy: { createdAt: "desc" },
-        take,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
       }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+    return {
+      data,
+      pageInfo: buildPageInfo(total, paging),
       requestId: RequestContext.requestId,
     };
   }

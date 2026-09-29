@@ -1,6 +1,10 @@
 import { BadRequestException, Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { ReportsService } from "./reports.service.js";
-import { AttentionReportService, resolveRange } from "./attention.service.js";
+import {
+  AttentionReportService,
+  resolveRange,
+  type AttentionProvider,
+} from "./attention.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { effectiveScopesOf } from "../auth/policies.js";
@@ -18,6 +22,9 @@ import { effectiveScopesOf } from "../auth/policies.js";
  * `RequireScopes` es conjuntivo y esa combinación dejaría fuera a FINANCE, que
  * no tiene `chat.read` y sí es el rol que vive en esta pantalla.
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ATTENTION_PROVIDERS: AttentionProvider[] = ["META", "EVOLUTION"];
+
 @Controller("reports")
 @UseGuards(RoleGuard)
 export class ReportsController {
@@ -33,7 +40,12 @@ export class ReportsController {
    */
   @Get("attention")
   @RequireScopes("chat.read")
-  async attentionReport(@Query("from") from?: string, @Query("to") to?: string) {
+  async attentionReport(
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+    @Query("agentId") agentId?: string,
+    @Query("provider") provider?: string,
+  ) {
     const tenantId = RequestContext.tenantId!;
     const parse = (name: string, raw?: string) => {
       if (!raw) return undefined;
@@ -48,8 +60,15 @@ export class ReportsController {
       if (e instanceof RangeError) throw new BadRequestException(e.message);
       throw e;
     }
+    if (agentId && !UUID_RE.test(agentId)) throw new BadRequestException("agentId no es un UUID válido");
+    if (provider && !ATTENTION_PROVIDERS.includes(provider as AttentionProvider)) {
+      throw new BadRequestException("provider debe ser META o EVOLUTION");
+    }
     return {
-      data: await this.attention.report(tenantId, range),
+      data: await this.attention.report(tenantId, range, {
+        agentId: agentId || undefined,
+        provider: (provider || undefined) as AttentionProvider | undefined,
+      }),
       requestId: RequestContext.requestId,
     };
   }

@@ -13,6 +13,8 @@
  * use este helper comparte ese orden, lo que hace que los cursors
  * sean comparables entre páginas sin "saltarse" filas.
  */
+import { BadRequestException } from "@nestjs/common";
+
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 100;
 
@@ -95,4 +97,52 @@ export async function listPage<T extends { id: string; updatedAt: Date }>(
       invalidCursor,
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Paginación por offset (listados con `total` para paginadores numerados)
+// ---------------------------------------------------------------------------
+
+/** `pageInfo` de los listados paginados por `limit`/`offset`. */
+export interface OffsetPageInfo {
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PagingOptions {
+  defaultLimit: number;
+  maxLimit: number;
+}
+
+export interface Paging {
+  limit: number;
+  offset: number;
+}
+
+function parseIntParam(name: string, raw: unknown, min: number): number | undefined {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(n) || n < min) {
+    throw new BadRequestException(`${name} must be an integer >= ${min}`);
+  }
+  return n;
+}
+
+/**
+ * Lee `limit`/`offset` de un query string. Sin params → primera página con el
+ * default. Valor no entero o fuera de rango inferior → 400 (misma convención
+ * que `parseLimit` de whatsapp.controller); `limit` sobre el máximo se recorta.
+ */
+export function parsePaging(
+  query: { limit?: unknown; offset?: unknown },
+  opts: PagingOptions,
+): Paging {
+  const limit = parseIntParam("limit", query.limit, 1) ?? opts.defaultLimit;
+  const offset = parseIntParam("offset", query.offset, 0) ?? 0;
+  return { limit: Math.min(limit, opts.maxLimit), offset };
+}
+
+export function buildPageInfo(total: number, paging: Paging): OffsetPageInfo {
+  return { total, limit: paging.limit, offset: paging.offset };
 }

@@ -17,6 +17,7 @@ import {
 import { CatalogService } from "./catalog.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
+import { parsePaging } from "../common/pagination.js";
 import { ProductImageUploadInterceptor } from "./product-image-upload.interceptor.js";
 import {
   AddVariantDto,
@@ -40,13 +41,20 @@ export class CatalogController {
     @Query("status") status?: string,
     @Query("cursor") cursor?: string,
     @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
   ) {
     const tenantId = this.requireTenant();
+    // `offset` inválido → 400 (misma regla que el resto de listados).
+    const offsetValue =
+      offset === undefined || offset === ""
+        ? undefined
+        : parsePaging({ offset }, { defaultLimit: 25, maxLimit: 100 }).offset;
     const { items, pageInfo } = await this.catalog.listProducts(tenantId, {
       q,
       status: status as "DRAFT" | "ACTIVE" | "ARCHIVED" | undefined,
       cursor,
-      limit: limit ? Number(limit) : undefined,
+      limit: limit ? parsePaging({ limit }, { defaultLimit: 25, maxLimit: 100 }).limit : undefined,
+      offset: offsetValue,
     });
     return { data: items, pageInfo, requestId: RequestContext.requestId };
   }

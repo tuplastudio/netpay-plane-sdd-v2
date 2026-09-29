@@ -26,6 +26,15 @@ export interface AttentionRange {
   to: Date;
 }
 
+export type AttentionProvider = "META" | "EVOLUTION";
+
+/** Filtros opcionales del reporte; todos se aplican a TODAS las consultas. */
+export interface AttentionFilters {
+  /** Hilos que esa persona lleva o en los que contestó (y solo su fila en `agents`). */
+  agentId?: string;
+  provider?: AttentionProvider;
+}
+
 export interface AttentionAgentRow {
   userId: string;
   fullName: string;
@@ -82,6 +91,13 @@ export interface AttentionReport {
   };
   agents: AttentionAgentRow[];
   byDay: AttentionDayRow[];
+  /** Filtros que se aplicaron (eco, `null` = sin filtrar). */
+  filters: { agentId: string | null; provider: AttentionProvider | null };
+  /** Hilos con actividad en el rango (creados o con mensaje), por estado y canal actuales. */
+  breakdown: {
+    byStatus: { OPEN: number; HANDED_OFF: number; CLOSED: number };
+    byProvider: { META: number; EVOLUTION: number };
+  };
 }
 
 /** Rango por defecto y validación: `from < to`, tope de un año. */
@@ -143,6 +159,11 @@ interface DayMsgRow {
   out_human: bigint;
   out_bot: bigint;
 }
+interface BreakdownRow {
+  status: string;
+  provider: string;
+  n: bigint;
+}
 interface DayConvRow {
   day: string;
   n: bigint;
@@ -152,8 +173,35 @@ interface DayConvRow {
 export class AttentionReportService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async report(tenantId: string, range: AttentionRange): Promise<AttentionReport> {
+  async report(
+    tenantId: string,
+    range: AttentionRange,
+    filters: AttentionFilters = {},
+  ): Promise<AttentionReport> {
     const { from, to } = range;
+    const { agentId, provider } = filters;
+    // Filtro sobre `WhatsAppConversation` (alias fijo, nunca input del usuario).
+    const convScope = (alias: string): Prisma.Sql => {
+      const a = Prisma.raw(alias);
+      const parts: Prisma.Sql[] = [];
+      if (provider) {
+        parts.push(Prisma.sql`AND EXISTS (
+          SELECT 1 FROM "WhatsAppConnection" wc
+           WHERE wc."id" = ${a}."connectionId" AND wc."provider" = ${provider}::"WhatsAppProvider")`);
+      }
+      if (agentId) {
+        parts.push(Prisma.sql`AND (${a}."handoffUserId" = ${agentId}::uuid OR EXISTS (
+          SELECT 1 FROM "WhatsAppMessage" am
+           WHERE am."conversationId" = ${a}."id" AND am."sentByUserId" = ${agentId}::uuid))`);
+      }
+      return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
+    };
+    // Mismo filtro para mensajes: vía su conversación.
+    const msgScope: Prisma.Sql =
+      provider || agentId
+        ? Prisma.sql`AND EXISTS (SELECT 1 FROM "WhatsAppConversation" sc
+             WHERE sc."id" = m."conversationId" ${convScope("sc")})`
+        : Prisma.empty;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { timezone: true },
@@ -171,6 +219,7 @@ export class AttentionReportService {
       dayConvs,
       memberships,
       assignedNow,
+      breakdownRows,
     ] = await Promise.all([
         this.prisma.$queryRaw<OverviewRow[]>(Prisma.sql`
           SELECT
@@ -195,7 +244,7 @@ export class AttentionReportService {
             AVG(EXTRACT(EPOCH FROM (c."closedAt" - c."createdAt")))
               FILTER (WHERE c."closedAt" >= ${from} AND c."closedAt" < ${to}) AS avg_resolution
           FROM "WhatsAppConversation" c
-          WHERE c."tenantId" = ${tenantId}::uuid
+          WHERE c."tenantId" = ${tenantId}::uuid ${convScope("c")}
         `),
         this.prisma.$queryRaw<MessagesRow[]>(Prisma.sql`
           SELECT
@@ -203,7 +252,7 @@ export class AttentionReportService {
             COUNT(*) FILTER (WHERE m."direction" = 'OUTBOUND' AND m."sentByUserId" IS NOT NULL) AS out_human,
             COUNT(*) FILTER (WHERE m."direction" = 'OUTBOUND' AND m."sentByUserId" IS NULL) AS out_bot
           FROM "WhatsAppMessage" m
-          WHERE m."tenantId" = ${tenantId}::uuid AND m."createdAt" >= ${from} AND m."createdAt" < ${to}
+          WHERE m."tenantId" = ${tenantId}::uuid AND m."createdAt" >= ${from} AND m."createdAt" < ${to} ${msgScope}
         `),
         this.prisma.$queryRaw<NowRow[]>(Prisma.sql`
           SELECT
@@ -218,13 +267,13 @@ export class AttentionReportService {
             ) AS awaiting,
             COUNT(*) FILTER (WHERE c."handoffToHuman" = true AND c."handoffUserId" IS NOT NULL AND c."status" <> 'CLOSED') AS assigned
           FROM "WhatsAppConversation" c
-          WHERE c."tenantId" = ${tenantId}::uuid AND c."status" <> 'CLOSED'
+          WHERE c."tenantId" = ${tenantId}::uuid AND c."status" <> 'CLOSED' ${convScope("c")}
         `),
         this.prisma.$queryRaw<AgentMsgRow[]>(Prisma.sql`
           SELECT m."sentByUserId"::text AS uid, COUNT(*) AS msgs, COUNT(DISTINCT m."conversationId") AS convs
           FROM "WhatsAppMessage" m
           WHERE m."tenantId" = ${tenantId}::uuid AND m."sentByUserId" IS NOT NULL
-            AND m."createdAt" >= ${from} AND m."createdAt" < ${to}
+            AND m."createdAt" >= ${from} AND m."createdAt" < ${to} ${msgScope}
           GROUP BY m."sentByUserId"
         `),
         this.prisma.$queryRaw<AgentReplyRow[]>(Prisma.sql`
@@ -239,7 +288,7 @@ export class AttentionReportService {
           ) fm ON true
           WHERE c."tenantId" = ${tenantId}::uuid
             AND c."handoffAt" >= ${from} AND c."handoffAt" < ${to}
-            AND c."firstHumanReplyAt" >= c."handoffAt"
+            AND c."firstHumanReplyAt" >= c."handoffAt" ${convScope("c")}
           GROUP BY fm."sentByUserId"
         `),
         // Resolución por agente: desde el handoff (cuando lo tomó) hasta el
@@ -255,7 +304,7 @@ export class AttentionReportService {
           FROM "WhatsAppConversation" c
           WHERE c."tenantId" = ${tenantId}::uuid
             AND c."handoffUserId" IS NOT NULL
-            AND c."closedAt" >= ${from} AND c."closedAt" < ${to}
+            AND c."closedAt" >= ${from} AND c."closedAt" < ${to} ${convScope("c")}
           GROUP BY c."handoffUserId"
         `),
         this.prisma.$queryRaw<DayMsgRow[]>(Prisma.sql`
@@ -264,13 +313,13 @@ export class AttentionReportService {
                  COUNT(*) FILTER (WHERE m."direction" = 'OUTBOUND' AND m."sentByUserId" IS NOT NULL) AS out_human,
                  COUNT(*) FILTER (WHERE m."direction" = 'OUTBOUND' AND m."sentByUserId" IS NULL) AS out_bot
           FROM "WhatsAppMessage" m
-          WHERE m."tenantId" = ${tenantId}::uuid AND m."createdAt" >= ${from} AND m."createdAt" < ${to}
+          WHERE m."tenantId" = ${tenantId}::uuid AND m."createdAt" >= ${from} AND m."createdAt" < ${to} ${msgScope}
           GROUP BY 1
         `),
         this.prisma.$queryRaw<DayConvRow[]>(Prisma.sql`
           SELECT to_char(c."createdAt" AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day, COUNT(*) AS n
           FROM "WhatsAppConversation" c
-          WHERE c."tenantId" = ${tenantId}::uuid AND c."createdAt" >= ${from} AND c."createdAt" < ${to}
+          WHERE c."tenantId" = ${tenantId}::uuid AND c."createdAt" >= ${from} AND c."createdAt" < ${to} ${convScope("c")}
           GROUP BY 1
         `),
         this.prisma.membership.findMany({
@@ -279,9 +328,23 @@ export class AttentionReportService {
         }),
         this.prisma.whatsAppConversation.groupBy({
           by: ["handoffUserId"],
-          where: { tenantId, status: "HANDED_OFF", handoffUserId: { not: null } },
+          where: {
+            tenantId,
+            status: "HANDED_OFF",
+            handoffUserId: agentId ?? { not: null },
+            ...(provider ? { connection: { provider } } : {}),
+          },
           _count: { _all: true },
         }),
+        this.prisma.$queryRaw<BreakdownRow[]>(Prisma.sql`
+          SELECT c."status"::text AS status, wc."provider"::text AS provider, COUNT(*) AS n
+          FROM "WhatsAppConversation" c
+          JOIN "WhatsAppConnection" wc ON wc."id" = c."connectionId"
+          WHERE c."tenantId" = ${tenantId}::uuid
+            AND ((c."createdAt" >= ${from} AND c."createdAt" < ${to})
+              OR (c."lastMessageAt" >= ${from} AND c."lastMessageAt" < ${to})) ${convScope("c")}
+          GROUP BY 1, 2
+        `),
       ]);
 
     const o = overview[0];
@@ -298,9 +361,11 @@ export class AttentionReportService {
     const loadByUser = new Map(
       assignedNow.filter((g) => g.handoffUserId).map((g) => [g.handoffUserId!, g._count._all]),
     );
-    const ids = Array.from(
-      new Set([...activeIds, ...msgByUser.keys(), ...loadByUser.keys(), ...closedByUser.keys()]),
-    );
+    const ids = agentId
+      ? [agentId]
+      : Array.from(
+          new Set([...activeIds, ...msgByUser.keys(), ...loadByUser.keys(), ...closedByUser.keys()]),
+        );
     const users = ids.length
       ? await this.prisma.user.findMany({
           where: { id: { in: ids } },
@@ -321,6 +386,16 @@ export class AttentionReportService {
         avgResolutionSeconds: secs(closedByUser.get(u.id)?.avg_sec),
       }))
       .sort((a, b) => b.messagesSent - a.messagesSent || a.fullName.localeCompare(b.fullName));
+
+    const breakdown: AttentionReport["breakdown"] = {
+      byStatus: { OPEN: 0, HANDED_OFF: 0, CLOSED: 0 },
+      byProvider: { META: 0, EVOLUTION: 0 },
+    };
+    for (const r of breakdownRows) {
+      const n = num(r.n);
+      if (r.status in breakdown.byStatus) breakdown.byStatus[r.status as keyof typeof breakdown.byStatus] += n;
+      if (r.provider in breakdown.byProvider) breakdown.byProvider[r.provider as AttentionProvider] += n;
+    }
 
     const msgByDay = new Map(dayMsgs.map((r) => [r.day, r]));
     const convByDay = new Map(dayConvs.map((r) => [r.day, num(r.n)]));
@@ -355,6 +430,8 @@ export class AttentionReportService {
       },
       agents,
       byDay,
+      filters: { agentId: agentId ?? null, provider: provider ?? null },
+      breakdown,
     };
   }
 }

@@ -23,6 +23,7 @@ import { parseConstancia } from "./constancia-parser.js";
 import { writeObject } from "../tenants/logo-storage.js";
 import { publicUrlForKey } from "../tenants/logo-storage.js";
 import { RFC_RE, POSTAL_CODE_RE, REGIMEN_FISCAL_RE, CFDI_USE_RE } from "./order.dto.js";
+import type { Paging } from "../common/pagination.js";
 
 const MAX_CONSTANCIA_BYTES = 8 * 1024 * 1024; // 8 MB, de sobra para un PDF de 1-2 páginas.
 
@@ -118,13 +119,19 @@ export class OrderService {
     });
   }
 
-  async list(tenantId: string, status?: string) {
-    return this.prisma.order.findMany({
-      where: { tenantId, ...(status ? { status: status as never } : {}) },
-      include: { customer: true, revisions: true, payments: true },
-      orderBy: { updatedAt: "desc" },
-      take: 50,
-    });
+  async list(tenantId: string, status: string | undefined, paging: Paging) {
+    const where = { tenantId, ...(status ? { status: status as never } : {}) };
+    const [items, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: { customer: true, revisions: true, payments: true },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
+      }),
+      this.prisma.order.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async get(tenantId: string, id: string) {

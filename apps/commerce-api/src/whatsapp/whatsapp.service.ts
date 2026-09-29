@@ -93,6 +93,8 @@ export type ConversationSort = "recent" | "oldest";
 export interface ConversationListFilters {
   /** Fragmento del teléfono (E.164) del cliente. */
   q?: string;
+  /** Un hilo concreto (deep link a un hilo fuera de la página visible). */
+  id?: string;
   status?: ConversationStatus;
   /** `human`: transferidas a una persona; `agent`: las atiende el bot. */
   handoff?: "agent" | "human";
@@ -101,6 +103,8 @@ export interface ConversationListFilters {
   from?: Date;
   to?: Date;
   limit?: number;
+  /** Salto para paginado por página (con `limit`). */
+  offset?: number;
   /** Una etiqueta del hilo (ver `WhatsAppConversation.tags`). */
   tag?: string;
   /** Solo hilos sin asignar / asignados a esta persona. */
@@ -1740,10 +1744,29 @@ export class WhatsAppService {
    * de una sola consulta: el `messages: { take: 1 }` anidado se traduce a un
    * lateral join por hilo, suficiente para el tamaño actual de la tabla.
    */
-  async listConversations(tenantId: string, filters: ConversationListFilters = {}) {
+  /**
+   * `where` de la bandeja, compartido por el listado y su conteo para que el
+   * total del paginado describa EXACTAMENTE las mismas filas. La búsqueda `q`
+   * acepta teléfono o nombre del cliente (los nombres viven en `Customer`).
+   */
+  private async conversationWhere(
+    tenantId: string,
+    filters: ConversationListFilters,
+  ): Promise<Prisma.WhatsAppConversationWhereInput> {
     const where: Prisma.WhatsAppConversationWhereInput = { tenantId };
+    if (filters.id) where.id = filters.id;
     const q = filters.q?.trim();
-    if (q) where.externalPhone = { contains: q };
+    if (q) {
+      const byName = await this.prisma.customer.findMany({
+        where: { tenantId, fullName: { contains: q, mode: "insensitive" } },
+        select: { id: true },
+        take: 200,
+      });
+      where.OR = [
+        { externalPhone: { contains: q } },
+        ...(byName.length ? [{ customerId: { in: byName.map((c) => c.id) } }] : []),
+      ];
+    }
     if (filters.status) where.status = filters.status;
     if (filters.handoff) where.handoffToHuman = filters.handoff === "human";
     if (filters.provider) where.connection = { provider: filters.provider };
@@ -1763,6 +1786,17 @@ export class WhatsAppService {
         ...(filters.to ? { lte: filters.to } : {}),
       };
     }
+    return where;
+  }
+
+  async countConversations(tenantId: string, filters: ConversationListFilters = {}) {
+    return this.prisma.whatsAppConversation.count({
+      where: await this.conversationWhere(tenantId, filters),
+    });
+  }
+
+  async listConversations(tenantId: string, filters: ConversationListFilters = {}) {
+    const where = await this.conversationWhere(tenantId, filters);
     const limit = Math.min(Math.max(filters.limit ?? DEFAULT_CONVERSATION_LIMIT, 1), MAX_PAGE_SIZE);
 
     const rows = await this.prisma.whatsAppConversation.findMany({
@@ -1772,8 +1806,9 @@ export class WhatsAppService {
         handoffUser: { select: { id: true, fullName: true } },
         messages: LATEST_MESSAGE,
       },
-      orderBy: { lastMessageAt: filters.sort === "oldest" ? "asc" : "desc" },
+      orderBy: [{ lastMessageAt: filters.sort === "oldest" ? "asc" : "desc" }, { id: "desc" }],
       take: limit,
+      skip: Math.max(filters.offset ?? 0, 0),
     });
 
     // `lastInboundAt` exacto aunque el último mensaje sea nuestro: un

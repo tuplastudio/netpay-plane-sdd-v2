@@ -24,6 +24,7 @@ import { Request, Response } from "express";
 import { SuperAdminGuard } from "../auth/guards/super-admin.guard.js";
 import { COOKIE_ATTRS, IMPERSONATE_COOKIE } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
+import { buildPageInfo, parsePaging } from "../common/pagination.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { SuperAdminService } from "./super-admin.service.js";
 
@@ -42,9 +43,14 @@ export class SuperAdminController {
   }
 
   @Get("users")
-  async users(@Query("q") q?: string) {
-    const data = await this.superAdmin.listUsers(q);
-    return { data, requestId: RequestContext.requestId };
+  async users(
+    @Query("q") q?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 50, maxLimit: 100 });
+    const { items, total } = await this.superAdmin.listUsers(q, paging);
+    return { data: items, pageInfo: buildPageInfo(total, paging), requestId: RequestContext.requestId };
   }
 
   /**

@@ -52,7 +52,7 @@ function makeController(status = "ACTIVE") {
       },
     },
   };
-  const superAdmin = { overview: async () => ({}), listUsers: async () => [] };
+  const superAdmin = { overview: async () => ({}), listUsers: async () => ({ items: [], total: 0 }) };
 
   const controller = new SuperAdminController(superAdmin as never, prisma as never);
   const res = {

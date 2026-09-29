@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import type { Prisma, Customer } from "@prisma/client";
+import type { Paging } from "../common/pagination.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -19,26 +20,32 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export class CustomerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(tenantId: string, q?: string, includeArchived = false) {
-    return this.prisma.customer.findMany({
-      where: {
-        tenantId,
-        ...(includeArchived ? {} : { status: "ACTIVE" }),
-        ...(q
-          ? {
-              OR: [
-                { fullName: { contains: q, mode: "insensitive" } },
-                { email: { contains: q, mode: "insensitive" } },
-                { phone: { contains: q } },
-                { taxId: { contains: q, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-      },
-      include: { addresses: true, identities: true, consents: true },
-      orderBy: { updatedAt: "desc" },
-      take: 50,
-    });
+  async list(tenantId: string, q: string | undefined, includeArchived: boolean, paging: Paging) {
+    const where: Prisma.CustomerWhereInput = {
+      tenantId,
+      ...(includeArchived ? {} : { status: "ACTIVE" }),
+      ...(q
+        ? {
+            OR: [
+              { fullName: { contains: q, mode: "insensitive" } },
+              { email: { contains: q, mode: "insensitive" } },
+              { phone: { contains: q } },
+              { taxId: { contains: q, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.customer.findMany({
+        where,
+        include: { addresses: true, identities: true, consents: true },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
+      }),
+      this.prisma.customer.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async get(tenantId: string, id: string) {

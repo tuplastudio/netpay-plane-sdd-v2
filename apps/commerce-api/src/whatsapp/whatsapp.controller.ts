@@ -29,7 +29,7 @@ import {
   type ManualConversationStatus,
 } from "./whatsapp.service.js";
 import { ConversationContextService } from "./conversation-context.service.js";
-import { MAX_PAGE_SIZE } from "../common/pagination.js";
+import { MAX_PAGE_SIZE, parsePaging } from "../common/pagination.js";
 import { AgentBridgeService } from "./agent-bridge.service.js";
 import { EvolutionApiError, EvolutionOnboardingService } from "./evolution-onboarding.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
@@ -387,12 +387,14 @@ export class WhatsAppController {
   @RequireScopes("chat.read" as never)
   async conversations(
     @Query("q") q?: string,
+    @Query("id") id?: string,
     @Query("status") status?: string,
     @Query("handoff") handoff?: string,
     @Query("provider") provider?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
     @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
     @Query("tag") tag?: string,
     @Query("sort") sort?: string,
     @Query("assignee") assignee?: string,
@@ -400,21 +402,30 @@ export class WhatsAppController {
     const tenantId = requireTenant();
     const filters: ConversationListFilters = {
       q: q?.trim() || undefined,
+      id: id && UUID_RE.test(id) ? id : undefined,
       status: parseEnum("status", status, CONVERSATION_STATUSES),
       handoff: parseEnum("handoff", handoff, HANDOFF_FILTERS),
       provider: parseEnum("provider", provider, WHATSAPP_PROVIDERS),
       from: parseDate("from", from),
       to: parseDate("to", to),
       limit: parseLimit(limit),
+      offset: parsePaging({ offset }, { defaultLimit: 1, maxLimit: 1 }).offset,
       tag: tag?.trim().toLowerCase() || undefined,
       sort: parseEnum<ConversationSort>("sort", sort, CONVERSATION_SORTS),
       assignee: parseAssignee(assignee),
     };
-    const [data, stats] = await Promise.all([
+    const [data, stats, total] = await Promise.all([
       this.wa.listConversations(tenantId, filters),
       this.wa.conversationStats(tenantId),
+      this.wa.countConversations(tenantId, filters),
     ]);
-    return { data, stats, requestId: RequestContext.requestId };
+    const pageLimit = Math.min(Math.max(filters.limit ?? 50, 1), 100);
+    return {
+      data,
+      stats,
+      pageInfo: { total, limit: pageLimit, offset: filters.offset ?? 0 },
+      requestId: RequestContext.requestId,
+    };
   }
 
   @Get("conversations/:id/messages")

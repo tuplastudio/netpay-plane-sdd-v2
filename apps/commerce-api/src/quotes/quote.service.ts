@@ -14,6 +14,7 @@ import { PricingService } from "../pricing/pricing.service.js";
 import { CustomerService } from "../customers/customer.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
+import type { Paging } from "../common/pagination.js";
 
 @Injectable()
 export class QuoteService {
@@ -24,13 +25,19 @@ export class QuoteService {
     private readonly notifications: NotificationService,
   ) {}
 
-  async list(tenantId: string, status?: string) {
-    return this.prisma.quote.findMany({
-      where: { tenantId, ...(status ? { status: status as never } : {}) },
-      include: { customer: true, lines: true },
-      orderBy: { updatedAt: "desc" },
-      take: 50,
-    });
+  async list(tenantId: string, status: string | undefined, paging: Paging) {
+    const where = { tenantId, ...(status ? { status: status as never } : {}) };
+    const [items, total] = await Promise.all([
+      this.prisma.quote.findMany({
+        where,
+        include: { customer: true, lines: true },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
+      }),
+      this.prisma.quote.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async get(tenantId: string, id: string) {

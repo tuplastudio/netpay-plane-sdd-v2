@@ -24,6 +24,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
+import type { Paging } from "../common/pagination.js";
 import { decideRefund, parseMoney, remainingRefundable, ZERO } from "./refund-math.js";
 
 /**
@@ -1039,22 +1040,29 @@ export class PaymentService {
     });
   }
 
-  async listSessions(tenantId: string) {
-    const sessions = await this.prisma.checkoutSession.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
+  async listSessions(tenantId: string, paging: Paging) {
+    const [sessions, total] = await Promise.all([
+      this.prisma.checkoutSession.findMany({
+        where: { tenantId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
+      }),
+      this.prisma.checkoutSession.count({ where: { tenantId } }),
+    ]);
     const orderIds = [...new Set(sessions.map((s) => s.orderId))];
     const orders = await this.prisma.order.findMany({
       where: { id: { in: orderIds } },
       include: { customer: true },
     });
     const byId = new Map(orders.map((o) => [o.id, o]));
-    return sessions.map((s) => ({
-      ...s,
-      customerName: byId.get(s.orderId)?.customer.fullName ?? null,
-    }));
+    return {
+      items: sessions.map((s) => ({
+        ...s,
+        customerName: byId.get(s.orderId)?.customer.fullName ?? null,
+      })),
+      total,
+    };
   }
 
   /** Detalle de una sesión de pago: pedido, cliente, qué se vendió y su ledger. */
@@ -1121,11 +1129,17 @@ export class PaymentService {
     };
   }
 
-  async getLedger(tenantId: string, sessionId?: string) {
-    return this.prisma.ledgerEntry.findMany({
-      where: { tenantId, ...(sessionId ? { sessionId } : {}) },
-      orderBy: { recordedAt: "desc" },
-      take: 100,
-    });
+  async getLedger(tenantId: string, sessionId: string | undefined, paging: Paging) {
+    const where = { tenantId, ...(sessionId ? { sessionId } : {}) };
+    const [items, total] = await Promise.all([
+      this.prisma.ledgerEntry.findMany({
+        where,
+        orderBy: [{ recordedAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
+      }),
+      this.prisma.ledgerEntry.count({ where }),
+    ]);
+    return { items, total };
   }
 }

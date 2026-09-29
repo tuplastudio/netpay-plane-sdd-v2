@@ -14,6 +14,7 @@ import { NotificationService } from "./notification.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { ScheduleNotificationDto } from "./notification.dto.js";
 import { RequestContext } from "../common/context/request-context.js";
+import { buildPageInfo, parsePaging } from "../common/pagination.js";
 
 @Controller("notifications")
 @UseGuards(RoleGuard)
@@ -22,10 +23,17 @@ export class NotificationController {
 
   @Get()
   @RequireScopes("notifications.read" as never)
-  async list(@Query("status") status?: string) {
+  async list(
+    @Query("status") status?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
     const tenantId = RequestContext.tenantId!;
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 50, maxLimit: 100 });
+    const { items, total } = await this.notifications.list(tenantId, status, paging);
     return {
-      data: await this.notifications.list(tenantId, status),
+      data: items,
+      pageInfo: buildPageInfo(total, paging),
       requestId: RequestContext.requestId,
     };
   }

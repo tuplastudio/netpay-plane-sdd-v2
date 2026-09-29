@@ -9,6 +9,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { buildPageInfo } from "../common/pagination.js";
 import { validateProductImage } from "./product-image-validation.js";
 import { deleteObject, publicUrlForKey, writeObject } from "../tenants/logo-storage.js";
 
@@ -17,6 +18,8 @@ export interface ListProductsInput {
   status?: "DRAFT" | "ACTIVE" | "ARCHIVED";
   cursor?: string;
   limit?: number;
+  /** Si viene, modo offset: ignora `cursor` y el pageInfo incluye `total`. */
+  offset?: number;
 }
 
 export interface UploadedImage {
@@ -49,13 +52,34 @@ export class CatalogService {
         { variants: { some: { sku: { contains: input.q, mode: "insensitive" } } } },
       ];
     }
+    const include = {
+      variants: { include: { images: IMAGES_ORDER } },
+      images: IMAGES_ORDER,
+    };
+    const orderBy = [{ updatedAt: "desc" as const }, { id: "desc" as const }];
+
+    // Modo offset (paginador numerado): con `offset` se ignora `cursor` y el
+    // pageInfo trae `total`/`limit`/`offset` además de nextCursor/size.
+    if (input.offset !== undefined) {
+      const [items, total] = await Promise.all([
+        this.prisma.product.findMany({ where, include, orderBy, take: limit, skip: input.offset }),
+        this.prisma.product.count({ where }),
+      ]);
+      const hasMore = input.offset + items.length < total;
+      return {
+        items,
+        pageInfo: {
+          nextCursor: hasMore && items.length ? items[items.length - 1]!.id : null,
+          size: items.length,
+          ...buildPageInfo(total, { limit, offset: input.offset }),
+        },
+      };
+    }
+
     const rows = await this.prisma.product.findMany({
       where,
-      include: {
-        variants: { include: { images: IMAGES_ORDER } },
-        images: IMAGES_ORDER,
-      },
-      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      include,
+      orderBy,
       take: limit + 1,
       ...(input.cursor ? { cursor: { id: input.cursor }, skip: 1 } : {}),
     });

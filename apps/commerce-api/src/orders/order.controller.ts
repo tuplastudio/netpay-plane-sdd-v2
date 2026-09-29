@@ -33,6 +33,7 @@ import { PaymentService } from "../payments/payment.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
+import { buildPageInfo, parsePaging } from "../common/pagination.js";
 import { randomBytes } from "node:crypto";
 
 @Controller("orders")
@@ -49,10 +50,17 @@ export class OrderController {
 
   @Get()
   @RequireScopes("orders.read")
-  async list(@Query("status") status?: string) {
+  async list(
+    @Query("status") status?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
     const tenantId = this.requireTenant();
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 25, maxLimit: 100 });
+    const { items, total } = await this.orders.list(tenantId, status, paging);
     return {
-      data: await this.orders.list(tenantId, status),
+      data: items,
+      pageInfo: buildPageInfo(total, paging),
       requestId: RequestContext.requestId,
     };
   }

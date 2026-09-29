@@ -277,10 +277,10 @@ describe("listConversations: triage de la cola", () => {
 
   it("ordena por lastMessageAt asc con sort=oldest y desc por omisión", async () => {
     const oldest = await list({ sort: "oldest" });
-    expect(oldest.findManyCalls[0]!.orderBy).toEqual({ lastMessageAt: "asc" });
+    expect(oldest.findManyCalls[0]!.orderBy).toEqual([{ lastMessageAt: "asc" }, { id: "desc" }]);
 
     const recent = await list({});
-    expect(recent.findManyCalls[0]!.orderBy).toEqual({ lastMessageAt: "desc" });
+    expect(recent.findManyCalls[0]!.orderBy).toEqual([{ lastMessageAt: "desc" }, { id: "desc" }]);
   });
 
   it("traduce assignee=unassigned a la cola sin dueño, en el where", async () => {

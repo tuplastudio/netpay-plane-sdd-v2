@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { CustomerService } from "./customer.service.js";
+import { buildPageInfo, parsePaging } from "../common/pagination.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import {
   CreateCustomerDto,
@@ -28,10 +29,18 @@ export class CustomerController {
 
   @Get()
   @RequireScopes("customers.read")
-  async list(@Query("q") q?: string, @Query("includeArchived") includeArchived?: string) {
+  async list(
+    @Query("q") q?: string,
+    @Query("includeArchived") includeArchived?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
     const tenantId = this.requireTenant();
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 25, maxLimit: 100 });
+    const { items, total } = await this.customers.list(tenantId, q, includeArchived === "true", paging);
     return {
-      data: await this.customers.list(tenantId, q, includeArchived === "true"),
+      data: items,
+      pageInfo: buildPageInfo(total, paging),
       requestId: RequestContext.requestId,
     };
   }

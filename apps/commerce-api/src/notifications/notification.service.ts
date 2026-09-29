@@ -15,6 +15,7 @@ import { WhatsAppService } from "../whatsapp/whatsapp.service.js";
 import { EmailService } from "../email/email.service.js";
 import { renderTemplate, type TemplateKey } from "./notification-templates.js";
 import { resolveApprovedTemplate } from "./whatsapp-template-map.js";
+import type { Paging } from "../common/pagination.js";
 
 /**
  * Escapa una celda CSV: previene inyección de fórmulas (Excel/Sheets
@@ -384,12 +385,18 @@ export class NotificationService implements OnModuleInit, OnModuleDestroy {
     return lines.join("\n");
   }
 
-  async list(tenantId: string, status?: string) {
-    return this.prisma.notification.findMany({
-      where: { tenantId, ...(status ? { status: status as never } : {}) },
-      orderBy: { scheduledAt: "desc" },
-      take: 50,
-    });
+  async list(tenantId: string, status: string | undefined, paging: Paging) {
+    const where = { tenantId, ...(status ? { status: status as never } : {}) };
+    const [items, total] = await Promise.all([
+      this.prisma.notification.findMany({
+        where,
+        orderBy: [{ scheduledAt: "desc" }, { id: "desc" }],
+        take: paging.limit,
+        skip: paging.offset,
+      }),
+      this.prisma.notification.count({ where }),
+    ]);
+    return { items, total };
   }
 }
 

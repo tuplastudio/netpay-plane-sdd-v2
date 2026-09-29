@@ -19,6 +19,7 @@ import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RefundDto } from "./payment.dto.js";
 import { Public } from "../auth/guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
+import { buildPageInfo, parsePaging } from "../common/pagination.js";
 
 @Controller("payments")
 @UseGuards(RoleGuard)
@@ -29,10 +30,13 @@ export class PaymentController {
 
   @Get("sessions")
   @RequireScopes("payments.read")
-  async listSessions() {
+  async listSessions(@Query("limit") limit?: string, @Query("offset") offset?: string) {
     const tenantId = RequestContext.tenantId!;
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 25, maxLimit: 100 });
+    const { items, total } = await this.payments.listSessions(tenantId, paging);
     return {
-      data: await this.payments.listSessions(tenantId),
+      data: items,
+      pageInfo: buildPageInfo(total, paging),
       requestId: RequestContext.requestId,
     };
   }
@@ -49,10 +53,17 @@ export class PaymentController {
 
   @Get("ledger")
   @RequireScopes("payments.read")
-  async ledger(@Query("sessionId") sessionId?: string) {
+  async ledger(
+    @Query("sessionId") sessionId?: string,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string,
+  ) {
     const tenantId = RequestContext.tenantId!;
+    const paging = parsePaging({ limit, offset }, { defaultLimit: 50, maxLimit: 200 });
+    const { items, total } = await this.payments.getLedger(tenantId, sessionId, paging);
     return {
-      data: await this.payments.getLedger(tenantId, sessionId),
+      data: items,
+      pageInfo: buildPageInfo(total, paging),
       requestId: RequestContext.requestId,
     };
   }
