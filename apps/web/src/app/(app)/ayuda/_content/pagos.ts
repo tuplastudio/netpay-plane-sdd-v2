@@ -188,6 +188,14 @@ export const pagos: HelpCategory = {
                 "en la pasarela segura.",
             },
             {
+              q: "¿Puedo usar el agente solo para cotizar, sin cobrar en línea?",
+              a:
+                "Sí. En Consola del agente → Configuración del agente → Cobro elige \"Solo cotizar\": el " +
+                "bot manda la cotización (enlace y PDF) pero nunca un link de pago, y el enlace de la " +
+                "cotización no muestra el botón de pagar. El cobro lo acuerdas tú (transferencia, crédito, " +
+                "contraentrega) y puedes escribir el mensaje con el que el bot cierra.",
+            },
+            {
               q: "El cliente dice que ya pagó y el pedido no aparece como pagado.",
               a:
                 "Las transferencias y los pagos en efectivo tardan en confirmarse. El pedido cambia a Pagado " +

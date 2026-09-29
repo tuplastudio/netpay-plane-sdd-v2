@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from ..agent import model_capabilities
 from ..agent_settings import (
+    CHECKOUT_MODES,
+    DEFAULT_QUOTE_ONLY_CLOSING,
     DELIVERY_MODES,
     HUMAN_REPLY_FILTER_ACTIONS,
     SALES_STYLES,
@@ -52,8 +54,12 @@ class AgentSettingsPayload(BaseModel):
     auto_history_lookup: bool | None = None
     max_products_per_message: int | None = None
     default_delivery_mode: str | None = None
-    # Si True: después de confirmar, va directo a `generar_enlace_pago`
-    # sin `emitir_cotizacion`. Útil para negocios donde el cliente paga ya.
+    # quote_only | quote_and_pay | pay_first (ver agent_settings.CHECKOUT_MODES).
+    checkout_mode: str | None = None
+    # Cierre del bot en `quote_only` en lugar del enlace de pago ("" = fábrica).
+    quote_only_closing_message: str | None = None
+    # Heredado: True equivale a `checkout_mode="pay_first"`. Un panel nuevo
+    # manda `checkout_mode`; si vienen los dos, gana `checkout_mode`.
     bot_pay_first: bool | None = None
     # Si True: para envío a domicilio pregunta CP/ciudad/estado antes de
     # cotizar (para resolver la zona del admin). Si False: cae al flat.
@@ -101,11 +107,15 @@ async def settings_view(tenant_id: str) -> dict[str, Any]:
             "max_tokens": settings.max_tokens,
             "human_reply_filter_model": DEFAULT_MODERATION_MODEL,
             "prompt_version": settings.prompt_version,
+            # Cierre de fábrica en `quote_only`; el panel lo muestra como
+            # placeholder cuando el negocio no escribió el suyo.
+            "quote_only_closing_message": DEFAULT_QUOTE_ONLY_CLOSING,
         },
         "options": {
             "prompt_version": ["latest", *get_prompt_registry().versions()],
             "sales_style": list(SALES_STYLES),
             "default_delivery_mode": list(DELIVERY_MODES),
+            "checkout_mode": list(CHECKOUT_MODES),
             # Modelos que el panel puede elegir. La lista es cerrada a
             # propósito: solo entran modelos que el agente ya sabe usar y
             # cobrar. `capabilities` viene de `model_capabilities()` así el

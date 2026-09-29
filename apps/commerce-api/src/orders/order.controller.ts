@@ -17,6 +17,7 @@ import {
 } from "@nestjs/common";
 import { Response } from "express";
 import { OrderService, SETTLED_ORDER_STATUSES } from "./order.service.js";
+import { publicBaseUrl, trackingUrl } from "./tracking-token.js";
 import { ConstanciaUploadInterceptor } from "./constancia-upload.interceptor.js";
 import {
   CancelOrderDto,
@@ -34,6 +35,8 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
 import { buildPageInfo, parsePaging } from "../common/pagination.js";
+import { QuoteService } from "../quotes/quote.service.js";
+import { AgentSettingsClient } from "../whatsapp/agent-settings.client.js";
 import { randomBytes } from "node:crypto";
 
 @Controller("orders")
@@ -46,6 +49,8 @@ export class OrderController {
     private readonly payments: PaymentService,
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly quotes: QuoteService,
+    private readonly agentSettings: AgentSettingsClient,
   ) {}
 
   @Get()
@@ -340,9 +345,8 @@ export class OrderController {
   async trackingLink(@Param("id") id: string) {
     const tenantId = this.requireTenant();
     const token = await this.orders.getOrCreateTrackingToken(tenantId, id);
-    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
     return {
-      data: { token, link: `${base}/orders/public/track/${token}` },
+      data: { token, link: trackingUrl(token) },
       requestId: RequestContext.requestId,
     };
   }
@@ -399,30 +403,12 @@ export class OrderController {
   }
 
   private trackingUrl(token: string): string {
-    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-    return `${base}/orders/public/track/${token}`;
+    return trackingUrl(token);
   }
 
-  /**
-   * Número de WhatsApp del negocio (conexión ACTIVE con número conocido),
-   * normalizado a dígitos para armar `https://wa.me/<n>`. Best-effort: sin
-   * conexión o ante cualquier error devuelve null.
-   */
-  private async merchantWhatsappNumber(tenantId: string): Promise<string | null> {
-    try {
-      const conn = await this.prisma.whatsAppConnection.findFirst({
-        where: { tenantId, status: "ACTIVE", phoneNumber: { not: null } },
-        orderBy: { connectedAt: "desc" },
-        select: { phoneNumber: true },
-      });
-      // Evolution puede guardar un JID ("5215512345678@s.whatsapp.net"):
-      // solo la parte antes de "@" / ":".
-      const digits = (conn?.phoneNumber ?? "").split(/[@:]/)[0]!.replace(/\D/g, "");
-      return digits.length >= 8 ? digits : null;
-    } catch (err) {
-      this.logger.warn(`whatsapp del negocio no disponible para ${tenantId}: ${err}`);
-      return null;
-    }
+  /** Ver `OrderService#merchantWhatsappNumber` (compartido con el link de seguimiento). */
+  private merchantWhatsappNumber(tenantId: string): Promise<string | null> {
+    return this.orders.merchantWhatsappNumber(tenantId);
   }
 
   @Public()
@@ -470,6 +456,16 @@ export class OrderController {
   @Post("public/quote/:shareToken/checkout")
   @HttpCode(201)
   async publicCheckoutFromQuote(@Param("shareToken") shareToken: string) {
+    // Modo "solo cotizar" del agente: el negocio no cobra en línea desde la
+    // cotización. Se corta ANTES de crear pedido/checkout para no dejar una
+    // reserva de stock ni un pedido abierto que nadie va a pagar por aquí.
+    const shared = await this.quotes.resolveShareToken(shareToken);
+    if (shared && !(await this.agentSettings.paymentLinksEnabled(shared.tenantId))) {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "Este negocio no cobra en línea desde la cotización; tu asesor te indicará cómo pagar.",
+      });
+    }
     const { orderId, revisionId, expiresAt } = await this.orders.checkoutFromShareToken(shareToken);
     const token = await this.createAccessToken(revisionId, expiresAt);
     return {
@@ -490,7 +486,24 @@ export class OrderController {
     if (!resolved) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido" });
     }
-    return { data: resolved, requestId: RequestContext.requestId };
+    // El WhatsApp del negocio se busca por tenant, pero el tenantId no viaja
+    // en la vista pública: se resuelve aquí a partir del token.
+    const owner = await this.prisma.orderTrackingToken.findUnique({
+      where: { token },
+      select: { order: { select: { tenantId: true } } },
+    });
+    const whatsappNumber = owner ? await this.merchantWhatsappNumber(owner.order.tenantId) : null;
+    return {
+      data: {
+        ...resolved,
+        /** WhatsApp del negocio (solo dígitos) para "Escribir al negocio"; null si no hay conexión activa. */
+        whatsappNumber,
+        checkoutUrl: resolved.payment.checkoutToken
+          ? `${publicBaseUrl()}/checkout/${resolved.payment.checkoutToken}`
+          : null,
+      },
+      requestId: RequestContext.requestId,
+    };
   }
 
   @Public()

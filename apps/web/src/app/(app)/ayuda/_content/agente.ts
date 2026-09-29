@@ -142,8 +142,24 @@ export const agente: HelpCategory = {
             ["Reconocer clientes recurrentes", "Busca compras anteriores por el teléfono del cliente para no volver a pedir nombre y correo."],
             ["Máx. opciones por mensaje", "Cuántos productos lista por respuesta antes de ofrecer ver más (1 a 10). Menos = mensajes más cortos."],
             ["Entrega por defecto", "Si el agente asume recoger en tienda o envío a domicilio cuando el cliente no lo dice."],
-            ["Ir directo al pago tras confirmar", "Salta la cotización: después de un \"sí\" claro, manda el link de pago. Útil para comida para llevar o recargas."],
             ["Pedir dirección antes de cotizar a domicilio", "Pregunta código postal, ciudad y estado y usa tus zonas de envío. Apagado: usa el envío fijo sin preguntar."],
+          ],
+        },
+        { type: "h3", text: "Cobro" },
+        {
+          type: "p",
+          text:
+            "Decide qué hace el agente cuando el cliente confirma. Cambia el flujo del bot y también el " +
+            "enlace público de la cotización.",
+        },
+        {
+          type: "table",
+          headers: ["Modo", "Qué hace"],
+          rows: [
+            ["Solo cotizar", "Manda la cotización (enlace y PDF) y nunca un link de pago. El enlace de la cotización tampoco muestra el botón de pagar. El cobro lo acuerdas tú: transferencia, crédito, contraentrega. Cierra con el \"Mensaje de seguimiento\" que escribas (o uno de fábrica)."],
+            ["Cotizar y cobrar", "El de siempre: cotización, PDF y link de pago en el mismo mensaje. El cliente paga desde el chat o desde el enlace de la cotización."],
+            ["Cobrar primero", "Salta la cotización: después de un \"sí\" claro, manda el link de pago. Útil para comida para llevar o recargas."],
+            ["Mensaje de seguimiento", "Solo en \"Solo cotizar\": lo que el bot dice en lugar del link de pago. Explica quién contacta al cliente y cómo se paga."],
           ],
         },
         { type: "h3", text: "Reglas del negocio" },

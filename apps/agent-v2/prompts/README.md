@@ -13,8 +13,11 @@ prompts/
   v1.4.0/                 detalle_de_cotizacion, errores de tool,
                           notas de voz, complemento obvio, cancelación
   v1.4.1/                 error de tool ≠ escalar; estilos de venta robustos
-  v1.5.0/                 latest: memoria del cliente entre conversaciones
+  v1.5.0/                 memoria del cliente entre conversaciones
                           (<memoria_cliente>)
+  v1.6.0/                 latest: modo de cobro por negocio (solo cotizar /
+                          cotizar y cobrar / cobrar primero); ubicación de
+                          WhatsApp resuelve zonas de envío por polígono
     manifest.yaml         version, status, created, description, changelog
     00_identidad.md       plantilla con {{agent_name}}, {{business_name}}, ...
     05_seguridad_y_privacidad.md

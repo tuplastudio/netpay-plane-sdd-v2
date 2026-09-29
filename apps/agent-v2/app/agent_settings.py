@@ -38,6 +38,24 @@ from .config import INSECURE_DEFAULT_SECRET_KEY, SERVICE_DIR, _env
 SALES_STYLES: tuple[str, ...] = ("cerrador", "consultivo", "informativo")
 DELIVERY_MODES: tuple[str, ...] = ("PICKUP", "LOCAL_DELIVERY")
 
+# ---- Modo de cobro ----
+# Qué hace el bot cuando el cliente confirma un pedido:
+#   quote_only    → emite la cotización (enlace + PDF) y NUNCA genera ni
+#                   comparte un enlace de pago; el cobro se arregla fuera del
+#                   chat (una persona da seguimiento). El enlace público de la
+#                   cotización tampoco muestra el botón de pagar.
+#   quote_and_pay → cotización + enlace de pago en el mismo mensaje (default,
+#                   es el flujo que ya funcionaba).
+#   pay_first     → sin cotización previa: tras el "sí" va directo al enlace
+#                   de pago (el viejo `bot_pay_first=True`).
+CHECKOUT_MODES: tuple[str, ...] = ("quote_only", "quote_and_pay", "pay_first")
+DEFAULT_CHECKOUT_MODE = "quote_and_pay"
+# Lo que dice el bot en `quote_only` en lugar del enlace de pago, si el
+# negocio no configuró su propio texto (`quote_only_closing_message`).
+DEFAULT_QUOTE_ONLY_CLOSING = (
+    "Una persona del equipo te contacta para confirmar el pedido y acordar el pago."
+)
+
 # Qué hacer cuando el filtro detecta que una respuesta humana maltrata al
 # cliente: "block" no la manda y le pide al operador que la reescriba;
 # "warn" la manda igual pero deja constancia del hallazgo.
@@ -138,11 +156,17 @@ class AgentSettings:
     auto_history_lookup: bool = True
     max_products_per_message: int = 3
     default_delivery_mode: str = "PICKUP"
-    # Si True, después de confirmar un pedido el bot va directo al link de
-    # pago sin pasar por `emitir_cotizacion`. Útil para negocios donde el
-    # cliente suele pagar ya (ej. comida para llevar, recargas): saltarse
-    # la cotización quita un paso y reduce el tiempo al cobro. Default False
-    # por compatibilidad con el flujo que ya funciona.
+    # Modo de cobro (ver CHECKOUT_MODES). Es la fuente de verdad; `bot_pay_first`
+    # se conserva solo por compatibilidad con paneles/JSON viejos y se DERIVA
+    # de aquí (`pay_first` ⇔ `bot_pay_first=True`).
+    checkout_mode: str = DEFAULT_CHECKOUT_MODE
+    # Texto con el que el bot cierra en `quote_only` en vez del enlace de pago
+    # (≤300). Vacío = DEFAULT_QUOTE_ONLY_CLOSING.
+    quote_only_closing_message: str = ""
+    # Campo heredado. Si True, después de confirmar un pedido el bot va
+    # directo al link de pago sin pasar por `emitir_cotizacion` (útil en
+    # comida para llevar, recargas). No lo leas directo: usa `pay_first()` /
+    # `checkout_mode`; `sanitize` mantiene los dos campos consistentes.
     bot_pay_first: bool = False
     # Si True, antes de cotizar con envío a domicilio el bot pregunta CP /
     # ciudad / estado del cliente y llama `validar_zona_de_envio`. Si False,
@@ -189,6 +213,16 @@ class AgentSettings:
 
     updated_at: float = 0.0
 
+    def __post_init__(self) -> None:
+        # `checkout_mode` y el heredado `bot_pay_first` nunca se contradicen,
+        # también cuando el dataclass se construye a mano (tests, código viejo
+        # que solo conoce `bot_pay_first=True`).
+        if self.checkout_mode not in CHECKOUT_MODES:
+            self.checkout_mode = DEFAULT_CHECKOUT_MODE
+        if self.bot_pay_first and self.checkout_mode == DEFAULT_CHECKOUT_MODE:
+            self.checkout_mode = "pay_first"
+        self.bot_pay_first = self.checkout_mode == "pay_first"
+
     def to_dict(self) -> dict[str, Any]:
         """Para el panel: nunca expone el cifrado, solo si hay una key guardada."""
         data = asdict(self)
@@ -198,6 +232,20 @@ class AgentSettings:
 
     def effective_model(self, default: str) -> str:
         return self.text_model.strip() or default
+
+    # ---- modo de cobro ----
+
+    def pay_first(self) -> bool:
+        """Flujo corto: tras el "sí" va directo al enlace de pago, sin cotización."""
+        return self.checkout_mode == "pay_first"
+
+    def payment_links_enabled(self) -> bool:
+        """False solo en `quote_only`: ni el bot ni el enlace público cobran."""
+        return self.checkout_mode != "quote_only"
+
+    def quote_only_closing(self) -> str:
+        """Texto de cierre en `quote_only` (el del negocio o el de fábrica)."""
+        return self.quote_only_closing_message.strip() or DEFAULT_QUOTE_ONLY_CLOSING
 
     def openrouter_api_key(self) -> str:
         """Key propia del tenant en claro, o "" si no configuró una."""
@@ -223,8 +271,33 @@ _STR_LIMITS = {
     "agent_name": 60, "business_name": 120, "tone": 300, "greeting": 300,
     "language": 10, "currency": 8, "forbidden_topics": 2000, "extra_rules": 4000,
     "text_model": 120, "classifier_model": 120, "human_reply_filter_model": 120,
+    "quote_only_closing_message": 300,
 }
+
+
+def resolve_checkout_mode(payload: dict[str, Any], current_mode: str) -> str:
+    """Modo de cobro que resulta de un payload, con el mapeo del campo heredado.
+
+    - `checkout_mode` válido en el payload gana siempre.
+    - Sin él, `bot_pay_first` (panel viejo / JSON viejo en disco) se traduce:
+      True → `pay_first`; False → sale de `pay_first` hacia el default, pero
+      NO pisa un `quote_only` ya guardado (el panel viejo no conoce ese modo
+      y mandaría False sin querer cambiar nada).
+    - Sin ninguno de los dos, se conserva el actual.
+    """
+    if "checkout_mode" in payload:
+        mode = str(payload.get("checkout_mode") or "").strip().lower()
+        if mode in CHECKOUT_MODES:
+            return mode
+    if "bot_pay_first" in payload:
+        if bool(payload.get("bot_pay_first")):
+            return "pay_first"
+        if current_mode == "pay_first":
+            return DEFAULT_CHECKOUT_MODE
+    return current_mode if current_mode in CHECKOUT_MODES else DEFAULT_CHECKOUT_MODE
 _PROMPT_VERSION_RE = re.compile(r"^(latest|v?\d+\.\d+\.\d+)$")
+_MODEL_FIELDS = {"text_model", "classifier_model", "human_reply_filter_model"}
+_MODEL_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
 def sanitize(payload: dict[str, Any], base: AgentSettings | None = None) -> AgentSettings:
@@ -241,10 +314,22 @@ def sanitize(payload: dict[str, Any], base: AgentSettings | None = None) -> Agen
         if isinstance(raw_key, str):
             data["openrouter_api_key_encrypted"] = encrypt_secret(raw_key.strip())
 
+    # Modo de cobro y su campo heredado se resuelven juntos (ver
+    # resolve_checkout_mode) para que nunca queden en desacuerdo.
+    data["checkout_mode"] = resolve_checkout_mode(payload, str(data.get("checkout_mode") or ""))
+    data["bot_pay_first"] = data["checkout_mode"] == "pay_first"
+
     for key, value in payload.items():
-        if key not in allowed:
+        if key not in allowed or key in ("checkout_mode", "bot_pay_first"):
             continue
-        if key in _STR_LIMITS:
+        if key in _MODEL_FIELDS:
+            # Solo un slug `proveedor/modelo` de OpenRouter (o vacío = el
+            # del proceso). Texto libre aquí antes viajaba tal cual al
+            # proveedor; el filtro de costo (AGENT_ALLOWED_MODELS) lo aplica
+            # `agent._tenant_model_middleware` en cada llamada.
+            text = str(value or "").strip()[: _STR_LIMITS[key]]
+            data[key] = text if _MODEL_SLUG_RE.match(text) else ""
+        elif key in _STR_LIMITS:
             text = str(value or "").strip()
             data[key] = text[: _STR_LIMITS[key]]
         elif key in _BOOL_FIELDS:

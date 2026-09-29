@@ -12,6 +12,7 @@ import {
   Download,
   FileText,
   Link2,
+  PackageSearch,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -55,6 +56,14 @@ interface QuotePublic {
   order: { id: string; status: string } | null;
   /** Link de pago vigente (checkout abierto y sin vencer), si lo hay. */
   checkoutToken: string | null;
+  /** Link público de seguimiento del pedido (durable); null mientras no hay pedido. */
+  trackingUrl?: string | null;
+  /**
+   * `false` cuando el negocio no cobra en línea desde la cotización (modo
+   * "solo cotizar" del agente): no se ofrece el botón de pagar. Ausente
+   * (API anterior) = se puede pagar.
+   */
+  paymentEnabled?: boolean;
 }
 
 const PAID_STATUSES = new Set(["PAID", "FULFILLED"]);
@@ -356,12 +365,15 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
   const paid = !!quote.order && PAID_STATUSES.has(quote.order.status);
   const orderClosed = !!quote.order && CLOSED_ORDER_STATUSES.has(quote.order.status);
   // Se puede pagar mientras la cotización siga viva (emitida o aceptada, sin
-  // vencer) y su pedido, si existe, no esté pagado ni cerrado.
-  const payable =
+  // vencer), su pedido, si existe, no esté pagado ni cerrado, y el negocio
+  // cobre en línea desde la cotización (`paymentEnabled`).
+  const alive =
     !paid &&
     !orderClosed &&
     !expired &&
     (effectiveStatus === "ISSUED" || effectiveStatus === "ACCEPTED");
+  const paymentOffline = quote.paymentEnabled === false;
+  const payable = alive && !paymentOffline;
   const hoursLeft = (new Date(quote.expiresAt).getTime() - Date.now()) / 3_600_000;
   const expiringSoon = payable && hoursLeft > 0 && hoursLeft <= 48;
 
@@ -417,6 +429,14 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
           {payable ? (
             <PayButton token={token} checkoutToken={quote.checkoutToken} />
           ) : null}
+          {quote.trackingUrl && quote.order ? (
+            <Button asChild size="lg" className={`h-12 w-full sm:w-auto sm:px-8 ${ON_HERO_PILL}`}>
+              <a href={quote.trackingUrl}>
+                <PackageSearch aria-hidden className="h-4 w-4" />
+                Seguir mi pedido
+              </a>
+            </Button>
+          ) : null}
           <Button
             asChild
             size="lg"
@@ -438,6 +458,10 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
             {quote.checkoutToken
               ? "Tu link de pago sigue vigente. Puedes retomarlo cuando quieras."
               : "Al pagar se acepta la cotización con estos conceptos y precios."}
+          </p>
+        ) : paymentOffline && alive ? (
+          <p className={`mt-3 text-caption ${ON_HERO_MUTED}`}>
+            Esta cotización no se paga en línea. Tu asesor te confirmará cómo realizar el pago.
           </p>
         ) : orderClosed ? (
           <p className={`mt-3 text-caption ${ON_HERO_MUTED}`}>

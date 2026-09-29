@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { WhatsAppController } from "./whatsapp.controller.js";
+import { CannedResponsesController } from "./canned-responses.controller.js";
 import { WhatsAppService } from "./whatsapp.service.js";
 import { AgentBridgeService } from "./agent-bridge.service.js";
 import { AgentSettingsClient } from "./agent-settings.client.js";
@@ -12,7 +13,7 @@ import { AuthModule } from "../auth/auth.module.js";
 
 @Module({
   imports: [AuthModule],
-  controllers: [WhatsAppController],
+  controllers: [WhatsAppController, CannedResponsesController],
   providers: [
     WhatsAppService,
     AgentBridgeService,
@@ -25,6 +26,8 @@ import { AuthModule } from "../auth/auth.module.js";
     // autocierre al levantar la app (ver conversation-auto-close.service.ts).
     ConversationAutoCloseService,
   ],
-  exports: [WhatsAppService, AgentBridgeService, EvolutionOnboardingService],
+  // AgentSettingsClient se exporta para que cotizaciones y pedidos consulten
+  // el modo de cobro del tenant (`quote_only` apaga el pago desde el link).
+  exports: [WhatsAppService, AgentBridgeService, EvolutionOnboardingService, AgentSettingsClient],
 })
 export class WhatsAppModule {}

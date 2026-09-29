@@ -1,0 +1,27 @@
+version: 1.6.0
+status: stable
+created: 2026-09-29
+description: >-
+  Modo de cobro configurable por negocio. El admin elige si el bot solo
+  cotiza (sin enlace de pago), cotiza y cobra (default) o cobra directo sin
+  cotización previa. El prompt explica los tres modos y cómo se anuncian en
+  AJUSTES DEL NEGOCIO; las herramientas de pago se niegan solas en "solo
+  cotización". No cambia el contrato de herramientas.
+changelog:
+  - >-
+    Nuevo bloque 57_modo_de_cobro.md: qué hacer en cada modo de cobro
+    (quote_only / quote_and_pay / pay_first), qué herramientas NO llamar en
+    solo cotización y cómo cerrar sin prometer un enlace de pago.
+  - >-
+    55_envio_domicilio.md: la sección "cuando sí va directo al pago" remite
+    al modo de cobro (`checkout_mode: pay_first`) en vez de al campo
+    heredado `bot_pay_first`.
+  - >-
+    70_como_trabajas.md: emitir_cotizacion trae el enlace de pago SALVO en
+    solo cotización, donde el turno cierra con el mensaje de seguimiento del
+    negocio.
+  - >-
+    55_envio_domicilio.md (T-SHIP-07): la ubicación compartida por WhatsApp
+    ya resuelve zonas dibujadas en el mapa. El bot pasa lat/lng tal cual a
+    validar_zona_de_envio y recordar_direccion_entrega, y solo pide CP /
+    ciudad / estado si la ubicación no cae en ninguna zona del mapa.

@@ -360,6 +360,9 @@ async def setup_apply(
     safe_keys = {
         "agent_name", "business_name", "tone", "greeting", "emoji",
         "sales_style", "extra_rules", "forbidden_topics", "handoff_keywords",
+        # Modo de cobro: lo elige el dueño en el paso de revisión del wizard
+        # (no lo adivina el modelo). `sanitize` rechaza valores fuera de dominio.
+        "checkout_mode",
     }
     patch = {k: v for k, v in settings.items() if k in safe_keys}
 

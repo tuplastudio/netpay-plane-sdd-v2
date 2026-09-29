@@ -14,13 +14,15 @@ import { RadioCard, RadioGroup } from "@/components/ui/radio";
 import { Select } from "@/components/ui/select";
 import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Section } from "@/components/app/section";
+import { InfoTip } from "@/components/app/info-tip";
 import { DateTime } from "@/components/app/date-time";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { BotSetupWizard } from "@/components/app/bot-setup-wizard";
 import { fetchAuthMe } from "@/lib/api";
-import { cn } from "@/lib/utils";
+
+/** Conteo con separador de miles es-MX (sin `toLocaleString` en línea). */
+const COUNT_FORMAT = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 });
 
 const AGENT_BASE = "/agent";
 
@@ -38,7 +40,15 @@ interface AgentSettings {
   auto_history_lookup: boolean;
   max_products_per_message: number;
   default_delivery_mode: "PICKUP" | "LOCAL_DELIVERY";
-  /** Si true: tras confirmar, va directo al link de pago sin cotización previa. */
+  /**
+   * Cómo cobra el bot: `quote_only` (solo cotiza, nunca manda link de pago),
+   * `quote_and_pay` (cotización + link de pago, el flujo de siempre) o
+   * `pay_first` (link de pago directo, sin cotización previa).
+   */
+  checkout_mode: "quote_only" | "quote_and_pay" | "pay_first";
+  /** Cierre del bot en `quote_only` en vez del link de pago. "" = el de fábrica. */
+  quote_only_closing_message: string;
+  /** Heredado: el servidor lo deriva de `checkout_mode` (true ⇔ `pay_first`). */
   bot_pay_first: boolean;
   /** Si true: pregunta CP/ciudad/estado antes de cotizar a domicilio. */
   collect_customer_address: boolean;
@@ -76,6 +86,8 @@ interface SettingsView {
   options: {
     sales_style: string[];
     default_delivery_mode: string[];
+    /** `["quote_only", "quote_and_pay", "pay_first"]`. Ausente en agentes viejos. */
+    checkout_mode?: string[];
     models: Array<{ id: string; toolCalling: boolean; notes: string }>;
     /** `["latest", "1.2.0", "1.1.0", ...]`: versiones de prompt cargadas. */
     prompt_version?: string[];
@@ -99,7 +111,30 @@ const STR_LIMITS = {
   currency: 8,
   forbidden_topics: 2000,
   extra_rules: 4000,
+  quote_only_closing_message: 300,
 } as const;
+
+/** Orden fijo de las tarjetas de cobro (el servidor manda la lista, pero el
+ *  orden "menos cobro → más cobro" es el que se lee mejor). */
+const CHECKOUT_MODE_ORDER = ["quote_only", "quote_and_pay", "pay_first"] as const;
+
+const CHECKOUT_MODE_LABEL: Record<string, { label: string; hint: string; tip: string }> = {
+  quote_only: {
+    label: "Solo cotizar",
+    hint: "Manda la cotización (enlace y PDF) y nunca un link de pago. El cobro lo acuerdas tú.",
+    tip: "El bot no crea pedido ni link de pago, y el enlace público de la cotización tampoco muestra el botón de pagar. Cierra con el mensaje de seguimiento que definas abajo. Útil si cobras por transferencia, crédito o a contraentrega.",
+  },
+  quote_and_pay: {
+    label: "Cotizar y cobrar",
+    hint: "Cotización, PDF y link de pago en el mismo mensaje.",
+    tip: "El flujo de siempre: al confirmar, el bot emite la cotización y en el mismo mensaje manda el link de pago. El cliente puede pagar desde el chat o desde el enlace de la cotización.",
+  },
+  pay_first: {
+    label: "Cobrar primero",
+    hint: "Sin cotización previa: tras el «sí», manda el link de pago.",
+    tip: "Salta la cotización. Tras un «sí» explícito, el bot genera el pedido y manda el link de pago directo. Útil cuando el cliente suele pagar ya (comida para llevar, recargas).",
+  },
+};
 
 const SALES_STYLE_LABEL: Record<string, { label: string; hint: string }> = {
   cerrador: { label: "Cerrador", hint: "Cada mensaje empuja al siguiente paso de compra." },
@@ -163,6 +198,8 @@ const FACTORY = {
   auto_history_lookup: true,
   max_products_per_message: 3,
   default_delivery_mode: "PICKUP",
+  checkout_mode: "quote_and_pay",
+  quote_only_closing_message: "",
   bot_pay_first: false,
   collect_customer_address: true,
   whatsapp_plain_text: true,
@@ -448,7 +485,18 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
     temperature: defaultOf(defaults, "temperature"),
     max_tokens: defaultOf(defaults, "max_tokens"),
     human_reply_filter_model: defaultOf(defaults, "human_reply_filter_model"),
+    quote_only_closing_message: defaultOf(defaults, "quote_only_closing_message"),
   };
+  const checkoutModes = (view.data!.options.checkout_mode ?? CHECKOUT_MODE_ORDER).slice();
+  checkoutModes.sort(
+    (a, b) =>
+      CHECKOUT_MODE_ORDER.indexOf(a as (typeof CHECKOUT_MODE_ORDER)[number]) -
+      CHECKOUT_MODE_ORDER.indexOf(b as (typeof CHECKOUT_MODE_ORDER)[number]),
+  );
+  // `bot_pay_first` viaja derivado del modo para que un agente viejo (que
+  // solo entiende el booleano) también cambie de flujo.
+  const setCheckoutMode = (mode: AgentSettings["checkout_mode"]) =>
+    setDraft((d) => (d ? { ...d, checkout_mode: mode, bot_pay_first: mode === "pay_first" } : d));
   const emojiDefault =
     defaults.emoji === null || defaults.emoji === undefined
       ? null
@@ -798,15 +846,6 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             </Field>
           </div>
           <Toggle
-            id="bot_pay_first"
-            label="Ir directo al pago tras confirmar"
-            tip="Salta la cotización: tras un 'sí' explícito, manda el link de pago. Útil cuando el cliente suele pagar ya (comida para llevar, recargas)."
-            hint="El cliente paga desde el link; sigue aplicando confirmar con un 'sí' explícito en el mensaje actual."
-            checked={draft.bot_pay_first}
-            onChange={(v) => set("bot_pay_first", v)}
-            defaultLabel={FACTORY.bot_pay_first ? "activado" : "desactivado"}
-          />
-          <Toggle
             id="collect_customer_address"
             label="Pedir dirección antes de cotizar a domicilio"
             tip="Antes de calcular envío a domicilio, el bot pregunta CP / ciudad / estado y resuelve la zona que tú configuraste en 'Envío a domicilio'."
@@ -815,6 +854,78 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             onChange={(v) => set("collect_customer_address", v)}
             defaultLabel={FACTORY.collect_customer_address ? "activado" : "desactivado"}
           />
+        </Section>
+
+        {/* ============== COBRO ============== */}
+        <Section
+          as="h3"
+          title="Cobro"
+          description="Qué hace el bot cuando el cliente confirma: solo cotizar, cotizar y cobrar, o cobrar primero."
+          contentClassName="space-y-4"
+        >
+          <RadioGroup
+            legend={
+              <span className="inline-flex items-center gap-1.5">
+                Modo de cobro
+                <InfoTip
+                  label="Modo de cobro"
+                  text="Decide si el bot manda link de pago. En «Solo cotizar» nunca lo hace y el enlace público de la cotización tampoco deja pagar; en los otros dos, el cliente paga desde el link."
+                />
+              </span>
+            }
+            name="checkout_mode"
+            description={`Predeterminado: ${CHECKOUT_MODE_LABEL[FACTORY.checkout_mode]?.label ?? FACTORY.checkout_mode}. Sigue aplicando el «sí» explícito del cliente en el mensaje actual.`}
+            optionsClassName="grid gap-2"
+          >
+            {checkoutModes.map((mode) => {
+              const meta = CHECKOUT_MODE_LABEL[mode] ?? { label: mode, hint: "", tip: "" };
+              return (
+                <RadioCard
+                  key={mode}
+                  value={mode}
+                  // El ícono va dentro del <label>: al ser un <button>, el
+                  // navegador no activa el radio al hacer clic en él (los
+                  // descendientes interactivos quedan fuera de la activación
+                  // del label), así que solo abre el tooltip.
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      {meta.label}
+                      {meta.tip ? <InfoTip label={meta.label} text={meta.tip} /> : null}
+                    </span>
+                  }
+                  description={meta.hint}
+                  checked={draft.checkout_mode === mode}
+                  onChange={() => setCheckoutMode(mode as AgentSettings["checkout_mode"])}
+                />
+              );
+            })}
+          </RadioGroup>
+
+          {draft.checkout_mode === "quote_only" ? (
+            <Field
+              id="quote_only_closing_message"
+              label="Mensaje de seguimiento"
+              tip="Lo que el bot dice después de mandar la cotización, en lugar del link de pago. Explica cómo sigue el cobro: quién contacta, cómo se paga, cuándo."
+              hint={`Vacío = usa el texto de fábrica. Máximo ${STR_LIMITS.quote_only_closing_message} caracteres.`}
+              defaultLabel={d.quote_only_closing_message || undefined}
+              overridden={draft.quote_only_closing_message !== ""}
+              onReset={() => set("quote_only_closing_message", "")}
+            >
+              {(aria) => (
+                <Textarea
+                  {...aria}
+                  rows={2}
+                  value={draft.quote_only_closing_message}
+                  maxLength={STR_LIMITS.quote_only_closing_message}
+                  onChange={(e) => set("quote_only_closing_message", e.target.value)}
+                  placeholder={
+                    d.quote_only_closing_message ||
+                    "Ej.: Un asesor te contacta hoy para confirmar y acordar el pago por transferencia."
+                  }
+                />
+              )}
+            </Field>
+          ) : null}
         </Section>
 
         {/* ============== REGLAS DEL NEGOCIO ============== */}
@@ -828,7 +939,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             id="extra_rules"
             label="Reglas adicionales"
             tip="Se agregan al prompt como «Reglas adicionales del negocio», con prioridad sobre las reglas base."
-            hint={`Una por renglón. Se mandan tal cual al modelo. Máximo ${STR_LIMITS.extra_rules.toLocaleString("es-MX")} caracteres.`}
+            hint={`Una por renglón. Se mandan tal cual al modelo. Máximo ${COUNT_FORMAT.format(STR_LIMITS.extra_rules)} caracteres.`}
             defaultLabel="sin reglas extra"
             overridden={draft.extra_rules !== ""}
             onReset={() => set("extra_rules", "")}
@@ -1327,32 +1438,6 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
 function emptyHint(defaultValue: string, fallback?: string): string {
   if (defaultValue) return `Vacío = usa «${defaultValue}» de negocio.md.`;
   return fallback ?? "Vacío = usa lo que declare negocio.md.";
-}
-
-/**
- * Ícono de ayuda junto a una etiqueta. Es un botón real para que reciba foco
- * de teclado: Radix abre el tooltip al enfocar, no solo al pasar el cursor.
- * Va como hermano del `<label>`, no dentro, para que un clic en el ícono no
- * enfoque el control ni active el checkbox.
- */
-function InfoTip({ label, text }: { label: string; text: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Qué hace «${label}»`}
-          className={cn(
-            "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-muted-foreground",
-            "hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-          )}
-        >
-          <CircleHelp aria-hidden className="h-3.5 w-3.5" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-[18rem] text-pretty">{text}</TooltipContent>
-    </Tooltip>
-  );
 }
 
 /** Renglón "Predeterminado: X" con el atajo para volver a ese valor. */

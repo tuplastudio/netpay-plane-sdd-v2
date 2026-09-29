@@ -21,6 +21,13 @@ export interface AgentTenantSettings {
   auto_close_after: string;
   human_reply_filter_enabled: boolean;
   human_reply_filter_action: string;
+  /**
+   * Modo de cobro del bot: `quote_only` | `quote_and_pay` | `pay_first`.
+   * En `quote_only` el negocio no cobra por enlace: el link público de la
+   * cotización no ofrece pagar y `POST /orders/public/quote/:token/checkout`
+   * se rechaza. Los demás modos solo cambian el flujo del bot.
+   */
+  checkout_mode: string;
 }
 
 const CACHE_TTL_MS = 60_000;
@@ -59,6 +66,7 @@ export class AgentSettingsClient {
           auto_close_after: String(s.auto_close_after ?? ""),
           human_reply_filter_enabled: Boolean(s.human_reply_filter_enabled),
           human_reply_filter_action: String(s.human_reply_filter_action ?? "block"),
+          checkout_mode: String(s.checkout_mode ?? "quote_and_pay"),
         };
       } else {
         this.logger.warn(`Agente respondió ${res.status} al leer ajustes de ${tenantId}`);
@@ -71,6 +79,16 @@ export class AgentSettingsClient {
     // minuto por tenant no lo revive y sí llena el log.
     this.cache.set(tenantId, { at: Date.now(), value });
     return value;
+  }
+
+  /**
+   * `false` solo cuando el tenant está en `quote_only`. Si el agente no
+   * respondió se asume que sí se cobra (el flujo de siempre): apagar el
+   * cobro por un fallo transitorio dejaría a un negocio sin vender.
+   */
+  async paymentLinksEnabled(tenantId: string): Promise<boolean> {
+    const settings = await this.get(tenantId);
+    return settings?.checkout_mode !== "quote_only";
   }
 
   /** Solo para pruebas y para forzar una relectura tras guardar en el panel. */

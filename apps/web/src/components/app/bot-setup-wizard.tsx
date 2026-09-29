@@ -15,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { RadioCard, RadioGroup } from "@/components/ui/radio";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -24,6 +25,9 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+
+/** Conteo de caracteres con separador de miles es-MX (sin `toLocaleString` en línea). */
+const COUNT_FORMAT = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 });
 
 /**
  * Asistente modal que genera la configuración inicial del bot a partir de una
@@ -52,7 +56,29 @@ interface WizardAgentSettings {
   extra_rules?: string;
   forbidden_topics?: string;
   handoff_keywords?: string[];
+  /** Lo elige el dueño en el paso de revisión; el modelo no lo adivina. */
+  checkout_mode?: CheckoutMode;
 }
+
+type CheckoutMode = "quote_only" | "quote_and_pay" | "pay_first";
+
+const CHECKOUT_MODE_OPTIONS: Array<{ value: CheckoutMode; label: string; description: string }> = [
+  {
+    value: "quote_only",
+    label: "Solo cotizar",
+    description: "Manda la cotización (enlace y PDF), nunca un link de pago. El cobro lo acuerdas tú.",
+  },
+  {
+    value: "quote_and_pay",
+    label: "Cotizar y cobrar",
+    description: "Cotización, PDF y link de pago en el mismo mensaje. Es el modo recomendado.",
+  },
+  {
+    value: "pay_first",
+    label: "Cobrar primero",
+    description: "Sin cotización previa: tras el «sí» del cliente, manda el link de pago.",
+  },
+];
 
 interface WizardDraft {
   summary: string;
@@ -104,6 +130,9 @@ export function BotSetupWizard({ open, onOpenChange, tenantId }: BotSetupWizardP
   const [description, setDescription] = React.useState("");
   const [draft, setDraft] = React.useState<WizardDraft | null>(null);
   const [editedMd, setEditedMd] = React.useState("");
+  // Modo de cobro: decisión del dueño, no del modelo. Arranca en el flujo
+  // de siempre (cotizar y cobrar) y se guarda junto con el resto del parche.
+  const [checkoutMode, setCheckoutMode] = React.useState<CheckoutMode>("quote_and_pay");
 
   // Cada vez que se abre el wizard, vuelve al paso 1 y descarta el borrador
   // anterior: el dueño describió algo nuevo, no estamos refinando el viejo.
@@ -112,6 +141,7 @@ export function BotSetupWizard({ open, onOpenChange, tenantId }: BotSetupWizardP
       setStep(1);
       setDraft(null);
       setEditedMd("");
+      setCheckoutMode("quote_and_pay");
     }
   }, [open]);
 
@@ -180,7 +210,7 @@ export function BotSetupWizard({ open, onOpenChange, tenantId }: BotSetupWizardP
     if (!draft) return;
     apply.mutate({
       negocio_md: editedMd,
-      agent_settings: draft.agent_settings,
+      agent_settings: { ...draft.agent_settings, checkout_mode: checkoutMode },
       summary: draft.summary,
     });
   }
@@ -225,6 +255,8 @@ export function BotSetupWizard({ open, onOpenChange, tenantId }: BotSetupWizardP
               draft={draft}
               editedMd={editedMd}
               setEditedMd={setEditedMd}
+              checkoutMode={checkoutMode}
+              setCheckoutMode={setCheckoutMode}
               isApplying={apply.isPending}
               applyError={apply.error}
             />
@@ -353,12 +385,16 @@ function ReviewStep({
   draft,
   editedMd,
   setEditedMd,
+  checkoutMode,
+  setCheckoutMode,
   isApplying,
   applyError,
 }: {
   draft: WizardDraft;
   editedMd: string;
   setEditedMd: (value: string) => void;
+  checkoutMode: CheckoutMode;
+  setCheckoutMode: (mode: CheckoutMode) => void;
   isApplying: boolean;
   applyError: Error | null;
 }) {
@@ -384,6 +420,25 @@ function ReviewStep({
           <Row label="Emojis" value={formatBool(settings.emoji)} />
         </dl>
       </div>
+
+      <RadioGroup
+        legend="¿Cómo cobras?"
+        name="wizard_checkout_mode"
+        description="Lo puedes cambiar después en Configuración del agente → Cobro."
+        optionsClassName="grid gap-2"
+      >
+        {CHECKOUT_MODE_OPTIONS.map((option) => (
+          <RadioCard
+            key={option.value}
+            value={option.value}
+            label={option.label}
+            description={option.description}
+            checked={checkoutMode === option.value}
+            disabled={isApplying}
+            onChange={() => setCheckoutMode(option.value)}
+          />
+        ))}
+      </RadioGroup>
 
       <div className="space-y-2">
         <h3 className="text-sm font-semibold">Reglas extra</h3>
@@ -414,7 +469,7 @@ function ReviewStep({
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">Conocimiento (negocio.md)</h3>
           <span className="text-xs tabular-nums text-muted-foreground">
-            {editedMd.length.toLocaleString("es-MX")} caracteres
+            {COUNT_FORMAT.format(editedMd.length)} caracteres
           </span>
         </div>
         <Textarea
