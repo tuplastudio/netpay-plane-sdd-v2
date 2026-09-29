@@ -571,7 +571,7 @@ function TicketCard({ conversation }: { conversation: Conversation }) {
               <option value="">{conversation.handoffToHuman ? "Sin asignar (cola)" : "Agente de IA"}</option>
               {targets.map((a) => (
                 <option key={a.userId} value={a.userId}>
-                  {a.fullName} · {a.activeConversations} activos
+                  {a.fullName} ({a.activeConversations})
                 </option>
               ))}
             </Select>
