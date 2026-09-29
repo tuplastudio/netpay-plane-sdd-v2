@@ -1,0 +1,46 @@
+name: One-off - diagnostico imssbienestar.tupla.dev (solo lectura)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-imssbienestar-diag.yml"
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    name: curl local + estado de containers/vhost
+    runs-on: ubuntu-latest
+    steps:
+      - name: Diagnostico
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            DOMAIN=imssbienestar.tupla.dev
+            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
+            echo "=== contenedor captain-nginx ==="
+            echo "$NGX"
+            echo ""
+            echo "=== archivo vhost ==="
+            sudo cat "/captain/generated/nginx/conf.d/imssbienestar.conf" 2>&1
+            echo ""
+            echo "=== cert presente? ==="
+            sudo ls -la "/captain/data/letencrypt/etc/live/$DOMAIN/" 2>&1
+            echo ""
+            echo "=== curl local con Host header, saltando DNS/firewall externo ==="
+            docker exec "$NGX" sh -c "curl -sk -o /dev/null -w 'https local: %{http_code}\n' https://localhost -H 'Host: $DOMAIN' --resolve $DOMAIN:443:127.0.0.1" 2>&1
+            docker exec "$NGX" sh -c "curl -s -o /dev/null -w 'http local: %{http_code}\n' http://localhost -H 'Host: $DOMAIN' --resolve $DOMAIN:80:127.0.0.1" 2>&1
+            echo ""
+            echo "=== ss -tlnp puerto 443/80 en el host ==="
+            sudo ss -tlnp | grep -E ':443|:80 ' 2>&1
+            echo ""
+            echo "=== ufw status ==="
+            sudo ufw status 2>&1 | head -20
+            echo ""
+            echo "=== estado del contenedor agent-imssbienestar-ui ==="
+            docker ps --filter "name=agent_imssbienestar" --format "table {{.Names}}\t{{.Status}}"
