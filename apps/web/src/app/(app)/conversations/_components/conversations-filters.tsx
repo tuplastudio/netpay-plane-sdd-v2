@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, SlidersHorizontal, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -44,6 +44,7 @@ export function ConversationsFilters({
   filters,
   filtered,
   onChange,
+  onClear,
 }: {
   filters: ConversationFilters;
   filtered: boolean;
@@ -53,6 +54,7 @@ export function ConversationsFilters({
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const moreFilteredCount = [
     filters.handoff !== "all",
@@ -61,8 +63,27 @@ export function ConversationsFilters({
     filters.tag !== "",
   ].filter(Boolean).length;
 
+  // Cerrar con clic afuera o Escape: el panel no vive en un <Popover> con
+  // portal, es un div absoluto propio de esta página compacta, así que el
+  // cierre hay que resolverlo aquí.
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+    <div ref={rootRef} className="flex min-w-0 flex-wrap items-center gap-1.5">
       <div className="min-w-0 flex-1 sm:w-32 sm:flex-none">
         <Select
           id="conversations-status"
@@ -108,12 +129,12 @@ export function ConversationsFilters({
           variant="ghost"
           size="sm"
           className="h-11 w-11 px-0 sm:h-9 sm:w-9"
-          aria-label="Quitar filtros"
+          aria-label="Quitar todos los filtros"
+          title="Quitar todos los filtros"
           onClick={() => {
-            /* mantenido por contrato: la toolbar ya pinta el botón principal,
-               este queda accesible si la pantalla se monta sin él. */
+            setOpen(false);
+            onClear();
           }}
-          aria-disabled
         >
           <X aria-hidden className="h-3 w-3" />
         </Button>
@@ -122,8 +143,21 @@ export function ConversationsFilters({
       {open ? (
         <div
           id="conversations-more-filters"
-          className="absolute right-2 top-full z-20 mt-1 grid w-[min(640px,calc(100vw-1rem))] grid-cols-2 gap-3 rounded-card border border-border bg-card p-3 shadow-airbnb-lg sm:grid-cols-4"
+          className="absolute right-2 top-full z-20 mt-1 w-[min(640px,calc(100vw-1rem))] rounded-card border border-border bg-card p-3 shadow-airbnb-lg"
         >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-foreground">Más filtros</p>
+            {moreFilteredCount > 0 ? (
+              <button
+                type="button"
+                className="text-xs font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                onClick={() => onChange({ handoff: "all", provider: "", range: "all", tag: "" })}
+              >
+                Limpiar estos filtros
+              </button>
+            ) : null}
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="space-y-1">
             <Label htmlFor="conversations-handoff" className="text-xs">
               Atención
@@ -188,6 +222,7 @@ export function ConversationsFilters({
             >
               <option value="">Todas</option>
             </Select>
+          </div>
           </div>
         </div>
       ) : null}

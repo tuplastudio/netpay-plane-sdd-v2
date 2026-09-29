@@ -74,11 +74,27 @@ const EMPTY_BY_VIEW: Record<InboxView, { title: string; description: string }> =
   },
 };
 
+/** Fondo del chip del ícono por tono; a juego con `StatTile`/`ICON_TONE`. */
+const STAT_ICON_TONE: Record<"info" | "warning" | "destructive" | "neutral", string> = {
+  info: "bg-info-subtle text-info-foreground",
+  warning: "bg-warning-subtle text-warning-foreground",
+  destructive: "bg-destructive-subtle text-destructive-subtle-foreground",
+  neutral: "bg-muted text-muted-foreground",
+};
+const STAT_VALUE_TONE: Record<"info" | "warning" | "destructive" | "neutral", string> = {
+  info: "text-info-foreground",
+  warning: "text-warning-foreground",
+  destructive: "text-destructive-subtle-foreground",
+  neutral: "text-foreground",
+};
+
 /**
  * Tira compacta de KPIs en una sola línea, pensada para vivir sobre la tabla.
  * Toma el lugar del `Section > 4 StatTile` antiguo: la bandeja quiere tabla,
- * no mosaicos; los cuatro números viven en una línea de píldoras que se leen
- * de un vistazo y dejan respirar al listado.
+ * no mosaicos, así que en vez de tarjetas altas esto es UNA sola barra con
+ * los cinco números adentro, separados por líneas divisorias — mismo alto
+ * que antes (una línea), pero con el mismo lenguaje visual de ícono-con-tono
+ * que `StatTile` usa en el resto de la app (payments, catálogo…).
  */
 function StatsStrip({
   query,
@@ -122,7 +138,10 @@ function StatsStrip({
   return (
     <div
       aria-label="Resumen de conversaciones"
-      className="flex shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-xs"
+      className={cn(
+        "flex shrink-0 flex-nowrap items-stretch divide-x divide-border overflow-hidden rounded-card border border-border bg-card",
+        query.isError && "border-destructive-subtle-foreground/30",
+      )}
     >
       {items.map((it) => {
         const Icon = it.icon;
@@ -130,16 +149,25 @@ function StatsStrip({
           <div
             key={it.key}
             title={`${it.label}: ${it.value}`}
-            className={cn(
-              "flex shrink-0 items-center gap-1 rounded-pill border border-border bg-card px-2 py-0.5 tabular-nums",
-              query.isError && "text-destructive",
-            )}
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1"
           >
-            <Icon aria-hidden className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="font-semibold leading-none text-foreground">
-              {loading ? "…" : it.value}
+            <span
+              aria-hidden
+              className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+                STAT_ICON_TONE[it.tone],
+              )}
+            >
+              <Icon className="h-3 w-3" />
             </span>
-            <span className="hidden text-muted-foreground sm:inline">{it.label}</span>
+            <span className="flex items-baseline gap-1 tabular-nums leading-none">
+              <span className={cn("text-sm font-semibold", STAT_VALUE_TONE[it.tone])}>
+                {loading ? "…" : it.value}
+              </span>
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                {it.label}
+              </span>
+            </span>
           </div>
         );
       })}
