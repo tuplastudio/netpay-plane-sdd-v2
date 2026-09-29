@@ -1729,7 +1729,11 @@ export function ConversationThread({
   const iAmAgent = agents.data && userId ? agents.data.some((a) => a.userId === userId) : undefined;
   const canReassign =
     current.status !== "CLOSED" && (canManage || isOwner || !current.handoffUserId);
-  const assignTargets = (agents.data ?? []).filter((a) => a.userId !== current.handoffUserId);
+  // Ordenados por carga (menos hilos activos primero): quien reasigna ve de
+  // un vistazo a quién le cabe más, en vez del orden que devuelva el API.
+  const assignTargets = (agents.data ?? [])
+    .filter((a) => a.userId !== current.handoffUserId)
+    .sort((a, b) => a.activeConversations - b.activeConversations);
   // Quién puede escribir: el dueño, cualquier agente si está en cola, o quien administra.
   const blockedReason: string | null =
     ownedByOther && !canManage

@@ -39,6 +39,10 @@ export interface AttentionAgentRow {
   messagesSent: number;
   /** Promedio handoff → su primera respuesta, en los hilos donde fue el primero en contestar. */
   avgFirstReplySeconds: number | null;
+  /** Hilos que cerró (como dueño al momento del cierre) dentro del rango. */
+  closed: number;
+  /** Promedio handoff → cierre, en los hilos que cerró dentro del rango. */
+  avgResolutionSeconds: number | null;
 }
 
 export interface AttentionDayRow {
@@ -128,6 +132,11 @@ interface AgentReplyRow {
   uid: string;
   avg_sec: number | null;
 }
+interface AgentClosedRow {
+  uid: string;
+  closed: bigint;
+  avg_sec: number | null;
+}
 interface DayMsgRow {
   day: string;
   inbound: bigint;
@@ -151,8 +160,18 @@ export class AttentionReportService {
     });
     const tz = tenant?.timezone || "America/Mexico_City";
 
-    const [overview, messages, now, agentMsgs, agentReplies, dayMsgs, dayConvs, memberships, assignedNow] =
-      await Promise.all([
+    const [
+      overview,
+      messages,
+      now,
+      agentMsgs,
+      agentReplies,
+      agentClosed,
+      dayMsgs,
+      dayConvs,
+      memberships,
+      assignedNow,
+    ] = await Promise.all([
         this.prisma.$queryRaw<OverviewRow[]>(Prisma.sql`
           SELECT
             COUNT(*) FILTER (WHERE c."createdAt" >= ${from} AND c."createdAt" < ${to}) AS new_convs,
@@ -223,6 +242,22 @@ export class AttentionReportService {
             AND c."firstHumanReplyAt" >= c."handoffAt"
           GROUP BY fm."sentByUserId"
         `),
+        // Resolución por agente: desde el handoff (cuando lo tomó) hasta el
+        // cierre, solo hilos que él tenía asignados al momento de cerrarse.
+        // Si se reasignó antes de cerrar, el cierre cuenta para quien lo
+        // tenía al final — igual que `assignedNow` de arriba cuenta "carga
+        // actual" por dueño actual, no por quien lo atendió en el camino.
+        this.prisma.$queryRaw<AgentClosedRow[]>(Prisma.sql`
+          SELECT c."handoffUserId"::text AS uid,
+                 COUNT(*) AS closed,
+                 AVG(EXTRACT(EPOCH FROM (c."closedAt" - c."handoffAt")))
+                   FILTER (WHERE c."closedAt" >= c."handoffAt") AS avg_sec
+          FROM "WhatsAppConversation" c
+          WHERE c."tenantId" = ${tenantId}::uuid
+            AND c."handoffUserId" IS NOT NULL
+            AND c."closedAt" >= ${from} AND c."closedAt" < ${to}
+          GROUP BY c."handoffUserId"
+        `),
         this.prisma.$queryRaw<DayMsgRow[]>(Prisma.sql`
           SELECT to_char(m."createdAt" AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day,
                  COUNT(*) FILTER (WHERE m."direction" = 'INBOUND') AS inbound,
@@ -259,10 +294,13 @@ export class AttentionReportService {
     const activeIds = new Set(memberships.map((m) => m.userId));
     const msgByUser = new Map(agentMsgs.map((r) => [r.uid, r]));
     const replyByUser = new Map(agentReplies.map((r) => [r.uid, r.avg_sec]));
+    const closedByUser = new Map(agentClosed.map((r) => [r.uid, r]));
     const loadByUser = new Map(
       assignedNow.filter((g) => g.handoffUserId).map((g) => [g.handoffUserId!, g._count._all]),
     );
-    const ids = Array.from(new Set([...activeIds, ...msgByUser.keys(), ...loadByUser.keys()]));
+    const ids = Array.from(
+      new Set([...activeIds, ...msgByUser.keys(), ...loadByUser.keys(), ...closedByUser.keys()]),
+    );
     const users = ids.length
       ? await this.prisma.user.findMany({
           where: { id: { in: ids } },
@@ -279,6 +317,8 @@ export class AttentionReportService {
         handled: num(msgByUser.get(u.id)?.convs),
         messagesSent: num(msgByUser.get(u.id)?.msgs),
         avgFirstReplySeconds: secs(replyByUser.get(u.id)),
+        closed: num(closedByUser.get(u.id)?.closed),
+        avgResolutionSeconds: secs(closedByUser.get(u.id)?.avg_sec),
       }))
       .sort((a, b) => b.messagesSent - a.messagesSent || a.fullName.localeCompare(b.fullName));
 

@@ -93,12 +93,19 @@ export default function AttentionReportPage() {
     },
     { key: "assigned", header: "Llevando ahora", numeric: true, cell: (a) => a.assignedNow },
     { key: "handled", header: "Conversaciones atendidas", numeric: true, cell: (a) => a.handled },
+    { key: "closed", header: "Cerradas", numeric: true, cell: (a) => a.closed },
     { key: "msgs", header: "Mensajes enviados", numeric: true, cell: (a) => a.messagesSent },
     {
       key: "reply",
       header: "1.ª respuesta (prom.)",
       numeric: true,
       cell: (a) => formatDuration(a.avgFirstReplySeconds),
+    },
+    {
+      key: "resolution",
+      header: "Resolución (prom.)",
+      numeric: true,
+      cell: (a) => formatDuration(a.avgResolutionSeconds),
     },
   ];
 

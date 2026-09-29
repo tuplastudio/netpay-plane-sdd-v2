@@ -648,6 +648,8 @@ export interface AttentionAgentRow {
   handled: number;
   messagesSent: number;
   avgFirstReplySeconds: number | null;
+  closed: number;
+  avgResolutionSeconds: number | null;
 }
 
 export interface AttentionDayRow {
