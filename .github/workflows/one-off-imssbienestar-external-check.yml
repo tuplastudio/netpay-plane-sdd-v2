@@ -1,0 +1,23 @@
+name: One-off - check externo imssbienestar.tupla.dev (sin SSH)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-imssbienestar-external-check.yml"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    name: curl real desde el runner de GitHub (internet real, no el droplet)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check
+        run: |
+          set -x
+          echo "=== sin credenciales (debe dar 401) ==="
+          curl -sk -m 10 -o /dev/null -w "sin auth: %{http_code}\n" https://imssbienestar.tupla.dev/
+          echo ""
+          echo "=== con credenciales ==="
+          curl -sk -m 10 -u "tupla:W3miBFNaF92Qk9HGz46P" -o /tmp/body.html -w "con auth: %{http_code}\n" https://imssbienestar.tupla.dev/
+          grep -o '<title>[^<]*</title>' /tmp/body.html || true
