@@ -294,11 +294,6 @@ services:
     environment:
       AGENT_UPSTREAM: agent-imssbienestar:8010
       AGENT_INTERNAL_KEY: ${IMSSBIENESTAR_INTERNAL_KEY:?Set IMSSBIENESTAR_INTERNAL_KEY}
-      # HTTP Basic Auth del chat público (es un "chat de prueba", no un
-      # producto con login propio). /healthz queda fuera del bloque
-      # protegido a propósito, ver nginx.conf.template.
-      WEBAUTH_USER: ${IMSSBIENESTAR_WEBAUTH_USER:?Set IMSSBIENESTAR_WEBAUTH_USER}
-      WEBAUTH_PASSWORD: ${IMSSBIENESTAR_WEBAUTH_PASSWORD:?Set IMSSBIENESTAR_WEBAUTH_PASSWORD}
     networks: [netpay_internal]
     expose: ["80"]
     depends_on:

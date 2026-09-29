@@ -5,19 +5,10 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Sin auth: el healthcheck del propio contenedor (docker-compose) y
-    # captain-nginx le pegan a "/" en texto plano; con auth_basic ahí
-    # siempre les daría 401. /healthz vive fuera del bloque protegido.
     location = /healthz {
         add_header Content-Type text/plain;
         return 200 "ok\n";
     }
-
-    # Chat de prueba público: sin esto, cualquiera con la URL lo usa.
-    # auth_basic_user_file lo genera /docker-entrypoint.d/30-generate-htpasswd.sh
-    # a partir de WEBAUTH_USER/WEBAUTH_PASSWORD en cada arranque del contenedor.
-    auth_basic "IMSS-Bienestar (prueba)";
-    auth_basic_user_file /etc/nginx/.htpasswd;
 
     # El backend valida X-Internal-Key (ver app/security.py); el navegador
     # nunca la recibe, solo nginx la agrega al reenviar.
