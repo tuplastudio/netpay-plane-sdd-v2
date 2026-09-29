@@ -10,6 +10,11 @@ COPY . .
 RUN npm run build
 
 FROM nginx:1.27-alpine
+# nginx:alpine linkea contra libssl pero NO trae el binario `openssl` (es un
+# paquete apk aparte): 30-generate-htpasswd.sh lo necesita para el hash apr1.
+# Sin esto el script fallaba en silencio ("openssl: not found") y el
+# .htpasswd quedaba con hash vacío -> ninguna password entraba nunca.
+RUN apk add --no-cache openssl
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 # nginx:alpine corre todo lo ejecutable en /docker-entrypoint.d/ (orden

@@ -12,4 +12,12 @@ if [ -z "${WEBAUTH_USER:-}" ] || [ -z "${WEBAUTH_PASSWORD:-}" ]; then
     exit 0
 fi
 
-printf '%s:%s\n' "$WEBAUTH_USER" "$(openssl passwd -apr1 "$WEBAUTH_PASSWORD")" > /etc/nginx/.htpasswd
+HASH=$(openssl passwd -apr1 "$WEBAUTH_PASSWORD")
+if [ -z "$HASH" ]; then
+    # openssl faltante/roto en la imagen: mejor bloqueado que un hash vacío
+    # (que nginx trataría como "ninguna password calza", pero en silencio).
+    echo "openssl no generó hash; el chat queda bloqueado (fail closed)" >&2
+    : > /etc/nginx/.htpasswd
+    exit 1
+fi
+printf '%s:%s\n' "$WEBAUTH_USER" "$HASH" > /etc/nginx/.htpasswd
