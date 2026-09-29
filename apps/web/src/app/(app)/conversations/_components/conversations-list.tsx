@@ -135,13 +135,15 @@ export function ConversationsList({
   emptyDescription,
   emptyIcon,
   renderTrailingAction,
+  pagination,
 }: {
   query: UseQueryResult<ConversationList>;
   filtered: boolean;
   selectedId: string | undefined;
   onSelect: (conversation: Conversation) => void;
   onClearFilters: () => void;
-  /** Vista derivada: reemplaza las filas del query tal cual. */
+  /** Vista derivada: reemplaza las filas del query tal cual. Si viene paginada
+   *  (una página ya recortada), pasa también `pagination` con el control. */
   rows?: Conversation[];
   emptyTitle?: string;
   emptyDescription?: string;
@@ -149,9 +151,11 @@ export function ConversationsList({
   emptyIcon?: ReactNode;
   /** Acciones rápidas por fila, sin abrir el hilo (tomar, cerrar, reabrir). */
   renderTrailingAction?: (conversation: Conversation) => ReactNode;
+  /** Control de paginación de quien llama. Reemplaza el aviso interno de tope. */
+  pagination?: ReactNode;
 }) {
   const rows = rowsOverride ?? query.data?.data;
-  const capped = !rowsOverride && (rows?.length ?? 0) >= CONVERSATIONS_LIMIT;
+  const capped = !pagination && !rowsOverride && (rows?.length ?? 0) >= CONVERSATIONS_LIMIT;
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Roving por flechas sobre las filas ya enfocables de `DataTable`: el botón
@@ -326,11 +330,12 @@ export function ConversationsList({
           ) : undefined,
         }}
         pagination={
-          capped ? (
+          pagination ??
+          (capped ? (
             <p className="p-3 text-center text-[11px] text-muted-foreground">
               Se muestran las {CONVERSATIONS_LIMIT} más recientes.
             </p>
-          ) : undefined
+          ) : undefined)
         }
       />
     </div>

@@ -7,6 +7,8 @@ import {
   CalendarDays,
   BarChart3,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Hourglass,
   Inbox,
   MessagesSquare,
@@ -40,6 +42,9 @@ import {
   type SortFilter,
 } from "./use-conversations";
 import { cn } from "@/lib/utils";
+
+/** Filas por página del paginado en cliente (ver comentario junto a `page`). */
+const PAGE_SIZE = 20;
 
 const LIST_SHORTCUTS = [
   { keys: "↑ / ↓", label: "Moverse entre conversaciones" },
@@ -176,6 +181,66 @@ function StatsStrip({
 }
 
 /**
+ * Paginado en cliente de la bandeja: anterior/siguiente + "página X de Y",
+ * mismo lenguaje visual que `DataTablePagination` (botones outline con
+ * chevron) pero por número de página, no por cursor — acá ya está TODO el
+ * lote en memoria (ver `CONVERSATIONS_LIMIT`), solo se recorta cuánto se
+ * pinta a la vez.
+ */
+function ConversationsPager({
+  page,
+  totalPages,
+  total,
+  pageSize,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  onChange: (page: number) => void;
+}) {
+  if (total <= pageSize) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2 text-xs">
+      <span className="text-muted-foreground">
+        <span className="tabular-nums">{from}</span>–<span className="tabular-nums">{to}</span> de{" "}
+        <span className="tabular-nums">{total}</span>
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 px-2"
+          disabled={page <= 1}
+          onClick={() => onChange(page - 1)}
+        >
+          <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
+          Anterior
+        </Button>
+        <span className="tabular-nums text-muted-foreground">
+          Página {page} de {totalPages}
+        </span>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7 px-2"
+          disabled={page >= totalPages}
+          onClick={() => onChange(page + 1)}
+        >
+          Siguiente
+          <ChevronRight aria-hidden className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Bandeja **compacta**: la tabla come el ~80 % del alto, el resto vive en una
  * barra de herramientas de tres filas que se ve completa sin scrollear la página.
  *
@@ -195,6 +260,16 @@ export function ConversationsView() {
   const me = useMe();
   const { filters, setFilters, clearFilters, filtered } = useConversationFilters();
   const list = useConversations(filters);
+
+  // Paginado en cliente: el API no pagina conversaciones por cursor (ver
+  // CONVERSATIONS_LIMIT), así que ya viene el máximo permitido en una sola
+  // respuesta; esto solo recorta cuántas filas se pintan a la vez. `filters`
+  // solo cambia de identidad cuando el usuario de verdad cambia algo (view,
+  // búsqueda, orden, filtro) — nunca en el refetch de fondo cada 10s — así
+  // que es la señal correcta para volver a la página 1, sin resetear el
+  // paginado en cada refresco silencioso.
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [filters]);
 
   /** Buffer local del input de búsqueda para no pegar a la API en cada tecla. */
   const [searchInput, setSearchInput] = useState(filters.q);
@@ -318,6 +393,16 @@ export function ConversationsView() {
       byAgent: stats?.assigned,
     }),
     [stats],
+  );
+
+  const totalRows = list.data?.data.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
+  // Si el total encoge (cambió el filtro server-side, p. ej.) y `page` quedó
+  // más allá del final, se recorta al pintar en vez de mostrar una página vacía.
+  const clampedPage = Math.min(page, totalPages);
+  const pageRows = list.data?.data.slice(
+    (clampedPage - 1) * PAGE_SIZE,
+    clampedPage * PAGE_SIZE,
   );
 
   // ============== DETALLE (hilo abierto) ==============
@@ -489,6 +574,16 @@ export function ConversationsView() {
           selectedId={selectedId}
           onSelect={(c) => selectConversation(c.id)}
           onClearFilters={clearFilters}
+          rows={pageRows}
+          pagination={
+            <ConversationsPager
+              page={clampedPage}
+              totalPages={totalPages}
+              total={totalRows}
+              pageSize={PAGE_SIZE}
+              onChange={setPage}
+            />
+          }
           emptyTitle={filtered ? undefined : EMPTY_BY_VIEW[view].title}
           emptyDescription={filtered ? undefined : EMPTY_BY_VIEW[view].description}
           renderTrailingAction={renderTrailingAction}
