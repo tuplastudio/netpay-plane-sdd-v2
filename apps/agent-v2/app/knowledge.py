@@ -602,6 +602,66 @@ def save_uploaded_doc(
     return doc_id
 
 
+def _resolve_uploaded_doc_path(tenant_id: str, doc_id: str) -> Path:
+    """Resuelve un `doc_id` de un documento SUBIDO a su ruta en disco.
+
+    `doc_id` puede venir en dos formas, ambas producidas por este mismo
+    módulo: relativo al tenant (`"uploads/foo.md"`, lo que devuelve
+    `save_uploaded_doc` y lo que espera `delete_knowledge_doc`) o con el
+    prefijo `tenants/<tenant_id>/` que trae `knowledge_outline()` para los
+    documentos propios del tenant (línea `consume(..., str(Path("tenants")
+    / safe_id / ...))` en `_load`). Se acepta cualquiera de las dos para que
+    el panel pueda pegar el `doc` tal cual lo listó `GET /knowledge` sin que
+    quien llame tenga que saber cuál de los dos formatos le tocó.
+
+    Solo alcanza `<tenant>/uploads/`, igual que `delete_knowledge_doc`: el
+    contenido curado a mano (negocio.md...) no se lee/edita por HTTP.
+    """
+    directory = tenant_knowledge_dir(tenant_id)
+    safe_id = _sanitize_tenant_id(tenant_id)
+    prefix = f"{TENANTS_SUBDIR}/{safe_id}/"
+    rel = doc_id[len(prefix) :] if doc_id.startswith(prefix) else doc_id
+    uploads_dir = (directory / UPLOADS_SUBDIR).resolve()
+    candidate = (directory / rel).resolve()
+    if uploads_dir not in candidate.parents:
+        raise KnowledgeUploadError("Solo se pueden leer o editar documentos subidos (uploads/)")
+    return candidate
+
+
+def read_uploaded_doc(tenant_id: str, doc_id: str) -> str:
+    """Contenido completo de un `.md` subido, para verlo/editarlo en el panel.
+
+    Lanza `KnowledgeUploadError` si el docId se sale de `uploads/` (ver
+    `_resolve_uploaded_doc_path`) y `FileNotFoundError` si no existe.
+    """
+    path = _resolve_uploaded_doc_path(tenant_id, doc_id)
+    if not path.is_file():
+        raise FileNotFoundError(doc_id)
+    return path.read_text(encoding="utf-8")
+
+
+def write_uploaded_doc(
+    tenant_id: str, doc_id: str, content: str, *, max_bytes: int = MAX_UPLOAD_BYTES
+) -> None:
+    """Sobrescribe un `.md` YA subido con contenido editado desde el panel.
+
+    Edita en el lugar, no crea: un `doc_id` que no exista es `FileNotFoundError`
+    (para eso está `save_uploaded_doc`, que sí crea). Mismas validaciones de
+    tamaño/contenido que al subir; invalida la caché del tenant igual que
+    `save_uploaded_doc`/`delete_knowledge_doc`, así el cambio se ve desde el
+    siguiente turno.
+    """
+    if len(content.encode("utf-8")) > max_bytes:
+        raise KnowledgeUploadError(f"Documento demasiado grande (máximo {max_bytes} bytes)")
+    if "\x00" in content:
+        raise KnowledgeUploadError("Contenido binario detectado, se esperaba Markdown")
+    path = _resolve_uploaded_doc_path(tenant_id, doc_id)
+    if not path.is_file():
+        raise FileNotFoundError(doc_id)
+    path.write_text(content, encoding="utf-8")
+    invalidate_knowledge_cache(tenant_id)
+
+
 def delete_knowledge_doc(tenant_id: str, doc_id: str) -> bool:
     """Borra un documento subido por su docId, dentro del tenant dado.
     Solo alcanza `<tenant>/uploads/`: el contenido curado a mano (negocio.md,

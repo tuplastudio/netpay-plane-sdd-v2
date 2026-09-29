@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import {
   AlertCircle,
   AlertTriangle,
@@ -167,6 +167,8 @@ export default function AgentConsolePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
   const [docToDelete, setDocToDelete] = useState<string | null>(null);
+  const [docToView, setDocToView] = useState<string | null>(null);
+  const [docDraft, setDocDraft] = useState("");
   const [webUrl, setWebUrl] = useState("");
   const [selectedWebSections, setSelectedWebSections] = useState<Record<string, boolean>>({});
   const [expandedWebSections, setExpandedWebSections] = useState<Set<string>>(new Set());
@@ -256,6 +258,52 @@ export default function AgentConsolePage() {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+
+  const docContent = useQuery({
+    queryKey: ["agent-knowledge-doc", docToView],
+    queryFn: async (): Promise<{ docId: string; content: string }> => {
+      // Sin encodeURIComponent: el backend usa un path converter (`{doc_id:path}`)
+      // que espera las "/" literales, igual que ya hace `deleteDoc` abajo.
+      const res = await fetch(`${AGENT_BASE}/knowledge/${docToView}`);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail ?? "No se pudo leer el documento");
+      }
+      return res.json();
+    },
+    enabled: docToView !== null,
+  });
+
+  const updateDoc = useMutation({
+    mutationFn: async ({ docId, content }: { docId: string; content: string }) => {
+      const res = await fetch(`${AGENT_BASE}/knowledge/${docId}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.detail ?? "No se pudo guardar");
+      }
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      toast.success(`${variables.docId} actualizado`);
+      void queryClient.invalidateQueries({ queryKey: ["agent-knowledge"] });
+      void queryClient.invalidateQueries({ queryKey: ["agent-knowledge-doc", variables.docId] });
+      setDocToView(null);
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  // El borrador del editor solo se resincroniza cuando cambia de documento o
+  // llega contenido nuevo: si el usuario ya está escribiendo, un refetch en
+  // segundo plano (p. ej. por foco de ventana) no le pisa lo que lleva tecleado.
+  useEffect(() => {
+    if (docContent.data && docContent.data.docId === docToView) {
+      setDocDraft(docContent.data.content);
+    }
+  }, [docContent.data, docToView]);
 
   const webPreview = useMutation<WebPreviewResult, Error, string>({
     mutationFn: async (url: string) => {
@@ -658,7 +706,14 @@ export default function AgentConsolePage() {
                   ) : (
                     <ul className="space-y-1 text-xs">
                       {docs.map((doc) => {
-                        const uploaded = doc.startsWith("uploads/");
+                        // `doc` viene en dos formas según de dónde salió (ver
+                        // `_resolve_uploaded_doc_path` en el backend): relativo
+                        // al tenant ("uploads/x.md") para el tenant "default"
+                        // heredado, o con el prefijo "tenants/<id>/" para el
+                        // conocimiento propio de un tenant real. Antes solo se
+                        // detectaba la primera forma, así que un tenant real
+                        // nunca veía el botón de borrar en sus propias subidas.
+                        const uploaded = doc.startsWith("uploads/") || doc.includes("/uploads/");
                         return (
                           <li
                             key={doc}
@@ -673,16 +728,27 @@ export default function AgentConsolePage() {
                               )}
                             </span>
                             {uploaded ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-                                aria-label={`Borrar el documento ${doc}`}
-                                onClick={() => setDocToDelete(doc)}
-                                disabled={deleteDoc.isPending}
-                              >
-                                <Trash2 aria-hidden className="h-3.5 w-3.5" />
-                              </Button>
+                              <div className="flex shrink-0 items-center gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                  aria-label={`Ver o editar el documento ${doc}`}
+                                  onClick={() => setDocToView(doc)}
+                                >
+                                  <FileText aria-hidden className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                  aria-label={`Borrar el documento ${doc}`}
+                                  onClick={() => setDocToDelete(doc)}
+                                  disabled={deleteDoc.isPending}
+                                >
+                                  <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             ) : null}
                           </li>
                         );
@@ -1106,6 +1172,17 @@ export default function AgentConsolePage() {
         open={selectedTool !== null}
         onOpenChange={(open) => !open && setSelectedTool(null)}
       />
+
+      <KnowledgeDocSheet
+        docId={docToView}
+        open={docToView !== null}
+        onOpenChange={(open) => !open && setDocToView(null)}
+        query={docContent}
+        draft={docDraft}
+        onDraftChange={setDocDraft}
+        onSave={() => docToView && updateDoc.mutate({ docId: docToView, content: docDraft })}
+        saving={updateDoc.isPending}
+      />
     </div>
   );
 }
@@ -1171,6 +1248,80 @@ function ToolDetailSheet({
             </div>
           </>
         ) : null}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/**
+ * Ver y editar el contenido completo de un `.md` subido, sin salir del panel.
+ * Antes de esto solo se podía subir (reemplaza el archivo entero) o borrar:
+ * corregir una frase significaba bajar el archivo original, editarlo aparte y
+ * volver a subirlo. Solo aplica a documentos "subidos" (`uploads/`); el
+ * conocimiento curado a mano (negocio.md...) no se edita por HTTP.
+ */
+function KnowledgeDocSheet({
+  docId,
+  open,
+  onOpenChange,
+  query,
+  draft,
+  onDraftChange,
+  onSave,
+  saving,
+}: {
+  docId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  query: UseQueryResult<{ docId: string; content: string }>;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const dirty = query.data?.docId === docId && draft !== query.data.content;
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        title="Documento de conocimiento"
+        className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-2xl"
+      >
+        <SheetHeader className="border-b px-6 py-4">
+          <SheetTitle className="break-all font-mono text-sm">{docId}</SheetTitle>
+          <SheetDescription>
+            Se guarda tal cual: sin vista previa de Markdown renderizado.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex flex-1 flex-col gap-3 px-6 py-4">
+          {query.isError ? (
+            <QueryError
+              title="No se pudo cargar el documento"
+              retrying={query.isFetching}
+              onRetry={() => void query.refetch()}
+            />
+          ) : query.isLoading ? (
+            <SkeletonText lines={8} label="Cargando el documento…" />
+          ) : (
+            <Textarea
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              className="min-h-[60vh] flex-1 resize-none font-mono text-xs"
+              spellCheck={false}
+              aria-label={`Contenido de ${docId ?? "el documento"}`}
+            />
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t px-6 py-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={onSave} loading={saving} disabled={!dirty || query.isLoading || query.isError}>
+            Guardar cambios
+          </Button>
+        </div>
       </SheetContent>
     </Sheet>
   );

@@ -204,7 +204,14 @@ function MessageNotesPanel({ messageId }: { messageId: string }) {
 
   return (
     <div className="mt-1.5 w-72 max-w-full space-y-1.5 rounded-card border border-border bg-card p-2">
-      {notes.isLoading ? (
+      {notes.isError ? (
+        <p className="text-[11px] text-destructive">
+          No se pudieron cargar las notas.{" "}
+          <button type="button" className="underline" onClick={() => void notes.refetch()}>
+            Reintentar
+          </button>
+        </p>
+      ) : notes.isLoading ? (
         <p className="text-[11px] text-muted-foreground">Cargando…</p>
       ) : notes.data && notes.data.length > 0 ? (
         <ul className="space-y-1">
@@ -1499,7 +1506,14 @@ function ThreadContextBar({ conversation }: { conversation: Conversation }) {
           <span className="font-medium text-foreground">{customerName}</span>
         </span>
         <span aria-hidden className="text-muted-foreground">·</span>
-        {loading && !data ? (
+        {ctx.isError && !data ? (
+          <span className="text-destructive">
+            No se pudo cargar el historial del cliente.{" "}
+            <button type="button" className="underline" onClick={() => void ctx.refetch()}>
+              Reintentar
+            </button>
+          </span>
+        ) : loading && !data ? (
           <Skeleton className="h-3 w-40" />
         ) : (
           <>

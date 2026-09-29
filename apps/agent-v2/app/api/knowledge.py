@@ -17,9 +17,11 @@ from ..knowledge import (
     delete_knowledge_doc,
     knowledge_outline,
     knowledge_stats,
+    read_uploaded_doc,
     reload_knowledge,
     save_uploaded_doc,
     search_knowledge,
+    write_uploaded_doc,
 )
 from ..tenant_context import load_company_context
 from ..web_reader import WebReadError, crawl_url, save_web_page
@@ -53,6 +55,34 @@ async def knowledge_upload(file: UploadFile = File(...), tenantId: str = DEFAULT
         doc_id = save_uploaded_doc(tenantId, file.filename or "", content)
     except KnowledgeUploadError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"docId": doc_id, "chars": len(reload_knowledge(tenantId))}
+
+
+class KnowledgeUpdateRequest(BaseModel):
+    content: str = Field(min_length=0, max_length=300_000)
+
+
+@router.get("/knowledge/{doc_id:path}")
+async def knowledge_read(doc_id: str, tenantId: str = DEFAULT_TENANT_ID) -> dict[str, Any]:
+    try:
+        content = read_uploaded_doc(tenantId, doc_id)
+    except KnowledgeUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado") from exc
+    return {"docId": doc_id, "content": content}
+
+
+@router.put("/knowledge/{doc_id:path}")
+async def knowledge_update(
+    doc_id: str, req: KnowledgeUpdateRequest, tenantId: str = DEFAULT_TENANT_ID
+) -> dict[str, Any]:
+    try:
+        write_uploaded_doc(tenantId, doc_id, req.content)
+    except KnowledgeUploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Documento no encontrado") from exc
     return {"docId": doc_id, "chars": len(reload_knowledge(tenantId))}
 
 

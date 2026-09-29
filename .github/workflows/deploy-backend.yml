@@ -270,7 +270,14 @@ jobs:
             VHOST_FILE=/captain/generated/nginx/conf.d/imssbienestar.conf
             NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
             if [ -z "$NGX" ]; then echo "captain-nginx no encontrado; se omite"; exit 0; fi
-            if [ ! -f "/letencrypt/etc/live/$DOMAIN/fullchain.pem" ]; then
+            # OJO: este script corre en el HOST por SSH, no dentro del contenedor
+            # de nginx. "/letencrypt/etc/live/..." (usado en el `ssl_certificate`
+            # de abajo) es la ruta DENTRO del contenedor; en el host el mismo
+            # volumen vive en /captain/data/letencrypt/etc/live/. Con la ruta de
+            # adentro, este `if` daba SIEMPRE "no existe" y el vhost de
+            # imssbienestar nunca se restauraba solo en un deploy normal (bug
+            # encontrado 2026-09-29 junto con el de los subshells de arriba).
+            if [ ! -f "/captain/data/letencrypt/etc/live/$DOMAIN/fullchain.pem" ]; then
               echo "Sin certificado para $DOMAIN todavía (crear la app en CapRover primero); se omite el vhost esta corrida"
               exit 0
             fi

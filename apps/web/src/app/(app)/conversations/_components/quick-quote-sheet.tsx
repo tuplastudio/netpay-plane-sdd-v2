@@ -181,7 +181,18 @@ export function QuickQuoteSheet({
             </div>
 
             <div className="min-h-0 flex-1 space-y-1 overflow-y-auto">
-              {products.isLoading ? (
+              {products.isError ? (
+                <div className="py-6 text-center text-xs text-destructive">
+                  <p>No se pudo cargar el catálogo.</p>
+                  <button
+                    type="button"
+                    className="mt-1 underline"
+                    onClick={() => void products.refetch()}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              ) : products.isLoading ? (
                 <Skeleton className="h-24 w-full" />
               ) : results.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
@@ -191,7 +202,12 @@ export function QuickQuoteSheet({
               ) : (
                 results.map((p) => (
                   <ul key={p.id} className="space-y-1">
-                    {p.variants.map((v) => (
+                    {p.variants.map((v) => {
+                      // `stock === null` = variante sin control de inventario
+                      // (vende siempre); un número <= 0 sí es agotado de verdad.
+                      const stockNum = v.stock === null ? null : Number.parseFloat(v.stock);
+                      const outOfStock = stockNum !== null && Number.isFinite(stockNum) && stockNum <= 0;
+                      return (
                       <li
                         key={v.id}
                         className="flex items-center justify-between gap-2 rounded-lg border border-border px-2 py-1.5 text-xs"
@@ -201,7 +217,14 @@ export function QuickQuoteSheet({
                             {p.title}
                             {p.variants.length > 1 ? ` — ${v.title}` : ""}
                           </p>
-                          <p className="text-muted-foreground">{formatMoney(v.price)}</p>
+                          <p className="text-muted-foreground">
+                            {formatMoney(v.price)}
+                            {outOfStock ? (
+                              <span className="ml-1.5 font-medium text-destructive">Sin existencia</span>
+                            ) : stockNum !== null ? (
+                              <span className="ml-1.5">· {stockNum} en existencia</span>
+                            ) : null}
+                          </p>
                         </div>
                         <Button
                           type="button"
@@ -214,7 +237,8 @@ export function QuickQuoteSheet({
                           <Plus aria-hidden className="h-3 w-3" />
                         </Button>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 ))
               )}
