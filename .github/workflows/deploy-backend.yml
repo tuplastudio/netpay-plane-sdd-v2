@@ -142,12 +142,17 @@ jobs:
               sh -c "cd apps/commerce-api && pnpm exec prisma db push --skip-generate"
 
       # RLS de tablas nuevas que no vienen del schema.prisma (vive en SQL
-      # plano, ver migrations/0015): `db push` no lo aplica. Idempotente:
-      # DROP POLICY IF EXISTS + CREATE POLICY. current_tenant_id() ya existe
-      # en la BD (la creó 0002). Sin esto, DeliveryZone dependería solo del
-      # `where: { tenantId }` del código y una query con bug podría filtrar
-      # zonas de otro negocio.
-      - name: RLS DeliveryZone
+      # plano en cada migrations/00NN): `db push` sincroniza schema.prisma
+      # pero NUNCA aplica RLS. Idempotente: DROP POLICY IF EXISTS + CREATE
+      # POLICY. current_tenant_id() ya existe en la BD (la creó 0002).
+      #
+      # LAS CUATRO EN UNA SOLA CONEXIÓN SSH: cada paso `appleboy/ssh-action`
+      # abre una conexión nueva y `ufw limit ssh` en el droplet tumba la
+      # conexión #7 en <30s cuando build+migrate+RLS pasan de largo cada
+      # una por su cuenta (mismo problema que ya se resolvió para los
+      # vhosts en 98ec349 — aquí volvió a pasar el 2026-09-29 al separar
+      # CannedResponse/CustomerNote en dos pasos propios).
+      - name: RLS DeliveryZone + ProductImage + CannedResponse + CustomerNote
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
@@ -162,52 +167,8 @@ jobs:
             # /repo, donde @prisma/client no existe como dependencia
             # directa — la primera versión fallaba con MODULE_NOT_FOUND).
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"DeliveryZone\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"DeliveryZone\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"DeliveryZone\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS DeliveryZone\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
+              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();const rls=async(t,force)=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"\"+t+\"\\\" ENABLE ROW LEVEL SECURITY\");if(force)await p.\$executeRawUnsafe(\"ALTER TABLE \\\"\"+t+\"\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"\"+t+\"\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"\"+t+\"\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS \"+t);};(async()=>{await rls(\"DeliveryZone\",false);await rls(\"ProductImage\",true);await rls(\"CannedResponse\",true);await rls(\"CustomerNote\",false);await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
 
-      # Mismo caso que DeliveryZone arriba, para ProductImage (migrations/0018):
-      # `db push` crea la tabla desde schema.prisma pero no aplica RLS.
-      - name: RLS ProductImage
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.APP_HOST }}
-          username: ${{ secrets.APP_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 5m
-          script: |
-            set -euo pipefail
-            cd /opt/netpay-build/infra
-            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"ALTER TABLE \\\"ProductImage\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"ProductImage\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"ProductImage\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS ProductImage\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
-
-      # Mismo caso, para CannedResponse (migrations/0025, mesa de ayuda de
-      # conversaciones): `db push` crea la tabla pero no aplica RLS.
-      - name: RLS CannedResponse
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.APP_HOST }}
-          username: ${{ secrets.APP_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 5m
-          script: |
-            set -euo pipefail
-            cd /opt/netpay-build/infra
-            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"CannedResponse\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"ALTER TABLE \\\"CannedResponse\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"CannedResponse\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"CannedResponse\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS CannedResponse\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
-
-      # Mismo caso, para CustomerNote (migrations/0026, perfil 360 de cliente):
-      # `db push` crea la tabla pero no aplica RLS.
-      - name: RLS CustomerNote
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.APP_HOST }}
-          username: ${{ secrets.APP_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 5m
-          script: |
-            set -euo pipefail
-            cd /opt/netpay-build/infra
-            docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();(async()=>{await p.\$executeRawUnsafe(\"ALTER TABLE \\\"CustomerNote\\\" ENABLE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"CustomerNote\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"CustomerNote\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK (\\\"tenantId\\\" = current_tenant_id())\");console.log(\"OK RLS CustomerNote\");await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
 
       # El API público (api-easysell.tupla.dev) y el chat de IMSS-Bienestar
       # (imssbienestar.tupla.dev) se sirven desde captain-nginx de CapRover
