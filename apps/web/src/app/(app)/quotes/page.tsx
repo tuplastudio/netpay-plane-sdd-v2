@@ -1,8 +1,6 @@
 "use client";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { CirclePlus, FileText } from "lucide-react";
-import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
@@ -10,6 +8,8 @@ import { DateTime } from "@/components/app/date-time";
 import { Money } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
 import { NewQuoteForm } from "./_components/new-quote-form";
 import { usePermissions } from "@/components/app/use-permissions";
 
@@ -57,13 +57,7 @@ const columns: Array<DataTableColumn<Quote>> = [
 ];
 
 export default function QuotesPage() {
-  const list = useQuery({
-    queryKey: ["quotes"],
-    queryFn: async () => {
-      const res = await api.get<{ data: Quote[] }>("/quotes");
-      return res.data.data;
-    },
-  });
+  const list = usePagedQuery<Quote>({ key: ["quotes"], path: "/quotes" });
 
   // El Sheet del cotizador se controla desde la página (no desde el
   // componente del form) para que el botón "Nueva cotización" viva en el
@@ -93,11 +87,12 @@ export default function QuotesPage() {
       <Section padded={false}>
         <DataTable
           columns={columns}
-          rows={list.data}
+          rows={list.rows}
           isLoading={list.isLoading}
           isError={list.isError}
           error={list.error}
           onRetry={() => void list.refetch()}
+          pagination={list.paged ? <TablePager {...list.pagerProps} /> : undefined}
           getRowHref={(q) => `/quotes/${q.id}`}
           caption="Cotizaciones del comercio"
           empty={{

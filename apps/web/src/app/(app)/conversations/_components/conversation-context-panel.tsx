@@ -7,6 +7,7 @@ import {
   FileText,
   History,
   Receipt,
+  Ticket,
   StickyNote,
   UserPlus,
   UserRound,
@@ -24,7 +25,14 @@ import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { Money, formatMoney } from "@/components/app/money";
 import { Section } from "@/components/app/section";
-import { type Conversation } from "./use-conversations";
+import { Select } from "@/components/ui/select";
+import {
+  providerLabel,
+  useAgents,
+  useAssign,
+  useReleaseToQueue,
+  type Conversation,
+} from "./use-conversations";
 import {
   useConversationContext,
   useCreateAndLinkCustomer,
@@ -512,6 +520,95 @@ function TimelinePane({
   );
 }
 
+/**
+ * Propiedades del ticket (estilo Zendesk): estado, canal, dueño con
+ * reasignación en línea, espera y etiquetas. Vive arriba del panel para que
+ * quien supervisa vea y cambie el dueño sin abrir menús, y ordenado por carga
+ * (menos hilos activos primero) para repartir bien.
+ */
+function TicketCard({ conversation }: { conversation: Conversation }) {
+  const agents = useAgents();
+  const assign = useAssign();
+  const release = useReleaseToQueue();
+  const { can } = usePermissions();
+  const canManage = can("users.manage");
+  const closed = conversation.status === "CLOSED";
+  const owner = conversation.handoffUser;
+  const canReassign = !closed && (canManage || !owner);
+  const targets = useMemo(
+    () =>
+      [...(agents.data ?? [])].sort((a, b) => a.activeConversations - b.activeConversations),
+    [agents.data],
+  );
+  const waiting = conversation.unanswered && !closed;
+  return (
+    <Section title="Ticket" headerIcon={<Ticket className="h-4 w-4" />} density="compact">
+      <DescriptionList>
+        <FieldRow label="Estado">
+          <StatusBadge status={conversation.status} domain="conversation" size="sm" withDot />
+        </FieldRow>
+        <FieldRow label="Canal">
+          {providerLabel(conversation.connection.provider)}
+          {conversation.connection.phoneNumber ? ` · ${conversation.connection.phoneNumber}` : ""}
+        </FieldRow>
+        <FieldRow label="Atiende">
+          {canReassign ? (
+            <Select
+              aria-label="Asignar conversación a"
+              value={owner ? conversation.handoffUserId ?? "" : ""}
+              disabled={assign.isPending || release.isPending || agents.isLoading}
+              onChange={(e) => {
+                const userId = e.target.value;
+                if (!userId) {
+                  release.mutate(conversation.id);
+                  return;
+                }
+                const a = targets.find((t) => t.userId === userId);
+                if (a) assign.mutate({ id: conversation.id, userId: a.userId, name: a.fullName });
+              }}
+              className="h-8 text-xs sm:h-8 sm:text-xs"
+            >
+              <option value="">{conversation.handoffToHuman ? "Sin asignar (cola)" : "Agente de IA"}</option>
+              {targets.map((a) => (
+                <option key={a.userId} value={a.userId}>
+                  {a.fullName} · {a.activeConversations} activos
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <span>{owner?.fullName ?? (conversation.handoffToHuman ? "Sin asignar" : "Agente de IA")}</span>
+          )}
+        </FieldRow>
+        <FieldRow label="Espera">
+          {waiting ? (
+            <Badge variant="warning" size="sm">
+              Cliente esperando respuesta
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground">Al día</span>
+          )}
+        </FieldRow>
+        <FieldRow label="Último mensaje">
+          <DateTime value={conversation.lastMessageAt} />
+        </FieldRow>
+        <FieldRow label="Etiquetas">
+          {conversation.tags.length === 0 ? (
+            <span className="text-muted-foreground">Sin etiquetas</span>
+          ) : (
+            <span className="flex flex-wrap gap-1">
+              {conversation.tags.map((t) => (
+                <Badge key={t} variant="info" size="sm">
+                  {t}
+                </Badge>
+              ))}
+            </span>
+          )}
+        </FieldRow>
+      </DescriptionList>
+    </Section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Panel
 // ---------------------------------------------------------------------------
@@ -535,6 +632,7 @@ export function ConversationContextPanel({ conversation }: { conversation: Conve
 
   return (
     <div className="space-y-3 p-3">
+      <TicketCard conversation={conversation} />
       {context.isLoading ? (
         <div className="space-y-3">
           <Skeleton className="h-32 w-full" />

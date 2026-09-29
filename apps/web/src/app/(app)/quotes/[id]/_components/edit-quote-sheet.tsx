@@ -130,7 +130,7 @@ export function EditQuoteSheet({
     queryKey: ["products", "ACTIVE"],
     queryFn: async () => {
       const res = await api.get<{ data: Product[] }>("/catalog/products", {
-        params: { status: "ACTIVE" },
+        params: { status: "ACTIVE", limit: 100 },
       });
       return res.data.data;
     },

@@ -84,7 +84,7 @@ export function ConversationsFilters({
 
   return (
     <div ref={rootRef} className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <div className="min-w-0 flex-1 sm:w-32 sm:flex-none">
+      <div className="min-w-0 flex-1 sm:w-40 sm:flex-none">
         <Select
           id="conversations-status"
           aria-label="Estado de la conversación"

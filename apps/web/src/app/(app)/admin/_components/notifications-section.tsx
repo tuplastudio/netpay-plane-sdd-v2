@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { BellRing, Download } from "lucide-react";
-import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
 import { StatusBadge, statusLabel } from "@/components/ui/status-badge";
 import {
   Sheet,
@@ -14,6 +13,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Section } from "@/components/app/section";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
@@ -80,12 +81,13 @@ const columns: Array<DataTableColumn<Notification>> = [
 
 export function NotificationsSection() {
   const [selected, setSelected] = useState<Notification | null>(null);
-  const notifications = useQuery({
-    queryKey: ["notifications"],
-    queryFn: async () => {
-      const res = await api.get<{ data: Notification[] }>("/notifications");
-      return res.data.data;
-    },
+  const [status, setStatus] = useState("");
+  const notifications = usePagedQuery<Notification>({
+    key: ["notifications"],
+    path: "/notifications",
+    params: { status },
+    urlPrefix: "notif",
+    defaultPageSize: 50,
   });
 
   return (
@@ -95,21 +97,39 @@ export function NotificationsSection() {
       description="Cola de envíos del tenant y su resultado."
       padded={false}
       actions={
+        <>
+          <div className="w-40">
+            <Select
+              aria-label="Filtrar por estado"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="h-8 text-xs sm:h-8 sm:text-xs"
+            >
+              <option value="">Todos los estados</option>
+              {["PENDING", "SENT", "DELIVERED", "FAILED", "CANCELLED"].map((st) => (
+                <option key={st} value={st}>
+                  {statusLabel(st, "notification")}
+                </option>
+              ))}
+            </Select>
+          </div>
         <Button asChild variant="outline" size="sm">
           <a href="/api/v1/notifications/export.csv" download>
             <Download className="h-4 w-4" />
             Exportar CSV
           </a>
         </Button>
+        </>
       }
     >
       <DataTable
         columns={columns}
-        rows={notifications.data}
+        rows={notifications.rows}
         isLoading={notifications.isLoading}
         isError={notifications.isError}
         error={notifications.error}
         onRetry={() => void notifications.refetch()}
+        pagination={notifications.paged ? <TablePager {...notifications.pagerProps} /> : undefined}
         onRowClick={(n) => setSelected(n)}
         getRowActionLabel={(n) => `Ver detalle de ${n.templateKey}`}
         caption="Notificaciones programadas y enviadas"

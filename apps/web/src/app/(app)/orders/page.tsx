@@ -1,14 +1,14 @@
 "use client";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import { PackageOpen } from "lucide-react";
-import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { SOURCE_LABELS, StatusBadge } from "@/components/ui/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
 import { Money } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
 import { Section } from "@/components/app/section";
 import { usePermissions } from "@/components/app/use-permissions";
 
@@ -65,13 +65,7 @@ const columns: Array<DataTableColumn<Order>> = [
 
 export default function OrdersPage() {
   const canQuote = usePermissions().can("quotes.write");
-  const q = useQuery({
-    queryKey: ["orders"],
-    queryFn: async () => {
-      const res = await api.get<{ data: Order[] }>("/orders");
-      return res.data.data;
-    },
-  });
+  const q = usePagedQuery<Order>({ key: ["orders"], path: "/orders" });
 
   return (
     <div>
@@ -84,11 +78,12 @@ export default function OrdersPage() {
         <Section title="Listado" padded={false}>
           <DataTable
             columns={columns}
-            rows={q.data}
+            rows={q.rows}
             isLoading={q.isLoading}
             isError={q.isError}
             error={q.error}
             onRetry={() => void q.refetch()}
+            pagination={q.paged ? <TablePager {...q.pagerProps} /> : undefined}
             getRowHref={(o) => `/orders/${o.id}`}
             caption="Pedidos del comercio"
             empty={{

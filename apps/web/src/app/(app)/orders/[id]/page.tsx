@@ -130,7 +130,9 @@ export default function OrderDetailPage() {
   const productsQ = useQuery({
     queryKey: ["products"],
     queryFn: async () => {
-      const res = await api.get<{ data: Product[] }>("/catalog/products");
+      const res = await api.get<{ data: Product[] }>("/catalog/products", {
+        params: { limit: 100 },
+      });
       return res.data.data;
     },
     enabled: canWrite && order?.status === "DRAFT" && order.source !== "QUOTE",

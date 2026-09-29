@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ScrollText } from "lucide-react";
-import { api } from "@/lib/api";
 import { Section } from "@/components/app/section";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
 import { AuditEventSheet, auditActorLabel, type AuditEvent } from "./audit-event-sheet";
@@ -81,12 +81,11 @@ const columns: Array<DataTableColumn<AuditEvent>> = [
 export function AuditSection() {
   const [selected, setSelected] = useState<AuditEvent | null>(null);
 
-  const audit = useQuery({
-    queryKey: ["audit"],
-    queryFn: async () => {
-      const res = await api.get<{ data: AuditEvent[] }>("/audit/events");
-      return res.data.data;
-    },
+  const audit = usePagedQuery<AuditEvent>({
+    key: ["audit"],
+    path: "/audit/events",
+    urlPrefix: "audit",
+    defaultPageSize: 50,
   });
 
   return (
@@ -94,16 +93,17 @@ export function AuditSection() {
       <Section
         title="Auditoría"
         headerIcon={<ScrollText className="h-4 w-4" />}
-        description="Últimos eventos registrados en el tenant. Haz clic en uno para ver el detalle."
+        description="Eventos registrados en el tenant, del más reciente al más antiguo. Haz clic en uno para ver el detalle."
         padded={false}
       >
         <DataTable
           columns={columns}
-          rows={audit.data}
+          rows={audit.rows}
           isLoading={audit.isLoading}
           isError={audit.isError}
           error={audit.error}
           onRetry={() => void audit.refetch()}
+          pagination={audit.paged ? <TablePager {...audit.pagerProps} /> : undefined}
           getRowId={(row) => row.id}
           onRowClick={(row) => setSelected(row)}
           getRowActionLabel={(row) => `Ver detalle de ${row.action}`}

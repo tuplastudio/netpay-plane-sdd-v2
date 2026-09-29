@@ -1,12 +1,12 @@
 "use client";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { ArrowRight, UserPlus, Users } from "lucide-react";
+import { ArrowRight, Search, UserPlus, Users } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,9 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
+import { useDebouncedValue } from "@/components/app/use-debounced-value";
 import { usePermissions } from "@/components/app/use-permissions";
 
 interface Customer {
@@ -42,12 +45,12 @@ export default function CustomersPage() {
   const [showForm, setShowForm] = useState(false);
   const canWrite = usePermissions().can("customers.write");
 
-  const list = useQuery({
-    queryKey: ["customers"],
-    queryFn: async () => {
-      const res = await api.get<{ data: Customer[] }>("/customers");
-      return res.data.data;
-    },
+  const [search, setSearch] = useState("");
+  const q = useDebouncedValue(search.trim(), 300);
+  const list = usePagedQuery<Customer>({
+    key: ["customers"],
+    path: "/customers",
+    params: { q },
   });
 
   const {
@@ -249,24 +252,45 @@ export default function CustomersPage() {
           </Section>
         )}
 
-        <Section title="Clientes" padded={false}>
+        <Section
+          title="Clientes"
+          padded={false}
+          actions={
+            <div className="relative w-56 sm:w-72">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por nombre, correo o teléfono…"
+                className="pl-9"
+                aria-label="Buscar clientes"
+              />
+            </div>
+          }
+        >
           <DataTable
             columns={columns}
-            rows={list.data}
+            rows={list.rows}
             isLoading={list.isLoading}
             isError={list.isError}
             error={list.error}
             onRetry={() => void list.refetch()}
+            pagination={list.paged ? <TablePager {...list.pagerProps} /> : undefined}
             getRowHref={(c) => `/customers/${c.id}`}
             getRowActionLabel={(c) => `Ver ficha de ${c.fullName}`}
             caption="Clientes del comercio"
             empty={{
               icon: <Users className="h-6 w-6" />,
-              title: "Todavía no hay clientes",
-              description: canWrite
+              title: q ? "Ningún cliente coincide" : "Todavía no hay clientes",
+              description: q
+                ? "Prueba con otro nombre, correo o teléfono."
+                : canWrite
                 ? "Registra al primer contacto para poder cotizarle y cobrarle desde el portal."
                 : "Los clientes aparecerán aquí cuando alguien del equipo los registre o escriban por WhatsApp.",
-              action: canWrite ? (
+              action: canWrite && !q ? (
                 <Button onClick={() => setShowForm(true)}>
                   <UserPlus className="h-4 w-4" />
                   Nuevo cliente

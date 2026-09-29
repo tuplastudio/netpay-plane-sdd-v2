@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { Suspense } from "react";
 import {
   Bot,
   CheckCircle2,
@@ -12,38 +12,18 @@ import {
   UserCog,
   Users,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Select } from "@/components/ui/select";
-import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
 import {
   formatDuration,
+  providerLabel,
   useAttentionReport,
-  type AttentionAgentRow,
   type AttentionDayRow,
 } from "../_components/use-conversations";
-
-type Preset = "today" | "7d" | "30d" | "90d";
-
-const PRESETS: Array<{ value: Preset; label: string; days: number }> = [
-  { value: "today", label: "Hoy", days: 0 },
-  { value: "7d", label: "Últimos 7 días", days: 7 },
-  { value: "30d", label: "Últimos 30 días", days: 30 },
-  { value: "90d", label: "Últimos 90 días", days: 90 },
-];
-
-/** Rango ISO del preset, calculado al cambiar la selección (no en cada render). */
-function rangeOf(preset: Preset): { from: string; to: string } {
-  const now = new Date();
-  const to = new Date(now.getTime() + 60_000);
-  const days = PRESETS.find((p) => p.value === preset)!.days;
-  const from = new Date(now);
-  if (days === 0) from.setHours(0, 0, 0, 0);
-  else from.setTime(now.getTime() - days * 24 * 60 * 60 * 1000);
-  return { from: from.toISOString(), to: to.toISOString() };
-}
+import { AgentsTable } from "./_components/agents-table";
+import { ReportFilterBar } from "./_components/report-filter-bar";
+import { useReportFilters } from "./_components/use-report-filters";
 
 const SHORT_DAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 
@@ -58,56 +38,21 @@ function dayLabel(day: string): string {
  * Datos de `GET /reports/attention` (calculados en SQL sobre todo el rango).
  */
 export default function AttentionReportPage() {
-  const [preset, setPreset] = useState<Preset>("30d");
-  const range = useMemo(() => rangeOf(preset), [preset]);
-  const query = useAttentionReport(range);
+  return (
+    <Suspense fallback={<div className="h-40 animate-pulse rounded-md bg-muted" aria-label="Cargando reporte…" />}>
+      <AttentionReportView />
+    </Suspense>
+  );
+}
+
+function AttentionReportView() {
+  const { filters, setFilters, clear, isFiltered, error, query: params } = useReportFilters();
+  const query = useAttentionReport(params, error === null);
   const report = query.data;
   const o = report?.overview;
   const now = report?.now;
   const tile = { isLoading: query.isLoading, isError: query.isError, onRetry: () => void query.refetch() };
-
-  const agentColumns: Array<DataTableColumn<AttentionAgentRow>> = [
-    {
-      key: "agent",
-      header: "Agente",
-      cell: (a) => (
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-foreground">{a.fullName}</p>
-          <p className="truncate text-xs text-muted-foreground">{a.email}</p>
-        </div>
-      ),
-    },
-    {
-      key: "status",
-      header: "Estado",
-      cell: (a) =>
-        a.active ? (
-          <Badge variant="success" size="sm">
-            Agente activo
-          </Badge>
-        ) : (
-          <Badge variant="neutral" size="sm">
-            Ya no es agente
-          </Badge>
-        ),
-    },
-    { key: "assigned", header: "Llevando ahora", numeric: true, cell: (a) => a.assignedNow },
-    { key: "handled", header: "Conversaciones atendidas", numeric: true, cell: (a) => a.handled },
-    { key: "closed", header: "Cerradas", numeric: true, cell: (a) => a.closed },
-    { key: "msgs", header: "Mensajes enviados", numeric: true, cell: (a) => a.messagesSent },
-    {
-      key: "reply",
-      header: "1.ª respuesta (prom.)",
-      numeric: true,
-      cell: (a) => formatDuration(a.avgFirstReplySeconds),
-    },
-    {
-      key: "resolution",
-      header: "Resolución (prom.)",
-      numeric: true,
-      cell: (a) => formatDuration(a.avgResolutionSeconds),
-    },
-  ];
+  const resetKey = `${filters.preset}|${filters.from}|${filters.to}|${filters.agent}|${filters.provider}`;
 
   return (
     <div className="space-y-6">
@@ -116,25 +61,19 @@ export default function AttentionReportPage() {
         description="Volumen, tiempos de respuesta y carga de trabajo de tu equipo en WhatsApp."
         backHref="/conversations"
         breadcrumbs={[{ label: "Conversaciones", href: "/conversations" }, { label: "Reporte" }]}
-        actions={
-          <Select
-            aria-label="Periodo del reporte"
-            value={preset}
-            onChange={(e) => setPreset(e.target.value as Preset)}
-            className="h-9 w-44 text-sm"
-          >
-            {PRESETS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </Select>
-        }
+      />
+
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onClear={clear}
+        isFiltered={isFiltered}
+        error={error}
       />
 
       <Section
         title="Ahora mismo"
-        description="Foto en vivo, no depende del periodo."
+        description="Foto en vivo: no depende del periodo (sí del agente y canal elegidos)."
         headerIcon={<Clock className="h-4 w-4" />}
         density="compact"
       >
@@ -255,26 +194,50 @@ export default function AttentionReportPage() {
       </Section>
 
       <Section
+        title="Distribución"
+        description="Hilos con actividad en el periodo, por estado y canal actuales."
+        headerIcon={<MessagesSquare className="h-4 w-4" />}
+        density="compact"
+      >
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <StatTile size="compact" label="Abiertas" value={report?.breakdown.byStatus.OPEN ?? 0} tone="info" {...tile} />
+          <StatTile
+            size="compact"
+            label="Con una persona"
+            value={report?.breakdown.byStatus.HANDED_OFF ?? 0}
+            tone="warning"
+            {...tile}
+          />
+          <StatTile size="compact" label="Cerradas" value={report?.breakdown.byStatus.CLOSED ?? 0} tone="success" {...tile} />
+          <StatTile
+            size="compact"
+            label={providerLabel("META")}
+            value={report?.breakdown.byProvider.META ?? 0}
+            {...tile}
+          />
+          <StatTile
+            size="compact"
+            label={providerLabel("EVOLUTION")}
+            value={report?.breakdown.byProvider.EVOLUTION ?? 0}
+            {...tile}
+          />
+        </div>
+      </Section>
+
+      <Section
         title="Atención por agente"
-        description="Quién contestó qué en el periodo. La primera respuesta cuenta desde que el hilo pasa a una persona."
+        description="Quién contestó qué en el periodo (con los filtros elegidos). La primera respuesta cuenta desde que el hilo pasa a una persona."
         headerIcon={<Users className="h-4 w-4" />}
         density="compact"
         padded={false}
       >
-        <DataTable
-          columns={agentColumns}
+        <AgentsTable
           rows={report?.agents}
-          getRowId={(a) => a.userId}
           isLoading={query.isLoading}
           isError={query.isError}
           onRetry={() => void query.refetch()}
-          caption="Atención por agente"
-          empty={{
-            icon: <Users className="h-6 w-6" />,
-            title: "Sin agentes todavía",
-            description:
-              "Marca a las personas de tu equipo como agente en Admin › Miembros para que puedan tomar conversaciones.",
-          }}
+          resetKey={resetKey}
+          filtered={isFiltered}
         />
       </Section>
     </div>

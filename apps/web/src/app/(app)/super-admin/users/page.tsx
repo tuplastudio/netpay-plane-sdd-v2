@@ -2,18 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search, Users } from "lucide-react";
-import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ROLE_LABELS, StatusBadge } from "@/components/ui/status-badge";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
-import { type PlatformUser, formatInt, saUsersKey } from "../_shared";
+import { type PlatformUser, formatInt } from "../_shared";
 
 const DEBOUNCE_MS = 300;
 
@@ -106,19 +106,16 @@ export default function SuperAdminUsersPage() {
     return () => clearTimeout(handle);
   }, [search]);
 
-  const users = useQuery({
-    queryKey: saUsersKey(q),
-    queryFn: async () => {
-      const res = await api.get<{ data: PlatformUser[] }>("/super-admin/users", {
-        params: q ? { q } : {},
-      });
-      return res.data.data;
-    },
-    // Al cambiar el término se conserva la lista anterior: sin parpadeo a skeleton.
-    placeholderData: keepPreviousData,
+  // Paginado en el servidor; al cambiar el término se conserva la lista anterior
+  // (`keepPreviousData` dentro del hook) y la página vuelve a 1.
+  const users = usePagedQuery<PlatformUser>({
+    key: ["super-admin", "users"],
+    path: "/super-admin/users",
+    params: { q },
+    defaultPageSize: 50,
   });
 
-  const count = users.data?.length;
+  const count = users.rows === undefined ? undefined : users.total;
 
   return (
     <div>
@@ -161,11 +158,12 @@ export default function SuperAdminUsersPage() {
         >
           <DataTable
             columns={columns}
-            rows={users.data}
+            rows={users.rows}
             isLoading={users.isLoading}
             isError={users.isError}
             error={users.error}
             onRetry={() => void users.refetch()}
+            pagination={users.paged ? <TablePager {...users.pagerProps} /> : undefined}
             caption="Usuarios de la plataforma"
             empty={
               q

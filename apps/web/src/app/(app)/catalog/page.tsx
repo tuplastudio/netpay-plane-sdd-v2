@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Archive,
@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatMoney } from "@/components/app/money";
 import { cn } from "@/lib/utils";
@@ -107,7 +109,7 @@ function CatalogStatsStrip({
         isError && "text-destructive",
       )}
     >
-      <span className="text-muted-foreground">Catálogo:</span>
+      <span className="text-muted-foreground">Esta página:</span>
       {items.map((it) => {
         const Icon = it.icon;
         return (
@@ -230,20 +232,15 @@ export default function CatalogPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Product | null>(null);
 
-  const list = useQuery({
-    queryKey: ["products", { q, status }],
-    queryFn: async () => {
-      const res = await api.get<{ data: Product[]; pageInfo?: { nextCursor: string | null } }>(
-        "/catalog/products",
-        {
-          params: { q: q || undefined, status: status || undefined },
-        },
-      );
-      return res.data.data;
-    },
+  // Paginado en el servidor (`limit`/`offset`): antes solo se veían los primeros
+  // 25 productos y el resto del catálogo era inalcanzable.
+  const list = usePagedQuery<Product>({
+    key: ["products"],
+    path: "/catalog/products",
+    params: { q, status },
   });
 
-  const editing = list.data?.find((p) => p.id === editingId) ?? null;
+  const editing = list.rows?.find((p) => p.id === editingId) ?? null;
   const invalidate = useCallback(
     () => qc.invalidateQueries({ queryKey: ["products"] }),
     [qc],
@@ -264,20 +261,20 @@ export default function CatalogPage() {
 
   const availableTags = useMemo(() => {
     const set = new Set<string>();
-    for (const p of list.data ?? []) for (const t of p.tags) set.add(t);
+    for (const p of list.rows ?? []) for (const t of p.tags) set.add(t);
     return [...set].sort((a, b) => a.localeCompare(b, "es"));
-  }, [list.data]);
+  }, [list.rows]);
 
   const visible = useMemo(
     () =>
-      applyLocalFilters(list.data, {
+      applyLocalFilters(list.rows, {
         stock: stockFilter,
         tag,
         priceMin,
         priceMax,
         sort,
       }),
-    [list.data, stockFilter, tag, priceMin, priceMax, sort],
+    [list.rows, stockFilter, tag, priceMin, priceMax, sort],
   );
 
   const stats = useMemo(() => catalogStats(visible), [visible]);
@@ -567,6 +564,13 @@ export default function CatalogPage() {
                 searchTerm={q}
               />
             ) : (
+              <>
+              {localFiltered ? (
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Existencias, etiqueta, precio y orden filtran dentro de la página actual; la
+                  búsqueda y el estado sí recorren todo el catálogo.
+                </p>
+              ) : null}
               <ul
                 className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
                 aria-label="Productos del catálogo"
@@ -590,8 +594,10 @@ export default function CatalogPage() {
                   </li>
                 ))}
               </ul>
+              </>
             )}
           </div>
+          {list.paged ? <TablePager {...list.pagerProps} /> : null}
         </Section>
       </div>
 

@@ -67,6 +67,8 @@ export interface ConversationStats {
 export interface ConversationList {
   data: Conversation[];
   stats: ConversationStats;
+  /** Paginado de servidor (limit/offset); ausente con un backend viejo. */
+  pageInfo?: { total: number; limit: number; offset: number };
 }
 
 export type HandoffFilter = "all" | "agent" | "human";
@@ -243,9 +245,12 @@ function whenVisible(ms: number) {
     typeof document === "undefined" || document.visibilityState === "visible" ? ms : false;
 }
 
-export function useConversations(filters: ConversationFilters = DEFAULT_FILTERS) {
+export function useConversations(
+  filters: ConversationFilters = DEFAULT_FILTERS,
+  paging: { page: number; pageSize: number } = { page: 1, pageSize: CONVERSATIONS_LIMIT },
+) {
   return useQuery({
-    queryKey: ["whatsapp-conversations", filters],
+    queryKey: ["whatsapp-conversations", filters, paging],
     queryFn: async () => {
       const res = await api.get<ConversationList>("/whatsapp/conversations", {
         params: {
@@ -254,7 +259,8 @@ export function useConversations(filters: ConversationFilters = DEFAULT_FILTERS)
           status: filters.status || undefined,
           provider: filters.provider || undefined,
           from: rangeFrom(filters.range),
-          limit: CONVERSATIONS_LIMIT,
+          limit: paging.pageSize,
+          offset: (paging.page - 1) * paging.pageSize || undefined,
           tag: filters.tag || undefined,
           sort: filters.sort === "recent" ? undefined : filters.sort,
           assignee: assigneeFor(filters),
@@ -270,6 +276,24 @@ export function useConversations(filters: ConversationFilters = DEFAULT_FILTERS)
     // Bandeja en vivo: lista + KPIs cada 10 s mientras la pestaña se ve.
     refetchInterval: whenVisible(10_000),
     refetchIntervalInBackground: false,
+  });
+}
+
+/**
+ * Un hilo concreto por id (deep link `?id=` a un hilo que no está en la página
+ * visible de la bandeja). Mismo shape que las filas del listado.
+ */
+export function useConversationById(id: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["whatsapp-conversation", id],
+    enabled: !!id && enabled,
+    queryFn: async () => {
+      const res = await api.get<ConversationList>("/whatsapp/conversations", {
+        params: { id, limit: 1 },
+      });
+      return res.data.data[0] ?? null;
+    },
+    refetchInterval: whenVisible(10_000),
   });
 }
 
@@ -683,14 +707,33 @@ export interface AttentionReport {
   };
   agents: AttentionAgentRow[];
   byDay: AttentionDayRow[];
+  /** Filtros que el API aplicó (`null` = sin filtrar). */
+  filters: { agentId: string | null; provider: "META" | "EVOLUTION" | null };
+  /** Hilos con actividad en el rango, por estado y canal actuales. */
+  breakdown: {
+    byStatus: { OPEN: number; HANDED_OFF: number; CLOSED: number };
+    byProvider: { META: number; EVOLUTION: number };
+  };
 }
 
-export function useAttentionReport(range: { from: string; to: string }, enabled = true) {
+export interface AttentionQuery {
+  from: string;
+  to: string;
+  agentId?: string;
+  provider?: "META" | "EVOLUTION";
+}
+
+export function useAttentionReport(range: AttentionQuery, enabled = true) {
   return useQuery({
     queryKey: ["reports-attention", range],
     queryFn: async () => {
       const res = await api.get<{ data: AttentionReport }>("/reports/attention", {
-        params: range,
+        params: {
+          from: range.from,
+          to: range.to,
+          agentId: range.agentId || undefined,
+          provider: range.provider || undefined,
+        },
       });
       return res.data.data;
     },

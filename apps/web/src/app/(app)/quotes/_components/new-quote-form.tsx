@@ -142,7 +142,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
     queryKey: ["products"],
     queryFn: async () => {
       const res = await api.get<{ data: Product[] }>("/catalog/products", {
-        params: { status: "ACTIVE" },
+        params: { status: "ACTIVE", limit: 100 },
       });
       return res.data.data;
     },
@@ -151,7 +151,9 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
   const customers = useQuery({
     queryKey: ["customers"],
     queryFn: async () => {
-      const res = await api.get<{ data: Customer[] }>("/customers");
+      const res = await api.get<{ data: Customer[] }>("/customers", {
+        params: { limit: 100 },
+      });
       return res.data.data;
     },
   });

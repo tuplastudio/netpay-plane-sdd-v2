@@ -7,8 +7,6 @@ import {
   CalendarDays,
   BarChart3,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   Hourglass,
   Inbox,
   MessagesSquare,
@@ -24,6 +22,7 @@ import { Select } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { TablePager } from "@/components/app/table-pager";
 import { ConversationsFilters } from "./conversations-filters";
 import { ConversationsList } from "./conversations-list";
 import { ConversationThread } from "./conversation-thread";
@@ -33,6 +32,7 @@ import { useConversationFilters } from "./use-conversation-filters";
 import {
   useAgents,
   useClaim,
+  useConversationById,
   useConversations,
   useMe,
   useSetConversationStatus,
@@ -181,66 +181,6 @@ function StatsStrip({
 }
 
 /**
- * Paginado en cliente de la bandeja: anterior/siguiente + "página X de Y",
- * mismo lenguaje visual que `DataTablePagination` (botones outline con
- * chevron) pero por número de página, no por cursor — acá ya está TODO el
- * lote en memoria (ver `CONVERSATIONS_LIMIT`), solo se recorta cuánto se
- * pinta a la vez.
- */
-function ConversationsPager({
-  page,
-  totalPages,
-  total,
-  pageSize,
-  onChange,
-}: {
-  page: number;
-  totalPages: number;
-  total: number;
-  pageSize: number;
-  onChange: (page: number) => void;
-}) {
-  if (total <= pageSize) return null;
-  const from = (page - 1) * pageSize + 1;
-  const to = Math.min(page * pageSize, total);
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2 text-xs">
-      <span className="text-muted-foreground">
-        <span className="tabular-nums">{from}</span>–<span className="tabular-nums">{to}</span> de{" "}
-        <span className="tabular-nums">{total}</span>
-      </span>
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 px-2"
-          disabled={page <= 1}
-          onClick={() => onChange(page - 1)}
-        >
-          <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
-          Anterior
-        </Button>
-        <span className="tabular-nums text-muted-foreground">
-          Página {page} de {totalPages}
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-7 px-2"
-          disabled={page >= totalPages}
-          onClick={() => onChange(page + 1)}
-        >
-          Siguiente
-          <ChevronRight aria-hidden className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/**
  * Bandeja **compacta**: la tabla come el ~80 % del alto, el resto vive en una
  * barra de herramientas de tres filas que se ve completa sin scrollear la página.
  *
@@ -259,16 +199,13 @@ export function ConversationsView() {
 
   const me = useMe();
   const { filters, setFilters, clearFilters, filtered } = useConversationFilters();
-  const list = useConversations(filters);
-
-  // Paginado en cliente: el API no pagina conversaciones por cursor (ver
-  // CONVERSATIONS_LIMIT), así que ya viene el máximo permitido en una sola
-  // respuesta; esto solo recorta cuántas filas se pintan a la vez. `filters`
-  // solo cambia de identidad cuando el usuario de verdad cambia algo (view,
-  // búsqueda, orden, filtro) — nunca en el refetch de fondo cada 10s — así
-  // que es la señal correcta para volver a la página 1, sin resetear el
-  // paginado en cada refresco silencioso.
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const list = useConversations(filters, { page, pageSize });
+
+  // Paginado de servidor (limit/offset). `filters` solo cambia de identidad
+  // cuando el usuario cambia algo de verdad (no en el refetch de fondo cada
+  // 10s), así que es la señal correcta para volver a la página 1.
   useEffect(() => setPage(1), [filters]);
 
   /** Buffer local del input de búsqueda para no pegar a la API en cada tecla. */
@@ -285,7 +222,9 @@ export function ConversationsView() {
   }, [filters.q]);
 
   const selectedId = searchParams.get("id") ?? undefined;
-  const current = list.data?.data.find((c) => c.id === selectedId) ?? null;
+  const inPage = list.data?.data.find((c) => c.id === selectedId) ?? null;
+  const byId = useConversationById(selectedId, !inPage && !list.isLoading);
+  const current = inPage ?? byId.data ?? null;
 
   const selectConversation = useCallback(
     (id: string | null) => {
@@ -395,15 +334,10 @@ export function ConversationsView() {
     [stats],
   );
 
-  const totalRows = list.data?.data.length ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
-  // Si el total encoge (cambió el filtro server-side, p. ej.) y `page` quedó
-  // más allá del final, se recorta al pintar en vez de mostrar una página vacía.
+  const totalRows = list.data?.pageInfo?.total ?? list.data?.data.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
   const clampedPage = Math.min(page, totalPages);
-  const pageRows = list.data?.data.slice(
-    (clampedPage - 1) * PAGE_SIZE,
-    clampedPage * PAGE_SIZE,
-  );
+  const pageRows = list.data?.data;
 
   // ============== DETALLE (hilo abierto) ==============
   if (current) {
@@ -475,11 +409,12 @@ export function ConversationsView() {
       {/* Fila 2: toolbar. En teléfono las pestañas y los filtros van en dos
           filas (si no, los filtros quedan aplastados y desbordan la
           página); desde `sm` vuelven a una sola línea. */}
-      <div className="relative flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <Tabs
           value={view}
           defaultValue="inbox"
           onValueChange={(v) => setFilters({ view: v as InboxView })}
+          className="shrink-0"
         >
           <TabsList className="h-11 shrink-0 sm:h-9">
             {INBOX_TABS.map((t) => (
@@ -493,11 +428,15 @@ export function ConversationsView() {
           </TabsList>
         </Tabs>
 
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <div className="relative w-full min-w-0 sm:w-44">
+        {/* Los `Select` ponen el ancho en el <select> pero su envoltorio es
+            w-full: el chevron se iba al extremo de la fila y quedaba "encima"
+            del control vecino. Cada control va en su propio contenedor con
+            ancho fijo; el <select> siempre llena su contenedor. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
+          <div className="relative w-full min-w-0 sm:w-64">
             <Search
               aria-hidden
-              className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+              className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
             />
             <Input
               id="conversations-q"
@@ -505,24 +444,26 @@ export function ConversationsView() {
               inputMode="tel"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Buscar… ( / )"
+              placeholder="Buscar cliente o teléfono ( / )"
               className="h-11 pl-8 text-base sm:h-9 sm:text-sm"
               aria-label="Buscar conversaciones"
               autoComplete="off"
             />
           </div>
-          <Select
-            aria-label="Ordenar por"
-            value={filters.sort}
-            onChange={(e) => setFilters({ sort: e.target.value as SortFilter })}
-            className="h-11 min-w-0 flex-1 text-base sm:h-9 sm:w-32 sm:flex-none sm:text-sm"
-          >
-            {(Object.keys(SORT_LABELS) as SortFilter[]).map((s) => (
-              <option key={s} value={s}>
-                {SORT_LABELS[s]}
-              </option>
-            ))}
-          </Select>
+          <div className="min-w-0 flex-1 sm:w-48 sm:flex-none">
+            <Select
+              aria-label="Ordenar por"
+              value={filters.sort}
+              onChange={(e) => setFilters({ sort: e.target.value as SortFilter })}
+              className="h-11 text-base sm:h-9 sm:text-sm"
+            >
+              {(Object.keys(SORT_LABELS) as SortFilter[]).map((s) => (
+                <option key={s} value={s}>
+                  {SORT_LABELS[s]}
+                </option>
+              ))}
+            </Select>
+          </div>
           <ConversationsFilters
             filters={filters}
             filtered={filtered}
@@ -534,29 +475,47 @@ export function ConversationsView() {
         </div>
       </div>
 
-      {/* Fila 3 (opcional): chips de agentes solo cuando view=byAgent. Cuesta
-          solo ~30 px (un renglón) en vez de los ~120 px del StatTile. */}
+      {/* Fila 3 (solo view=byAgent): bandeja por agente. Una tarjeta por
+          persona (iniciales, nombre, hilos activos) + "Todos"; la tarjeta
+          activa filtra la tabla al inbox de ese agente. */}
       {view === "byAgent" && agents.data && agents.data.length > 0 ? (
-        <div className="flex shrink-0 flex-nowrap items-center gap-1.5 whitespace-nowrap text-xs">
-          <span className="text-muted-foreground">Agente:</span>
-          {agents.data.map((a) => {
+        <div
+          role="group"
+          aria-label="Bandeja por agente"
+          className="flex shrink-0 items-stretch gap-2 overflow-x-auto pb-1"
+        >
+          {[{ userId: "", fullName: "Todos los agentes", activeConversations: agents.data.reduce((n, a) => n + a.activeConversations, 0), id: "__all" }, ...agents.data].map((a) => {
             const active = filters.agent === a.userId;
+            const initials = a.userId
+              ? a.fullName.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("")
+              : "∑";
             return (
               <button
                 key={a.id}
                 type="button"
                 aria-pressed={active}
-                onClick={() => setFilters({ agent: active ? "" : a.userId })}
+                onClick={() => setFilters({ agent: a.userId })}
                 className={cn(
-                  "flex shrink-0 items-center gap-1 rounded-pill border px-2 py-0.5 tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                  "flex min-w-[10.5rem] shrink-0 items-center gap-2 rounded-card border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
                   active
                     ? "border-foreground bg-foreground text-background"
                     : "border-border bg-card text-foreground hover:bg-muted",
                 )}
               >
-                <span className="font-semibold">{a.activeConversations}</span>
-                <span className={active ? "text-background" : "text-muted-foreground"}>
-                  {a.fullName}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                    active ? "bg-background/20 text-background" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {initials}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">{a.fullName}</span>
+                  <span className={cn("block text-xs tabular-nums", active ? "text-background/80" : "text-muted-foreground")}>
+                    {a.activeConversations} {a.activeConversations === 1 ? "hilo activo" : "hilos activos"}
+                  </span>
                 </span>
               </button>
             );
@@ -576,12 +535,16 @@ export function ConversationsView() {
           onClearFilters={clearFilters}
           rows={pageRows}
           pagination={
-            <ConversationsPager
+            <TablePager
               page={clampedPage}
-              totalPages={totalPages}
+              pageSize={pageSize}
               total={totalRows}
-              pageSize={PAGE_SIZE}
-              onChange={setPage}
+              loading={list.isFetching}
+              onPageChange={setPage}
+              onPageSizeChange={(n) => {
+                setPageSize(n);
+                setPage(1);
+              }}
             />
           }
           emptyTitle={filtered ? undefined : EMPTY_BY_VIEW[view].title}

@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CreditCard, Hourglass, ReceiptText, RotateCcw, Search, TrendingUp, Wallet } from "lucide-react";
 import { api } from "@/lib/api";
@@ -15,6 +15,8 @@ import { Money, formatMoney } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
+import { TablePager } from "@/components/app/table-pager";
+import { usePagedQuery } from "@/components/app/use-paged-query";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { centsToDecimalString, toCents } from "@/lib/decimal";
 import { useReportSummary } from "../_dashboard/use-dashboard-data";
@@ -81,20 +83,16 @@ export default function PaymentsPage() {
   const [refundReason, setRefundReason] = useState("");
   const [filter, setFilter] = useState("");
 
-  const sessions = useQuery({
-    queryKey: ["payment-sessions"],
-    queryFn: async () => {
-      const res = await api.get<{ data: Session[] }>("/payments/sessions");
-      return res.data.data;
-    },
+  const sessions = usePagedQuery<Session>({
+    key: ["payment-sessions"],
+    path: "/payments/sessions",
+    urlPrefix: "pagos",
   });
-
-  const ledger = useQuery({
-    queryKey: ["payment-ledger"],
-    queryFn: async () => {
-      const res = await api.get<{ data: LedgerEntry[] }>("/payments/ledger");
-      return res.data.data;
-    },
+  const ledger = usePagedQuery<LedgerEntry>({
+    key: ["payment-ledger"],
+    path: "/payments/ledger",
+    urlPrefix: "ledger",
+    defaultPageSize: 50,
   });
 
   /**
@@ -146,25 +144,25 @@ export default function PaymentsPage() {
   const needle = filter.trim().toLowerCase();
   const visibleSessions = useMemo(
     () =>
-      (sessions.data ?? []).filter(
+      (sessions.rows ?? []).filter(
         (s) =>
           !needle ||
           s.id.toLowerCase().includes(needle) ||
           (s.customerName ?? "").toLowerCase().includes(needle) ||
           s.status.toLowerCase().includes(needle),
       ),
-    [sessions.data, needle],
+    [sessions.rows, needle],
   );
   const visibleLedger = useMemo(
     () =>
-      (ledger.data ?? []).filter(
+      (ledger.rows ?? []).filter(
         (l) =>
           !needle ||
           l.sessionId.toLowerCase().includes(needle) ||
           l.entryType.toLowerCase().includes(needle) ||
           l.description.toLowerCase().includes(needle),
       ),
-    [ledger.data, needle],
+    [ledger.rows, needle],
   );
 
   const sessionColumns: Array<DataTableColumn<Session>> = [
@@ -343,8 +341,8 @@ export default function PaymentsPage() {
         <Tabs defaultValue="pagos" className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <TabsList>
-              <TabsTrigger value="pagos">Pagos ({sessions.data?.length ?? 0})</TabsTrigger>
-              <TabsTrigger value="ledger">Ledger ({ledger.data?.length ?? 0})</TabsTrigger>
+              <TabsTrigger value="pagos">Pagos ({sessions.total})</TabsTrigger>
+              <TabsTrigger value="ledger">Ledger ({ledger.total})</TabsTrigger>
             </TabsList>
             <div className="relative sm:w-72">
               <Search
@@ -354,7 +352,7 @@ export default function PaymentsPage() {
               <Input
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filtrar por id, cliente o estado…"
+                placeholder="Filtrar esta página por id, cliente o estado…"
                 className="pl-9"
                 aria-label="Filtrar pagos y movimientos"
               />
@@ -370,6 +368,7 @@ export default function PaymentsPage() {
                 isError={sessions.isError}
                 error={sessions.error}
                 onRetry={() => void sessions.refetch()}
+                pagination={sessions.paged ? <TablePager {...sessions.pagerProps} /> : undefined}
                 getRowHref={(s) => `/payments/${s.id}`}
                 caption="Sesiones de checkout del comercio"
                 empty={
@@ -405,6 +404,7 @@ export default function PaymentsPage() {
                 isError={ledger.isError}
                 error={ledger.error}
                 onRetry={() => void ledger.refetch()}
+                pagination={ledger.paged ? <TablePager {...ledger.pagerProps} /> : undefined}
                 getRowHref={(l) => `/payments/${l.sessionId}`}
                 caption="Movimientos del ledger"
                 empty={

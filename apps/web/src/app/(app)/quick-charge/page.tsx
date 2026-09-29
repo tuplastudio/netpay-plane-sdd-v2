@@ -129,7 +129,9 @@ export default function QuickChargePage() {
   const customers = useQuery({
     queryKey: ["customers-for-quick-charge"],
     queryFn: async () => {
-      const res = await api.get<{ data: Customer[] }>("/customers");
+      const res = await api.get<{ data: Customer[] }>("/customers", {
+        params: { limit: 100 },
+      });
       return res.data.data;
     },
   });
