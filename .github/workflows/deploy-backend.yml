@@ -199,6 +199,14 @@ jobs:
           command_timeout: 5m
           script: |
             set -uo pipefail
+            # Cada dominio corre en su propio subshell: un `exit 0/1` de "ya
+            # está / nginx -t falló" solo debe saltarse SU bloque, no matar
+            # el script entero (bug real: con los dos en el mismo shell, el
+            # "ya está presente" de api-easysell (el caso normal, casi todo
+            # deploy) hacía `exit 0` y el bloque de imssbienestar de abajo
+            # JAMÁS llegaba a correr — encontrado 2026-09-29 tras varias
+            # restauraciones manuales que "no debían hacer falta").
+            (
             DOMAIN=api-easysell.tupla.dev
             VHOST_FILE=/captain/generated/nginx/conf.d/api-easysell.conf
             NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
@@ -249,13 +257,15 @@ jobs:
               sudo rm -f "$VHOST_FILE"
               exit 1
             fi
+            )
 
-            # ---- Segundo vhost, misma conexión SSH ----
+            # ---- Segundo vhost, misma conexión SSH, subshell propio ----
             # Chat de prueba de IMSS-Bienestar. Requiere DNS de
             # imssbienestar.tupla.dev -> este droplet y una app en CapRover
             # para ese dominio (solo para que emita el certificado Let's
             # Encrypt; el tráfico real lo sirve este vhost, no el contenedor
             # que registre CapRover).
+            (
             DOMAIN=imssbienestar.tupla.dev
             VHOST_FILE=/captain/generated/nginx/conf.d/imssbienestar.conf
             NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
@@ -309,6 +319,7 @@ jobs:
               sudo rm -f "$VHOST_FILE"
               exit 1
             fi
+            )
 
       - name: Healthcheck
         uses: appleboy/ssh-action@v1
