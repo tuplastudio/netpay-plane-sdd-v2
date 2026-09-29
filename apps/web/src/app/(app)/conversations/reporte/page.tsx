@@ -12,6 +12,8 @@ import {
   UserCog,
   Users,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
@@ -39,7 +41,13 @@ function dayLabel(day: string): string {
  */
 export default function AttentionReportPage() {
   return (
-    <Suspense fallback={<div className="h-40 animate-pulse rounded-md bg-muted" aria-label="Cargando reporte…" />}>
+    <Suspense
+      fallback={
+        <SkeletonRegion label="Cargando el reporte…">
+          <Skeleton className="h-40 w-full rounded-md" />
+        </SkeletonRegion>
+      }
+    >
       <AttentionReportView />
     </Suspense>
   );
@@ -253,15 +261,17 @@ const SERIES: Array<{ key: keyof AttentionDayRow; label: string; cls: string }> 
 /** Barras apiladas por día, sin librería: el alto sale del máximo del rango. */
 function ActivityChart({ data, isLoading }: { data: AttentionDayRow[]; isLoading: boolean }) {
   if (isLoading) {
-    return <div className="h-40 w-full animate-pulse rounded-md bg-muted" aria-label="Cargando actividad…" />;
+    return <Skeleton className="h-40 w-full rounded-md" />;
   }
   const totals = data.map((d) => d.inbound + d.outboundHuman + d.outboundBot);
   const max = Math.max(0, ...totals);
   if (max === 0) {
     return (
-      <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-        Sin mensajes en este periodo.
-      </div>
+      <EmptyState
+        icon={<MessagesSquare className="h-6 w-6" />}
+        title="Sin mensajes en este periodo"
+        description="Amplía el rango o quita el filtro de agente o canal para ver actividad."
+      />
     );
   }
   // Con muchos días se rotula uno de cada N para que las etiquetas no se encimen.

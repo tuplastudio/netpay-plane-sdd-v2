@@ -3,6 +3,7 @@ import { CalendarRange, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/app/info-tip";
 import { Select } from "@/components/ui/select";
 import { providerLabel, useAgents } from "../../_components/use-conversations";
 import { PRESETS, type Preset, type Provider, type ReportFilters } from "./use-report-filters";
@@ -23,9 +24,12 @@ export function ReportFilterBar({ filters, onChange, onClear, isFiltered, error 
     <div className="space-y-2 rounded-card border border-border bg-card p-3">
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
-          <Label htmlFor="rep-preset" className="text-xs">
-            Periodo
-          </Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="rep-preset" className="text-xs">
+              Periodo
+            </Label>
+            <InfoTip label="Periodo" text="Rango sobre el que se cuentan conversaciones y se promedian tiempos. «Ahora mismo» no depende de él." />
+          </div>
           <Select
             id="rep-preset"
             value={filters.preset}
@@ -74,9 +78,12 @@ export function ReportFilterBar({ filters, onChange, onClear, isFiltered, error 
         ) : null}
 
         <div className="space-y-1">
-          <Label htmlFor="rep-agent" className="text-xs">
-            Agente
-          </Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="rep-agent" className="text-xs">
+              Agente
+            </Label>
+            <InfoTip label="Agente" text="Limita los tiempos y la tabla a los hilos que atendió esa persona." />
+          </div>
           <Select
             id="rep-agent"
             value={filters.agent}
@@ -93,9 +100,12 @@ export function ReportFilterBar({ filters, onChange, onClear, isFiltered, error 
         </div>
 
         <div className="space-y-1">
-          <Label htmlFor="rep-provider" className="text-xs">
-            Canal
-          </Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="rep-provider" className="text-xs">
+              Canal
+            </Label>
+            <InfoTip label="Canal" text="Número conectado por WhatsApp Cloud (Meta) o por Evolution API." />
+          </div>
           <Select
             id="rep-provider"
             value={filters.provider}

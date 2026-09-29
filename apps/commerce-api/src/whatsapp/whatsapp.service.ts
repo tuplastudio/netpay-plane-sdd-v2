@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import {
   Prisma,
+  type ConversationPriority,
   type ConversationStatus,
   type MessageDirection,
   type WhatsAppProvider,
@@ -87,10 +88,22 @@ export interface OperatorAttachmentInput {
  * esperando primero" — y se resuelve en el índice `(tenantId, lastMessageAt)`
  * que ya existe, sin ordenar en memoria sobre una página truncada.
  */
-export type ConversationSort = "recent" | "oldest";
+export type ConversationSort = "recent" | "oldest" | "priority";
+
+/** Prioridades del ticket, de menor a mayor (mismo orden que el enum de Postgres). */
+export const CONVERSATION_PRIORITIES = ["LOW", "NORMAL", "HIGH", "URGENT"] as const;
 
 /** Filtros de `GET /whatsapp/conversations`. Todos opcionales. */
 export interface ConversationListFilters {
+  /** Prioridad exacta del ticket. */
+  priority?: ConversationPriority;
+  /** `true`: solo hilos marcados como pendientes (esperan al cliente); `false`: solo los que no. */
+  pending?: boolean;
+  /**
+   * `true`: solo hilos no cerrados cuyo último mensaje es del cliente (nadie
+   * ha contestado). Se resuelve con una subconsulta por hilo, no en memoria.
+   */
+  unanswered?: boolean;
   /** Fragmento del teléfono (E.164) del cliente. */
   q?: string;
   /** Un hilo concreto (deep link a un hilo fuera de la página visible). */
@@ -124,7 +137,41 @@ export const CONVERSATION_AUDIT = {
   customerLinked: "whatsapp.conversation.customer_linked",
   optOut: "whatsapp.conversation.opt_out",
   optIn: "whatsapp.conversation.opt_in",
+  priorityChanged: "whatsapp.conversation.priority_changed",
+  pendingSet: "whatsapp.conversation.pending_set",
+  pendingCleared: "whatsapp.conversation.pending_cleared",
 } as const;
+
+/** Acciones masivas de la bandeja (`POST /whatsapp/conversations/bulk`). */
+export const BULK_ACTIONS = [
+  "assign",
+  "resolve",
+  "reopen",
+  "tag",
+  "priority",
+  "pending",
+  "return",
+] as const;
+export type BulkAction = (typeof BULK_ACTIONS)[number];
+
+/** Tope de hilos por llamada masiva: una página de la bandeja, no toda la base. */
+export const MAX_BULK_IDS = 100;
+
+export interface BulkInput {
+  ids: string[];
+  action: BulkAction;
+  /** `assign`: persona destino. */
+  userId?: string;
+  /** `tag`: etiquetas a AGREGAR (se suman a las existentes, no reemplazan). */
+  tags?: string[];
+  /** `priority`: prioridad a fijar. */
+  priority?: ConversationPriority;
+}
+
+export interface BulkResult {
+  ok: string[];
+  failed: Array<{ id: string; message: string }>;
+}
 
 /**
  * Quién actúa sobre un hilo desde el portal. `canManage` (OWNER/ADMIN) puede
@@ -157,6 +204,10 @@ export interface ConversationStats {
   queue: number;
   /** Transferidos y con dueño: la vista "Por agente". */
   assigned: number;
+  /** No cerrados marcados como pendientes (esperan al cliente). */
+  pending: number;
+  /** Cerrados hoy (día local del servidor): "resueltas hoy". */
+  resolvedToday: number;
 }
 
 export const DEFAULT_CONVERSATION_LIMIT = 50;
@@ -667,7 +718,9 @@ export class WhatsAppService {
         status: "OPEN",
         lastMessageAt: new Date(),
       },
-      update: { lastMessageAt: new Date() },
+      // El cliente escribió: si el hilo estaba "pendiente" (esperando algo de
+      // él), ya llegó lo que esperaba y vuelve a la cola de trabajo.
+      update: { lastMessageAt: new Date(), pendingAt: null },
     });
 
     // Un cliente que vuelve a escribir REABRE su ticket. Antes el upsert solo
@@ -1352,6 +1405,8 @@ export class WhatsAppService {
         handoffToHuman: false,
         handoffUserId: null,
         closedAt: status === "CLOSED" ? new Date() : null,
+        // Un hilo resuelto ya no "espera al cliente"; al reabrir tampoco.
+        pendingAt: null,
       },
     });
     // Mismo estado del otro lado: cerrar guarda el episodio y borra el hilo
@@ -1379,6 +1434,130 @@ export class WhatsAppService {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Conversación no accesible" });
     }
     return conv;
+  }
+
+  // ---- Help desk: prioridad, pendiente y acciones masivas (migración 0025) ----
+
+  /** Fija la prioridad del ticket. Idempotente: la misma prioridad no deja bitácora. */
+  async setPriority(
+    tenantId: string,
+    conversationId: string,
+    priority: ConversationPriority,
+    actorId?: string,
+  ) {
+    const conv = await this.requireConversation(tenantId, conversationId);
+    if (conv.priority === priority) return conv;
+    const updated = await this.prisma.whatsAppConversation.update({
+      where: { id: conversationId },
+      data: { priority },
+    });
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.priorityChanged, actorId, {
+      from: conv.priority,
+      to: priority,
+    });
+    return updated;
+  }
+
+  /**
+   * "Marcar como pendiente" / quitar la marca. Pendiente = el hilo espera algo
+   * del cliente (un dato, un pago, una confirmación); sale de "sin responder"
+   * y vuelve solo cuando el cliente escribe (`ingestInbound` limpia la marca).
+   * Un hilo cerrado no puede quedar pendiente: reábrelo primero.
+   */
+  async setPending(
+    tenantId: string,
+    conversationId: string,
+    pending: boolean,
+    actor: ConversationActor = {},
+  ) {
+    const conv = await this.requireConversation(tenantId, conversationId);
+    if (pending && conv.status === "CLOSED") {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La conversación está cerrada. Reábrela primero.",
+      });
+    }
+    this.assertCanActOn(conv, actor);
+    if (pending === !!conv.pendingAt) return conv;
+    const updated = await this.prisma.whatsAppConversation.update({
+      where: { id: conversationId },
+      data: { pendingAt: pending ? new Date() : null },
+    });
+    await this.audit(
+      tenantId,
+      conversationId,
+      pending ? CONVERSATION_AUDIT.pendingSet : CONVERSATION_AUDIT.pendingCleared,
+      actor.userId,
+    );
+    return updated;
+  }
+
+  /**
+   * Acción masiva sobre varios hilos de la bandeja. Reusa las operaciones de
+   * un solo hilo (mismas reglas, misma bitácora por hilo) y NO es atómica a
+   * propósito: si un hilo falla (ya cerrado, lo atiende otra persona…), los
+   * demás siguen y el resultado dice cuáles no se pudieron.
+   */
+  async bulk(tenantId: string, input: BulkInput, actor: ConversationActor): Promise<BulkResult> {
+    const ids = Array.from(new Set(input.ids ?? []));
+    if (ids.length === 0 || ids.length > MAX_BULK_IDS) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `ids debe traer entre 1 y ${MAX_BULK_IDS} conversaciones`,
+      });
+    }
+    if (input.action === "assign" && !input.userId) {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "userId es obligatorio" });
+    }
+    if (input.action === "priority" && !input.priority) {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "priority es obligatorio" });
+    }
+    if (input.action === "tag" && !(input.tags ?? []).some((t) => typeof t === "string" && t.trim())) {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "tags es obligatorio" });
+    }
+    const result: BulkResult = { ok: [], failed: [] };
+    for (const id of ids) {
+      try {
+        switch (input.action) {
+          case "assign":
+            await this.handoffToHuman(tenantId, id, input.userId!, actor.userId);
+            break;
+          case "resolve":
+            await this.setStatus(tenantId, id, "CLOSED", actor.userId);
+            break;
+          case "reopen":
+            await this.setStatus(tenantId, id, "OPEN", actor.userId);
+            break;
+          case "tag": {
+            const conv = await this.requireConversation(tenantId, id);
+            await this.setTags(tenantId, id, [...conv.tags, ...(input.tags ?? [])], actor.userId);
+            break;
+          }
+          case "priority":
+            await this.setPriority(tenantId, id, input.priority!, actor.userId);
+            break;
+          case "pending":
+            await this.setPending(tenantId, id, true, actor);
+            break;
+          case "return":
+            await this.returnToAgent(tenantId, id, actor);
+            break;
+        }
+        result.ok.push(id);
+      } catch (error) {
+        const message =
+          error && typeof error === "object" && "getResponse" in error
+            ? (() => {
+                const res = (error as { getResponse(): unknown }).getResponse();
+                return typeof res === "object" && res && "message" in res
+                  ? String((res as { message: unknown }).message)
+                  : String(res);
+              })()
+            : (error as Error)?.message ?? "Error";
+        result.failed.push({ id, message });
+      }
+    }
+    return result;
   }
 
   /** Notas internas del hilo (no se envían al cliente), más recientes primero. */
@@ -1771,6 +1950,33 @@ export class WhatsAppService {
     if (filters.handoff) where.handoffToHuman = filters.handoff === "human";
     if (filters.provider) where.connection = { provider: filters.provider };
     if (filters.tag) where.tags = { has: filters.tag };
+    if (filters.priority) where.priority = filters.priority;
+    if (filters.pending === true) where.pendingAt = { not: null };
+    else if (filters.pending === false) where.pendingAt = null;
+    // "Sin responder": el último mensaje del hilo es del cliente. Prisma no
+    // expresa "el último de la relación", así que los ids salen de una
+    // subconsulta correlacionada (acotada por tenant y a hilos no cerrados)
+    // y van al `where`: la página y el total describen las mismas filas.
+    if (filters.unanswered) {
+      const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT c."id"
+        FROM "WhatsAppConversation" c
+        WHERE c."tenantId" = ${tenantId}::uuid
+          AND c."status" <> 'CLOSED'
+          AND c."pendingAt" IS NULL
+          AND (
+            SELECT m."direction" FROM "WhatsAppMessage" m
+            WHERE m."conversationId" = c."id"
+            ORDER BY m."createdAt" DESC, m."id" DESC
+            LIMIT 1
+          ) = 'INBOUND'
+      `);
+      const unansweredIds = rows.map((r) => r.id);
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        { id: { in: unansweredIds } },
+      ];
+    }
     // `unassigned` es la cola de la bandeja: transferido a una persona pero sin
     // dueño. Va en el `where` (no filtrando en memoria la página ya truncada)
     // para que "los 50 más viejos sin asignar" sean de verdad los más viejos.
@@ -1806,7 +2012,12 @@ export class WhatsAppService {
         handoffUser: { select: { id: true, fullName: true } },
         messages: LATEST_MESSAGE,
       },
-      orderBy: [{ lastMessageAt: filters.sort === "oldest" ? "asc" : "desc" }, { id: "desc" }],
+      // `priority`: urgente primero (orden del enum en Postgres) y, a igual
+      // prioridad, el que lleva más tiempo sin moverse.
+      orderBy:
+        filters.sort === "priority"
+          ? [{ priority: "desc" }, { lastMessageAt: "asc" }, { id: "desc" }]
+          : [{ lastMessageAt: filters.sort === "oldest" ? "asc" : "desc" }, { id: "desc" }],
       take: limit,
       skip: Math.max(filters.offset ?? 0, 0),
     });
@@ -1865,6 +2076,8 @@ export class WhatsAppService {
         handoffToHuman: true,
         handoffUserId: true,
         lastMessageAt: true,
+        pendingAt: true,
+        closedAt: true,
         messages: LATEST_MESSAGE,
       },
     });
@@ -1878,8 +2091,14 @@ export class WhatsAppService {
       today: 0,
       queue: 0,
       assigned: 0,
+      pending: 0,
+      resolvedToday: 0,
     };
     for (const c of rows) {
+      if (c.status !== "CLOSED" && c.pendingAt) stats.pending += 1;
+      if (c.status === "CLOSED" && c.closedAt && c.closedAt >= startOfToday) {
+        stats.resolvedToday += 1;
+      }
       if (c.status === "OPEN") stats.open += 1;
       if (c.handoffToHuman) stats.handedOff += 1;
       // Los contadores de las pestañas salen de este mismo barrido: la
@@ -1887,8 +2106,9 @@ export class WhatsAppService {
       // consulta.
       if (c.handoffToHuman && !c.handoffUserId) stats.queue += 1;
       if (c.handoffToHuman && c.handoffUserId) stats.assigned += 1;
-      // Un hilo cerrado con último mensaje del cliente no es un pendiente.
-      if (c.status !== "CLOSED" && isUnanswered(c.messages)) stats.unanswered += 1;
+      // Un hilo cerrado con último mensaje del cliente no es un pendiente;
+      // uno marcado "pendiente" (espera al cliente) tampoco cuenta como sin responder.
+      if (c.status !== "CLOSED" && !c.pendingAt && isUnanswered(c.messages)) stats.unanswered += 1;
       if (c.lastMessageAt && c.lastMessageAt >= startOfToday) stats.today += 1;
     }
     return stats;

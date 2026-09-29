@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Download, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { InfoTip } from "@/components/app/info-tip";
 import { ClientPagination, usePagination } from "@/components/app/client-pagination";
 import { formatDuration, type AttentionAgentRow } from "../../_components/use-conversations";
 
@@ -156,9 +157,15 @@ export function AgentsTable({ rows, isLoading, isError, onRetry, resetKey, filte
     );
     pager.setPage(1);
   };
-  const h = (label: string, k: SortKey, numeric?: boolean) => (
-    <SortHeader label={label} k={k} sort={sort} onSort={onSort} numeric={numeric} />
-  );
+  const h = (label: string, k: SortKey, numeric?: boolean, help?: string) =>
+    help ? (
+      <span className={`inline-flex items-center gap-1 ${numeric ? "flex-row-reverse" : ""}`}>
+        <SortHeader label={label} k={k} sort={sort} onSort={onSort} numeric={numeric} />
+        <InfoTip label={label} text={help} className="h-4 w-4" />
+      </span>
+    ) : (
+      <SortHeader label={label} k={k} sort={sort} onSort={onSort} numeric={numeric} />
+    );
 
   const columns: Array<DataTableColumn<AttentionAgentRow>> = [
     {
@@ -173,7 +180,7 @@ export function AgentsTable({ rows, isLoading, isError, onRetry, resetKey, filte
     },
     {
       key: "status",
-      header: h("Estado", "status"),
+      header: h("Estado", "status", false, "Activo = puede tomar conversaciones. Se marca en Admin › Miembros."),
       cell: (a) =>
         a.active ? (
           <Badge variant="success" size="sm">
@@ -185,19 +192,19 @@ export function AgentsTable({ rows, isLoading, isError, onRetry, resetKey, filte
           </Badge>
         ),
     },
-    { key: "assigned", header: h("Llevando ahora", "assigned", true), numeric: true, cell: (a) => a.assignedNow },
-    { key: "handled", header: h("Atendidas", "handled", true), numeric: true, cell: (a) => a.handled },
-    { key: "closed", header: h("Cerradas", "closed", true), numeric: true, cell: (a) => a.closed },
-    { key: "msgs", header: h("Mensajes", "msgs", true), numeric: true, cell: (a) => a.messagesSent },
+    { key: "assigned", header: h("Llevando ahora", "assigned", true, "Hilos asignados a esta persona en este momento (foto en vivo, no depende del periodo)."), numeric: true, cell: (a) => a.assignedNow },
+    { key: "handled", header: h("Atendidas", "handled", true, "Conversaciones en las que envió al menos un mensaje dentro del periodo."), numeric: true, cell: (a) => a.handled },
+    { key: "closed", header: h("Cerradas", "closed", true, "Conversaciones que esta persona resolvió dentro del periodo."), numeric: true, cell: (a) => a.closed },
+    { key: "msgs", header: h("Mensajes", "msgs", true, "Mensajes enviados desde el portal dentro del periodo."), numeric: true, cell: (a) => a.messagesSent },
     {
       key: "reply",
-      header: h("1.ª resp. (prom.)", "reply", true),
+      header: h("1.ª resp. (prom.)", "reply", true, "Promedio desde que el hilo pasa a una persona hasta su primera respuesta."),
       numeric: true,
       cell: (a) => formatDuration(a.avgFirstReplySeconds),
     },
     {
       key: "resolution",
-      header: h("Resolución (prom.)", "resolution", true),
+      header: h("Resolución (prom.)", "resolution", true, "Promedio desde que el hilo pasa a una persona hasta que se cierra."),
       numeric: true,
       cell: (a) => formatDuration(a.avgResolutionSeconds),
     },

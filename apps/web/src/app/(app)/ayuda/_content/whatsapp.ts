@@ -200,10 +200,10 @@ export const whatsapp: HelpCategory = {
           items: [
             "Transferir a una persona: le pasas la conversación a otro miembro del equipo marcado como " +
               "\"Agente WhatsApp activo\" en Admin → Usuarios. El agente sigue sin contestar.",
-            "Devolver al agente: sueltas la conversación y el agente vuelve a contestar. Útil cuando ya " +
+            "Devolver al bot: sueltas la conversación y el bot vuelve a contestar. Útil cuando ya " +
               "resolviste lo que necesitaba una persona.",
-            "Cerrar conversación: la saca de pendientes y libera la asignación. Si el cliente vuelve a " +
-              "escribir, se reabre sola. Para escribirle tú a una cerrada, primero dale \"Reabrir\".",
+            "Resolver conversación: la saca de pendientes y libera la asignación. Si el cliente vuelve a " +
+              "escribir, se reabre sola. Para escribirle tú a una resuelta, primero dale \"Reabrir\".",
           ],
         },
         { type: "h3", text: "Etiquetas y notas internas" },
@@ -223,13 +223,153 @@ export const whatsapp: HelpCategory = {
             ["↑ / ↓", "Moverse entre conversaciones de la lista."],
             ["Enter", "Abrir la conversación seleccionada, o enviar un mensaje."],
             ["Inicio / Fin", "Ir a la primera o última conversación."],
-            ["/ o Ctrl/Cmd + K", "Buscar."],
+            ["x", "Marcar o desmarcar la conversación enfocada (para acciones en lote)."],
+            ["/ o Ctrl/Cmd + K", "Buscar (en la bandeja). En el redactor, / abre las respuestas rápidas."],
             ["Ctrl/Cmd + Enter", "Enviar."],
-            ["Esc", "Volver a la bandeja."],
+            ["Ctrl/Cmd + Shift + R", "Resolver la conversación abierta (o reabrirla si estaba resuelta)."],
+            ["Ctrl/Cmd + Shift + P", "Marcar o quitar \"pendiente\"."],
+            ["Ctrl/Cmd + Shift + T", "Tomar la conversación abierta."],
+            ["Esc", "Volver a la bandeja, o quitar la selección en lote."],
           ],
         },
       ],
-      related: ["el-agente-automatico", "conectar-whatsapp", "fotos-audio-y-video"],
+      related: ["mesa-de-ayuda", "el-agente-automatico", "conectar-whatsapp", "fotos-audio-y-video"],
+    },
+    {
+      slug: "mesa-de-ayuda",
+      title: "Mesa de ayuda: tickets, prioridades y respuestas rápidas",
+      summary:
+        "Cómo usar la bandeja como mesa de ayuda: estados de ticket, prioridad, vistas guardadas, acciones en lote, indicadores de tiempo de respuesta y respuestas rápidas con /atajo.",
+      audience: "owner",
+      keywords: [
+        "ticket",
+        "prioridad",
+        "urgente",
+        "pendiente",
+        "resuelta",
+        "sla",
+        "tiempo de respuesta",
+        "respuestas rápidas",
+        "canned",
+        "acciones en lote",
+        "vistas guardadas",
+        "mis conversaciones",
+        "sin asignar",
+      ],
+      body: [
+        {
+          type: "p",
+          text:
+            "Cada conversación de WhatsApp funciona como un ticket de soporte: tiene un estado, una " +
+            "prioridad, una persona (o el bot) que la atiende, etiquetas y tiempos medidos. Nada de esto lo ve " +
+            "el cliente; es para organizar el trabajo del equipo.",
+        },
+        { type: "h3", text: "Estados del ticket" },
+        {
+          type: "table",
+          headers: ["Estado", "Qué significa", "Cómo cambia"],
+          rows: [
+            [
+              "Abierta",
+              "Hay trabajo por hacer. La atiende el bot o una persona.",
+              "Es el estado inicial y al que vuelve cuando el cliente escribe.",
+            ],
+            [
+              "Pendiente",
+              "Ustedes ya contestaron y esperan algo del cliente (un dato, un pago, una confirmación). Sale de \"Sin responder\".",
+              "Botón del reloj de arena en el encabezado, o Ctrl/Cmd + Shift + P. Se quita sola cuando el cliente escribe.",
+            ],
+            [
+              "Resuelta",
+              "Terminó. Se libera la asignación y el bot vuelve a estar a cargo si el cliente regresa.",
+              "Botón de palomita (\"Resolver\"), Ctrl/Cmd + Shift + R, o el autocierre por inactividad. Se reabre sola si el cliente escribe.",
+            ],
+          ],
+        },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "\"Escalada\" no es un estado de ticket sino de atención: indica que la conversación pasó del bot a " +
+            "una persona. Una conversación abierta puede estar con el bot, con una persona, o sin asignar.",
+        },
+        { type: "h3", text: "Prioridad" },
+        {
+          type: "p",
+          text:
+            "Baja, Normal, Alta o Urgente. Se cambia desde la insignia de prioridad en el encabezado de la " +
+            "conversación o desde la tarjeta \"Ticket\" del panel derecho. Las urgentes llevan una franja roja " +
+            "en la lista, y el orden \"Prioridad (urgente primero)\" las sube arriba de todo. Cada cambio queda " +
+            "en la bitácora (Admin → Auditoría).",
+        },
+        { type: "h3", text: "Vistas guardadas" },
+        {
+          type: "table",
+          headers: ["Vista", "Qué muestra"],
+          rows: [
+            ["Bandeja", "Todas las conversaciones."],
+            ["Mías", "Las asignadas a ti."],
+            ["Sin asignar", "Escaladas a una persona pero sin dueño: alguien tiene que tomarlas."],
+            ["Esperando", "El último mensaje es del cliente y nadie ha contestado."],
+            ["Pendientes", "Marcadas como pendientes del cliente."],
+            ["Resueltas", "Cerradas, a mano o por inactividad."],
+            ["Por agente", "Reparto por persona, con cuántos hilos lleva cada quien."],
+          ],
+        },
+        {
+          type: "p",
+          text:
+            "Encima de cada vista aplican los filtros: estado, prioridad, quién atiende, canal, periodo, " +
+            "etiqueta y \"solo sin responder\". Los filtros activos se ven como fichas con una × para quitarlos, " +
+            "y todo viaja en la dirección de la página: puedes copiar el link y compartirlo.",
+        },
+        { type: "h3", text: "Indicadores de tiempo (SLA)" },
+        {
+          type: "list",
+          items: [
+            "Esperando X: cuánto lleva el cliente sin respuesta. Ámbar antes de 1 hora, rojo después.",
+            "1.ª resp. X: cuánto tardó la primera respuesta de una persona desde que la conversación pasó a la cola humana. Verde si fue en menos de 15 minutos, ámbar antes de 1 hora, rojo después.",
+            "Pasa el mouse sobre cualquiera para ver la explicación. Los promedios y medianas por agente están en el Reporte de atención.",
+          ],
+        },
+        { type: "h3", text: "Acciones en lote" },
+        {
+          type: "steps",
+          items: [
+            "Marca las casillas de las conversaciones (o presiona x con una fila enfocada; la casilla del encabezado marca toda la página).",
+            "Arriba aparece la barra de acciones: Asignar a alguien, Prioridad, Etiquetar, Pendiente, Resolver, Reabrir o Devolver al bot.",
+            "Si alguna no se pudo (por ejemplo, ya estaba resuelta), te lo dice y las demás sí se aplican.",
+          ],
+        },
+        { type: "h3", text: "Respuestas rápidas" },
+        {
+          type: "p",
+          text:
+            "Son textos listos que todo el equipo comparte, como \"/horario\" con el horario de atención o " +
+            "\"/gracias\" para cerrar. En el redactor escribe / al inicio del mensaje: aparece la lista, filtra " +
+            "por atajo o título, elige con las flechas y presiona Enter para insertar el texto. Puedes editarlo " +
+            "antes de enviar.",
+        },
+        {
+          type: "steps",
+          items: [
+            "En el redactor da clic en \"Rápidas\" (o escribe / y elige \"Administrar\").",
+            "Crea una nueva: atajo (sin espacios ni /), título y el texto que se enviará.",
+            "Edita o elimina las existentes desde la misma hoja. Se necesita permiso para contestar conversaciones.",
+          ],
+        },
+        { type: "h3", text: "Bot y persona: quién contesta" },
+        {
+          type: "list",
+          items: [
+            "Tomar conversación: se asigna a ti y el bot deja de contestar en ese hilo.",
+            "Devolver al bot: el bot vuelve a contestar y se suelta la asignación.",
+            "Soltar a la cola: sigue con personas pero sin dueño, para que otro la tome.",
+            "Asignar a…: se la pasas a un compañero marcado como agente.",
+          ],
+        },
+      ],
+      related: ["bandeja-de-conversaciones", "el-agente-automatico", "preguntas-whatsapp"],
     },
     {
       slug: "fotos-audio-y-video",
@@ -352,7 +492,7 @@ export const whatsapp: HelpCategory = {
               q: "Tomé una conversación y ahora el agente no contesta nada.",
               a:
                 "Es lo esperado: mientras una persona la atiende, el agente no contesta. Cuando termines, dale " +
-                "\"Devolver al agente\" o cierra la conversación.",
+                "\"Devolver al bot\" o resuelve la conversación.",
             },
             {
               q: "No puedo transferir una conversación a un compañero.",

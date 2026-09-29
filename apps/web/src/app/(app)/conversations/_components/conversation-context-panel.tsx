@@ -27,12 +27,26 @@ import { Money, formatMoney } from "@/components/app/money";
 import { Section } from "@/components/app/section";
 import { Select } from "@/components/ui/select";
 import {
+  CONVERSATION_PRIORITIES,
+  formatDuration,
   providerLabel,
   useAgents,
   useAssign,
   useReleaseToQueue,
+  useSetPending,
+  useSetPriority,
   type Conversation,
+  type ConversationPriority,
 } from "./use-conversations";
+import {
+  PRIORITY_LABELS,
+  TICKET_STATUS_LABELS,
+  TICKET_STATUS_TONE,
+  firstResponseTone,
+  priorityOf,
+  slaOf,
+  waitingTone,
+} from "./ticket";
 import {
   useConversationContext,
   useCreateAndLinkCustomer,
@@ -530,6 +544,8 @@ function TicketCard({ conversation }: { conversation: Conversation }) {
   const agents = useAgents();
   const assign = useAssign();
   const release = useReleaseToQueue();
+  const setPriority = useSetPriority();
+  const setPending = useSetPending();
   const { can } = usePermissions();
   const canManage = can("users.manage");
   const closed = conversation.status === "CLOSED";
@@ -540,12 +556,57 @@ function TicketCard({ conversation }: { conversation: Conversation }) {
       [...(agents.data ?? [])].sort((a, b) => a.activeConversations - b.activeConversations),
     [agents.data],
   );
-  const waiting = conversation.unanswered && !closed;
+  const sla = slaOf(conversation);
+  const priority = priorityOf(conversation);
   return (
     <Section title="Ticket" headerIcon={<Ticket className="h-4 w-4" />} density="compact">
       <DescriptionList>
         <FieldRow label="Estado">
-          <StatusBadge status={conversation.status} domain="conversation" size="sm" withDot />
+          <span className="flex flex-wrap items-center gap-1.5">
+            <StatusBadge
+              status={sla.status.toUpperCase()}
+              tone={TICKET_STATUS_TONE[sla.status]}
+              label={TICKET_STATUS_LABELS[sla.status]}
+              size="sm"
+              withDot
+            />
+            {!closed ? (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                disabled={setPending.isPending}
+                onClick={() =>
+                  setPending.mutate({ id: conversation.id, pending: sla.status !== "pending" })
+                }
+              >
+                {sla.status === "pending" ? "Quitar pendiente" : "Marcar pendiente"}
+              </button>
+            ) : null}
+          </span>
+        </FieldRow>
+        <FieldRow label="Prioridad">
+          {closed ? (
+            <span>{PRIORITY_LABELS[priority]}</span>
+          ) : (
+            <Select
+              aria-label="Prioridad del ticket"
+              value={priority}
+              disabled={setPriority.isPending}
+              onChange={(e) =>
+                setPriority.mutate({
+                  id: conversation.id,
+                  priority: e.target.value as ConversationPriority,
+                })
+              }
+              className="h-8 text-xs sm:h-8 sm:text-xs"
+            >
+              {CONVERSATION_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {PRIORITY_LABELS[p]}
+                </option>
+              ))}
+            </Select>
+          )}
         </FieldRow>
         <FieldRow label="Canal">
           {providerLabel(conversation.connection.provider)}
@@ -568,7 +629,7 @@ function TicketCard({ conversation }: { conversation: Conversation }) {
               }}
               className="h-8 text-xs sm:h-8 sm:text-xs"
             >
-              <option value="">{conversation.handoffToHuman ? "Sin asignar (cola)" : "Agente de IA"}</option>
+              <option value="">{conversation.handoffToHuman ? "Sin asignar (cola)" : "Bot"}</option>
               {targets.map((a) => (
                 <option key={a.userId} value={a.userId}>
                   {a.fullName} ({a.activeConversations})
@@ -576,18 +637,56 @@ function TicketCard({ conversation }: { conversation: Conversation }) {
               ))}
             </Select>
           ) : (
-            <span>{owner?.fullName ?? (conversation.handoffToHuman ? "Sin asignar" : "Agente de IA")}</span>
+            <span>{owner?.fullName ?? (conversation.handoffToHuman ? "Sin asignar" : "Bot")}</span>
           )}
         </FieldRow>
         <FieldRow label="Espera">
-          {waiting ? (
-            <Badge variant="warning" size="sm">
-              Cliente esperando respuesta
-            </Badge>
+          {sla.status === "pending" ? (
+            <span className="text-muted-foreground">
+              Espera al cliente
+              {conversation.pendingAt ? (
+                <>
+                  {" · desde "}
+                  <DateTime value={conversation.pendingAt} />
+                </>
+              ) : null}
+            </span>
+          ) : sla.waitingSeconds !== null ? (
+            <StatusBadge
+              status="WAITING"
+              tone={waitingTone(sla.waitingSeconds)}
+              label={`Cliente esperando ${formatDuration(sla.waitingSeconds)}`}
+              size="sm"
+            />
           ) : (
             <span className="text-muted-foreground">Al día</span>
           )}
         </FieldRow>
+        <FieldRow label="1.ª respuesta">
+          {sla.firstResponseSeconds !== null ? (
+            <StatusBadge
+              status="FIRST_RESPONSE"
+              tone={firstResponseTone(sla.firstResponseSeconds)}
+              label={formatDuration(sla.firstResponseSeconds)}
+              size="sm"
+              title="Desde que entró a la cola humana hasta la primera respuesta de una persona"
+            />
+          ) : sla.awaitingFirstResponseSeconds !== null ? (
+            <StatusBadge
+              status="AWAITING"
+              tone={firstResponseTone(sla.awaitingFirstResponseSeconds)}
+              label={`Sin respuesta humana · ${formatDuration(sla.awaitingFirstResponseSeconds)}`}
+              size="sm"
+            />
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </FieldRow>
+        {conversation.closedAt ? (
+          <FieldRow label="Resuelta">
+            <DateTime value={conversation.closedAt} />
+          </FieldRow>
+        ) : null}
         <FieldRow label="Último mensaje">
           <DateTime value={conversation.lastMessageAt} />
         </FieldRow>

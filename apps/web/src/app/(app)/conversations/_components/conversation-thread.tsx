@@ -14,8 +14,10 @@ import {
   Clock,
   ExternalLink,
   FileText,
+  Flag,
   Hand,
   History,
+  Hourglass,
   Image as ImageIcon,
   MapPin,
   MessageSquare,
@@ -34,6 +36,7 @@ import {
   UserRound,
   Video,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -56,13 +59,16 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DateTime } from "@/components/app/date-time";
+import { DateTime, formatDateTime } from "@/components/app/date-time";
+import { Tip } from "@/components/app/info-tip";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
+  CONVERSATION_PRIORITIES,
   MAX_ATTACHMENT_BYTES,
   WHATSAPP_TEXT_MAX,
   apiErrorMessage,
   flattenMessages,
+  formatDuration as formatSeconds,
   providerLabel,
   useAddNote,
   useAddMessageNote,
@@ -77,13 +83,28 @@ import {
   useReturnToAgent,
   useSendAttachment,
   useSetConversationStatus,
+  useSetPending,
+  useSetPriority,
   useSetTags,
+  useCannedResponses,
+  type CannedResponse,
   type Conversation,
   type ConversationNote,
   type Message,
   type MessageNote,
   type MessageType,
 } from "./use-conversations";
+import {
+  PRIORITY_LABELS,
+  PRIORITY_TONE,
+  TICKET_STATUS_LABELS,
+  TICKET_STATUS_TONE,
+  firstResponseTone,
+  priorityOf,
+  slaOf,
+  waitingTone,
+} from "./ticket";
+import { CannedResponsePicker, CannedResponsesSheet, filterCanned } from "./canned-responses";
 import { EntityDetailSheet, type EntityTarget } from "./entity-detail-sheet";
 import { blobToBase64, formatDuration, useVoiceRecorder } from "./use-voice-recorder";
 import { EmojiPickerPanel } from "./emoji-picker-panel";
@@ -116,6 +137,10 @@ const THREAD_SHORTCUTS = [
   { keys: "Esc", label: "Volver a la bandeja" },
   { keys: "Enter", label: "Enviar (Shift+Enter salta de línea)" },
   { keys: "Ctrl/Cmd+Enter", label: "Enviar" },
+  { keys: "/", label: "Respuestas rápidas (al inicio del mensaje)" },
+  { keys: "Ctrl/Cmd+Shift+R", label: "Resolver / reabrir" },
+  { keys: "Ctrl/Cmd+Shift+P", label: "Marcar / quitar pendiente" },
+  { keys: "Ctrl/Cmd+Shift+T", label: "Tomar la conversación" },
 ];
 
 const MEDIA_LABELS: Partial<Record<MessageType, { label: string; icon: typeof FileText }>> = {
@@ -131,20 +156,43 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** "14:05" en hora local, para el pie de cada burbuja. */
+/**
+ * Formateadores del hilo. Misma zona fija que `DateTime`
+ * (`America/Mexico_City`) para que servidor y navegador pinten lo mismo; se
+ * cachean porque `Intl.DateTimeFormat` es caro y hay uno por burbuja.
+ */
+const TIME_FMT = new Intl.DateTimeFormat("es-MX", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: "America/Mexico_City",
+});
+const DAY_FMT = new Intl.DateTimeFormat("es-MX", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  timeZone: "America/Mexico_City",
+});
+const DAY_YEAR_FMT = new Intl.DateTimeFormat("es-MX", {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "America/Mexico_City",
+});
+
+/** "14:05", para el pie de cada burbuja. */
 function formatTime(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
+  return TIME_FMT.format(d);
 }
 
-/** "27 sep 2026, 14:05": fecha completa para los tooltips de acuse. */
+/** "27 sept 2026, 14:05": fecha completa para los tooltips de acuse. */
 function formatFull(iso: string | null | undefined): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
+  const out = formatDateTime(iso);
+  return out === "—" ? "" : out;
 }
 
 /**
@@ -567,12 +615,7 @@ function DaySeparator({ iso }: { iso: string }) {
       ? "Hoy"
       : date.toDateString() === yesterday.toDateString()
         ? "Ayer"
-        : date.toLocaleDateString("es-MX", {
-            weekday: "short",
-            day: "numeric",
-            month: "short",
-            ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}),
-          });
+        : (date.getFullYear() !== today.getFullYear() ? DAY_YEAR_FMT : DAY_FMT).format(date);
   return (
     <li
       role="separator"
@@ -902,6 +945,24 @@ function Composer({
   const reply = useReply(conversationId);
   const attach = useSendAttachment(conversationId);
   const [draft, setDraft] = useState("");
+  // Respuestas rápidas: el picker abre cuando el borrador empieza por "/"
+  // (y no tiene espacios todavía: "/gra" filtra, "/gracias por" ya es texto).
+  const cannedQuery = /^\/[^\s]*$/.test(draft) ? draft : null;
+  const cannedOpen = cannedQuery !== null;
+  const [cannedIndex, setCannedIndex] = useState(0);
+  const [cannedSheetOpen, setCannedSheetOpen] = useState(false);
+  const cannedList = useCannedResponses(cannedOpen);
+  const cannedMatches = cannedOpen ? filterCanned(cannedList.data ?? [], cannedQuery).slice(0, 8) : [];
+  const insertCanned = (item: CannedResponse) => {
+    setDraft(item.body);
+    setCannedIndex(0);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(item.body.length, item.body.length);
+    });
+  };
   const [queue, setQueue] = useState<
     Array<{ name: string; size: number; mimetype: string; status: "uploading" | "queued" }>
   >([]);
@@ -1080,6 +1141,17 @@ function Composer({
         }
       }}
     >
+      {cannedOpen ? (
+        <CannedResponsePicker
+          id={`canned-${conversationId}`}
+          query={cannedQuery}
+          activeIndex={cannedIndex}
+          onActiveChange={setCannedIndex}
+          onPick={insertCanned}
+          onManage={() => setCannedSheetOpen(true)}
+        />
+      ) : null}
+      <CannedResponsesSheet open={cannedSheetOpen} onOpenChange={setCannedSheetOpen} />
       {dragActive ? (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-card border-2 border-dashed border-primary-strong bg-primary-strong/10">
           <p className="rounded-card bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-airbnb">
@@ -1135,8 +1207,49 @@ function Composer({
         aria-describedby={draft.length > COUNTER_FROM ? `composer-count-${conversationId}` : undefined}
         value={draft}
         disabled={reply.isPending}
-        onChange={(e) => setDraft(e.target.value)}
+        role={cannedOpen ? "combobox" : undefined}
+        aria-expanded={cannedOpen || undefined}
+        aria-controls={cannedOpen ? `canned-${conversationId}` : undefined}
+        aria-activedescendant={
+          cannedOpen && cannedMatches[cannedIndex] ? `canned-${conversationId}-opt-${cannedIndex}` : undefined
+        }
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (e.target.value.startsWith("/")) setCannedIndex(0);
+        }}
         onKeyDown={(e) => {
+          // Con el picker de respuestas rápidas abierto, el teclado es suyo.
+          if (cannedOpen) {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setCannedIndex((i) => Math.min(i + 1, Math.max(0, cannedMatches.length - 1)));
+              return;
+            }
+            if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setCannedIndex((i) => Math.max(0, i - 1));
+              return;
+            }
+            if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+              const item = cannedMatches[cannedIndex];
+              if (item) {
+                e.preventDefault();
+                insertCanned(item);
+                return;
+              }
+              // Sin coincidencias, Enter no manda un "/" suelto.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                return;
+              }
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft("");
+              return;
+            }
+          }
           if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             sendText();
@@ -1242,16 +1355,48 @@ function Composer({
           )}
           {recorder.recording ? "Detener" : "Nota de voz"}
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground"
-          disabled={busy || recorder.recording}
-          onClick={onReturn}
-        >
-          <Bot aria-hidden className="h-3.5 w-3.5" />
-          Devolver al agente
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || recorder.recording}
+              aria-label="Respuestas rápidas"
+              onClick={() => {
+                if (draft.trim() === "") {
+                  setDraft("/");
+                  setCannedIndex(0);
+                  textareaRef.current?.focus();
+                } else {
+                  setCannedSheetOpen(true);
+                }
+              }}
+            >
+              <Zap aria-hidden className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Rápidas</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            Respuestas rápidas: escribe <span className="font-mono">/</span> al inicio del mensaje.
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              disabled={busy || recorder.recording}
+              onClick={onReturn}
+            >
+              <Bot aria-hidden className="h-3.5 w-3.5" />
+              Devolver al bot
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-[16rem] text-pretty">
+            El bot vuelve a contestar en este hilo y se suelta tu asignación. Puedes tomarlo de nuevo cuando quieras.
+          </TooltipContent>
+        </Tooltip>
         <Button
           size="sm"
           className="ml-auto"
@@ -1616,36 +1761,50 @@ function HandoffBar({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">
-            {closed ? "Conversación cerrada" : "El bot está atendiendo esta conversación"}
+            {closed ? "Conversación resuelta" : "El bot está atendiendo esta conversación"}
           </p>
           <p className="text-xs text-muted-foreground">
             {closed
               ? "Reábrela para escribirle al cliente. Si el cliente escribe primero, se reabre sola."
-              : "Tómala para responder tú; el bot deja de contestar mientras la atiendas."}
+              : "Tómala para responder tú; el bot deja de contestar mientras la atiendas y podrás devolvérsela cuando termines."}
           </p>
         </div>
         {closed ? (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="shrink-0"
-            loading={setStatus.isPending}
-            onClick={() => setStatus.mutate({ id: conversation.id, status: "OPEN" })}
-          >
-            <RotateCcw aria-hidden className="h-3.5 w-3.5" />
-            Reabrir
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="shrink-0"
+                loading={setStatus.isPending}
+                onClick={() => setStatus.mutate({ id: conversation.id, status: "OPEN" })}
+              >
+                <RotateCcw aria-hidden className="h-3.5 w-3.5" />
+                Reabrir
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[16rem] text-pretty">
+              Vuelve a «Abierta» con el bot atendiendo. Tómala después si quieres contestar tú.
+            </TooltipContent>
+          </Tooltip>
         ) : (
-          <Button
-            size="sm"
-            className="shrink-0"
-            disabled={!userId}
-            loading={claim.isPending && claim.variables === conversation.id}
-            onClick={() => claim.mutate(conversation.id)}
-          >
-            <Hand aria-hidden className="h-3.5 w-3.5" />
-            Tomar conversación
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                className="shrink-0"
+                disabled={!userId}
+                loading={claim.isPending && claim.variables === conversation.id}
+                onClick={() => claim.mutate(conversation.id)}
+              >
+                <Hand aria-hidden className="h-3.5 w-3.5" />
+                Tomar conversación
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[16rem] text-pretty">
+              Se asigna a ti y el bot deja de contestar (Ctrl/Cmd+Shift+T). Con «Devolver al bot» regresa a automático.
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>
@@ -1675,6 +1834,8 @@ export function ConversationThread({
   const canManage = can("users.manage");
   const returnToAgent = useReturnToAgent();
   const setStatus = useSetConversationStatus();
+  const setPriority = useSetPriority();
+  const setPending = useSetPending();
   const [confirmReturn, setConfirmReturn] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   // El redactor lo prende al enviar; MessagesPane lo consume para bajar la
@@ -1695,6 +1856,26 @@ export function ConversationThread({
   // llamarse condicionalmente.
   const handleThreadKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // Atajos de ticket (Ctrl/Cmd+Shift+letra: no chocan con escribir).
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && conversation) {
+        const k = e.key.toLowerCase();
+        if (k === "r") {
+          e.preventDefault();
+          if (conversation.status === "CLOSED") setStatus.mutate({ id: conversation.id, status: "OPEN" });
+          else setConfirmClose(true);
+          return;
+        }
+        if (k === "p" && conversation.status !== "CLOSED") {
+          e.preventDefault();
+          setPending.mutate({ id: conversation.id, pending: !conversation.pendingAt });
+          return;
+        }
+        if (k === "t" && conversation.status !== "CLOSED" && !conversation.handoffUserId && userId) {
+          e.preventDefault();
+          claim.mutate(conversation.id);
+          return;
+        }
+      }
       if (e.key !== "Escape" || !onBack) return;
       // Los eventos de React burbujean a través de portales: un Esc dentro de
       // una hoja, diálogo o menú (que Radix ya usa para cerrarse) no debe
@@ -1707,7 +1888,7 @@ export function ConversationThread({
       }
       onBack();
     },
-    [onBack],
+    [onBack, conversation, userId, setStatus, setPending, claim],
   );
 
   if (!conversation) {
@@ -1723,6 +1904,8 @@ export function ConversationThread({
   }
 
   const current = conversation;
+  const sla = slaOf(current);
+  const priority = priorityOf(current);
   const isOwner = !!userId && current.handoffUserId === userId;
   const ownedByOther = !!current.handoffUserId && !isOwner;
   // `undefined` mientras carga la lista: no se bloquea nada por adelantado.
@@ -1759,16 +1942,17 @@ export function ConversationThread({
       */}
       <div className="flex shrink-0 flex-nowrap items-center gap-2 border-b border-border p-2">
         {onBack ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={onBack}
-            aria-label="Volver a la bandeja"
-            title="Volver a la bandeja (Esc)"
-          >
-            <ChevronLeft aria-hidden className="h-4 w-4" />
-          </Button>
+          <Tip label="Volver a la bandeja (Esc)" side="bottom">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={onBack}
+              aria-label="Volver a la bandeja"
+            >
+              <ChevronLeft aria-hidden className="h-4 w-4" />
+            </Button>
+          </Tip>
         ) : null}
 
         <Tooltip>
@@ -1786,13 +1970,63 @@ export function ConversationThread({
           </TooltipContent>
         </Tooltip>
 
-        <StatusBadge
-          status={current.status}
-          domain="conversation"
-          size="sm"
-          withDot
-          className="shrink-0"
-        />
+        {/* Estado de ticket (derivado: abierta / pendiente / resuelta), con el
+            estado crudo del hilo en el tooltip para quien lo necesite. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span tabIndex={0} className="inline-flex shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <StatusBadge
+                status={sla.status.toUpperCase()}
+                tone={TICKET_STATUS_TONE[sla.status]}
+                label={TICKET_STATUS_LABELS[sla.status]}
+                size="sm"
+                withDot
+              />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-[16rem] text-pretty">
+            {sla.status === "resolved"
+              ? "Resuelta: se cerró a mano o por inactividad. Si el cliente escribe, se reabre sola."
+              : sla.status === "pending"
+                ? "Pendiente: espera algo del cliente. Vuelve a la cola cuando escriba."
+                : current.handoffToHuman
+                  ? "Abierta y escalada a una persona."
+                  : "Abierta y atendida por el bot."}
+          </TooltipContent>
+        </Tooltip>
+
+        {/* Prioridad: insignia que es un menú. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={`Prioridad: ${PRIORITY_LABELS[priority]}. Cambiar`}
+              disabled={setPriority.isPending || current.status === "CLOSED"}
+              className="inline-flex shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:cursor-default"
+            >
+              <StatusBadge
+                status={priority}
+                tone={PRIORITY_TONE[priority]}
+                label={PRIORITY_LABELS[priority]}
+                size="sm"
+                withDot={false}
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>Prioridad</DropdownMenuLabel>
+            {CONVERSATION_PRIORITIES.map((p) => (
+              <DropdownMenuItem
+                key={p}
+                disabled={p === priority}
+                onSelect={() => setPriority.mutate({ id: current.id, priority: p })}
+              >
+                <Flag aria-hidden className="h-4 w-4" />
+                {PRIORITY_LABELS[p]}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {current.handoffToHuman ? (
           <Badge
@@ -1804,8 +2038,43 @@ export function ConversationThread({
               ? isOwner
                 ? "Tuya"
                 : current.handoffUser.fullName
-              : "En cola"}
+              : "Sin asignar"}
           </Badge>
+        ) : null}
+
+        {/* SLA: espera del cliente o primera respuesta, con explicación. */}
+        {sla.waitingSeconds !== null ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} className="hidden shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex">
+                <StatusBadge
+                  status="WAITING"
+                  tone={waitingTone(sla.waitingSeconds)}
+                  label={`Esperando ${formatSeconds(sla.waitingSeconds)}`}
+                  size="sm"
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              El cliente lleva {formatSeconds(sla.waitingSeconds)} sin respuesta.
+            </TooltipContent>
+          </Tooltip>
+        ) : sla.firstResponseSeconds !== null ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} className="hidden shrink-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex">
+                <StatusBadge
+                  status="FIRST_RESPONSE"
+                  tone={firstResponseTone(sla.firstResponseSeconds)}
+                  label={`1.ª resp. ${formatSeconds(sla.firstResponseSeconds)}`}
+                  size="sm"
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-[16rem] text-pretty">
+              Primera respuesta humana {formatSeconds(sla.firstResponseSeconds)} después de entrar a la cola.
+            </TooltipContent>
+          </Tooltip>
         ) : null}
 
         {current.status !== "CLOSED" && !current.handoffUser ? (
@@ -1814,13 +2083,44 @@ export function ConversationThread({
             label={
               iAmAgent === false
                 ? "Activa tu perfil de agente (Admin › Miembros) para tomar conversaciones"
-                : "Tomar la conversación"
+                : "Tomar la conversación: el bot deja de contestar y tú respondes"
             }
             disabled={!userId || iAmAgent === false}
             loading={claim.isPending && claim.variables === current.id}
             onClick={() => claim.mutate(current.id)}
           />
         ) : null}
+
+        {current.status !== "CLOSED" ? (
+          <HeaderAction
+            icon={Hourglass}
+            label={
+              sla.status === "pending"
+                ? "Quitar la marca de pendiente"
+                : "Marcar como pendiente: espera algo del cliente; sale de \"sin responder\" hasta que escriba"
+            }
+            variant={sla.status === "pending" ? "outline" : "ghost"}
+            loading={setPending.isPending}
+            onClick={() => setPending.mutate({ id: current.id, pending: sla.status !== "pending" })}
+          />
+        ) : null}
+
+        {current.status !== "CLOSED" ? (
+          <HeaderAction
+            icon={CheckCircle2}
+            label="Resolver: cierra el hilo y libera la asignación (se reabre si el cliente escribe)"
+            variant="ghost"
+            onClick={() => setConfirmClose(true)}
+          />
+        ) : (
+          <HeaderAction
+            icon={RotateCcw}
+            label="Reabrir la conversación"
+            variant="ghost"
+            loading={setStatus.isPending}
+            onClick={() => setStatus.mutate({ id: current.id, status: "OPEN" })}
+          />
+        )}
 
         <TagsEditor conversation={current} className="min-w-0 flex-1" />
 
@@ -1829,16 +2129,18 @@ export function ConversationThread({
         {/* Ciclo de vida del ticket. Hasta ahora solo el job de inactividad
             podía cerrar un hilo y nada podía reabrirlo. */}
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              aria-label="Más acciones de la conversación"
-            >
-              <MoreHorizontal aria-hidden className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
+          <Tip label="Más acciones: asignar, etiquetar, cerrar" side="bottom">
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0"
+                aria-label="Más acciones de la conversación"
+              >
+                <MoreHorizontal aria-hidden className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </Tip>
           <DropdownMenuContent align="end">
             {canReassign && assignTargets.length > 0 ? (
               <>
@@ -1877,7 +2179,16 @@ export function ConversationThread({
                 onSelect={() => setTimeout(() => setConfirmReturn(true), 0)}
               >
                 <Bot aria-hidden className="h-4 w-4" />
-                Devolver al agente
+                Devolver al bot
+              </DropdownMenuItem>
+            ) : null}
+            {current.status !== "CLOSED" ? (
+              <DropdownMenuItem
+                disabled={setPending.isPending}
+                onSelect={() => setPending.mutate({ id: current.id, pending: sla.status !== "pending" })}
+              >
+                <Hourglass aria-hidden className="h-4 w-4" />
+                {sla.status === "pending" ? "Quitar pendiente" : "Marcar como pendiente"}
               </DropdownMenuItem>
             ) : null}
             {current.status === "CLOSED" ? (
@@ -1890,7 +2201,7 @@ export function ConversationThread({
             ) : (
               <DropdownMenuItem onSelect={() => setTimeout(() => setConfirmClose(true), 0)}>
                 <CheckCircle2 aria-hidden className="h-4 w-4" />
-                Cerrar conversación
+                Resolver conversación
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -1961,9 +2272,9 @@ export function ConversationThread({
       <ConfirmDialog
         open={confirmReturn}
         onOpenChange={setConfirmReturn}
-        title="¿Devolver la conversación al agente?"
-        description="El agente volverá a contestar los mensajes del cliente. Podrás transferirla de nuevo cuando quieras."
-        confirmLabel="Devolver al agente"
+        title="¿Devolver la conversación al bot?"
+        description="El bot volverá a contestar los mensajes del cliente y se suelta la asignación. Podrás tomarla de nuevo cuando quieras."
+        confirmLabel="Devolver al bot"
         variant="default"
         pending={returnToAgent.isPending}
         onConfirm={() => {
@@ -1974,9 +2285,9 @@ export function ConversationThread({
       <ConfirmDialog
         open={confirmClose}
         onOpenChange={setConfirmClose}
-        title="¿Cerrar la conversación?"
-        description="El hilo sale de los pendientes y se libera la asignación. Si el cliente vuelve a escribir, se reabre solo."
-        confirmLabel="Cerrar conversación"
+        title="¿Resolver la conversación?"
+        description="El hilo se marca como resuelta, sale de los pendientes y se libera la asignación. Si el cliente vuelve a escribir, se reabre solo."
+        confirmLabel="Resolver"
         variant="default"
         pending={setStatus.isPending}
         onConfirm={() => {

@@ -18,16 +18,20 @@ import {
 import argon2 from "argon2";
 import type { Response } from "express";
 import {
+  BULK_ACTIONS,
+  CONVERSATION_PRIORITIES,
   DEFAULT_CONVERSATION_LIMIT,
   DEFAULT_MESSAGE_LIMIT,
   MANUAL_STATUSES,
   MAX_MESSAGE_LIMIT,
   WhatsAppService,
+  type BulkAction,
   type ConversationActor,
   type ConversationListFilters,
   type ConversationSort,
   type ManualConversationStatus,
 } from "./whatsapp.service.js";
+import type { ConversationPriority } from "@prisma/client";
 import { ConversationContextService } from "./conversation-context.service.js";
 import { MAX_PAGE_SIZE, parsePaging } from "../common/pagination.js";
 import { AgentBridgeService } from "./agent-bridge.service.js";
@@ -39,7 +43,15 @@ import { RequestContext } from "../common/context/request-context.js";
 const CONVERSATION_STATUSES = ["OPEN", "HANDED_OFF", "CLOSED"] as const;
 const HANDOFF_FILTERS = ["agent", "human"] as const;
 const WHATSAPP_PROVIDERS = ["META", "EVOLUTION"] as const;
-const CONVERSATION_SORTS = ["recent", "oldest"] as const;
+const CONVERSATION_SORTS = ["recent", "oldest", "priority"] as const;
+
+/** `true`/`false` como query param; vacío = sin filtro. */
+function parseBool(name: string, raw: string | undefined): boolean | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  throw new BadRequestException(`${name} must be true or false`);
+}
 /** UUID v4 o el literal `unassigned` (la cola sin dueño). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -398,9 +410,15 @@ export class WhatsAppController {
     @Query("tag") tag?: string,
     @Query("sort") sort?: string,
     @Query("assignee") assignee?: string,
+    @Query("priority") priority?: string,
+    @Query("pending") pending?: string,
+    @Query("unanswered") unanswered?: string,
   ) {
     const tenantId = requireTenant();
     const filters: ConversationListFilters = {
+      priority: parseEnum<ConversationPriority>("priority", priority, CONVERSATION_PRIORITIES),
+      pending: parseBool("pending", pending),
+      unanswered: parseBool("unanswered", unanswered) || undefined,
       q: q?.trim() || undefined,
       id: id && UUID_RE.test(id) ? id : undefined,
       status: parseEnum("status", status, CONVERSATION_STATUSES),
@@ -484,6 +502,91 @@ export class WhatsAppController {
     }
     return {
       data: await this.wa.setStatus(tenantId, id, status, RequestContext.userId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /** Prioridad del ticket (LOW / NORMAL / HIGH / URGENT). */
+  @Patch("conversations/:id/priority")
+  @RequireScopes("chat.write" as never)
+  async setPriority(@Param("id") id: string, @Body() body: { priority?: string }) {
+    const tenantId = requireTenant();
+    const priority = parseEnum<ConversationPriority>(
+      "priority",
+      body?.priority,
+      CONVERSATION_PRIORITIES,
+    );
+    if (!priority) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `priority debe ser uno de: ${CONVERSATION_PRIORITIES.join(", ")}`,
+      });
+    }
+    return {
+      data: await this.wa.setPriority(tenantId, id, priority, RequestContext.userId),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /** "Marcar como pendiente" (espera al cliente) o quitar la marca. */
+  @Patch("conversations/:id/pending")
+  @RequireScopes("chat.write" as never)
+  async setPending(@Param("id") id: string, @Body() body: { pending?: boolean }) {
+    const tenantId = requireTenant();
+    if (typeof body?.pending !== "boolean") {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "pending debe ser true o false",
+      });
+    }
+    return {
+      data: await this.wa.setPending(tenantId, id, body.pending, currentActor()),
+      requestId: RequestContext.requestId,
+    };
+  }
+
+  /**
+   * Acción masiva de la bandeja (asignar, resolver, reabrir, etiquetar,
+   * prioridad, pendiente, devolver al bot) sobre hasta 100 hilos. No es
+   * atómica: `data.failed` lista los que no se pudieron y por qué.
+   */
+  @Post("conversations/bulk")
+  @HttpCode(200)
+  @RequireScopes("chat.write" as never)
+  async bulk(
+    @Body()
+    body: {
+      ids?: string[];
+      action?: string;
+      userId?: string;
+      tags?: string[];
+      priority?: string;
+    },
+  ) {
+    const tenantId = requireTenant();
+    const action = parseEnum<BulkAction>("action", body?.action, BULK_ACTIONS);
+    if (!action) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: `action debe ser uno de: ${BULK_ACTIONS.join(", ")}`,
+      });
+    }
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x) => typeof x === "string" && UUID_RE.test(x)) : [];
+    if (body?.userId && !UUID_RE.test(body.userId)) {
+      throw new BadRequestException({ code: "VALIDATION_FAILED", message: "userId inválido" });
+    }
+    return {
+      data: await this.wa.bulk(
+        tenantId,
+        {
+          ids,
+          action,
+          userId: body?.userId,
+          tags: Array.isArray(body?.tags) ? body.tags : undefined,
+          priority: parseEnum<ConversationPriority>("priority", body?.priority, CONVERSATION_PRIORITIES),
+        },
+        currentActor(),
+      ),
       requestId: RequestContext.requestId,
     };
   }
@@ -796,12 +899,12 @@ export class WhatsAppController {
     }
 
     if (!message && parsed.location) {
-      // Ubicación compartida por el cliente desde WhatsApp. NO la guardamos
-      // como dirección de envío: las coordenadas del GPS no resuelven la
-      // zona del admin (necesita CP / ciudad / estado). El agente usa la
-      // lat/lng para confirmar zona horaria o ubicación geográfica general
-      // y PIDE el CP / ciudad / estado por texto, como hace el prompt
-      // v1.4.1 `55_envio_domicilio.md`.
+      // Ubicación compartida por el cliente desde WhatsApp. Se le pasa al
+      // agente como texto `[... ubicación: lat, lng]`; desde T-SHIP-07 las
+      // zonas con polígono SÍ se resuelven con lat/lng (`GET /shipping/lookup
+      // ?lat&lng`), así que el agente (prompt v1.6.0 `55_envio_domicilio.md`)
+      // manda las coordenadas a `validar_zona_de_envio` y solo pide CP /
+      // ciudad / estado si ningún polígono la contiene.
       const lat = parsed.location.latitude;
       const lng = parsed.location.longitude;
       const caption = parsed.location.caption?.trim();

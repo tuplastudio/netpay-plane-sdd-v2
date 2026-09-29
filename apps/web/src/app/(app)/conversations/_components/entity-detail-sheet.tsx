@@ -49,6 +49,7 @@ import {
   type QuoteDetail,
 } from "./use-entity-details";
 import { NoPermission, usePermissions } from "@/components/app/use-permissions";
+import { Tip } from "@/components/app/info-tip";
 
 /**
  * Detalle de un pedido / cotización / pago / evento SOBRE la conversación, en
@@ -130,15 +131,17 @@ function DetailShell({
       <SheetHeader className="pr-8">
         <div className="flex items-center gap-2">
           {onBack ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="-ml-2 h-7 w-7 shrink-0"
-              onClick={onBack}
-              aria-label="Volver al detalle anterior"
-            >
-              <ArrowLeft aria-hidden className="h-4 w-4" />
-            </Button>
+            <Tip label="Volver al detalle anterior">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="-ml-2 h-7 w-7 shrink-0"
+                onClick={onBack}
+                aria-label="Volver al detalle anterior"
+              >
+                <ArrowLeft aria-hidden className="h-4 w-4" />
+              </Button>
+            </Tip>
           ) : null}
           <SheetTitle className="text-base">{title}</SheetTitle>
         </div>

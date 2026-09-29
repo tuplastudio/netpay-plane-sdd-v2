@@ -21,6 +21,10 @@ export { providerLabel, useMe };
 
 export type ConversationStatus = "OPEN" | "HANDED_OFF" | "CLOSED";
 
+/** Prioridad del ticket (enum `ConversationPriority` del API), de menor a mayor. */
+export type ConversationPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
+export const CONVERSATION_PRIORITIES: ConversationPriority[] = ["LOW", "NORMAL", "HIGH", "URGENT"];
+
 export interface Conversation {
   id: string;
   customerId: string | null;
@@ -33,6 +37,17 @@ export interface Conversation {
   handoffUserId: string | null;
   handoffUser: { id: string; fullName: string } | null;
   tags: string[];
+  /** Help desk (migración 0025). Opcionales por compatibilidad con un API viejo. */
+  priority?: ConversationPriority;
+  /** Marcado como "pendiente" (espera algo del cliente); `null` = no. */
+  pendingAt?: string | null;
+  /** Métricas de atención (0023): cuándo entró a la cola humana, cuándo se
+   *  tomó, primera respuesta humana desde ese handoff y cierre. */
+  handoffAt?: string | null;
+  assignedAt?: string | null;
+  firstHumanReplyAt?: string | null;
+  closedAt?: string | null;
+  createdAt?: string;
   lastMessageAt: string | null;
   /** El último mensaje es del cliente y nadie ha contestado. */
   unanswered: boolean;
@@ -62,6 +77,10 @@ export interface ConversationStats {
   queue: number;
   /** Transferidos con dueño: la pestaña "Por agente". */
   assigned: number;
+  /** No cerrados marcados como pendientes (esperan al cliente). */
+  pending?: number;
+  /** Cerrados hoy. */
+  resolvedToday?: number;
 }
 
 export interface ConversationList {
@@ -78,14 +97,22 @@ export type RangeFilter = "all" | "today" | "7d" | "30d";
  * sin moverse, primero. Lo resuelve el API en el índice `(tenantId,
  * lastMessageAt)`; no se reordena aquí una página ya truncada.
  */
-export type SortFilter = "recent" | "oldest";
+export type SortFilter = "recent" | "oldest" | "priority";
 
 /**
- * Vistas guardadas de la bandeja. No son tres pantallas distintas: son el
- * mismo listado con un `assignee` distinto, y TODOS los filtros aplican a las
- * tres.
+ * Vistas guardadas de la bandeja (estilo Zendesk). No son pantallas
+ * distintas: son el mismo listado con un preajuste de `assignee` / estado /
+ * pendiente, y TODOS los filtros aplican a todas.
+ *
+ *  - `inbox`     Bandeja completa.
+ *  - `mine`      Mis conversaciones (asignadas a quien mira).
+ *  - `queue`     Sin asignar (transferidas a una persona, sin dueño).
+ *  - `waiting`   Esperando respuesta (el último mensaje es del cliente).
+ *  - `pending`   Pendientes (esperan algo del cliente).
+ *  - `resolved`  Resueltas (cerradas).
+ *  - `byAgent`   Por agente (tarjetas por persona).
  */
-export type InboxView = "inbox" | "queue" | "byAgent";
+export type InboxView = "inbox" | "mine" | "queue" | "waiting" | "pending" | "resolved" | "byAgent";
 
 /** Filtros de la bandeja. Viajan en la URL y de ahí al API. */
 export interface ConversationFilters {
@@ -99,6 +126,10 @@ export interface ConversationFilters {
   view: InboxView;
   /** Persona dueña del hilo; solo se usa dentro de la vista "Por agente". */
   agent: string;
+  /** Prioridad exacta del ticket ("" = todas). */
+  priority: ConversationPriority | "";
+  /** Solo hilos sin responder (último mensaje del cliente). */
+  unanswered: boolean;
 }
 
 export const DEFAULT_FILTERS: ConversationFilters = {
@@ -111,17 +142,40 @@ export const DEFAULT_FILTERS: ConversationFilters = {
   sort: "recent",
   view: "inbox",
   agent: "",
+  priority: "",
+  unanswered: false,
 };
 
 /**
- * `assignee` que le toca a cada vista. La "Cola" es la cola sin dueño; "Por
- * agente" acota a una persona si se eligió una, y si no deja que el API
- * devuelva todo (el filtro `handoff=human` de la vista se encarga del resto).
+ * `assignee` que le toca a cada vista. "Sin asignar" es la cola sin dueño;
+ * "Mis conversaciones" es quien mira; "Por agente" acota a una persona si se
+ * eligió una, y si no deja que el API devuelva todo (el filtro
+ * `handoff=human` de la vista se encarga del resto).
  */
-export function assigneeFor(filters: ConversationFilters): string | undefined {
+export function assigneeFor(filters: ConversationFilters, meId?: string): string | undefined {
   if (filters.view === "queue") return "unassigned";
+  if (filters.view === "mine") return meId || undefined;
   if (filters.view === "byAgent") return filters.agent || undefined;
   return undefined;
+}
+
+/**
+ * Parámetros extra que cada vista guardada preajusta. Un filtro explícito
+ * del usuario (p. ej. `status`) gana sobre el de la vista.
+ */
+export function viewParams(filters: ConversationFilters): Record<string, string | undefined> {
+  switch (filters.view) {
+    case "waiting":
+      return { unanswered: "true" };
+    case "pending":
+      return { pending: "true" };
+    case "resolved":
+      return { status: filters.status || "CLOSED" };
+    case "byAgent":
+      return filters.agent ? {} : { handoff: "human" };
+    default:
+      return {};
+  }
 }
 
 /**
@@ -248,24 +302,33 @@ function whenVisible(ms: number) {
 export function useConversations(
   filters: ConversationFilters = DEFAULT_FILTERS,
   paging: { page: number; pageSize: number } = { page: 1, pageSize: CONVERSATIONS_LIMIT },
+  /** Id de quien mira: lo necesita la vista "Mis conversaciones". */
+  meId?: string,
 ) {
+  // "Mis conversaciones" sin sesión resuelta todavía no debe pedir la bandeja
+  // completa: espera a `meId` (la query se habilita en cuanto llega).
+  const needsMe = filters.view === "mine" && !meId;
   return useQuery({
-    queryKey: ["whatsapp-conversations", filters, paging],
+    queryKey: ["whatsapp-conversations", filters, paging, filters.view === "mine" ? meId : null],
+    enabled: !needsMe,
     queryFn: async () => {
+      // Preajustes de la vista guardada; un filtro explícito los pisa.
+      const preset = viewParams(filters);
       const res = await api.get<ConversationList>("/whatsapp/conversations", {
         params: {
+          ...preset,
           q: filters.q || undefined,
-          handoff: filters.handoff === "all" ? undefined : filters.handoff,
-          status: filters.status || undefined,
+          handoff: filters.handoff === "all" ? preset.handoff : filters.handoff,
+          status: filters.status || preset.status,
           provider: filters.provider || undefined,
           from: rangeFrom(filters.range),
           limit: paging.pageSize,
           offset: (paging.page - 1) * paging.pageSize || undefined,
           tag: filters.tag || undefined,
           sort: filters.sort === "recent" ? undefined : filters.sort,
-          assignee: assigneeFor(filters),
-          // "Por agente" son, por definición, los hilos que lleva una persona.
-          ...(filters.view === "byAgent" && !filters.agent ? { handoff: "human" } : {}),
+          assignee: assigneeFor(filters, meId),
+          priority: filters.priority || undefined,
+          unanswered: filters.unanswered ? "true" : preset.unanswered,
         },
       });
       return res.data;
@@ -656,6 +719,183 @@ export function useReleaseToQueue() {
       await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", conversationId] });
     },
     onError: (error) => toast.error(apiErrorMessage(error, "No se pudo devolver a la cola")),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Help desk: prioridad, pendiente, acciones masivas y respuestas rápidas
+// ---------------------------------------------------------------------------
+
+/** `PATCH conversations/:id/priority`. */
+export function useSetPriority() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; priority: ConversationPriority }) => {
+      const res = await api.patch<{ data: Conversation }>(
+        `/whatsapp/conversations/${input.id}/priority`,
+        { priority: input.priority },
+      );
+      return res.data.data;
+    },
+    onSuccess: async (_d, input) => {
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversation", input.id] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", input.id] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo cambiar la prioridad")),
+  });
+}
+
+/** `PATCH conversations/:id/pending`: marcar como pendiente / quitar la marca. */
+export function useSetPending() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; pending: boolean }) => {
+      const res = await api.patch<{ data: Conversation }>(
+        `/whatsapp/conversations/${input.id}/pending`,
+        { pending: input.pending },
+      );
+      return res.data.data;
+    },
+    onSuccess: async (_d, input) => {
+      toast.success(
+        input.pending ? "Marcada como pendiente del cliente" : "Ya no está pendiente",
+      );
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversation", input.id] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", input.id] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo cambiar el estado")),
+  });
+}
+
+export type BulkAction = "assign" | "resolve" | "reopen" | "tag" | "priority" | "pending" | "return";
+
+export interface BulkInput {
+  ids: string[];
+  action: BulkAction;
+  userId?: string;
+  tags?: string[];
+  priority?: ConversationPriority;
+}
+
+export interface BulkResult {
+  ok: string[];
+  failed: Array<{ id: string; message: string }>;
+}
+
+const BULK_LABEL: Record<BulkAction, string> = {
+  assign: "asignadas",
+  resolve: "resueltas",
+  reopen: "reabiertas",
+  tag: "etiquetadas",
+  priority: "con prioridad cambiada",
+  pending: "marcadas como pendientes",
+  return: "devueltas al bot",
+};
+
+/** `POST conversations/bulk`: la misma acción sobre varias filas seleccionadas. */
+export function useBulkAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: BulkInput) => {
+      const res = await api.post<{ data: BulkResult }>("/whatsapp/conversations/bulk", input);
+      return res.data.data;
+    },
+    onSuccess: async (result, input) => {
+      const okCount = result.ok.length;
+      const failed = result.failed.length;
+      if (okCount > 0) {
+        toast.success(
+          `${okCount} ${okCount === 1 ? "conversación" : "conversaciones"} ${BULK_LABEL[input.action]}`,
+        );
+      }
+      if (failed > 0) {
+        toast.error(
+          `${failed} no se ${failed === 1 ? "pudo" : "pudieron"}: ${result.failed[0]!.message}`,
+        );
+      }
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-agents"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context"] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo aplicar la acción")),
+  });
+}
+
+/** Respuesta rápida del tenant (`/atajo` en el redactor). */
+export interface CannedResponse {
+  id: string;
+  shortcut: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function useCannedResponses(enabled = true) {
+  return useQuery({
+    queryKey: ["canned-responses"],
+    queryFn: async () => {
+      const res = await api.get<{ data: CannedResponse[] }>("/tenants/me/canned-responses");
+      return res.data.data;
+    },
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export interface CannedResponseInput {
+  shortcut: string;
+  title: string;
+  body: string;
+}
+
+export function useCreateCannedResponse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CannedResponseInput) => {
+      const res = await api.post<{ data: CannedResponse }>("/tenants/me/canned-responses", input);
+      return res.data.data;
+    },
+    onSuccess: async () => {
+      toast.success("Respuesta rápida guardada");
+      await queryClient.invalidateQueries({ queryKey: ["canned-responses"] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo guardar la respuesta rápida")),
+  });
+}
+
+export function useUpdateCannedResponse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string } & Partial<CannedResponseInput>) => {
+      const { id, ...patch } = input;
+      const res = await api.patch<{ data: CannedResponse }>(
+        `/tenants/me/canned-responses/${id}`,
+        patch,
+      );
+      return res.data.data;
+    },
+    onSuccess: async () => {
+      toast.success("Respuesta rápida actualizada");
+      await queryClient.invalidateQueries({ queryKey: ["canned-responses"] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo actualizar la respuesta rápida")),
+  });
+}
+
+export function useDeleteCannedResponse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/tenants/me/canned-responses/${id}`);
+    },
+    onSuccess: async () => {
+      toast.success("Respuesta rápida eliminada");
+      await queryClient.invalidateQueries({ queryKey: ["canned-responses"] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo eliminar la respuesta rápida")),
   });
 }
 

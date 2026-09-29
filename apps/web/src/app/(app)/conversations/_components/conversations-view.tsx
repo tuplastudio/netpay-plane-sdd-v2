@@ -7,6 +7,7 @@ import {
   CalendarDays,
   BarChart3,
   CheckCircle2,
+  Clock,
   Hourglass,
   Inbox,
   MessagesSquare,
@@ -23,10 +24,11 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { TablePager } from "@/components/app/table-pager";
-import { ConversationsFilters } from "./conversations-filters";
-import { ConversationsList } from "./conversations-list";
+import { ActiveFilterChips, ConversationsFilters } from "./conversations-filters";
+import { ConversationsList, type ListSelection } from "./conversations-list";
 import { ConversationThread } from "./conversation-thread";
 import { ConversationContextPanel } from "./conversation-context-panel";
+import { BulkActionsBar } from "./bulk-actions-bar";
 import { ShortcutsHelp } from "./shortcuts-help";
 import { useConversationFilters } from "./use-conversation-filters";
 import {
@@ -42,6 +44,7 @@ import {
   type SortFilter,
 } from "./use-conversations";
 import { cn } from "@/lib/utils";
+import { Tip } from "@/components/app/info-tip";
 
 /** Filas por página del paginado en cliente (ver comentario junto a `page`). */
 const PAGE_SIZE = 20;
@@ -50,18 +53,29 @@ const LIST_SHORTCUTS = [
   { keys: "↑ / ↓", label: "Moverse entre conversaciones" },
   { keys: "Enter", label: "Abrir la conversación enfocada" },
   { keys: "Inicio / Fin", label: "Ir a la primera / última" },
+  { keys: "x", label: "Marcar / desmarcar la fila enfocada" },
+  { keys: "Esc", label: "Quitar la selección" },
   { keys: "/ o Ctrl/Cmd+K", label: "Buscar" },
 ];
 
 const SORT_LABELS: Record<SortFilter, string> = {
   recent: "Más reciente",
-  oldest: "Más antiguo esperando",
+  oldest: "Más tiempo esperando",
+  priority: "Prioridad (urgente primero)",
 };
 
-const INBOX_TABS: Array<{ value: InboxView; label: string }> = [
-  { value: "inbox", label: "Bandeja" },
-  { value: "queue", label: "Cola" },
-  { value: "byAgent", label: "Por agente" },
+/**
+ * Vistas guardadas (estilo Zendesk). Todas son la misma tabla con un
+ * preajuste distinto; los filtros de la barra aplican encima.
+ */
+const INBOX_TABS: Array<{ value: InboxView; label: string; title: string }> = [
+  { value: "inbox", label: "Bandeja", title: "Todas las conversaciones abiertas y escaladas" },
+  { value: "mine", label: "Mías", title: "Las que están asignadas a ti" },
+  { value: "queue", label: "Sin asignar", title: "Escaladas a una persona y sin dueño" },
+  { value: "waiting", label: "Esperando", title: "El último mensaje es del cliente y nadie ha contestado" },
+  { value: "pending", label: "Pendientes", title: "Esperan algo del cliente" },
+  { value: "resolved", label: "Resueltas", title: "Cerradas (a mano o por inactividad)" },
+  { value: "byAgent", label: "Por agente", title: "Reparto por persona" },
 ];
 
 const EMPTY_BY_VIEW: Record<InboxView, { title: string; description: string }> = {
@@ -69,9 +83,25 @@ const EMPTY_BY_VIEW: Record<InboxView, { title: string; description: string }> =
     title: "Sin conversaciones todavía",
     description: "En cuanto alguien escriba al número conectado, el hilo aparecerá aquí.",
   },
+  mine: {
+    title: "No tienes conversaciones asignadas",
+    description: "Toma una de \"Sin asignar\" o pide que te transfieran una.",
+  },
   queue: {
     title: "Sin hilos en espera",
     description: "Ningún hilo transferido está sin asignar ahora mismo.",
+  },
+  waiting: {
+    title: "Nadie espera respuesta",
+    description: "Todas las conversaciones abiertas ya tienen una respuesta.",
+  },
+  pending: {
+    title: "Sin pendientes",
+    description: "Ninguna conversación está marcada como pendiente del cliente.",
+  },
+  resolved: {
+    title: "Sin conversaciones resueltas",
+    description: "Cuando cierres una conversación, aparecerá aquí.",
   },
   byAgent: {
     title: "Sin conversaciones asignadas",
@@ -112,6 +142,8 @@ function StatsStrip({
   const unanswered = stats?.unanswered ?? 0;
   const today = stats?.today ?? 0;
   const queue = stats?.queue ?? 0;
+  const pending = stats?.pending ?? 0;
+  const resolvedToday = stats?.resolvedToday ?? 0;
   const loading = query.isLoading;
 
   const items = [
@@ -125,7 +157,7 @@ function StatsStrip({
     },
     {
       key: "queue",
-      label: "En cola",
+      label: "Sin asignar",
       value: queue,
       icon: Hourglass,
       tone: (queue > 0 ? "destructive" : "neutral") as "destructive" | "neutral",
@@ -137,6 +169,14 @@ function StatsStrip({
       icon: Inbox,
       tone: (unanswered > 0 ? "destructive" : "neutral") as "destructive" | "neutral",
     },
+    {
+      key: "pending",
+      label: "Pendientes",
+      value: pending,
+      icon: Clock,
+      tone: (pending > 0 ? "warning" : "neutral") as "warning" | "neutral",
+    },
+    { key: "resolved", label: "Resueltas hoy", value: resolvedToday, icon: CheckCircle2, tone: "neutral" as const },
     { key: "today", label: "Hoy", value: today, icon: CalendarDays, tone: "neutral" as const },
   ];
 
@@ -201,12 +241,42 @@ export function ConversationsView() {
   const { filters, setFilters, clearFilters, filtered } = useConversationFilters();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
-  const list = useConversations(filters, { page, pageSize });
+  const list = useConversations(filters, { page, pageSize }, me.data?.id);
+
+  // Selección para acciones masivas (casillas de la tabla + tecla `x`).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // Paginado de servidor (limit/offset). `filters` solo cambia de identidad
   // cuando el usuario cambia algo de verdad (no en el refetch de fondo cada
-  // 10s), así que es la señal correcta para volver a la página 1.
-  useEffect(() => setPage(1), [filters]);
+  // 10s), así que es la señal correcta para volver a la página 1. La
+  // selección masiva también se vacía: las filas marcadas ya no se ven.
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds(new Set());
+  }, [filters]);
+  const selection = useMemo<ListSelection>(
+    () => ({
+      ids: selectedIds,
+      toggle: (id) =>
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        }),
+      setPage: (ids, selected) =>
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of ids) {
+            if (selected) next.add(id);
+            else next.delete(id);
+          }
+          return next;
+        }),
+    }),
+    [selectedIds],
+  );
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
   /** Buffer local del input de búsqueda para no pegar a la API en cada tecla. */
   const [searchInput, setSearchInput] = useState(filters.q);
@@ -250,15 +320,20 @@ export function ConversationsView() {
   // `/` o Cmd/Ctrl+K enfocan la búsqueda desde cualquier parte de la página
   // mientras no se esté escribiendo en un input/textarea: si el hilo está
   // abierto, primero vuelve al listado para que el buscador exista y enfocarlo
-  // tenga sentido.
+  // tenga sentido. `Esc` en la bandeja quita la selección masiva.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      const isShortcut = e.key === "/" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k");
-      if (!isShortcut) return;
       const target = e.target as HTMLElement | null;
       const typing =
         target &&
         (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (e.key === "Escape" && !current && selectedIds.size > 0 && !typing) {
+        e.preventDefault();
+        setSelectedIds(new Set());
+        return;
+      }
+      const isShortcut = e.key === "/" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k");
+      if (!isShortcut) return;
       if (typing) return;
       e.preventDefault();
       if (current) selectConversation(null);
@@ -270,7 +345,7 @@ export function ConversationsView() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [current, selectConversation]);
+  }, [current, selectConversation, selectedIds.size]);
 
   const renderTrailingAction = useCallback(
     (c: Conversation) => (
@@ -290,34 +365,36 @@ export function ConversationsView() {
           </Button>
         ) : null}
         {c.status === "CLOSED" ? (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-11 w-11 sm:h-8 sm:w-8"
-            aria-label={`Reabrir la conversación con ${c.customer?.fullName ?? c.externalPhone}`}
-            title="Reabrir"
-            loading={setStatus.isPending && setStatus.variables?.id === c.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              setStatus.mutate({ id: c.id, status: "OPEN" });
-            }}
-          >
-            <RotateCcw aria-hidden className="h-3.5 w-3.5" />
-          </Button>
+          <Tip label="Reabrir: vuelve a la bandeja de abiertas">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 sm:h-8 sm:w-8"
+              aria-label={`Reabrir la conversación con ${c.customer?.fullName ?? c.externalPhone}`}
+              loading={setStatus.isPending && setStatus.variables?.id === c.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                setStatus.mutate({ id: c.id, status: "OPEN" });
+              }}
+            >
+              <RotateCcw aria-hidden className="h-3.5 w-3.5" />
+            </Button>
+          </Tip>
         ) : (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-11 w-11 sm:h-8 sm:w-8"
-            aria-label={`Cerrar la conversación con ${c.customer?.fullName ?? c.externalPhone}`}
-            title="Cerrar"
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirmClose(c);
-            }}
-          >
-            <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
-          </Button>
+          <Tip label="Resolver: cierra el hilo y libera la asignación">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-11 w-11 sm:h-8 sm:w-8"
+              aria-label={`Resolver la conversación con ${c.customer?.fullName ?? c.externalPhone}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmClose(c);
+              }}
+            >
+              <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
+            </Button>
+          </Tip>
         )}
       </div>
     ),
@@ -325,14 +402,20 @@ export function ConversationsView() {
   );
 
   // Contadores que viven en cada `TabsTrigger` (los "(N)" al final).
-  const tabCount = useMemo(
+  const myId = me.data?.id;
+  const tabCount = useMemo<Partial<Record<InboxView, number | undefined>>>(
     () => ({
       inbox: stats ? stats.open + stats.handedOff : undefined,
+      mine: myId ? agents.data?.find((a) => a.userId === myId)?.activeConversations : undefined,
       queue: stats?.queue,
+      waiting: stats?.unanswered,
+      pending: stats?.pending,
       byAgent: stats?.assigned,
     }),
-    [stats],
+    [stats, agents.data, myId],
   );
+  const agentName = agents.data?.find((a) => a.userId === filters.agent)?.fullName;
+  const selectedList = useMemo(() => Array.from(selectedIds), [selectedIds]);
 
   const totalRows = list.data?.pageInfo?.total ?? list.data?.data.length ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
@@ -410,23 +493,30 @@ export function ConversationsView() {
           filas (si no, los filtros quedan aplastados y desbordan la
           página); desde `sm` vuelven a una sola línea. */}
       <div className="relative flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <Tabs
-          value={view}
-          defaultValue="inbox"
-          onValueChange={(v) => setFilters({ view: v as InboxView })}
-          className="shrink-0"
-        >
-          <TabsList className="h-11 shrink-0 sm:h-9">
-            {INBOX_TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value} className="h-11 min-w-11 whitespace-nowrap px-3 text-body-sm sm:h-7 sm:min-w-0 sm:text-xs">
-                {t.label}
-                {typeof tabCount[t.value] === "number"
-                  ? ` (${tabCount[t.value]})`
-                  : ""}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        {selectedList.length > 0 ? (
+          <BulkActionsBar ids={selectedList} onClear={clearSelection} />
+        ) : (
+          <Tabs
+            value={view}
+            defaultValue="inbox"
+            onValueChange={(v) => setFilters({ view: v as InboxView })}
+            className="min-w-0 shrink"
+          >
+            <TabsList aria-label="Vistas guardadas" className="h-11 max-w-full shrink-0 overflow-x-auto sm:h-9">
+              {INBOX_TABS.map((t) => (
+                <Tip key={t.value} label={t.title} side="bottom">
+                  <TabsTrigger
+                    value={t.value}
+                    className="h-11 min-w-11 whitespace-nowrap px-3 text-body-sm sm:h-7 sm:min-w-0 sm:text-xs"
+                  >
+                    {t.label}
+                    {typeof tabCount[t.value] === "number" ? ` (${tabCount[t.value]})` : ""}
+                  </TabsTrigger>
+                </Tip>
+              ))}
+            </TabsList>
+          </Tabs>
+        )}
 
         {/* Los `Select` ponen el ancho en el <select> pero su envoltorio es
             w-full: el chevron se iba al extremo de la fila y quedaba "encima"
@@ -474,6 +564,10 @@ export function ConversationsView() {
           <ShortcutsHelp items={LIST_SHORTCUTS} label="Atajos de la bandeja" />
         </div>
       </div>
+
+      {/* Chips de filtros activos: el "por qué la lista se ve así" sin abrir
+          "Más filtros". Solo aparece cuando hay algo puesto. */}
+      <ActiveFilterChips filters={filters} agentName={agentName} onChange={setFilters} />
 
       {/* Fila 3 (solo view=byAgent): bandeja por agente. Una tarjeta por
           persona (iniciales, nombre, hilos activos) + "Todos"; la tarjeta
@@ -550,6 +644,7 @@ export function ConversationsView() {
           emptyTitle={filtered ? undefined : EMPTY_BY_VIEW[view].title}
           emptyDescription={filtered ? undefined : EMPTY_BY_VIEW[view].description}
           renderTrailingAction={renderTrailingAction}
+          selection={selection}
           emptyIcon={
             filtered ? <SearchX className="h-6 w-6" /> : <MessagesSquare className="h-6 w-6" />
           }
@@ -561,9 +656,9 @@ export function ConversationsView() {
         onOpenChange={(open) => {
           if (!open) setConfirmClose(null);
         }}
-        title="¿Cerrar la conversación?"
+        title="¿Resolver la conversación?"
         description="El hilo sale de los pendientes y se libera la asignación. Si el cliente vuelve a escribir, se reabre solo."
-        confirmLabel="Cerrar conversación"
+        confirmLabel="Resolver"
         variant="default"
         pending={setStatus.isPending}
         onConfirm={() => {

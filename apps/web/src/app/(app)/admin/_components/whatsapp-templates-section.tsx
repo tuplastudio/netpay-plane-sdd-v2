@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { Section } from "@/components/app/section";
+import { InfoTip, Tip } from "@/components/app/info-tip";
+import { EmptyState } from "@/components/ui/empty-state";
 import { apiErrorMessage } from "./api-error";
 import { TENANT_QUERY_KEY, useTenantMe, type Tenant } from "./tenant";
 
@@ -113,7 +115,7 @@ export function WhatsAppTemplatesSection() {
       description="Necesarias para escribirle a un cliente que lleva más de 24 h sin responder."
       actions={
         <Button variant="outline" size="sm" onClick={add} disabled={rows.length >= TEMPLATE_KEYS.length}>
-          <Plus className="h-4 w-4" />
+          <Plus aria-hidden className="h-4 w-4" />
           Agregar
         </Button>
       }
@@ -133,9 +135,17 @@ export function WhatsAppTemplatesSection() {
           </Alert>
 
           {rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Sin plantillas registradas: fuera de la ventana de 24 h no se manda nada.
-            </p>
+            <EmptyState
+              icon={<MessageSquareText className="h-6 w-6" />}
+              title="Sin plantillas registradas"
+              description="Fuera de la ventana de 24 h no se manda nada. Registra el nombre que Meta aprobó para cada mensaje."
+              action={
+                <Button variant="outline" size="sm" onClick={add}>
+                  <Plus aria-hidden className="h-4 w-4" />
+                  Agregar plantilla
+                </Button>
+              }
+            />
           ) : (
             <ul className="space-y-3">
               {rows.map((row, index) => (
@@ -158,7 +168,13 @@ export function WhatsAppTemplatesSection() {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor={`name-${index}`}>Nombre en Meta</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor={`name-${index}`}>Nombre en Meta</Label>
+                      <InfoTip
+                        label="Nombre en Meta"
+                        text="El nombre exacto con el que quedó aprobada en WhatsApp Manager (minúsculas y guiones bajos). El texto del mensaje viaja como primer parámetro del cuerpo."
+                      />
+                    </div>
                     <Input
                       id={`name-${index}`}
                       value={row.name}
@@ -167,7 +183,10 @@ export function WhatsAppTemplatesSection() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor={`lang-${index}`}>Idioma</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor={`lang-${index}`}>Idioma</Label>
+                      <InfoTip label="Idioma" text="Código de idioma con el que se aprobó la plantilla en Meta; debe coincidir o el envío falla." />
+                    </div>
                     <Select
                       id={`lang-${index}`}
                       value={row.language}
@@ -180,14 +199,16 @@ export function WhatsAppTemplatesSection() {
                       ))}
                     </Select>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => remove(index)}
-                    aria-label={`Quitar la plantilla de ${row.key}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <Tip label="Quitar plantilla">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => remove(index)}
+                      aria-label={`Quitar la plantilla de ${row.key}`}
+                    >
+                      <Trash2 aria-hidden className="h-4 w-4" />
+                    </Button>
+                  </Tip>
                 </li>
               ))}
             </ul>

@@ -5,10 +5,24 @@ import { MessagesSquare, SearchX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { formatDate } from "@/components/app/date-time";
+import {
+  PRIORITY_LABELS,
+  PRIORITY_TONE,
+  TICKET_STATUS_LABELS,
+  TICKET_STATUS_TONE,
+  firstResponseTone,
+  priorityOf,
+  slaOf,
+  waitingTone,
+} from "./ticket";
 import {
   CONVERSATIONS_LIMIT,
+  formatDuration,
   providerLabel,
   type Conversation,
   type ConversationList,
@@ -27,44 +41,78 @@ function relativeTime(iso: string | null): string {
   if (hours < 24) return `${hours} h`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} d`;
-  return new Date(iso).toLocaleDateString("es-MX", { day: "numeric", month: "short" });
-}
-
-/** Horas transcurridas desde una fecha ISO, o null si no hay/está rota. */
-function hoursSince(iso: string | null): number | null {
-  if (!iso) return null;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return null;
-  return (Date.now() - then) / 3_600_000;
+  return formatDate(iso);
 }
 
 /**
- * Tiempo de espera: cuánto lleva el cliente sin respuesta. Es lo más cercano a
- * un SLA de primera respuesta que se puede calcular con lo que hay, y es la
- * columna que decide a quién atender primero.
- *
- * Solo aplica a hilos sin responder y no cerrados: un hilo ya contestado no
- * "espera" nada, y uno cerrado tampoco. Rojo a partir de una hora, ámbar antes.
+ * SLA de la fila: cuánto lleva el cliente sin respuesta (lo que decide a quién
+ * atender primero) y, si ya hubo, cuánto tardó la primera respuesta humana.
+ * Todo con `StatusBadge` + tooltip que explica de dónde sale el número.
  */
-function WaitingCell({ conversation }: { conversation: Conversation }) {
-  const waiting = conversation.unanswered && conversation.status !== "CLOSED";
-  if (!waiting) {
+function SlaCell({ conversation }: { conversation: Conversation }) {
+  const sla = slaOf(conversation);
+  if (sla.status === "pending") {
     return (
-      <>
-        <span aria-hidden className="text-xs text-muted-foreground">
-          —
-        </span>
-        <span className="sr-only">Sin pendientes</span>
-      </>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatusBadge status="PENDING" tone="warning" label="Espera al cliente" size="sm" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          Marcada como pendiente
+          {conversation.pendingAt ? ` hace ${relativeTime(conversation.pendingAt)}` : ""}. Vuelve a
+          la cola cuando el cliente escriba.
+        </TooltipContent>
+      </Tooltip>
     );
   }
-  const hours = hoursSince(conversation.lastInboundAt ?? conversation.lastMessageAt);
-  const urgent = hours !== null && hours >= 1;
-  const label = relativeTime(conversation.lastInboundAt ?? conversation.lastMessageAt);
+  if (sla.waitingSeconds !== null) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatusBadge
+              status="WAITING"
+              tone={waitingTone(sla.waitingSeconds)}
+              label={`Esperando ${formatDuration(sla.waitingSeconds)}`}
+              size="sm"
+            />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          El último mensaje es del cliente y nadie ha contestado. Rojo a partir de 1 h.
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+  if (sla.firstResponseSeconds !== null) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span tabIndex={0} className="inline-flex rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <StatusBadge
+              status="FIRST_RESPONSE"
+              tone={firstResponseTone(sla.firstResponseSeconds)}
+              label={`1.ª resp. ${formatDuration(sla.firstResponseSeconds)}`}
+              size="sm"
+            />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          Tiempo desde que entró a la cola humana hasta la primera respuesta de una persona.
+          Verde &lt; 15 min, ámbar &lt; 1 h.
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
   return (
-    <Badge variant={urgent ? "destructive" : "warning"} size="sm">
-      {label ? `Esperando ${label}` : "Sin responder"}
-    </Badge>
+    <>
+      <span aria-hidden className="text-xs text-muted-foreground">
+        —
+      </span>
+      <span className="sr-only">Al día</span>
+    </>
   );
 }
 
@@ -82,7 +130,7 @@ function AssigneeCell({ conversation }: { conversation: Conversation }) {
   if (!conversation.handoffToHuman) {
     return (
       <Badge variant="neutral" size="sm">
-        Agente
+        Bot
       </Badge>
     );
   }
@@ -108,6 +156,13 @@ function AssigneeCell({ conversation }: { conversation: Conversation }) {
   );
 }
 
+export interface ListSelection {
+  ids: Set<string>;
+  toggle: (id: string) => void;
+  /** Marca o desmarca TODA la página visible. */
+  setPage: (ids: string[], selected: boolean) => void;
+}
+
 /**
  * Lista de conversaciones sobre `DataTable`, la misma tabla que usan
  * catálogo/pedidos/pagos/auditoría: mismas filas enfocables de verdad (un
@@ -115,14 +170,14 @@ function AssigneeCell({ conversation }: { conversation: Conversation }) {
  * activan), mismos estados de carga/error/vacío.
  *
  * Encima de eso se agrega la navegación con flechas entre filas (▲/▼ y
- * Inicio/Fin): `DataTable` no la trae porque la mayoría de sus tablas viven en
- * páginas con scroll de la ventana, no en un panel de bandeja donde tiene
- * sentido "hojear" con el teclado sin soltar las manos del home row.
+ * Inicio/Fin) y, con `selection`, una columna de casillas para las acciones
+ * masivas (la tecla `x` marca la fila enfocada). `DataTable` ignora los clics
+ * sobre `input`, así que la casilla no abre el hilo.
  *
- * Las columnas son las de una cola de tickets, y son **las mismas en las tres
- * vistas guardadas** (Bandeja / Cola / Por agente): quién escribe, qué dijo,
- * quién lo lleva, con qué etiquetas y cuánto lleva esperando. Lo que cambia
- * entre vistas es el `assignee` que se le pide al API, no la tabla.
+ * Las columnas son las de una cola de tickets, y son **las mismas en todas
+ * las vistas guardadas**: quién escribe, qué dijo, estado + prioridad, quién
+ * lo lleva, etiquetas y SLA. Lo que cambia entre vistas es lo que se le pide
+ * al API, no la tabla.
  */
 export function ConversationsList({
   query,
@@ -136,6 +191,7 @@ export function ConversationsList({
   emptyIcon,
   renderTrailingAction,
   pagination,
+  selection,
 }: {
   query: UseQueryResult<ConversationList>;
   filtered: boolean;
@@ -153,6 +209,8 @@ export function ConversationsList({
   renderTrailingAction?: (conversation: Conversation) => ReactNode;
   /** Control de paginación de quien llama. Reemplaza el aviso interno de tope. */
   pagination?: ReactNode;
+  /** Selección múltiple para acciones masivas. Sin esto no hay casillas. */
+  selection?: ListSelection;
 }) {
   const rows = rowsOverride ?? query.data?.data;
   const capped = !pagination && !rowsOverride && (rows?.length ?? 0) >= CONVERSATIONS_LIMIT;
@@ -162,26 +220,45 @@ export function ConversationsList({
   // de acción de fila vive siempre en la primera celda (orden del DOM), así
   // que basta con moverse de `<tr>` en `<tr>` y enfocar su primer control.
   // No reemplaza Tab/Enter/Espacio (siguen siendo nativos de `DataTable`),
-  // solo añade ↑/↓/Inicio/Fin para hojear sin volver al mouse.
-  const onKeyDownNav = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
-    const container = containerRef.current;
-    const active = document.activeElement as HTMLElement | null;
-    if (!container || !active || !container.contains(active)) return;
-    const row = active.closest("tr");
-    if (!row) return;
-    const allRows = Array.from(container.querySelectorAll("tbody tr"));
-    const idx = allRows.indexOf(row);
-    if (idx === -1) return;
-    let target: Element | undefined;
-    if (e.key === "ArrowDown") target = allRows[idx + 1];
-    else if (e.key === "ArrowUp") target = allRows[idx - 1];
-    else if (e.key === "Home") target = allRows[0];
-    else if (e.key === "End") target = allRows[allRows.length - 1];
-    if (!target) return;
-    e.preventDefault();
-    (target.querySelector("button, a") as HTMLElement | null)?.focus();
-  }, []);
+  // solo añade ↑/↓/Inicio/Fin para hojear sin volver al mouse, y `x` para
+  // marcar/desmarcar la fila enfocada.
+  const onKeyDownNav = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const isX = e.key === "x" || e.key === "X";
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key) && !isX) return;
+      const container = containerRef.current;
+      const active = document.activeElement as HTMLElement | null;
+      if (!container || !active || !container.contains(active)) return;
+      if (active.tagName === "INPUT" && (active as HTMLInputElement).type !== "checkbox") return;
+      const row = active.closest("tr");
+      if (!row) return;
+      const allRows = Array.from(container.querySelectorAll("tbody tr"));
+      const idx = allRows.indexOf(row);
+      if (idx === -1) return;
+      if (isX) {
+        // Las filas del DOM van en el mismo orden que `rows`.
+        const id = rows?.[idx]?.id;
+        if (id && selection) {
+          e.preventDefault();
+          selection.toggle(id);
+        }
+        return;
+      }
+      let target: Element | undefined;
+      if (e.key === "ArrowDown") target = allRows[idx + 1];
+      else if (e.key === "ArrowUp") target = allRows[idx - 1];
+      else if (e.key === "Home") target = allRows[0];
+      else if (e.key === "End") target = allRows[allRows.length - 1];
+      if (!target) return;
+      e.preventDefault();
+      (target.querySelector("button, a") as HTMLElement | null)?.focus();
+    },
+    [selection, rows],
+  );
+
+  const pageIds = useMemo(() => (rows ?? []).map((r) => r.id), [rows]);
+  const allSelected = !!selection && pageIds.length > 0 && pageIds.every((id) => selection.ids.has(id));
+  const someSelected = !!selection && pageIds.some((id) => selection.ids.has(id));
 
   const columns = useMemo<Array<DataTableColumn<Conversation>>>(() => {
     const base: Array<DataTableColumn<Conversation>> = [
@@ -203,7 +280,7 @@ export function ConversationsList({
             <span
               className={cn(
                 "line-clamp-1 text-xs",
-                c.unanswered && c.status !== "CLOSED"
+                c.unanswered && c.status !== "CLOSED" && !c.pendingAt
                   ? "font-medium text-foreground"
                   : "text-muted-foreground",
               )}
@@ -216,19 +293,40 @@ export function ConversationsList({
       {
         key: "status",
         header: "Estado",
-        width: "9rem",
-        cell: (c) => (
-          <div className="flex flex-col items-start gap-1">
-            <StatusBadge status={c.status} domain="conversation" withDot />
-            <span className="text-[10px] text-muted-foreground">
-              {providerLabel(c.connection.provider)}
-            </span>
-          </div>
-        ),
+        width: "10rem",
+        cell: (c) => {
+          const sla = slaOf(c);
+          const priority = priorityOf(c);
+          return (
+            <div className="flex flex-col items-start gap-1">
+              <div className="flex flex-wrap items-center gap-1">
+                <StatusBadge
+                  status={sla.status.toUpperCase()}
+                  tone={TICKET_STATUS_TONE[sla.status]}
+                  label={TICKET_STATUS_LABELS[sla.status]}
+                  size="sm"
+                  withDot
+                />
+                {priority !== "NORMAL" ? (
+                  <StatusBadge
+                    status={priority}
+                    tone={PRIORITY_TONE[priority]}
+                    label={PRIORITY_LABELS[priority]}
+                    size="sm"
+                    withDot={false}
+                  />
+                ) : null}
+              </div>
+              <span className="text-[10px] text-muted-foreground">
+                {providerLabel(c.connection.provider)}
+              </span>
+            </div>
+          );
+        },
       },
       {
         key: "assignee",
-        header: "Asignado",
+        header: "Atiende",
         width: "8rem",
         cell: (c) => <AssigneeCell conversation={c} />,
       },
@@ -270,12 +368,35 @@ export function ConversationsList({
         ),
       },
       {
-        key: "waiting",
-        header: "Espera",
-        width: "9rem",
-        cell: (c) => <WaitingCell conversation={c} />,
+        key: "sla",
+        header: "SLA",
+        width: "10rem",
+        cell: (c) => <SlaCell conversation={c} />,
       },
     ];
+    if (selection) {
+      base.unshift({
+        key: "select",
+        header: (
+          <Checkbox
+            aria-label={allSelected ? "Desmarcar toda la página" : "Marcar toda la página"}
+            checked={allSelected}
+            ref={(el) => {
+              if (el) el.indeterminate = !allSelected && someSelected;
+            }}
+            onChange={(e) => selection.setPage(pageIds, e.target.checked)}
+          />
+        ),
+        width: "2.5rem",
+        cell: (c) => (
+          <Checkbox
+            aria-label={`Marcar la conversación con ${c.customer?.fullName ?? c.externalPhone}`}
+            checked={selection.ids.has(c.id)}
+            onChange={() => selection.toggle(c.id)}
+          />
+        ),
+      });
+    }
     if (renderTrailingAction) {
       base.push({
         key: "actions",
@@ -286,7 +407,7 @@ export function ConversationsList({
       });
     }
     return base;
-  }, [renderTrailingAction]);
+  }, [renderTrailingAction, selection, allSelected, someSelected, pageIds]);
 
   return (
     <div
@@ -308,7 +429,14 @@ export function ConversationsList({
         getRowActionLabel={(c) =>
           `Abrir conversación con ${c.customer?.fullName ?? c.externalPhone}`
         }
-        getRowClassName={(c) => cn(c.id === selectedId && "bg-muted")}
+        getRowClassName={(c) =>
+          cn(
+            c.id === selectedId && "bg-muted",
+            selection?.ids.has(c.id) && "bg-brand-soft/60",
+            // Prioridad urgente: borde izquierdo de estado, no relleno.
+            priorityOf(c) === "URGENT" && "border-l-2 border-l-destructive",
+          )
+        }
         caption="Conversaciones de WhatsApp"
         skeletonRows={6}
         stickyHeader

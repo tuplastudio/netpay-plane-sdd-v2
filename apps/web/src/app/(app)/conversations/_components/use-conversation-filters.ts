@@ -2,8 +2,10 @@
 import { useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  CONVERSATION_PRIORITIES,
   DEFAULT_FILTERS,
   type ConversationFilters,
+  type ConversationPriority,
   type ConversationStatus,
   type HandoffFilter,
   type InboxView,
@@ -15,21 +17,31 @@ const HANDOFF_VALUES: HandoffFilter[] = ["all", "agent", "human"];
 const STATUS_VALUES: ConversationStatus[] = ["OPEN", "HANDED_OFF", "CLOSED"];
 const PROVIDER_VALUES = ["META", "EVOLUTION"];
 const RANGE_VALUES: RangeFilter[] = ["all", "today", "7d", "30d"];
-const SORT_VALUES: SortFilter[] = ["recent", "oldest"];
-const VIEW_VALUES: InboxView[] = ["inbox", "queue", "byAgent"];
+const SORT_VALUES: SortFilter[] = ["recent", "oldest", "priority"];
+const VIEW_VALUES: InboxView[] = [
+  "inbox",
+  "mine",
+  "queue",
+  "waiting",
+  "pending",
+  "resolved",
+  "byAgent",
+];
 
 /**
  * Claves que describen QUÉ se está filtrando, no CÓMO se está mirando. Solo
  * estas cuentan para "hay filtros puestos" y para el botón de limpiar: la
  * vista guardada y el orden son navegación, no un filtro que estorbe.
  */
-const NARROWING_KEYS: Array<keyof ConversationFilters> = [
+export const NARROWING_KEYS: Array<keyof ConversationFilters> = [
   "q",
   "handoff",
   "status",
   "provider",
   "range",
   "tag",
+  "priority",
+  "unanswered",
 ];
 
 function oneOf<T extends string>(raw: string | null, allowed: readonly T[], fallback: T): T {
@@ -48,6 +60,12 @@ export function parseFilters(params: URLSearchParams): ConversationFilters {
     sort: oneOf(params.get("sort"), SORT_VALUES, DEFAULT_FILTERS.sort),
     view: oneOf(params.get("view"), VIEW_VALUES, DEFAULT_FILTERS.view),
     agent: params.get("agent")?.trim() ?? "",
+    priority: oneOf(
+      params.get("priority"),
+      CONVERSATION_PRIORITIES,
+      "" as ConversationPriority | "",
+    ),
+    unanswered: params.get("unanswered") === "1",
   };
 }
 
@@ -76,7 +94,7 @@ export function useConversationFilters() {
         [keyof ConversationFilters, ConversationFilters[keyof ConversationFilters]]
       >) {
         if (!value || value === DEFAULT_FILTERS[key]) next.delete(key);
-        else next.set(key, value);
+        else next.set(key, value === true ? "1" : String(value));
       }
       const qs = next.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });

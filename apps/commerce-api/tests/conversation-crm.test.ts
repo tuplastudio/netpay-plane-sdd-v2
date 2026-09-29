@@ -92,6 +92,7 @@ describe("setStatus: cerrar y reabrir a mano", () => {
       handoffToHuman: false,
       handoffUserId: null,
       closedAt: expect.any(Date),
+      pendingAt: null,
     });
     expect(fake.audits).toHaveLength(1);
     expect(fake.audits[0]).toMatchObject({
@@ -114,6 +115,7 @@ describe("setStatus: cerrar y reabrir a mano", () => {
       handoffToHuman: false,
       handoffUserId: null,
       closedAt: null,
+      pendingAt: null,
     });
     expect(fake.audits[0]).toMatchObject({ action: CONVERSATION_AUDIT.reopened });
     // Reabrir suelta el handoff también en el agente, no solo en la base.

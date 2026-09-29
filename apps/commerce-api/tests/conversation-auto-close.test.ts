@@ -185,6 +185,7 @@ describe("ConversationAutoCloseService.runOnce", () => {
       handoffToHuman: false,
       handoffUserId: null,
       closedAt: expect.any(Date),
+      pendingAt: null,
     });
     // El agente se entera de cada hilo cerrado (episodio + borrado del checkpoint).
     expect(lifecycle.closed).toEqual([{ tenantId: TENANT_A, ids: staleIds(TENANT_A, 3) }]);

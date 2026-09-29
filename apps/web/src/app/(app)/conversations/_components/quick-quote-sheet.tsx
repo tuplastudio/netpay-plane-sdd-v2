@@ -21,6 +21,7 @@ import {
   useShareQuote,
   type QuickQuoteProduct,
 } from "./use-conversation-context";
+import { Tip } from "@/components/app/info-tip";
 
 /**
  * Cotizador rápido, ahora en una hoja lateral en vez de un bloque desplegable
@@ -256,17 +257,19 @@ export function QuickQuoteSheet({
                     <li key={l.variantId} className="flex items-center gap-2 text-xs">
                       <span className="min-w-0 flex-1 truncate">{l.title}</span>
                       <div className="flex shrink-0 items-center gap-0.5">
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          aria-label={`Quitar una unidad de ${l.title}`}
-                          disabled={l.quantity <= 1}
-                          onClick={() => setQuantity(l.variantId, l.quantity - 1)}
-                        >
-                          <Minus aria-hidden className="h-3 w-3" />
-                        </Button>
+                        <Tip label={`Quitar una unidad de ${l.title}`}>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            aria-label={`Quitar una unidad de ${l.title}`}
+                            disabled={l.quantity <= 1}
+                            onClick={() => setQuantity(l.variantId, l.quantity - 1)}
+                          >
+                            <Minus aria-hidden className="h-3 w-3" />
+                          </Button>
+                        </Tip>
                         <Input
                           type="number"
                           min={1}
@@ -277,32 +280,36 @@ export function QuickQuoteSheet({
                           className="h-6 w-12 px-1 text-center text-[11px]"
                           onChange={(e) => setQuantity(l.variantId, Number(e.target.value))}
                         />
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          aria-label={`Agregar una unidad de ${l.title}`}
-                          onClick={() => setQuantity(l.variantId, l.quantity + 1)}
-                        >
-                          <Plus aria-hidden className="h-3 w-3" />
-                        </Button>
+                        <Tip label={`Agregar una unidad de ${l.title}`}>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            aria-label={`Agregar una unidad de ${l.title}`}
+                            onClick={() => setQuantity(l.variantId, l.quantity + 1)}
+                          >
+                            <Plus aria-hidden className="h-3 w-3" />
+                          </Button>
+                        </Tip>
                       </div>
                       <span className="w-20 shrink-0 text-right font-medium">
                         {formatMoney((Number(l.price) * l.quantity).toFixed(2))}
                       </span>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-6 w-6 shrink-0"
-                        aria-label={`Quitar ${l.title}`}
-                        onClick={() =>
-                          setCart((prev) => prev.filter((x) => x.variantId !== l.variantId))
-                        }
-                      >
-                        <Trash2 aria-hidden className="h-3 w-3" />
-                      </Button>
+                      <Tip label={`Quitar ${l.title}`}>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6 shrink-0"
+                          aria-label={`Quitar ${l.title}`}
+                          onClick={() =>
+                            setCart((prev) => prev.filter((x) => x.variantId !== l.variantId))
+                          }
+                        >
+                          <Trash2 aria-hidden className="h-3 w-3" />
+                        </Button>
+                      </Tip>
                     </li>
                   ))}
                 </ul>
