@@ -22,7 +22,7 @@ export const glosario: HelpCategory = {
           type: "glossary",
           items: [
             { term: "Agente", definition: "El programa automático que contesta a tus clientes por WhatsApp usando tu catálogo real. No es una persona." },
-            { term: "API", definition: "La vía por la que un programa le pide cosas a otro. Atiende ya tiene una API para que otros sistemas consulten o cambien tu información." },
+            { term: "API", definition: "La vía por la que un programa le pide cosas a otro. Easy Sell tiene una API para que otros sistemas consulten o cambien tu información." },
             { term: "API key", definition: "Una contraseña hecha para programas, no para personas. Empieza con npk_ y solo puede hacer lo que sus permisos (scopes) le dejan." },
             { term: "Archivar", definition: "Dar de baja algo sin borrarlo. Un producto o cliente archivado deja de usarse, pero su historial se conserva y se puede restaurar." },
             { term: "Bitácora de auditoría", definition: "El registro automático de quién cambió qué y cuándo. Nadie la edita a mano. La ves en Admin → Seguridad → Actividad." },
@@ -60,7 +60,7 @@ export const glosario: HelpCategory = {
             { term: "Sesión de pago", definition: "Un intento de cobro con monto y moneda, ligado a un pedido." },
             { term: "SKU", definition: "Un código corto y único para identificar un producto o una variante, como el número de un código de barras." },
             { term: "SPEI", definition: "El sistema de transferencias bancarias de México. El cliente puede pagar así desde el link de pago." },
-            { term: "Tenant (empresa)", definition: "Cada negocio que usa Atiende ya. Tus datos están separados de los de cualquier otra empresa." },
+            { term: "Tenant (empresa)", definition: "Cada negocio que usa Easy Sell. Tus datos están separados de los de cualquier otra empresa." },
             { term: "Token", definition: "En el agente, la unidad con la que se mide cuánto texto lee y escribe el modelo. Más tokens = más costo." },
             { term: "Transcripción", definition: "Convertir una nota de voz en texto. El agente transcribe los audios de WhatsApp antes de contestar." },
             { term: "Uso de CFDI", definition: "Un código que dice para qué se usará la factura, por ejemplo G03 (gastos en general). La constancia no lo trae: lo elige el cliente." },
@@ -72,7 +72,7 @@ export const glosario: HelpCategory = {
           ],
         },
       ],
-      related: ["que-es-atiende-ya", "recorrido-del-panel"],
+      related: ["que-es-easy-sell", "recorrido-del-panel"],
     },
   ],
 };

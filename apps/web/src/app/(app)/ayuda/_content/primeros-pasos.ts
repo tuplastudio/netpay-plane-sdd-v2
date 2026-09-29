@@ -5,8 +5,8 @@ export const primerosPasos: HelpCategory = {
   title: "Primeros pasos",
   articles: [
     {
-      slug: "que-es-atiende-ya",
-      title: "Qué es Atiende ya",
+      slug: "que-es-easy-sell",
+      title: "Qué es Easy Sell",
       summary:
         "El portal operativo de tu tienda: el cliente escribe por WhatsApp, un agente automático responde con tu catálogo real y tú ves y cierras la venta desde el panel.",
       audience: "both",
@@ -15,7 +15,7 @@ export const primerosPasos: HelpCategory = {
         {
           type: "p",
           text:
-            "Atiende ya junta en un solo lugar tres cosas que normalmente viven separadas: tu catálogo de " +
+            "Easy Sell junta en un solo lugar tres cosas que normalmente viven separadas: tu catálogo de " +
             "productos, tus clientes y tu WhatsApp de negocio. Ese lugar es el panel que estás usando ahora.",
         },
         {
@@ -288,7 +288,7 @@ export const primerosPasos: HelpCategory = {
             "globales. El dueño de un negocio normal solo ve su propia empresa.",
         },
       ],
-      related: ["que-es-atiende-ya", "roles-de-usuario", "entrar-a-tu-cuenta"],
+      related: ["que-es-easy-sell", "roles-de-usuario", "entrar-a-tu-cuenta"],
     },
     {
       slug: "entrar-a-tu-cuenta",
@@ -478,7 +478,7 @@ export const primerosPasos: HelpCategory = {
           type: "faq",
           items: [
             {
-              q: "¿Necesito saber programar para usar Atiende ya?",
+              q: "¿Necesito saber programar para usar Easy Sell?",
               a:
                 "No. Todo se hace desde el panel con botones y formularios. Solo las API keys y la conexión " +
                 "por MCP son para conectar otros programas, y son opcionales.",

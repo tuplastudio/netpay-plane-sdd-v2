@@ -1,6 +1,6 @@
-# atiendeya-mcp — MCP de Atiende ya
+# easysell-mcp — MCP de Easy Sell
 
-Servidor [MCP](https://modelcontextprotocol.io) que expone la API de Atiende ya
+Servidor [MCP](https://modelcontextprotocol.io) que expone la API de Easy Sell
 (commerce-api: catálogo, clientes, cotizaciones, pedidos, pagos, envíos,
 reportes, notificaciones, integraciones, uso, conversaciones de WhatsApp,
 auditoría y, con una key global, administración de plataforma) como
@@ -8,15 +8,15 @@ herramientas para Claude o cualquier agente compatible con MCP.
 
 Corre por **stdio** — el cliente (Claude Desktop, Claude Code, cualquier host
 MCP) lo lanza como proceso local. No expone ningún puerto ni requiere
-desplegarlo aparte. Publicado en npm como `atiendeya-mcp`.
+desplegarlo aparte. Publicado en npm como `easysell-mcp`.
 
 ## Instalar y correr
 
 ```bash
-npx atiendeya-mcp
+npx easysell-mcp
 ```
 
-(o instalado globalmente: `npm install -g atiendeya-mcp` y luego `atiendeya-mcp`).
+(o instalado globalmente: `npm install -g easysell-mcp` y luego `easysell-mcp`).
 Necesita `COMMERCE_API_KEY` en el entorno — ver **Autenticación** abajo. Sin
 ella, el proceso falla al arrancar con un mensaje explicando qué falta, no con
 un error de red genérico en la primera tool que se intente usar.
@@ -88,7 +88,7 @@ puede, en teoría, terminar tocando cualquier empresa.
 ## Build (para desarrollo local del propio servidor)
 
 ```bash
-pnpm --filter atiendeya-mcp build
+pnpm --filter easysell-mcp build
 ```
 
 Genera `apps/mcp-server/dist/main.js`.
@@ -96,9 +96,9 @@ Genera `apps/mcp-server/dist/main.js`.
 ## Configurar en Claude Code
 
 ```bash
-claude mcp add atiendeya \
+claude mcp add easysell \
   --env COMMERCE_API_KEY=npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
-  -- npx atiendeya-mcp
+  -- npx easysell-mcp
 ```
 
 O agregando a mano en `.mcp.json` (raíz del proyecto o `~/.claude.json`):
@@ -106,9 +106,9 @@ O agregando a mano en `.mcp.json` (raíz del proyecto o `~/.claude.json`):
 ```json
 {
   "mcpServers": {
-    "atiendeya": {
+    "easysell": {
       "command": "npx",
-      "args": ["atiendeya-mcp"],
+      "args": ["easysell-mcp"],
       "env": {
         "COMMERCE_API_KEY": "npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
@@ -125,9 +125,9 @@ Config):
 ```json
 {
   "mcpServers": {
-    "atiendeya": {
+    "easysell": {
       "command": "npx",
-      "args": ["atiendeya-mcp"],
+      "args": ["easysell-mcp"],
       "env": {
         "COMMERCE_API_KEY": "npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
@@ -139,7 +139,7 @@ Config):
 ## Cualquier otro agente / cliente MCP
 
 Cualquier host que hable el protocolo MCP por stdio sirve: lanzar
-`npx atiendeya-mcp` (o `node apps/mcp-server/dist/main.js` desde el repo) con
+`npx easysell-mcp` (o `node apps/mcp-server/dist/main.js` desde el repo) con
 `COMMERCE_API_KEY` en el entorno del proceso. No hay nada específico de
 Claude en el servidor — es un `McpServer` estándar del SDK oficial
 (`@modelcontextprotocol/sdk`).
@@ -165,9 +165,9 @@ secret (operativos, de una sola vez, mejor desde el panel), e impersonar
 ## Desarrollo
 
 ```bash
-pnpm --filter atiendeya-mcp dev     # tsx, sin build previo
-pnpm --filter atiendeya-mcp typecheck
-pnpm --filter atiendeya-mcp lint
+pnpm --filter easysell-mcp dev     # tsx, sin build previo
+pnpm --filter easysell-mcp typecheck
+pnpm --filter easysell-mcp lint
 ```
 
 Para probar interactivamente sin un cliente MCP completo, usa el

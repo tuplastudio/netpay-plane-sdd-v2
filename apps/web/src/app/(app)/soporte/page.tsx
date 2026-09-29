@@ -22,7 +22,7 @@ export default function SoportePage() {
   const mailto =
     "mailto:hola@tupla.dev" +
     "?subject=" +
-    encodeURIComponent("Soporte Atiende ya") +
+    encodeURIComponent("Soporte Easy Sell") +
     "&body=" +
     encodeURIComponent(
       "Equipo de soporte,\n\n" +
@@ -124,7 +124,7 @@ export default function SoportePage() {
       <Section title="Quiénes somos" padded={false}>
         <div className="p-4 text-sm text-muted-foreground sm:p-6">
           <p>
-            Atiende ya es un producto de{" "}
+            Easy Sell es un producto de{" "}
             <a
               href="https://tupla.dev"
               target="_blank"

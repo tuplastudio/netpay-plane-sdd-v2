@@ -440,7 +440,7 @@ export const cotizacionesPedidos: HelpCategory = {
           tone: "info",
           title: "Qué hace y qué no hace",
           text:
-            "Atiende ya guarda la solicitud de factura con los datos correctos en el pedido. No emite el CFDI " +
+            "Easy Sell guarda la solicitud de factura con los datos correctos en el pedido. No emite el CFDI " +
             "(la factura oficial): eso lo haces tú, tu contador o tu sistema de facturación con estos datos.",
         },
         { type: "h3", text: "Qué se lee de la constancia y qué no" },

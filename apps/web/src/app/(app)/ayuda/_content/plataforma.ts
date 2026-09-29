@@ -16,7 +16,7 @@ export const plataforma: HelpCategory = {
         {
           type: "p",
           text:
-            "Cada negocio que usa Atiende ya es lo que internamente se llama un tenant (\"empresa\", en el " +
+            "Cada negocio que usa Easy Sell es lo que internamente se llama un tenant (\"empresa\", en el " +
             "panel): un espacio separado con su propio catálogo, sus propios clientes, pedidos y equipo. Dar de " +
             "alta una empresa es crear ese espacio por primera vez, para un negocio que todavía no tiene cuenta.",
         },

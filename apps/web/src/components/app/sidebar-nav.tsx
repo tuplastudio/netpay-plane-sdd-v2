@@ -470,7 +470,7 @@ function useImpersonation(): boolean {
 /**
  * Marca del portal: el nombre y logo de la empresa activa (de `/auth/me`);
  * sin empresa —o mientras carga— el nombre del producto. El título de la
- * pestaña sigue la misma regla: `<Empresa> · Atiende ya`.
+ * pestaña sigue la misma regla: `<Empresa> · Easy Sell`.
  */
 export function Brand({ className, collapsed = false }: { className?: string; collapsed?: boolean }) {
   const { name, logoUrl, displayName } = useTenantBranding();

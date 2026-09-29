@@ -100,7 +100,7 @@ export default function PublicQuotePage() {
               >
                 <Sparkles className="h-4 w-4" />
               </span>
-              <span className="text-sm font-semibold">Atiende ya</span>
+              <span className="text-sm font-semibold">Easy Sell</span>
             </span>
           )}
           <div className="flex items-center gap-2">
@@ -522,7 +522,7 @@ function QuoteView({ quote, token }: { quote: QuotePublic; token: string }) {
       </section>
       <footer className="mt-8 flex flex-wrap items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
         <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
-        Pago seguro con Atiende ya
+        Pago seguro con Easy Sell
       </footer>
 
       {payable ? <StickyPayBar quote={quote} token={token} currency={currency} /> : null}

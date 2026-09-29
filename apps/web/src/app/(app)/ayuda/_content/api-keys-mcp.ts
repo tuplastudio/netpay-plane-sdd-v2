@@ -16,7 +16,7 @@ export const apiKeysMcp: HelpCategory = {
         {
           type: "p",
           text:
-            "Normalmente entras a Atiende ya con tu correo y tu contraseña. Eso crea una sesión: el sistema sabe " +
+            "Normalmente entras a Easy Sell con tu correo y tu contraseña. Eso crea una sesión: el sistema sabe " +
             "que eres tú, con tu usuario y tu rol. Pero a veces quieres que un programa, un script, o un agente " +
             "de inteligencia artificial (un programa que puede hacer acciones por su cuenta, como Claude) use " +
             "tu cuenta sin que haya una persona escribiendo su correo y contraseña cada vez. Para eso existen " +
@@ -29,14 +29,14 @@ export const apiKeysMcp: HelpCategory = {
             "que funciona como una contraseña hecha específicamente para máquinas, no para personas. Cualquier " +
             "sistema que tenga esa key puede hablar directamente con tu cuenta — sin abrir el panel, sin " +
             "escribir tu contraseña — usando la API: la vía técnica por la que un programa externo le pide " +
-            "cosas a Atiende ya (API son las siglas de \"interfaz de programación de aplicaciones\", pero lo " +
+            "cosas a Easy Sell (API son las siglas de \"interfaz de programación de aplicaciones\", pero lo " +
             "único que importa es que es la forma en que dos programas se comunican entre sí).",
         },
         {
           type: "p",
           text:
             "Ejemplo: imagina que tienes una tienda de pinturas y usas un programa aparte para llevar tu " +
-            "inventario. Si le das una API key a ese programa, puede consultar tu catálogo de Atiende ya y " +
+            "inventario. Si le das una API key a ese programa, puede consultar tu catálogo de Easy Sell y " +
             "mantenerlo actualizado él solo, sin que nadie tenga que copiar productos a mano todos los días.",
         },
         {
@@ -107,7 +107,7 @@ export const apiKeysMcp: HelpCategory = {
           type: "callout",
           tone: "warning",
           text:
-            "Si pierdes el secreto, no hay forma de recuperarlo: por seguridad, Atiende ya nunca guarda el " +
+            "Si pierdes el secreto, no hay forma de recuperarlo: por seguridad, Easy Sell nunca guarda el " +
             "secreto en texto legible, solo una huella cifrada que le sirve para comprobar que el secreto es " +
             "correcto, pero no para reconstruirlo. Si lo perdiste, la única opción es revocar esa key (dejarla " +
             "inválida para siempre) y crear una nueva desde cero.",
@@ -170,7 +170,7 @@ export const apiKeysMcp: HelpCategory = {
         {
           type: "p",
           text:
-            "Para que un agente pueda usar tu cuenta de Atiende ya necesita dos cosas: una forma de \"hablar\" " +
+            "Para que un agente pueda usar tu cuenta de Easy Sell necesita dos cosas: una forma de \"hablar\" " +
             "con tu sistema, y permiso para hacerlo. MCP (Model Context Protocol) resuelve la primera parte: es " +
             "un lenguaje común que le permite a un agente usar tu catálogo, tus clientes, tus cotizaciones, tus " +
             "pedidos y tus conversaciones de WhatsApp como herramientas — el agente \"aprende\" que existen esas " +
@@ -219,14 +219,14 @@ export const apiKeysMcp: HelpCategory = {
         },
         {
           type: "code",
-          text: "claude mcp add atiendeya --env COMMERCE_API_KEY=npk_tu_secreto_aqui -- npx atiendeya-mcp",
+          text: "claude mcp add easysell --env COMMERCE_API_KEY=npk_tu_secreto_aqui -- npx easysell-mcp",
         },
         {
           type: "p",
           text:
             "No necesitas entender esa línea para usarla — solo copiarla y pegarla donde el asistente te lo " +
-            "pida. \"atiendeya\" es simplemente el nombre técnico interno del conector; no cambia el nombre de " +
-            "tu negocio ni de Atiende ya en ningún lado que vean tus clientes.",
+            "pida. \"easysell\" es simplemente el nombre técnico interno del conector; no cambia el nombre de " +
+            "tu negocio ni de Easy Sell en ningún lado que vean tus clientes.",
         },
         {
           type: "callout",

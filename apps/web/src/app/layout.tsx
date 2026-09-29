@@ -16,13 +16,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Atiende ya",
+  title: "Easy Sell",
   description: "Catálogo, cotizaciones y pedidos",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Atiende ya",
+    title: "Easy Sell",
   },
   icons: {
     icon: [

@@ -174,7 +174,7 @@ function TrustLine({ livemode }: { livemode?: boolean }) {
     <div className="flex flex-col items-center justify-center gap-1 text-center text-xs text-muted-foreground">
       <p className="flex flex-wrap items-center justify-center gap-1.5">
         <ShieldCheck aria-hidden className="h-3.5 w-3.5 shrink-0" />
-        Pago seguro con Atiende ya
+        Pago seguro con Easy Sell
       </p>
       {livemode === false ? (
         <p>Modo de pruebas · sin dinero real</p>

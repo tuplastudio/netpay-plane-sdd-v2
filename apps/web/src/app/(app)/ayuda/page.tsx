@@ -6,7 +6,7 @@ import { ON_HERO_MUTED, ON_HERO_PILL } from "@/lib/hero";
 import { cn } from "@/lib/utils";
 
 const START_HERE = [
-  { slug: "que-es-atiende-ya", label: "Qué es Atiende ya" },
+  { slug: "que-es-easy-sell", label: "Qué es Easy Sell" },
   { slug: "lista-de-arranque", label: "Lista de arranque: tu primer día" },
   { slug: "recorrido-del-panel", label: "Recorrido del panel" },
 ];
@@ -23,7 +23,7 @@ export default function AyudaIndexPage() {
           id="ayuda-empieza"
           className="mt-2 max-w-xl font-display text-display-lg"
         >
-          Todo lo que necesitas para vender con Atiende ya.
+          Todo lo que necesitas para vender con Easy Sell.
         </h2>
         <p className={cn("mt-3 max-w-xl text-body", ON_HERO_MUTED)}>
           Guías paso a paso de cada pantalla, con ejemplos y soluciones a los problemas más comunes. Usa el

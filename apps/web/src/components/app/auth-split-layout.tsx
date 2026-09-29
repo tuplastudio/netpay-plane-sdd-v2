@@ -81,12 +81,12 @@ function Brand() {
   return (
     <Link
       href="/login"
-      aria-label="Atiende ya — ir a iniciar sesión"
+      aria-label="Easy Sell — ir a iniciar sesión"
       className="flex w-fit items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <SellLogo className="h-8 w-8" />
       <span className="flex flex-col leading-tight">
-        <span className="font-display text-sm font-semibold text-foreground">Atiende ya</span>
+        <span className="font-display text-sm font-semibold text-foreground">Easy Sell</span>
         <span className="text-micro-uppercase uppercase text-muted-foreground">
           Portal operativo
         </span>

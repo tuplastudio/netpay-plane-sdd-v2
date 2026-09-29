@@ -13,7 +13,7 @@ export default function AyudaLayout({ children }: { children: React.ReactNode })
     <div>
       <PageHeader
         title="Centro de ayuda"
-        description="Guías paso a paso de cada parte de Atiende ya: qué hace cada botón, ejemplos reales y qué hacer si algo sale mal."
+        description="Guías paso a paso de cada parte de Easy Sell: qué hace cada botón, ejemplos reales y qué hacer si algo sale mal."
       />
       <div className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start">
         <HelpNav />

@@ -12,14 +12,14 @@ import { probeKeyKind } from "./client.js";
 // exacto antes de intentar conectarse desde un cliente MCP.
 if (!process.env.COMMERCE_API_KEY) {
   console.error(
-    "atiendeya MCP no arrancó: falta COMMERCE_API_KEY. Crea una API key en el panel " +
+    "easysell MCP no arrancó: falta COMMERCE_API_KEY. Crea una API key en el panel " +
       "(Empresa → API keys, o Plataforma → API keys globales si eres super-admin) y pásala " +
       "como variable de entorno.",
   );
   process.exit(1);
 }
 
-const server = new McpServer({ name: "atiendeya", version: "0.1.0" });
+const server = new McpServer({ name: "easysell", version: "0.1.0" });
 
 registerRoutes(server, allRoutes);
 registerCatalogImageTools(server);
@@ -28,7 +28,7 @@ registerBinaryDownloadTools(server);
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`atiendeya MCP: ${allRoutes.length + 4} tools registradas, esperando por stdio.`);
+  console.error(`easysell MCP: ${allRoutes.length + 4} tools registradas, esperando por stdio.`);
 
   // Best-effort, no bloquea el arranque: solo avisa por stderr si la key
   // resultó ser GLOBAL (T-IAM-09b), para que quede claro que TODAS las tools
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     .then((kind) => {
       if (kind === "global") {
         console.error(
-          "⚠️  atiendeya MCP: esta API key es GLOBAL — opera sobre CUALQUIER empresa " +
+          "⚠️  easysell MCP: esta API key es GLOBAL — opera sobre CUALQUIER empresa " +
             "(usa COMMERCE_TENANT_ID para acotarla a una) e incluye las tools super_admin_*. " +
             "Si no era la intención, revoca esta key y usa una de tenant (Empresa → API keys).",
         );
@@ -51,6 +51,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("atiendeya MCP no pudo arrancar:", err);
+  console.error("easysell MCP no pudo arrancar:", err);
   process.exit(1);
 });

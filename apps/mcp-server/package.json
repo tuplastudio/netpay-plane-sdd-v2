@@ -1,15 +1,15 @@
 {
-  "name": "atiendeya-mcp",
+  "name": "easysell-mcp",
   "version": "0.3.0",
-  "description": "Servidor MCP sobre la API de Atiende ya: catálogo, clientes, cotizaciones, pedidos, pagos, envíos, reportes, notificaciones, integraciones, conversaciones de WhatsApp, auditoría y administración de plataforma, autenticado con tu API key.",
-  "keywords": ["mcp", "model-context-protocol", "atiendeya", "whatsapp", "ecommerce"],
+  "description": "Servidor MCP sobre la API de Easy Sell: catálogo, clientes, cotizaciones, pedidos, pagos, envíos, reportes, notificaciones, integraciones, conversaciones de WhatsApp, auditoría y administración de plataforma, autenticado con tu API key.",
+  "keywords": ["mcp", "model-context-protocol", "easysell", "whatsapp", "ecommerce"],
   "license": "MIT",
   "author": "Tupla (https://tupla.dev)",
   "type": "module",
   "engines": { "node": ">=18" },
   "files": ["dist", "README.md"],
   "bin": {
-    "atiendeya-mcp": "./dist/main.js"
+    "easysell-mcp": "./dist/main.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

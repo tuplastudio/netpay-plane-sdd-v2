@@ -35,7 +35,7 @@ const RECOMMENDED_SCOPES = [
   "notifications.read",
 ];
 
-const PACKAGE_NAME = "atiendeya-mcp";
+const PACKAGE_NAME = "easysell-mcp";
 
 async function copy(text: string, label: string) {
   try {
@@ -91,14 +91,14 @@ export function McpOnboardingSection() {
   });
 
   const claudeCodeCmd = secret
-    ? `claude mcp add atiendeya \\\n  --env COMMERCE_API_KEY=${secret} \\\n  -- npx ${PACKAGE_NAME}`
+    ? `claude mcp add easysell \\\n  --env COMMERCE_API_KEY=${secret} \\\n  -- npx ${PACKAGE_NAME}`
     : "";
 
   const desktopJson = secret
     ? JSON.stringify(
         {
           mcpServers: {
-            atiendeya: {
+            easysell: {
               command: "npx",
               args: [PACKAGE_NAME],
               env: { COMMERCE_API_KEY: secret },
