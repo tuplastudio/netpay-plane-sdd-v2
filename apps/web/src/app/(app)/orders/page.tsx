@@ -6,6 +6,8 @@ import { SOURCE_LABELS, StatusBadge } from "@/components/ui/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
 import { Money } from "@/components/app/money";
+import { EntityId } from "@/components/app/entity-id";
+import { InfoTip } from "@/components/app/info-tip";
 import { PageHeader } from "@/components/app/page-header";
 import { TablePager } from "@/components/app/table-pager";
 import { usePagedQuery } from "@/components/app/use-paged-query";
@@ -27,11 +29,7 @@ const columns: Array<DataTableColumn<Order>> = [
     key: "id",
     header: "ID",
     width: "9rem",
-    cell: (o) => (
-      <span className="font-mono text-xs" title={o.id}>
-        {o.id.slice(0, 8)}…
-      </span>
-    ),
+    cell: (o) => <EntityId value={o.id} toastLabel="ID del pedido" />,
   },
   { key: "customer", header: "Cliente", cell: (o) => o.customer.fullName },
   {
@@ -49,7 +47,15 @@ const columns: Array<DataTableColumn<Order>> = [
   },
   {
     key: "source",
-    header: "Origen",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Origen
+        <InfoTip
+          label="Origen"
+          text="De dónde nació el pedido: una cotización aceptada, un cobro rápido o el agente de WhatsApp."
+        />
+      </span>
+    ),
     width: "8rem",
     cell: (o) => (
       <span className="text-muted-foreground">{SOURCE_LABELS[o.source] ?? o.source}</span>
@@ -57,7 +63,12 @@ const columns: Array<DataTableColumn<Order>> = [
   },
   {
     key: "paidAt",
-    header: "Pagado",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Pagado
+        <InfoTip label="Pagado" text="Momento en que el gateway confirmó el cobro. Vacío mientras el pedido siga por pagar." />
+      </span>
+    ),
     width: "11rem",
     cell: (o) => <DateTime value={o.paidAt} className="text-xs text-muted-foreground" />,
   },
@@ -71,7 +82,7 @@ export default function OrdersPage() {
     <div>
       <PageHeader
         title="Pedidos"
-        description="Checkout público, pasarela de pruebas y ledger simulado."
+        description="Cada venta desde que se abre el checkout hasta que se cobra, entrega o reembolsa."
       />
 
       <div className="space-y-6">

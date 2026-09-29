@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
-import { AlertCircle, CheckCircle2, Copy, Link2, PackageOpen } from "lucide-react";
+import { AlertCircle, CheckCircle2, Copy, ExternalLink, Link2, PackageOpen, PackageSearch } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { SOURCE_LABELS, StatusBadge } from "@/components/ui/status-badge";
 import { DateTime } from "@/components/app/date-time";
+import { EntityId } from "@/components/app/entity-id";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
+import { InfoTip } from "@/components/app/info-tip";
 import { Money } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
+import { StatusBadgeHelp } from "@/components/app/status-help";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DetailLinesTable } from "@/components/app/detail-lines-table";
 import {
@@ -224,13 +227,16 @@ export default function OrderDetailPage() {
     onError: (error) => toast.error(errorMessage(error, "No se pudo cancelar")),
   });
 
+  // Link público y duradero de seguimiento. Existe para cualquier estado: en
+  // uno pendiente de pago la página pública trae "Pagar ahora", y es el mismo
+  // link que van recibiendo los avisos de WhatsApp (recibido, pagado, entregado).
   const trackingQ = useQuery({
     queryKey: ["order-tracking-link", params.id],
     queryFn: async () => {
       const res = await api.get<{ data: { link: string } }>(`/orders/${params.id}/tracking-link`);
       return res.data.data.link;
     },
-    enabled: order?.status === "PAID" || order?.status === "FULFILLED",
+    enabled: !!order,
   });
 
   const fulfillOrder = useMutation({
@@ -301,7 +307,7 @@ export default function OrderDetailPage() {
         breadcrumbs={[{ label: "Pedidos", href: "/orders" }, { label: `#${shortId}` }]}
         meta={
           <>
-            <StatusBadge status={order.status} domain="order" withDot />
+            <StatusBadgeHelp status={order.status} domain="order" />
             <span className="text-foreground">{order.customer.fullName}</span>
             <span aria-hidden>·</span>
             <span>Origen: {SOURCE_LABELS[order.source] ?? order.source}</span>
@@ -311,6 +317,15 @@ export default function OrderDetailPage() {
         }
         actions={
           <>
+            <Button
+              variant="outline"
+              disabled={!trackingQ.data}
+              loading={trackingQ.isLoading}
+              onClick={() => trackingQ.data && void copyToClipboard(trackingQ.data, "Link de seguimiento")}
+            >
+              <PackageSearch className="h-4 w-4" />
+              Copiar link de seguimiento
+            </Button>
             {canWrite && order.status === "PAID" && (
               <Button
                 variant="outline"
@@ -472,7 +487,15 @@ export default function OrderDetailPage() {
                 <FieldRow label="IVA" numeric>
                   <Money value={order.tax} />
                 </FieldRow>
-                <FieldRow label="Envío" numeric>
+                <FieldRow
+                  label={
+                    <span className="inline-flex items-center gap-1">
+                      Envío
+                      <InfoTip label="Envío" text="Costo de entrega según la zona del cliente. Cero en recolección en tienda." />
+                    </span>
+                  }
+                  numeric
+                >
                   <Money value={order.shipping} />
                 </FieldRow>
                 <FieldRow label="Total" numeric emphasis>
@@ -512,7 +535,15 @@ export default function OrderDetailPage() {
                   <FieldRow label="Código postal fiscal" mono>
                     {order.invoicePostalCode}
                   </FieldRow>
-                  <FieldRow label="Uso de CFDI" mono>
+                  <FieldRow
+                    label={
+                      <span className="inline-flex items-center gap-1">
+                        Uso de CFDI
+                        <InfoTip label="Uso de CFDI" text="Clave del SAT que indica para qué usará la factura el cliente (p. ej. G03 gastos en general)." />
+                      </span>
+                    }
+                    mono
+                  >
                     {order.invoiceCfdiUse}
                   </FieldRow>
                   <FieldRow label="Constancia de situación fiscal">
@@ -536,32 +567,23 @@ export default function OrderDetailPage() {
               </Section>
             ) : null}
 
+            <RelatedSection
+              order={order}
+              trackingLink={trackingQ.data ?? null}
+              trackingLoading={trackingQ.isLoading}
+              canReadPayments={perms.can("payments.read")}
+            />
+
             <Section title="Referencias">
               <DescriptionList divided>
-                <FieldRow label="ID del pedido" mono>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="break-all">{order.id}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Copiar ID del pedido"
-                      className="h-7 w-7"
-                      onClick={() => void copyToClipboard(order.id, "ID del pedido")}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                  </span>
-                </FieldRow>
-                <FieldRow label="Cotización">
-                  {order.quoteId ? (
-                    <Link
-                      href={`/quotes/${order.quoteId}`}
-                      className="font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
-                      title={order.quoteId}
-                    >
-                      {order.quoteId.slice(0, 8)}…
-                    </Link>
-                  ) : null}
+                <FieldRow label="ID del pedido">
+                  <EntityId
+                    value={order.id}
+                    length={order.id.length}
+                    copyLabel="Copiar ID del pedido"
+                    toastLabel="ID del pedido"
+                    className="break-all"
+                  />
                 </FieldRow>
                 <FieldRow label="Descripción">{order.description}</FieldRow>
               </DescriptionList>
@@ -608,40 +630,116 @@ export default function OrderDetailPage() {
               </DescriptionList>
             </Section>
 
-            {(order.status === "PAID" || order.status === "FULFILLED") && (
-              <Section
-                title="Seguimiento del cliente"
-                description="Link público y duradero: el cliente lo usa para ver el estado de su pedido. Se manda solo por WhatsApp/correo al pagar y al marcar como entregado."
-              >
-                {trackingQ.isLoading ? (
-                  <SkeletonText lines={1} label="Generando link de seguimiento…" />
-                ) : trackingQ.data ? (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <a
-                      href={trackingQ.data}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="break-all text-sm underline underline-offset-4"
-                    >
-                      {trackingQ.data}
-                    </a>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void copyToClipboard(trackingQ.data!, "Link de seguimiento")}
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                      Copiar
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No se pudo generar el link.</p>
-                )}
-              </Section>
-            )}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Lo que cuelga de este pedido, con su estado: cotización de origen, sesiones
+ * de cobro (y cuánto se reembolsó), y el link público de seguimiento. Es la
+ * misma sección "Relacionados" que tienen la cotización y el pago, así se
+ * navega entre las tres entidades sin buscar el id a mano.
+ */
+function RelatedSection({
+  order,
+  trackingLink,
+  trackingLoading,
+  canReadPayments,
+}: {
+  order: Order;
+  trackingLink: string | null;
+  trackingLoading: boolean;
+  canReadPayments: boolean;
+}) {
+  const refunded = order.payments.reduce((acc, p) => acc + Number(p.refundedTotal ?? 0), 0);
+  const currency = order.payments[0]?.currency;
+  return (
+    <Section
+      title="Relacionados"
+      description="Cotización, cobros y link de seguimiento de este pedido."
+    >
+      <DescriptionList divided>
+        <FieldRow label="Cotización">
+          {order.quote ? (
+            <span className="flex flex-wrap items-center gap-2">
+              <StatusBadgeHelp status={order.quote.status} domain="quote" size="sm" />
+              <Link
+                href={`/quotes/${order.quote.id}`}
+                className="inline-flex items-center gap-1 font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                title={order.quote.id}
+              >
+                {order.quote.id.slice(0, 8)}…
+                <ExternalLink aria-hidden className="h-3 w-3" />
+              </Link>
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Sin cotización (pedido directo)</span>
+          )}
+        </FieldRow>
+        <FieldRow label={order.payments.length === 1 ? "Pago" : "Pagos"}>
+          {order.payments.length === 0 ? (
+            <span className="text-muted-foreground">Sin sesiones de pago</span>
+          ) : (
+            <ul className="space-y-1.5">
+              {order.payments.map((p) => (
+                <li key={p.id} className="flex flex-wrap items-center gap-2">
+                  <StatusBadgeHelp status={p.status} domain="payment" size="sm" />
+                  <Money value={p.amount} currency={p.currency} />
+                  {canReadPayments ? (
+                    <Link
+                      href={`/payments/${p.id}`}
+                      className="inline-flex items-center gap-1 font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                      title={p.id}
+                    >
+                      {p.id.slice(0, 8)}…
+                      <ExternalLink aria-hidden className="h-3 w-3" />
+                    </Link>
+                  ) : (
+                    <span className="font-mono text-xs text-muted-foreground">{p.id.slice(0, 8)}…</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </FieldRow>
+        {refunded > 0 ? (
+          <FieldRow label="Reembolsado" numeric>
+            <Money value={refunded.toFixed(2)} currency={currency} className="text-warning-foreground" />
+          </FieldRow>
+        ) : null}
+        <FieldRow
+          label="Seguimiento"
+          hint="Link público y duradero. Lo reciben los avisos de WhatsApp al crear, pagar y entregar el pedido."
+        >
+          {trackingLoading ? (
+            <SkeletonText lines={1} label="Generando link de seguimiento…" />
+          ) : trackingLink ? (
+            <span className="flex flex-wrap items-center gap-2">
+              <a
+                href={trackingLink}
+                target="_blank"
+                rel="noreferrer"
+                className="break-all text-sm underline underline-offset-4"
+              >
+                {trackingLink}
+              </a>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void copyToClipboard(trackingLink, "Link de seguimiento")}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                Copiar
+              </Button>
+            </span>
+          ) : (
+            <span className="text-muted-foreground">No se pudo generar el link.</span>
+          )}
+        </FieldRow>
+      </DescriptionList>
+    </Section>
   );
 }

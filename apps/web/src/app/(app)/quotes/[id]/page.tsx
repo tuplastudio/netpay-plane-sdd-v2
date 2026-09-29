@@ -4,26 +4,18 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { AlertCircle, Copy, Download, Link2, Pencil, Share2 } from "lucide-react";
+import { AlertCircle, Copy, Download, ExternalLink, Link2, Pencil, Share2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { SkeletonText } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { Money } from "@/components/app/money";
 import { EntityId } from "@/components/app/entity-id";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
+import { StatusBadgeHelp } from "@/components/app/status-help";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { QuoteLinesTable } from "./_components/quote-lines-table";
 import { EditQuoteSheet } from "./_components/edit-quote-sheet";
@@ -60,6 +52,8 @@ interface OrderPayment {
   id: string;
   status: string;
   amount: string;
+  currency: string;
+  refundedTotal: string;
   capturedAt: string | null;
 }
 
@@ -67,6 +61,8 @@ interface OrderDetail {
   id: string;
   status: string;
   total: string;
+  paidAt: string | null;
+  fulfilledAt: string | null;
   payments: OrderPayment[];
 }
 
@@ -104,6 +100,16 @@ export default function QuoteDetailPage() {
     queryFn: async () => {
       const res = await api.get<{ data: OrderDetail }>(`/orders/${orderId}`);
       return res.data.data;
+    },
+    enabled: !!orderId,
+  });
+
+  // Link público de seguimiento del pedido (mismo que reciben los avisos).
+  const trackingQ = useQuery({
+    queryKey: ["order-tracking-link", orderId],
+    queryFn: async () => {
+      const res = await api.get<{ data: { link: string } }>(`/orders/${orderId}/tracking-link`);
+      return res.data.data.link;
     },
     enabled: !!orderId,
   });
@@ -232,7 +238,7 @@ export default function QuoteDetailPage() {
         breadcrumbs={[{ label: "Cotizaciones", href: "/quotes" }, { label: `#${shortId}` }]}
         meta={
           <>
-            <StatusBadge status={quote.status} domain="quote" withDot />
+            <StatusBadgeHelp status={quote.status} domain="quote" />
             <span className="text-foreground">{quote.customer.fullName}</span>
             <span aria-hidden>·</span>
             <span>
@@ -282,7 +288,7 @@ export default function QuoteDetailPage() {
             <Button asChild variant="outline">
               <a href={`/api/v1/quotes/${quote.id}/pdf`} target="_blank" rel="noreferrer">
                 <Download className="h-4 w-4" />
-                Recibo
+                Descargar PDF
               </a>
             </Button>
           </>
@@ -388,76 +394,117 @@ export default function QuoteDetailPage() {
               <QuoteLinesTable lines={quote.lines} total={quote.total} />
             </Section>
 
-            {orderId && (
-              <Section
-                title="Detalle de pago"
-                padded={false}
-                actions={
+            <Section
+              title="Relacionados"
+              description="Pedido generado por esta cotización, sus cobros y el link de seguimiento del cliente."
+              actions={
+                orderId ? (
                   <Button variant="outline" size="sm" asChild>
                     <Link href={`/orders/${orderId}`}>Ver pedido completo</Link>
                   </Button>
-                }
-              >
-                {order.isLoading ? (
-                  <div className="p-4 sm:p-6">
-                    <SkeletonText lines={2} label="Cargando pago…" />
-                  </div>
-                ) : order.data && order.data.payments.length > 0 ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow interactive={false}>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Estado</TableHead>
-                        <TableHead numeric>Monto</TableHead>
-                        <TableHead>Capturado</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {order.data.payments.map((p) => (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-mono text-xs" title={p.id}>
+                ) : undefined
+              }
+            >
+              {!orderId ? (
+                <p className="text-sm text-muted-foreground">
+                  Todavía no genera pedido.{" "}
+                  {quote.status === "ISSUED"
+                    ? "Se crea al aprobarla desde aquí o cuando el cliente la acepta y paga desde su link."
+                    : quote.status === "DRAFT"
+                      ? "Emítela y compártela para que el cliente pueda aceptarla."
+                      : ""}
+                </p>
+              ) : order.isLoading || !order.data ? (
+                <SkeletonText lines={3} label="Cargando pedido…" />
+              ) : (
+                <DescriptionList divided>
+                  <FieldRow label="Pedido">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <StatusBadgeHelp status={order.data.status} domain="order" size="sm" />
+                      <Link
+                        href={`/orders/${orderId}`}
+                        className="inline-flex items-center gap-1 font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                        title={orderId}
+                      >
+                        {orderId.slice(0, 8)}…
+                        <ExternalLink aria-hidden className="h-3 w-3" />
+                      </Link>
+                      <Money value={order.data.total} className="text-muted-foreground" />
+                    </span>
+                  </FieldRow>
+                  {order.data.paidAt ? (
+                    <FieldRow label="Pagado el">
+                      <DateTime value={order.data.paidAt} />
+                    </FieldRow>
+                  ) : null}
+                  {order.data.fulfilledAt ? (
+                    <FieldRow label="Entregado el">
+                      <DateTime value={order.data.fulfilledAt} />
+                    </FieldRow>
+                  ) : null}
+                  <FieldRow label={order.data.payments.length === 1 ? "Pago" : "Pagos"}>
+                    {order.data.payments.length === 0 ? (
+                      <span className="text-muted-foreground">
+                        {order.data.status === "DRAFT"
+                          ? "Sin checkout abierto. Inícialo desde el pedido para generar el link de pago."
+                          : "Sin sesiones de pago todavía."}
+                      </span>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {order.data.payments.map((p) => (
+                          <li key={p.id} className="flex flex-wrap items-center gap-2">
+                            <StatusBadgeHelp status={p.status} domain="payment" size="sm" />
+                            <Money value={p.amount} currency={p.currency} />
+                            {Number(p.refundedTotal) > 0 ? (
+                              <span className="text-xs text-warning-foreground">
+                                (reembolsado <Money value={p.refundedTotal} currency={p.currency} />)
+                              </span>
+                            ) : null}
                             {canReadPayments ? (
                               <Link
                                 href={`/payments/${p.id}`}
-                                className="text-primary-strong underline-offset-4 hover:underline"
+                                className="inline-flex items-center gap-1 font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                                title={p.id}
                               >
                                 {p.id.slice(0, 8)}…
+                                <ExternalLink aria-hidden className="h-3 w-3" />
                               </Link>
                             ) : (
-                              <>{p.id.slice(0, 8)}…</>
+                              <span className="font-mono text-xs text-muted-foreground">{p.id.slice(0, 8)}…</span>
                             )}
-                          </TableCell>
-                          <TableCell>
-                            <StatusBadge status={p.status} domain="payment" withDot />
-                          </TableCell>
-                          <TableCell numeric>
-                            <Money value={p.amount} />
-                          </TableCell>
-                          <TableCell>
-                            <DateTime
-                              value={p.capturedAt}
-                              className="text-xs text-muted-foreground"
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-2 p-4 text-sm text-muted-foreground sm:p-6">
-                    <span>Pedido</span>
-                    {order.data ? (
-                      <StatusBadge status={order.data.status} domain="order" />
+                            <DateTime value={p.capturedAt} className="text-xs text-muted-foreground" />
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </FieldRow>
+                  <FieldRow label="Seguimiento" hint="Link público que el cliente usa para ver su pedido.">
+                    {trackingQ.data ? (
+                      <span className="flex flex-wrap items-center gap-2">
+                        <a
+                          href={trackingQ.data}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="break-all text-sm underline underline-offset-4"
+                        >
+                          {trackingQ.data}
+                        </a>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void copyToClipboard(trackingQ.data!, "Link de seguimiento")}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          Copiar
+                        </Button>
+                      </span>
+                    ) : trackingQ.isLoading ? (
+                      <SkeletonText lines={1} label="Generando link…" />
                     ) : null}
-                    <span>
-                      {order.data?.status === "DRAFT"
-                        ? "· sin checkout abierto. Inícialo desde el pedido para generar el link de pago."
-                        : "· sin sesiones de pago todavía."}
-                    </span>
-                  </div>
-                )}
-              </Section>
-            )}
+                  </FieldRow>
+                </DescriptionList>
+              )}
+            </Section>
           </div>
 
           <div className="space-y-6">

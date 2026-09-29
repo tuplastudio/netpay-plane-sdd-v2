@@ -349,7 +349,8 @@ describe("PaymentService#refund", () => {
     expect(fake.ledger.map((l) => l.balanceAfter)).toEqual(["70.00", "0.00"]);
     expect(fake.orderUpdates).toEqual([
       {
-        where: { id: ORDER, tenantId: TENANT, status: "PAID" },
+        // PAID o FULFILLED: una devolución tras entregar también cierra el pedido como REFUNDED.
+        where: { id: ORDER, tenantId: TENANT, status: { in: ["PAID", "FULFILLED"] } },
         data: { status: "REFUNDED", version: { increment: 1 } },
       },
     ]);

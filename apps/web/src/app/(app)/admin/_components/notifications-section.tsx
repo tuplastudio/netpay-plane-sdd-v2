@@ -13,6 +13,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Section } from "@/components/app/section";
+import { InfoTip } from "@/components/app/info-tip";
+import { EntityId } from "@/components/app/entity-id";
 import { TablePager } from "@/components/app/table-pager";
 import { usePagedQuery } from "@/components/app/use-paged-query";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
@@ -36,7 +38,12 @@ interface Notification {
 const columns: Array<DataTableColumn<Notification>> = [
   {
     key: "channel",
-    header: "Canal",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Canal
+        <InfoTip label="Canal" text="Por dónde salió: correo o WhatsApp, según el contacto del cliente." />
+      </span>
+    ),
     width: "7rem",
     cell: (n) => statusLabel(n.channel, "notification"),
   },
@@ -54,7 +61,12 @@ const columns: Array<DataTableColumn<Notification>> = [
   },
   {
     key: "attempts",
-    header: "Intentos",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Intentos
+        <InfoTip label="Intentos" text="Veces que el sistema trató de enviarla. Tras varios fallos queda como Fallida con el motivo en el detalle." />
+      </span>
+    ),
     numeric: true,
     width: "6rem",
     cell: (n) => n.attempts,
@@ -115,7 +127,7 @@ export function NotificationsSection() {
           </div>
         <Button asChild variant="outline" size="sm">
           <a href="/api/v1/notifications/export.csv" download>
-            <Download className="h-4 w-4" />
+            <Download aria-hidden className="h-4 w-4" />
             Exportar CSV
           </a>
         </Button>
@@ -171,7 +183,7 @@ function NotificationDetailSheet({
             <SheetHeader className="border-b px-6 py-4">
               <SheetTitle className="font-mono text-sm">{notification.templateKey}</SheetTitle>
               <SheetDescription>
-                <span className="font-mono text-xs">{notification.id.slice(0, 8)}…</span>
+                <EntityId value={notification.id} toastLabel="ID de notificación" />
                 {" · "}
                 <StatusBadge status={notification.status} domain="notification" withDot />
               </SheetDescription>

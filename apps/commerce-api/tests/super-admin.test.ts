@@ -76,6 +76,24 @@ function makeDb() {
         { status: "ACTIVE", _count: { _all: 1 } },
         { status: "DISABLED", _count: { _all: 1 } },
       ],
+      count: async ({ where }: { where: { createdAt: { gte: Date; lte: Date } } }) =>
+        tenants.filter((t) => {
+          const at = (t.createdAt as Date).getTime();
+          return at >= where.createdAt.gte.getTime() && at <= where.createdAt.lte.getTime();
+        }).length,
+    },
+    // Métricas extra del dashboard (overview): sin datos en el fake.
+    whatsAppConversation: { count: async () => 0 },
+    order: {
+      count: async () => 0,
+      aggregate: async () => ({ _sum: { total: null } }),
+    },
+    auditLog: {
+      create: async ({ data }: { data: Row }) => {
+        auditLog.push({ ...data });
+        return data;
+      },
+      findMany: async () => [],
     },
     user: {
       count: async () => new Set(memberships.map((m) => m.userId)).size,
@@ -98,6 +116,7 @@ function makeDb() {
         _count: { _all: 3 },
         _sum: { inputTokens: 1000, outputTokens: 500, costUsd: "0.1234" },
       }),
+      findMany: async () => [],
     },
     membership: {
       findFirst: async ({ where, select }: { where: Row; select?: Record<string, unknown> }) => {
@@ -127,12 +146,6 @@ function makeDb() {
           }
         }
         return { count };
-      },
-    },
-    auditLog: {
-      create: async ({ data }: { data: Row }) => {
-        auditLog.push({ ...data });
-        return data;
       },
     },
     $queryRaw: async () => [],
@@ -291,6 +304,13 @@ describe("agregados de plataforma", () => {
     expect(data.users).toBe(3);
     expect(data.pendingInvitations).toBe(1);
     expect(data.usageMtd).toEqual({ costUsd: "0.123400", totalTokens: 1500, events: 3 });
+    // Métricas extra del dashboard: sin datos en el fake, pero con forma estable.
+    expect(data.newTenantsThisMonth).toBe(0);
+    expect(data.activeConversations).toBe(0);
+    expect(data.ordersMtd).toBe(0);
+    expect(data.revenueMtd).toBe("0");
+    expect(data.usageTrend).toHaveLength(7);
+    expect(data.recentActivity).toEqual([]);
     expect(data.from).toBeInstanceOf(Date);
     expect(data.to).toBeInstanceOf(Date);
     expect(data.from.getDate()).toBe(1);

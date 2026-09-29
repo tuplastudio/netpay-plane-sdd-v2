@@ -3,6 +3,7 @@
 import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight, History } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DELIVERY_MODE_LABELS, StatusBadge } from "@/components/ui/status-badge";
@@ -15,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DateTime } from "@/components/app/date-time";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { DetailLinesTable } from "@/components/app/detail-lines-table";
 import { Money } from "@/components/app/money";
@@ -85,11 +87,21 @@ export function RevisionsTable({
           </TableHead>
           <TableHead>#</TableHead>
           <TableHead>Estado</TableHead>
-          <TableHead>Entrega</TableHead>
+          <TableHead>
+            <span className="inline-flex items-center gap-1">
+              Entrega
+              <InfoTip label="Entrega" text="Cómo recibe el cliente: recolección en tienda o envío local a su dirección." />
+            </span>
+          </TableHead>
           <TableHead numeric>Líneas</TableHead>
           <TableHead numeric>Total</TableHead>
           <TableHead>Creada</TableHead>
-          <TableHead>Vence</TableHead>
+          <TableHead>
+            <span className="inline-flex items-center gap-1">
+              Vence
+              <InfoTip label="Vence" text="Hasta cuándo se mantiene reservado el stock de esta propuesta. Después se libera." />
+            </span>
+          </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -104,32 +116,34 @@ export function RevisionsTable({
                 onClick={() => toggle(r.id)}
               >
                 <TableCell className="pr-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    aria-expanded={expanded}
-                    aria-controls={panelId}
-                    aria-label={`${expanded ? "Ocultar" : "Ver"} detalle de la revisión ${r.revisionNumber}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggle(r.id);
-                    }}
-                  >
-                    {expanded ? (
-                      <ChevronDown aria-hidden className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight aria-hidden className="h-4 w-4" />
-                    )}
-                  </Button>
+                  <Tip label={expanded ? "Ocultar detalle" : "Ver detalle"}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      aria-expanded={expanded}
+                      aria-controls={panelId}
+                      aria-label={`${expanded ? "Ocultar" : "Ver"} detalle de la revisión ${r.revisionNumber}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle(r.id);
+                      }}
+                    >
+                      {expanded ? (
+                        <ChevronDown aria-hidden className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight aria-hidden className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </Tip>
                 </TableCell>
                 <TableCell className="tabular-nums">
                   <span className="inline-flex items-center gap-1.5">
                     {r.revisionNumber}
                     {isCurrent ? (
-                      <span className="rounded bg-primary-subtle px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-strong">
+                      <Badge variant="info" size="sm" title="Propuesta actual del pedido">
                         Vigente
-                      </span>
+                      </Badge>
                     ) : null}
                   </span>
                 </TableCell>

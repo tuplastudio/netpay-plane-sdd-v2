@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/select";
 import { DELIVERY_MODE_LABELS } from "@/components/ui/status-badge";
 import { formatMoney } from "@/components/app/money";
 import { Section } from "@/components/app/section";
+import { InfoTip } from "@/components/app/info-tip";
 
 export interface CheckoutVariant {
   id: string;
@@ -65,11 +66,23 @@ export function ManualCheckoutCard({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="checkout-qty">Cantidad</Label>
-            <Input id="checkout-qty" placeholder="1.000" value={qty} onChange={(e) => setQty(e.target.value)} />
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="checkout-qty">Cantidad</Label>
+              <InfoTip label="Cantidad" text="Hasta tres decimales (p. ej. 2.500 kg). Usa punto decimal." />
+            </div>
+            <Input
+              id="checkout-qty"
+              inputMode="decimal"
+              placeholder="1.000"
+              value={qty}
+              onChange={(e) => setQty(e.target.value)}
+            />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="checkout-delivery">Entrega</Label>
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="checkout-delivery">Entrega</Label>
+              <InfoTip label="Entrega" text="Recolección: el cliente pasa por su pedido. Envío local: se cobra el costo de la zona configurada en Admin." />
+            </div>
             <Select
               id="checkout-delivery"
               value={deliveryMode}

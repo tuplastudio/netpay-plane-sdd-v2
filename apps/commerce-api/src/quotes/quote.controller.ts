@@ -18,11 +18,18 @@ import { RequestContext } from "../common/context/request-context.js";
 import { CreateQuoteDto, UpdateQuoteDto, ShareQuoteDto } from "./quote.dto.js";
 import { renderQuotePdf, type QuotePdfData } from "./quote-pdf.js";
 import { buildPageInfo, parsePaging } from "../common/pagination.js";
+import { AgentSettingsClient } from "../whatsapp/agent-settings.client.js";
+import { PrismaService } from "../prisma/prisma.service.js";
+import { getOrCreateTrackingToken, trackingUrl } from "../orders/tracking-token.js";
 
 @Controller("quotes")
 @UseGuards(RoleGuard)
 export class QuoteController {
-  constructor(private readonly quotes: QuoteService) {}
+  constructor(
+    private readonly quotes: QuoteService,
+    private readonly agentSettings: AgentSettingsClient,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get()
   @RequireScopes("quotes.read")
@@ -126,6 +133,9 @@ export class QuoteController {
     if (!quote) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Link inválido o expirado" });
     }
+    // Modo de cobro del negocio (ajuste del agente): en "solo cotizar" el
+    // link no ofrece pagar y no se expone ningún checkout aunque exista.
+    const paymentEnabled = await this.agentSettings.paymentLinksEnabled(quote.tenantId);
     // Lista blanca explícita: este endpoint es público (cualquiera con el link).
     // No se expone el email del cliente ni ids internos de línea (variantId,
     // quoteId, claves SAT). `notes` es la nota que la empresa escribe PARA el
@@ -159,7 +169,18 @@ export class QuoteController {
         // link: `order` dice si ya se pagó; `checkoutToken` es el link de
         // pago vigente (o null: se pide con POST /orders/public/quote/:token/checkout).
         order: quote.order ? { id: quote.order.id, status: quote.order.status } : null,
-        checkoutToken: await this.quotes.activeCheckoutToken(quote.order),
+        checkoutToken: paymentEnabled ? await this.quotes.activeCheckoutToken(quote.order) : null,
+        // `false` = el negocio no cobra en línea desde la cotización (modo
+        // "solo cotizar"); el front oculta el botón de pagar.
+        paymentEnabled,
+        // Link de seguimiento del pedido (durable, no vence): mismo que llega
+        // por WhatsApp al pagar. Sale en cuanto existe pedido, así el cliente
+        // que vuelve a abrir la cotización encuentra "Seguir mi pedido".
+        trackingUrl: quote.order
+          ? await getOrCreateTrackingToken(this.prisma, quote.order.id)
+              .then(trackingUrl)
+              .catch(() => null)
+          : null,
       },
       requestId: RequestContext.requestId,
     };

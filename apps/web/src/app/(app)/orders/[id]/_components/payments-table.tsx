@@ -16,6 +16,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DateTime } from "@/components/app/date-time";
+import { EntityId } from "@/components/app/entity-id";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { Money } from "@/components/app/money";
 
@@ -86,9 +88,19 @@ export function PaymentsTable({ payments }: { payments: OrderPayment[] }) {
           <TableHead>Sesión</TableHead>
           <TableHead>Estado</TableHead>
           <TableHead numeric>Monto</TableHead>
-          <TableHead numeric>Reembolsado</TableHead>
+          <TableHead numeric>
+            <span className="inline-flex items-center gap-1">
+              Reembolsado
+              <InfoTip label="Reembolsado" text="Suma de reembolsos totales o parciales de esta sesión. El monto bruto no lo descuenta." />
+            </span>
+          </TableHead>
           <TableHead>Creada</TableHead>
-          <TableHead>Capturado</TableHead>
+          <TableHead>
+            <span className="inline-flex items-center gap-1">
+              Capturado
+              <InfoTip label="Capturado" text="Cuándo confirmó el cobro el gateway. Vacío si la sesión sigue pendiente, falló o venció." />
+            </span>
+          </TableHead>
           <TableHead>
             <span className="sr-only">Acciones</span>
           </TableHead>
@@ -103,29 +115,29 @@ export function PaymentsTable({ payments }: { payments: OrderPayment[] }) {
             <Fragment key={p.id}>
               <TableRow className="cursor-pointer" onClick={() => toggle(p.id)}>
                 <TableCell className="pr-0">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    aria-expanded={expanded}
-                    aria-controls={panelId}
-                    aria-label={`${expanded ? "Ocultar" : "Ver"} movimientos de la sesión ${p.id.slice(0, 8)}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggle(p.id);
-                    }}
-                  >
-                    {expanded ? (
-                      <ChevronDown aria-hidden className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight aria-hidden className="h-4 w-4" />
-                    )}
-                  </Button>
+                  <Tip label={expanded ? "Ocultar movimientos" : "Ver movimientos"}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      aria-expanded={expanded}
+                      aria-controls={panelId}
+                      aria-label={`${expanded ? "Ocultar" : "Ver"} movimientos de la sesión ${p.id.slice(0, 8)}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle(p.id);
+                      }}
+                    >
+                      {expanded ? (
+                        <ChevronDown aria-hidden className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight aria-hidden className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </Tip>
                 </TableCell>
                 <TableCell>
-                  <span className="font-mono text-xs" title={p.id}>
-                    {p.id.slice(0, 8)}…
-                  </span>
+                  <EntityId value={p.id} toastLabel="ID de sesión" />
                 </TableCell>
                 <TableCell>
                   <StatusBadge status={p.status} domain="payment" withDot />
@@ -213,7 +225,16 @@ export function PaymentsTable({ payments }: { payments: OrderPayment[] }) {
                         <FieldRow label="Neto cobrado" numeric emphasis>
                           <Money value={netOf(p)} currency={p.currency} emphasis />
                         </FieldRow>
-                        <FieldRow label="Modo">{p.livemode ? "Producción" : "Simulado"}</FieldRow>
+                        <FieldRow
+                          label={
+                            <span className="inline-flex items-center gap-1">
+                              Modo
+                              <InfoTip label="Modo" text="Simulado: pasarela de pruebas, no mueve dinero real. Producción: cobro real al cliente." />
+                            </span>
+                          }
+                        >
+                          {p.livemode ? "Producción" : "Simulado"}
+                        </FieldRow>
                         <FieldRow label="Vence">
                           <DateTime value={p.expiresAt} />
                         </FieldRow>

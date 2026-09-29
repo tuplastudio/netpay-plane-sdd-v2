@@ -121,7 +121,7 @@ export class QuoteReminderService implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count === 0) continue;
 
-      const link = await this.shareLink(quote.tenantId, quote.id, quote.expiresAt, quote.shares);
+      const link = await this.shareLink(quote.tenantId, quote.id, quote.expiresAt, quote.shares, now);
       await this.notifications.scheduleFromTemplate({
         tenantId: quote.tenantId,
         recipientType: "CUSTOMER",
@@ -155,9 +155,11 @@ export class QuoteReminderService implements OnModuleInit, OnModuleDestroy {
     quoteId: string,
     expiresAt: Date,
     shares: Array<{ token: string; expiresAt: Date }>,
+    now: Date,
   ): Promise<string> {
     const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-    const alive = shares.find((s) => s.expiresAt.getTime() > Date.now());
+    // Mismo reloj que el resto del barrido (`now`), no `Date.now()`.
+    const alive = shares.find((s) => s.expiresAt.getTime() > now.getTime());
     if (alive) return `${base}/quotes/public/${alive.token}`;
     const created = await this.prisma.quoteShareToken.create({
       data: {

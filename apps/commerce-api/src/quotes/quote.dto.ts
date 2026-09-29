@@ -96,6 +96,20 @@ export class PricingPreviewDto {
   @IsString()
   @MaxLength(80)
   state?: string;
+
+  /** Latitud WGS84 del cliente (ubicación de WhatsApp): resuelve zonas con
+   *  polígono (T-SHIP-07). Se usa junto con `lng`. */
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  lat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  lng?: number;
 }
 
 export class ShareQuoteDto {

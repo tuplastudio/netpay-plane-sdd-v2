@@ -12,7 +12,10 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { Money, formatMoney } from "@/components/app/money";
+import { Section } from "@/components/app/section";
+import { Tip } from "@/components/app/info-tip";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Sheet,
   SheetContent,
@@ -108,9 +111,12 @@ export function LinesSheet({
 
           <div className="flex-1 overflow-y-auto p-6">
             {lines.length === 0 ? (
-              <p className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
-                Esta sesión se creó sin desglose de productos; el monto cobrado es el del pedido.
-              </p>
+              <EmptyState
+                className="py-8"
+                icon={<Package className="h-6 w-6" />}
+                title="Sin desglose de productos"
+                description="Esta sesión se creó sin líneas (p. ej. un cobro rápido); el monto cobrado es el del pedido."
+              />
             ) : (
               <Table>
                 <TableHeader>
@@ -160,10 +166,7 @@ export function LinesSheet({
             )}
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-lg border bg-card p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Cliente
-                </p>
+              <Section as="h3" density="compact" title="Cliente">
                 <p className="font-medium">{customerName}</p>
                 {customerEmail ? (
                   <p className="text-sm text-muted-foreground">{customerEmail}</p>
@@ -182,12 +185,9 @@ export function LinesSheet({
                     <ExternalLink aria-hidden className="ml-1 h-3 w-3" />
                   </Link>
                 </Button>
-              </div>
+              </Section>
 
-              <div className="rounded-lg border bg-card p-4">
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Totales del pedido
-                </p>
+              <Section as="h3" density="compact" title="Totales del pedido">
                 <dl className="space-y-1 text-sm">
                   <div className="flex justify-between">
                     <dt className="text-muted-foreground">Subtotal</dt>
@@ -228,7 +228,7 @@ export function LinesSheet({
                     <ExternalLink aria-hidden className="ml-1 h-3 w-3" />
                   </Link>
                 </Button>
-              </div>
+              </Section>
             </div>
           </div>
         </SheetContent>
@@ -299,40 +299,44 @@ function LineDetail({ line, currency }: { line: SessionLine; currency: string })
           </div>
         </dl>
 
-        <div className="mt-6 rounded-lg border bg-card p-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Editar (solo vista previa)
-          </p>
-          <p className="mb-3 text-xs text-muted-foreground">
-            La sesión de pago es histórica. Para modificar el pedido, abre el pedido completo.
-          </p>
+        <Section
+          as="h3"
+          density="compact"
+          className="mt-6"
+          title="Editar (solo vista previa)"
+          description="La sesión de pago es histórica. Para modificar el pedido, abre el pedido completo."
+        >
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">Cantidad</p>
               <div className="flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => bump("qty", -1)}
-                  aria-label="Restar 1"
-                  className="h-8 w-8"
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
+                <Tip label="Solo lectura">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => bump("qty", -1)}
+                    aria-label="Restar 1 (solo lectura)"
+                    className="h-8 w-8"
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                </Tip>
                 <div className="flex h-8 flex-1 items-center justify-center rounded-md border bg-muted/40 tabular-nums">
                   {qty(line.quantity)}
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => bump("qty", 1)}
-                  aria-label="Sumar 1"
-                  className="h-8 w-8"
-                >
-                  <Plus className="h-3 w-3" />
-                </Button>
+                <Tip label="Solo lectura">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => bump("qty", 1)}
+                    aria-label="Sumar 1 (solo lectura)"
+                    className="h-8 w-8"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </Tip>
               </div>
             </div>
             <div className="space-y-1">
@@ -342,7 +346,7 @@ function LineDetail({ line, currency }: { line: SessionLine; currency: string })
               </div>
             </div>
           </div>
-        </div>
+        </Section>
 
         <div className="mt-4 rounded-lg border bg-muted/40 p-4">
           <p className="text-xs text-muted-foreground">Importe cobrado</p>
@@ -357,7 +361,7 @@ function LineDetail({ line, currency }: { line: SessionLine; currency: string })
             <p className="mt-1 text-xs text-warning-foreground">
               El importe de la sesión ({formatMoney(line.lineTotal ?? "0", currency)}) no
               coincide con el cálculo {qty(line.quantity)} ×{" "}
-              {formatMoney(line.unitPrice ?? "0", currency)} = {subtotal.toFixed(2)}.
+              {formatMoney(line.unitPrice ?? "0", currency)} = {formatMoney(subtotal.toFixed(2), currency)}.
             </p>
           )}
         </div>

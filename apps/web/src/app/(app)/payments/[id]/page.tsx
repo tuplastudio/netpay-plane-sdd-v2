@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertCircle, Copy, ReceiptText, RotateCcw } from "lucide-react";
+import { AlertCircle, Copy, ExternalLink, ReceiptText, RotateCcw } from "lucide-react";
 import { api } from "@/lib/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -25,10 +25,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
+import { InfoTip } from "@/components/app/info-tip";
 import { Money, formatMoney } from "@/components/app/money";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
+import { StatusBadgeHelp } from "@/components/app/status-help";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { toCents } from "@/lib/decimal";
 import { LinesSheet } from "./_components/lines-sheet";
@@ -80,6 +82,8 @@ interface SessionDetail {
     tax: string;
     shipping: string;
     discount: string;
+    /** Cotización de origen (pedidos con `source: QUOTE`); null en directos y cobros rápidos. */
+    quote: { id: string; status: string; total: string; acceptedAt: string | null } | null;
     customer: {
       id: string;
       fullName: string;
@@ -189,7 +193,7 @@ export default function PaymentDetailPage() {
         breadcrumbs={[{ label: "Pagos", href: "/payments" }, { label: `#${s.id.slice(0, 8)}` }]}
         meta={
           <>
-            <StatusBadge status={s.status} domain="payment" withDot />
+            <StatusBadgeHelp status={s.status} domain="payment" />
             <span className="text-foreground">{s.order.customer.fullName}</span>
             <span aria-hidden>·</span>
             <span>
@@ -202,9 +206,19 @@ export default function PaymentDetailPage() {
                 {s.orderId.slice(0, 8)}…
               </Link>
             </span>
-            <Badge variant={s.livemode ? "info" : "neutral"}>
-              {s.livemode ? "Livemode" : "Modo de pruebas"}
-            </Badge>
+            <span className="inline-flex items-center gap-1">
+              <Badge variant={s.livemode ? "info" : "neutral"}>
+                {s.livemode ? "Producción" : "Modo de pruebas"}
+              </Badge>
+              <InfoTip
+                label="Modo"
+                text={
+                  s.livemode
+                    ? "Cobro real: la pasarela movió dinero del cliente."
+                    : "Pasarela de pruebas: no se movió dinero real. Sirve para validar el flujo."
+                }
+              />
+            </span>
           </>
         }
         actions={
@@ -260,7 +274,12 @@ export default function PaymentDetailPage() {
             value={<Money value={s.refundedTotal} currency={s.currency} />}
           />
           <StatTile size="compact"
-            label="Neto"
+            label={
+              <span className="inline-flex items-center gap-1">
+                Neto
+                <InfoTip label="Neto" text="Monto cobrado menos lo reembolsado en esta sesión. Es lo que efectivamente conserva el comercio." />
+              </span>
+            }
             tone="success"
             value={<Money value={s.netTotal} currency={s.currency} />}
           />
@@ -287,7 +306,12 @@ export default function PaymentDetailPage() {
                         <TableRow interactive={false}>
                           <TableHead>Tipo</TableHead>
                           <TableHead numeric>Monto</TableHead>
-                          <TableHead numeric>Saldo</TableHead>
+                          <TableHead numeric>
+                            <span className="inline-flex items-center gap-1">
+                              Saldo
+                              <InfoTip label="Saldo" text="Saldo acumulado de la sesión después de este movimiento." />
+                            </span>
+                          </TableHead>
                           <TableHead>Descripción</TableHead>
                           <TableHead>Fecha</TableHead>
                         </TableRow>
@@ -353,6 +377,56 @@ export default function PaymentDetailPage() {
           </div>
 
           <div className="space-y-6">
+            <Section
+              title="Relacionados"
+              description="Pedido que cobra esta sesión, la cotización de la que salió y el cliente."
+            >
+              <DescriptionList divided>
+                <FieldRow label="Pedido">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <StatusBadgeHelp status={s.order.status} domain="order" size="sm" />
+                    <Link
+                      href={`/orders/${s.orderId}`}
+                      className="inline-flex items-center gap-1 font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                      title={s.orderId}
+                    >
+                      {s.orderId.slice(0, 8)}…
+                      <ExternalLink aria-hidden className="h-3 w-3" />
+                    </Link>
+                    <Money value={s.order.total} className="text-muted-foreground" />
+                  </span>
+                </FieldRow>
+                <FieldRow label="Cotización">
+                  {s.order.quote ? (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <StatusBadgeHelp status={s.order.quote.status} domain="quote" size="sm" />
+                      <Link
+                        href={`/quotes/${s.order.quote.id}`}
+                        className="inline-flex items-center gap-1 font-mono text-xs text-primary-strong underline-offset-4 hover:underline"
+                        title={s.order.quote.id}
+                      >
+                        {s.order.quote.id.slice(0, 8)}…
+                        <ExternalLink aria-hidden className="h-3 w-3" />
+                      </Link>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {s.order.source === "QUICK_CHARGE" ? "Cobro rápido, sin cotización" : "Sin cotización"}
+                    </span>
+                  )}
+                </FieldRow>
+                <FieldRow label="Cliente">
+                  <Link
+                    href={`/customers/${s.order.customer.id}`}
+                    className="inline-flex items-center gap-1 text-primary-strong underline-offset-4 hover:underline"
+                  >
+                    {s.order.customer.fullName}
+                    <ExternalLink aria-hidden className="h-3 w-3" />
+                  </Link>
+                </FieldRow>
+              </DescriptionList>
+            </Section>
+
             <Section
               title="Cliente"
               footer={

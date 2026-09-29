@@ -65,7 +65,7 @@ function body(key: TemplateKey, vars: Record<string, string>): string {
         `Puedes verla y pagarla aquí: ${vars.link}`
       );
     case "ORDER_RECEIVED":
-      return `Hola ${vars.customerName}, recibimos tu pedido${from(vars)} por $${vars.total} (folio ${vars.orderId}).`;
+      return `Hola ${vars.customerName}, recibimos tu pedido${from(vars)} por $${vars.total} (folio ${vars.orderId}).${vars.link ? ` Sigue tu pedido aquí: ${vars.link}` : ""}`;
     case "ORDER_FULFILLED":
       return `Hola ${vars.customerName}, tu pedido ${vars.orderId}${from(vars)} ya quedó entregado. Detalle: ${vars.link}`;
     case "PAYMENT_SIMULATED_SUCCESS":

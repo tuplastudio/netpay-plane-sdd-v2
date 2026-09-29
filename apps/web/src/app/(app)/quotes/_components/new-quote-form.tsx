@@ -14,6 +14,8 @@ import {
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -27,6 +29,8 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Money, formatMoney } from "@/components/app/money";
+import { InfoTip, Tip } from "@/components/app/info-tip";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { apiErrorMessage } from "@/app/(app)/admin/_components/api-error";
 import { ProductDetailSheet } from "@/components/app/product-detail-sheet";
 
@@ -211,6 +215,8 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
   if (firstGroup && activeTab && !grouped[activeTab] && !search) setActiveTab(firstGroup);
 
   const [detailOpen, setDetailOpen] = useState(false);
+  // Cerrar con líneas en el carrito pide confirmación (antes era `window.confirm`).
+  const [discardOpen, setDiscardOpen] = useState(false);
 
   const selectedProduct = useMemo(
     () => products.data?.find((p) => p.id === selectedProductId) ?? null,
@@ -352,12 +358,28 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
             </div>
           </div>
 
-          {search || filtered ? (
+          {products.isLoading ? (
+            <SkeletonRegion label="Cargando catálogo…" className="flex-1 overflow-y-auto p-3">
+              <div className="grid grid-cols-2 gap-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="h-20 rounded-lg" />
+                ))}
+              </div>
+            </SkeletonRegion>
+          ) : search || filtered ? (
             <div className="flex-1 overflow-y-auto p-3">
               {filtered && filtered.length === 0 ? (
-                <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-                  Sin coincidencias para “{search}”.
-                </p>
+                <EmptyState
+                  className="py-8"
+                  icon={<Search className="h-5 w-5" />}
+                  title="Sin coincidencias"
+                  description={`Nada coincide con “${search}”. Prueba con el SKU o un fragmento del nombre.`}
+                  action={
+                    <Button type="button" variant="outline" size="sm" onClick={() => setSearch("")}>
+                      Limpiar búsqueda
+                    </Button>
+                  }
+                />
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   {filtered?.map((p) => (
@@ -444,14 +466,19 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
           </div>
           <div className="flex-1 overflow-y-auto p-3">
             {!selectedProduct ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
-                <Package aria-hidden className="h-8 w-8 opacity-60" />
-                <p>Ningún producto seleccionado.</p>
-              </div>
+              <EmptyState
+                className="h-full py-8"
+                icon={<Package className="h-5 w-5" />}
+                title="Ningún producto seleccionado"
+                description="Toca un producto en el catálogo de la izquierda para ver sus variantes."
+              />
             ) : selectedProduct.variants.length === 0 ? (
-              <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-                Este producto no tiene variantes activas.
-              </p>
+              <EmptyState
+                className="py-8"
+                icon={<Package className="h-5 w-5" />}
+                title="Sin variantes activas"
+                description="Activa al menos una variante de este producto en el catálogo para poder cotizarla."
+              />
             ) : (
               <ul className="space-y-2">
                 {selectedProduct.variants.map((v) => {
@@ -517,14 +544,22 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
               <Label htmlFor="issue" className="text-xs">
                 Emitir
               </Label>
+              <InfoTip
+                label="Emitir"
+                text="Marcado: la cotización se crea ya emitida, lista para compartir con el cliente. Desmarcado: queda en borrador para revisarla antes."
+                className="h-4 w-4"
+              />
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-3">
             {cart.length === 0 ? (
-              <p className="px-2 py-8 text-center text-sm text-muted-foreground">
-                Agrega variantes desde el panel central.
-              </p>
+              <EmptyState
+                className="py-8"
+                icon={<Plus className="h-5 w-5" />}
+                title="Cotización vacía"
+                description="Agrega variantes desde el panel central; los totales se calculan al instante."
+              />
             ) : (
               <ul className="space-y-2">
                 {cart.map((l) => (
@@ -539,16 +574,18 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                           {l.sku}
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeLine(l.variantId)}
-                        aria-label={`Quitar ${l.title}`}
-                        className="shrink-0"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <Tip label="Quitar línea">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeLine(l.variantId)}
+                          aria-label={`Quitar ${l.title}`}
+                          className="shrink-0"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </Tip>
                     </div>
                     <div className="mt-2 flex items-center gap-2 text-xs">
                       <span className="font-semibold tabular-nums text-foreground">
@@ -562,16 +599,18 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                           Cantidad
                         </Label>
                         <div className="flex items-center gap-1">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            onClick={() => bumpQty(l.variantId, -1)}
-                            aria-label="Restar 1"
-                            className="h-8 w-8"
-                          >
-                            <Minus className="h-3 w-3" />
-                          </Button>
+                          <Tip label="Restar 1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => bumpQty(l.variantId, -1)}
+                              aria-label="Restar 1"
+                              className="h-8 w-8"
+                            >
+                              <Minus className="h-3 w-3" />
+                            </Button>
+                          </Tip>
                           <Input
                             id={`qty-${l.key}`}
                             placeholder="1"
@@ -580,22 +619,27 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                             className="h-8 text-center tabular-nums"
                             inputMode="decimal"
                           />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            onClick={() => bumpQty(l.variantId, 1)}
-                            aria-label="Sumar 1"
-                            className="h-8 w-8"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </Button>
+                          <Tip label="Sumar 1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              onClick={() => bumpQty(l.variantId, 1)}
+                              aria-label="Sumar 1"
+                              className="h-8 w-8"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </Button>
+                          </Tip>
                         </div>
                       </div>
                       <div className="space-y-1">
-                        <Label htmlFor={`disc-${l.key}`} className="text-xs">
-                          Desc %
-                        </Label>
+                        <div className="flex items-center gap-1">
+                          <Label htmlFor={`disc-${l.key}`} className="text-xs">
+                            Desc %
+                          </Label>
+                          <InfoTip label="Descuento" text="Porcentaje sobre el precio unitario de esta línea (0 a 100)." className="h-4 w-4" />
+                        </div>
                         <Input
                           id={`disc-${l.key}`}
                           type="number"
@@ -658,7 +702,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t bg-background px-6 py-3">
-        <Button type="button" variant="ghost" size="sm" onClick={onCloseOrCancel(onDone)}>
+        <Button type="button" variant="ghost" size="sm" onClick={onCloseOrCancel}>
           Cancelar
         </Button>
         <Button type="submit" variant="accent" size="sm" loading={create.isPending} disabled={cart.length === 0}>
@@ -676,17 +720,28 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
           setDetailOpen(false);
         }}
       />
+
+      <ConfirmDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        title="¿Cerrar sin guardar?"
+        description={`Se perderán las ${cartCount} ${cartCount === 1 ? "línea agregada" : "líneas agregadas"}.`}
+        confirmLabel="Descartar"
+        cancelLabel="Seguir cotizando"
+        onConfirm={() => {
+          setDiscardOpen(false);
+          onDone();
+        }}
+      />
     </form>
   );
 
-  function onCloseOrCancel(close: () => void) {
-    return () => {
-      if (cart.length > 0) {
-        const ok = window.confirm("¿Cerrar sin guardar? Se perderán las líneas agregadas.");
-        if (!ok) return;
-      }
-      close();
-    };
+  function onCloseOrCancel() {
+    if (cart.length > 0) {
+      setDiscardOpen(true);
+      return;
+    }
+    onDone();
   }
 }
 

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sheet";
 import { Money } from "@/components/app/money";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
+import { InfoTip, Tip } from "@/components/app/info-tip";
 import { apiErrorMessage } from "@/app/(app)/admin/_components/api-error";
 
 interface Variant {
@@ -344,18 +345,20 @@ export function EditQuoteSheet({
                           {l.sku} · <Money value={l.price} /> c/u
                         </p>
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0"
-                        aria-label={`Quitar ${l.title}`}
-                        onClick={() =>
-                          setCart((prev) => prev.filter((x) => x.variantId !== l.variantId))
-                        }
-                      >
-                        <Trash2 aria-hidden className="h-3.5 w-3.5" />
-                      </Button>
+                      <Tip label="Quitar línea">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 shrink-0"
+                          aria-label={`Quitar ${l.title}`}
+                          onClick={() =>
+                            setCart((prev) => prev.filter((x) => x.variantId !== l.variantId))
+                          }
+                        >
+                          <Trash2 aria-hidden className="h-3.5 w-3.5" />
+                        </Button>
+                      </Tip>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
@@ -375,9 +378,12 @@ export function EditQuoteSheet({
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label htmlFor={`disc-${l.variantId}`} className="text-xs">
-                          Descuento %
-                        </Label>
+                        <div className="flex items-center gap-1">
+                          <Label htmlFor={`disc-${l.variantId}`} className="text-xs">
+                            Descuento %
+                          </Label>
+                          <InfoTip label="Descuento" text="Porcentaje sobre el precio unitario de esta línea (0 a 100)." className="h-4 w-4" />
+                        </div>
                         <Input
                           id={`disc-${l.variantId}`}
                           inputMode="numeric"

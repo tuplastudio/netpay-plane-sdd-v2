@@ -12,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
 import { Money, formatMoney } from "@/components/app/money";
+import { EntityId } from "@/components/app/entity-id";
+import { InfoTip } from "@/components/app/info-tip";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { StatTile } from "@/components/app/stat-tile";
@@ -170,11 +172,7 @@ export default function PaymentsPage() {
       key: "id",
       header: "Sesión",
       width: "9rem",
-      cell: (s) => (
-        <span className="font-mono text-xs" title={s.id}>
-          {s.id.slice(0, 8)}…
-        </span>
-      ),
+      cell: (s) => <EntityId value={s.id} toastLabel="ID de sesión" />,
     },
     { key: "customer", header: "Cliente", cell: (s) => s.customerName ?? "—" },
     {
@@ -192,7 +190,12 @@ export default function PaymentsPage() {
     },
     {
       key: "paymentMethod",
-      header: "Método",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Método
+          <InfoTip label="Método" text="Cómo pagó el cliente: tarjeta, transferencia SPEI o efectivo en OXXO. Vacío hasta que elige uno en el checkout." />
+        </span>
+      ),
       width: "7rem",
       cell: (s) => (
         <span className="text-xs text-muted-foreground">{paymentMethodLabel(s.paymentMethod)}</span>
@@ -206,7 +209,12 @@ export default function PaymentsPage() {
     },
     {
       key: "capturedAt",
-      header: "Capturado",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Capturado
+          <InfoTip label="Capturado" text="Cuándo se confirmó el cobro. Vacío si la sesión sigue pendiente, falló o venció." />
+        </span>
+      ),
       width: "11rem",
       cell: (s) => <DateTime value={s.capturedAt} className="text-xs text-muted-foreground" />,
     },
@@ -232,15 +240,16 @@ export default function PaymentsPage() {
       key: "sessionId",
       header: "Sesión",
       width: "9rem",
-      cell: (l) => (
-        <span className="font-mono text-xs" title={l.sessionId}>
-          {l.sessionId.slice(0, 8)}…
-        </span>
-      ),
+      cell: (l) => <EntityId value={l.sessionId} toastLabel="ID de sesión" />,
     },
     {
       key: "entryType",
-      header: "Tipo",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Tipo
+          <InfoTip label="Tipo" text="Qué asentó el movimiento: cargo, reembolso, comisión o ajuste." />
+        </span>
+      ),
       width: "8rem",
       cell: (l) => <StatusBadge status={l.entryType} domain="ledger" />,
     },
@@ -253,7 +262,12 @@ export default function PaymentsPage() {
     },
     {
       key: "balanceAfter",
-      header: "Saldo",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Saldo
+          <InfoTip label="Saldo" text="Saldo acumulado de la sesión después de este movimiento." />
+        </span>
+      ),
       numeric: true,
       width: "9rem",
       cell: (l) => <Money value={l.balanceAfter} className="text-muted-foreground" />,
@@ -344,7 +358,8 @@ export default function PaymentsPage() {
               <TabsTrigger value="pagos">Pagos ({sessions.total})</TabsTrigger>
               <TabsTrigger value="ledger">Ledger ({ledger.total})</TabsTrigger>
             </TabsList>
-            <div className="relative sm:w-72">
+            <div className="flex items-center gap-1.5 sm:w-80">
+              <div className="relative min-w-0 flex-1">
               <Search
                 aria-hidden
                 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -355,6 +370,11 @@ export default function PaymentsPage() {
                 placeholder="Filtrar esta página por id, cliente o estado…"
                 className="pl-9"
                 aria-label="Filtrar pagos y movimientos"
+              />
+              </div>
+              <InfoTip
+                label="Filtro"
+                text="Filtra solo las filas de la página actual. Para buscar en todo el histórico, avanza de página o usa la búsqueda global."
               />
             </div>
           </div>

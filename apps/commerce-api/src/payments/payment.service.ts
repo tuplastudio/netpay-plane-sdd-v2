@@ -20,8 +20,9 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { getOrCreateTrackingToken, trackingUrl } from "../orders/tracking-token.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
 import type { Paging } from "../common/pagination.js";
@@ -232,12 +233,7 @@ export class PaymentService {
    * Mint-once: reusa el mismo link si el pedido ya tenía uno.
    */
   private async getOrCreateTrackingLink(orderId: string): Promise<string> {
-    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-    const existing = await this.prisma.orderTrackingToken.findUnique({ where: { orderId } });
-    if (existing) return `${base}/orders/public/track/${existing.token}`;
-    const token = randomBytes(24).toString("base64url");
-    await this.prisma.orderTrackingToken.create({ data: { orderId, token } });
-    return `${base}/orders/public/track/${token}`;
+    return trackingUrl(await getOrCreateTrackingToken(this.prisma, orderId));
   }
 
   async createCheckout(input: CreateCheckoutInput): Promise<CheckoutSessionResult> {
@@ -750,12 +746,21 @@ export class PaymentService {
         this.logger.warn(`Webhook de reembolso sin saldo pendiente en sesión ${captured.id}`);
         return;
       }
-      await this.refund(
-        captured.tenantId,
-        captured.id,
-        toRefund.toFixed(2),
-        `Reembolso simulado: dummy session ${dummySessionId}`,
-      );
+      // Idempotencia del reintento: la pasarela reenvía el mismo evento si no
+      // recibió 200. Una captura duplicada la frena el UPDATE condicional de
+      // estado, pero un reembolso PARCIAL repetido se volvería a asentar
+      // (el tope solo salva al total). El asiento lleva el id de la sesión
+      // de la pasarela: si ya existe, este webhook ya se aplicó.
+      const description = `Reembolso simulado: dummy session ${dummySessionId}`;
+      const already = await this.prisma.ledgerEntry.findFirst({
+        where: { sessionId: captured.id, entryType: "REFUND", description },
+        select: { id: true },
+      });
+      if (already) {
+        this.logger.log(`Webhook de reembolso duplicado ignorado: sesión ${captured.id}`);
+        return;
+      }
+      await this.refund(captured.tenantId, captured.id, toRefund.toFixed(2), description);
       return;
     }
 
@@ -983,9 +988,11 @@ export class PaymentService {
 
       // El pedido solo pasa a REFUNDED cuando la sesión queda saldada por
       // completo; con un reembolso parcial sigue siendo un pedido pagado.
+      // También desde FULFILLED (devolución tras entregar): antes se quedaba
+      // en "Entregado" con el cobro devuelto y el panel no lo reflejaba.
       if (row.status === "REFUNDED") {
         await tx.order.updateMany({
-          where: { id: row.orderId, tenantId, status: "PAID" },
+          where: { id: row.orderId, tenantId, status: { in: ["PAID", "FULFILLED"] } },
           data: { status: "REFUNDED", version: { increment: 1 } },
         });
       }
@@ -1074,6 +1081,8 @@ export class PaymentService {
         order: {
           include: {
             customer: true,
+            // Cotización de origen: el detalle del pago enlaza pedido → cotización.
+            quote: { select: { id: true, status: true, total: true, acceptedAt: true } },
             revisions: {
               orderBy: { revisionNumber: "desc" },
               take: 1,

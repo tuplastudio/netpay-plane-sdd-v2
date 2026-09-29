@@ -6,6 +6,8 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
 import { DateTime } from "@/components/app/date-time";
 import { Money } from "@/components/app/money";
+import { EntityId } from "@/components/app/entity-id";
+import { InfoTip } from "@/components/app/info-tip";
 import { PageHeader } from "@/components/app/page-header";
 import { Section } from "@/components/app/section";
 import { TablePager } from "@/components/app/table-pager";
@@ -26,11 +28,7 @@ const columns: Array<DataTableColumn<Quote>> = [
     key: "id",
     header: "ID",
     width: "9rem",
-    cell: (q) => (
-      <span className="font-mono text-xs" title={q.id}>
-        {q.id.slice(0, 8)}…
-      </span>
-    ),
+    cell: (q) => <EntityId value={q.id} toastLabel="ID de la cotización" />,
   },
   { key: "customer", header: "Cliente", cell: (q) => q.customer.fullName },
   {
@@ -48,7 +46,15 @@ const columns: Array<DataTableColumn<Quote>> = [
   },
   {
     key: "expiresAt",
-    header: "Vence",
+    header: (
+      <span className="inline-flex items-center gap-1">
+        Vence
+        <InfoTip
+          label="Vence"
+          text="Fecha límite para que el cliente acepte. Después la cotización pasa a «Vencida» y hay que volver a emitirla."
+        />
+      </span>
+    ),
     width: "10rem",
     cell: (q) => (
       <DateTime value={q.expiresAt} withTime={false} className="text-muted-foreground" />
@@ -101,6 +107,12 @@ export default function QuotesPage() {
             description: canWrite
               ? "Pulsa «Nueva cotización» arriba a la derecha para abrir el cotizador. Elige cliente, agrega variantes y emítela para compartir el link público."
               : "Cuando el equipo de ventas emita cotizaciones, aparecerán aquí.",
+            action: canWrite ? (
+              <Button onClick={() => setNewQuoteOpen(true)}>
+                <CirclePlus aria-hidden className="h-4 w-4" />
+                Nueva cotización
+              </Button>
+            ) : undefined,
           }}
         />
       </Section>

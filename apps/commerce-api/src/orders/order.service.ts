@@ -10,14 +10,16 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { PricingService } from "../pricing/pricing.service.js";
 import { CustomerService } from "../customers/customer.service.js";
 import { QuoteService } from "../quotes/quote.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
-import { randomBytes, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { assertPublicHttpUrl } from "../integrations/url-guard.js";
+import { getOrCreateTrackingToken, trackingUrl } from "./tracking-token.js";
 import { extractPdfText } from "../common/pdf-text.js";
 import { parseConstancia } from "./constancia-parser.js";
 import { writeObject } from "../tenants/logo-storage.js";
@@ -108,6 +110,12 @@ export class OrderService {
     const customer = await this.prisma.customer.findUnique({ where: { id: order.customerId } });
     const target = customer && pickChannel(customer);
     if (!target) return;
+    // El aviso lleva el link de seguimiento desde el primer mensaje: es el
+    // mismo link que después traen "pago confirmado" y "entregado", así el
+    // cliente tiene un solo lugar donde ver su pedido. Best-effort.
+    const link = await getOrCreateTrackingToken(this.prisma, order.id)
+      .then(trackingUrl)
+      .catch(() => "");
     await this.notifications.scheduleFromTemplate({
       tenantId: order.tenantId,
       recipientType: "CUSTOMER",
@@ -115,7 +123,7 @@ export class OrderService {
       channel: target.channel,
       templateKey: "ORDER_RECEIVED",
       to: target.to,
-      vars: { customerName: customer!.fullName, total: order.total.toString(), orderId: order.id.slice(0, 8) },
+      vars: { customerName: customer!.fullName, total: order.total.toString(), orderId: order.id.slice(0, 8), link },
     });
   }
 
@@ -602,36 +610,74 @@ export class OrderService {
         message: "Cotización vencida",
       });
     }
-    await this.quotes.markAccepted(tenantId, q.id);
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException({ code: "NOT_FOUND", message: "Tenant" });
 
-    const order = await this.prisma.order.create({
-      data: {
-        tenantId,
-        customerId: q.customerId,
-        createdById: actorId,
-        quoteId: q.id,
-        source: "QUOTE",
-        status: "DRAFT",
-        configVersion: q.configVersion,
-        subtotal: q.subtotal,
-        discount: q.discount,
-        taxBase: q.taxBase,
-        tax: q.tax,
-        shipping: q.shipping,
-        total: q.total,
-        revisions: {
-          create: {
-            revisionNumber: 1,
-            status: "OPEN",
+    // Aceptación y creación del pedido en UNA transacción. Antes se marcaba
+    // ACCEPTED primero (fuera de transacción) y luego se insertaba el pedido:
+    // si el insert fallaba, la cotización quedaba ACCEPTED sin pedido y ya no
+    // se podía convertir nunca, porque `markAccepted` exige ISSUED. Ahora una
+    // ACCEPTED huérfana también se convierte (solo se transiciona si sigue en
+    // ISSUED), y `Order.quoteId` es único: dos aceptaciones simultáneas
+    // dejan un solo pedido y la perdedora relee al ganador.
+    let order: Awaited<ReturnType<typeof this.prisma.order.create>>;
+    try {
+      order = await this.prisma.$transaction(async (tx) => {
+        if (q.status === "ISSUED") {
+          const moved = await tx.quote.updateMany({
+            where: { id: q.id, tenantId, status: "ISSUED" },
+            data: { status: "ACCEPTED", acceptedAt: new Date(), version: { increment: 1 } },
+          });
+          if (moved.count === 0) {
+            // Otra transacción la movió mientras tanto. Si la aceptó (dos
+            // aceptaciones a la vez), se sigue al insert y el índice único
+            // de quoteId decide; si la canceló/venció, se rechaza.
+            const now = await tx.quote.findFirst({ where: { id: q.id, tenantId }, select: { status: true } });
+            if (now?.status !== "ACCEPTED") {
+              throw new ConflictException({
+                code: "CONFLICT",
+                message: "La cotización cambió de estado; vuelve a cargarla",
+              });
+            }
+          }
+        }
+        return tx.order.create({
+          data: {
+            tenantId,
+            customerId: q.customerId,
+            createdById: actorId,
+            quoteId: q.id,
+            source: "QUOTE",
+            status: "DRAFT",
+            configVersion: q.configVersion,
+            subtotal: q.subtotal,
+            discount: q.discount,
+            taxBase: q.taxBase,
+            tax: q.tax,
+            shipping: q.shipping,
             total: q.total,
-            deliveryMode: "PICKUP",
-            expiresAt: new Date(Date.now() + tenant.checkoutReservationMinutes * 60 * 1000),
+            revisions: {
+              create: {
+                revisionNumber: 1,
+                status: "OPEN",
+                total: q.total,
+                deliveryMode: "PICKUP",
+                expiresAt: new Date(Date.now() + tenant.checkoutReservationMinutes * 60 * 1000),
+              },
+            },
           },
-        },
-      },
-    });
+        });
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code === "P2002") {
+        const winner = await this.prisma.order.findFirst({
+          where: { tenantId, quoteId },
+          include: { revisions: true },
+        });
+        if (winner) return winner;
+      }
+      throw err;
+    }
     if (opts.notify !== false) {
       await this.notifyOrderReceived(order);
     }
@@ -1076,17 +1122,41 @@ export class OrderService {
     if (!order) {
       throw new NotFoundException({ code: "NOT_FOUND", message: "Pedido no accesible" });
     }
-    const existing = await this.prisma.orderTrackingToken.findUnique({ where: { orderId } });
-    if (existing) return existing.token;
-    const token = randomBytes(24).toString("base64url");
-    const created = await this.prisma.orderTrackingToken.create({ data: { orderId, token } });
-    return created.token;
+    return getOrCreateTrackingToken(this.prisma, orderId);
   }
 
   /**
-   * Resuelve el link público de seguimiento: estado + timeline (creado,
-   * pagado, entregado/cancelado) + líneas. A diferencia de resolvePublicToken
-   * (CheckoutAccessToken), este no vence ni se marca usado.
+   * Número de WhatsApp del negocio (conexión ACTIVE con número conocido),
+   * normalizado a dígitos para armar `https://wa.me/<n>`. Best-effort: sin
+   * conexión o ante cualquier error devuelve null. Lo usan el checkout
+   * público y el link de seguimiento ("Escribir al negocio").
+   */
+  async merchantWhatsappNumber(tenantId: string): Promise<string | null> {
+    try {
+      const conn = await this.prisma.whatsAppConnection.findFirst({
+        where: { tenantId, status: "ACTIVE", phoneNumber: { not: null } },
+        orderBy: { connectedAt: "desc" },
+        select: { phoneNumber: true },
+      });
+      // Evolution puede guardar un JID ("5215512345678@s.whatsapp.net"):
+      // solo la parte antes de "@" / ":".
+      const digits = (conn?.phoneNumber ?? "").split(/[@:]/)[0]!.replace(/\D/g, "");
+      return digits.length >= 8 ? digits : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Resuelve el link público de seguimiento. A diferencia de
+   * resolvePublicToken (CheckoutAccessToken), este no vence ni se marca usado.
+   *
+   * Lista blanca explícita: es una URL portadora que el cliente reenvía. No
+   * sale el id interno del pedido (solo el folio de 8 caracteres que ya usan
+   * los avisos de WhatsApp), ni email/teléfono del cliente, ni ids de
+   * variante. Sí sale lo que el cliente necesita para saber en qué va su
+   * pedido: etapa, fechas, qué lleva y cuánto, cómo se entrega, si ya pagó
+   * (o el link para pagar), y cómo contactar al negocio.
    */
   async resolveTrackingToken(token: string) {
     const t = await this.prisma.orderTrackingToken.findUnique({
@@ -1095,44 +1165,166 @@ export class OrderService {
         order: {
           include: {
             customer: { select: { fullName: true } },
-            tenant: { select: { name: true, logoUrl: true } },
+            tenant: { select: { name: true, logoUrl: true, primaryColor: true } },
             revisionsRel: { include: { lines: true } },
+            payments: {
+              where: { status: { not: "CANCELLED" } },
+              orderBy: { createdAt: "desc" },
+              select: {
+                status: true,
+                amount: true,
+                refundedTotal: true,
+                paymentMethod: true,
+                capturedAt: true,
+                expiresAt: true,
+              },
+            },
           },
         },
       },
     });
     if (!t) return null;
     const order = t.order;
-    const revisionLines = order.revisionsRel?.lines ?? [];
-    const variantIds = revisionLines.map((l) => l.variantId);
-    const variants = variantIds.length
-      ? await this.prisma.productVariant.findMany({
-          where: { id: { in: variantIds } },
-          select: { id: true, sku: true, title: true },
-        })
-      : [];
-    const byId = new Map(variants.map((v) => [v.id, v]));
-    const lines = revisionLines.map((l) => {
-      const v = byId.get(l.variantId);
+    const revision = order.revisionsRel;
+    const revisionLines = revision?.lines ?? [];
+
+    // Precio unitario: el pactado en la cotización si el pedido viene de una;
+    // si no, el del catálogo. Igual que el checkout público.
+    const [variants, quoteLines, address] = await Promise.all([
+      revisionLines.length
+        ? this.prisma.productVariant.findMany({
+            where: { id: { in: revisionLines.map((l) => l.variantId) } },
+            select: { id: true, sku: true, title: true, price: true, product: { select: { title: true } } },
+          })
+        : Promise.resolve([]),
+      order.quoteId
+        ? this.prisma.quoteLine.findMany({
+            where: { quoteId: order.quoteId },
+            select: { variantId: true, unitPrice: true, lineSubtotal: true },
+          })
+        : Promise.resolve([]),
+      revision?.deliveryMode === "LOCAL_DELIVERY" && revision.addressId
+        ? this.prisma.customerAddress.findFirst({
+            where: { id: revision.addressId, customerId: order.customerId },
+            select: { label: true, line1: true, line2: true, city: true, state: true, postalCode: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    const byVariant = new Map(variants.map((v) => [v.id, v]));
+    const quotedByVariant = new Map(quoteLines.map((q) => [q.variantId, q]));
+
+    let lines = revisionLines.map((l, i) => {
+      const v = byVariant.get(l.variantId);
+      const quoted = quotedByVariant.get(l.variantId);
+      const qty = Number(l.quantity.toString());
+      const unitPrice = quoted ? quoted.unitPrice : (v?.price ?? null);
       return {
-        variantId: l.variantId,
-        sku: v?.sku ?? l.variantId.slice(0, 8),
-        title: v?.title ?? "Producto",
+        key: `line-${i}`,
+        sku: v?.sku ?? null,
+        title: v ? (v.product.title === v.title ? v.title : `${v.product.title} — ${v.title}`) : "Producto",
         quantity: l.quantity.toString(),
+        unitPrice: unitPrice ? unitPrice.toFixed(2) : null,
+        lineTotal: quoted
+          ? quoted.lineSubtotal.toFixed(2)
+          : unitPrice && Number.isFinite(qty)
+            ? unitPrice.mul(l.quantity).toFixed(2)
+            : null,
       };
     });
+    // Cobro rápido: no hay líneas, el concepto es la descripción.
+    if (lines.length === 0 && order.description) {
+      lines = [
+        {
+          key: "line-0",
+          sku: null,
+          title: order.description,
+          quantity: "1",
+          unitPrice: order.subtotal.toFixed(2),
+          lineTotal: order.subtotal.toFixed(2),
+        },
+      ];
+    }
+
+    // Último intento de pago (sin las sesiones reemplazadas) y acumulado
+    // reembolsado sobre las cobradas, para que la página diga "reembolso
+    // parcial" cuando aplica aunque el pedido siga PAID.
+    const last = order.payments[0] ?? null;
+    const refunded = order.payments
+      .filter((p) => ["CAPTURED", "PARTIALLY_REFUNDED", "REFUNDED"].includes(p.status))
+      .reduce((acc, p) => acc.add(p.refundedTotal), new Prisma.Decimal(0));
+    const captured = order.payments.find((p) =>
+      ["CAPTURED", "PARTIALLY_REFUNDED", "REFUNDED"].includes(p.status),
+    );
+
+    const payable = order.status === "CHECKOUT_OPEN" || order.status === "AWAITING_PAYMENT";
+    const checkoutToken = payable
+      ? await this.quotes.activeCheckoutToken({
+          status: order.status,
+          currentRevisionId: order.currentRevisionId,
+          expiresAt: order.expiresAt,
+        })
+      : null;
+
     return {
-      id: order.id,
+      folio: order.id.slice(0, 8).toUpperCase(),
       status: order.status,
-      total: order.total.toString(),
-      merchant: order.tenant.name,
+      source: order.source,
+      currency: "MXN",
+      livemode: false,
+      subtotal: order.subtotal.toFixed(2),
+      discount: order.discount.toFixed(2),
+      tax: order.tax.toFixed(2),
+      shipping: order.shipping.toFixed(2),
+      total: order.total.toFixed(2),
+      merchant: {
+        name: order.tenant.name,
+        logoUrl: order.tenant.logoUrl ?? null,
+        primaryColor: order.tenant.primaryColor ?? null,
+      },
       customer: { fullName: order.customer.fullName },
       lines,
+      delivery: revision
+        ? {
+            mode: revision.deliveryMode,
+            address: address
+              ? {
+                  label: address.label,
+                  line1: address.line1,
+                  line2: address.line2,
+                  city: address.city,
+                  state: address.state,
+                  postalCode: address.postalCode,
+                }
+              : null,
+          }
+        : null,
+      payment: {
+        /** Resultado del último intento: PENDING | CAPTURED | FAILED | null. */
+        lastStatus: last
+          ? last.status === "PENDING"
+            ? last.expiresAt.getTime() > Date.now()
+              ? "PENDING"
+              : null
+            : ["CAPTURED", "PARTIALLY_REFUNDED", "REFUNDED", "AUTHORIZED"].includes(last.status)
+              ? "CAPTURED"
+              : last.status === "FAILED"
+                ? "FAILED"
+                : null
+          : null,
+        method: captured?.paymentMethod ?? null,
+        capturedAt: captured?.capturedAt ?? order.paidAt,
+        refundedTotal: refunded.toFixed(2),
+        /** Link de pago vigente para "Pagar ahora"; null si no hay checkout abierto. */
+        checkoutToken,
+        checkoutExpiresAt: checkoutToken ? order.expiresAt : null,
+      },
       timeline: {
         createdAt: order.createdAt,
+        placedAt: order.placedAt,
         paidAt: order.paidAt,
         fulfilledAt: order.fulfilledAt,
         cancelledAt: order.cancelledAt,
+        updatedAt: order.updatedAt,
       },
     };
   }
@@ -1178,9 +1370,8 @@ export class OrderService {
     tenantId: string,
     order: { id: string; customerId: string; total: { toString(): string } },
   ): Promise<string | null> {
-    const base = (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
     const token = await this.getOrCreateTrackingToken(tenantId, order.id);
-    const link = `${base}/orders/public/track/${token}`;
+    const link = trackingUrl(token);
     const customer = await this.prisma.customer.findUnique({ where: { id: order.customerId } });
     const target = customer && pickChannel(customer);
     if (target) {
