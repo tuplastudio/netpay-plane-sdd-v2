@@ -352,10 +352,19 @@ function TextPart({ text }: { text: string }) {
 }
 
 function UserMessage() {
+  // assistant-ui no expone timestamp del mensaje: se captura el instante del
+  // primer render (justo después de enviarlo), suficiente para el reloj visible.
+  const [sentAt] = useState(() => Date.now());
   return (
     <MessagePrimitive.Root className="row user">
       <div className="bubble user">
         <MessagePrimitive.Parts components={{ Text: TextPart }} />
+        <span className="bubble-meta">
+          <span className="time">{hora(sentAt)}</span>
+          <span className="ticks" aria-hidden>
+            ✓✓
+          </span>
+        </span>
       </div>
     </MessagePrimitive.Root>
   );
@@ -378,13 +387,17 @@ function AssistantMessage({ units }: { units: Map<string, Unidad> }) {
         {custom.handoff && <div className="banner handoff">Una persona del equipo tomará la conversación</div>}
         <div className={`bubble assistant ${urgent ? "urgent" : ""}`}>
           {text ? <MessagePrimitive.Parts components={{ Text: TextPart }} /> : running ? <span className="dots"><i /><i /><i /></span> : null}
+          {custom.at && !running && (
+            <span className="bubble-meta">
+              <span className="time">{hora(custom.at)}</span>
+            </span>
+          )}
         </div>
         {!running &&
           custom.cards?.map((c) => {
             const u = units.get(c.id);
             return u ? <UnitCard key={c.id} unidad={u} km={c.km} /> : null;
           })}
-        {custom.at && !running && <span className="time">{hora(custom.at)}</span>}
       </div>
     </MessagePrimitive.Root>
   );
