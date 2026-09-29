@@ -24,8 +24,12 @@ export interface TablePagerProps {
 /**
  * Pager por número de página para listados con `limit`/`offset` en el backend.
  * Controlado: quien lo usa (normalmente `usePagedQuery`) es dueño del estado.
- * No se pinta si el total cabe en la primera página con el tamaño mínimo, para
- * no estorbar en listados chicos.
+ *
+ * Se pinta siempre que haya al menos una fila — el "1–7 de 7" con
+ * anterior/siguiente deshabilitados es la prueba visible de que el listado
+ * SÍ está paginado, aunque hoy quepa completo en una página. Ocultarlo del
+ * todo (como antes) dejaba a quien mira la pantalla sin forma de distinguir
+ * "no hay más páginas" de "esto no pagina".
  */
 export function TablePager({
   page,
@@ -36,8 +40,7 @@ export function TablePager({
   pageSizeOptions = PAGE_SIZE_OPTIONS,
   loading = false,
 }: TablePagerProps) {
-  const minSize = Math.min(...pageSizeOptions);
-  if (total <= minSize && page <= 1) return null;
+  if (total <= 0) return null;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const current = Math.min(page, totalPages);

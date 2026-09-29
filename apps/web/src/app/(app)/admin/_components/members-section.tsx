@@ -18,6 +18,7 @@ import {
 import { ROLE_LABELS, StatusBadge } from "@/components/ui/status-badge";
 import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { ClientPagination, usePagination } from "@/components/app/client-pagination";
 import { DateTime } from "@/components/app/date-time";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { InviteUserTrigger } from "./invite-user-sheet";
@@ -88,6 +89,11 @@ export function MembersSection() {
   });
 
   const rows = members.data;
+  // `/iam/memberships` no pagina en el backend (junta membresías + invitaciones
+  // en un solo arreglo; típicamente decenas, no miles), así que se pagina en
+  // cliente. `myRole`/`lastActiveOwnerId` siguen sobre `rows` completo, no
+  // sobre la página — son reglas de negocio, no de presentación.
+  const pagination = usePagination(rows, 25);
 
   /** Rol propio según el servidor (viene marcado con `isSelf` en la lista). */
   const myRole = useMemo(() => rows?.find((r) => r.isSelf)?.role ?? null, [rows]);
@@ -339,12 +345,23 @@ export function MembersSection() {
       >
         <DataTable
           columns={columns}
-          rows={rows}
+          rows={pagination.pageRows}
           isLoading={members.isLoading}
           isError={members.isError}
           error={members.error}
           onRetry={() => void members.refetch()}
           caption="Miembros e invitaciones del tenant"
+          pagination={
+            <ClientPagination
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              totalPages={pagination.totalPages}
+              onPageChange={pagination.setPage}
+              onPageSizeChange={pagination.setPageSize}
+              noun="miembros"
+            />
+          }
           empty={{
             icon: <Users className="h-6 w-6" />,
             title: "Sin miembros",

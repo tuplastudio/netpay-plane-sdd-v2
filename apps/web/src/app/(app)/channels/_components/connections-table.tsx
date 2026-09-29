@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Section } from "@/components/app/section";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { ClientPagination, usePagination } from "@/components/app/client-pagination";
 import { DateTime } from "@/components/app/date-time";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
@@ -52,6 +53,10 @@ export function ConnectionsTable({
   const [disconnectTarget, setDisconnectTarget] = useState<Connection | null>(null);
   const checkHealth = useCheckHealth();
   const disconnect = useDisconnect(() => setDisconnectTarget(null));
+  // `/whatsapp/connections` no pagina en el backend (pocos canales por
+  // tenant, casi siempre 1-5), así que el paginado va en cliente sobre el
+  // arreglo ya completo, igual que la tabla de agentes del reporte.
+  const pagination = usePagination(query.data, 10);
 
   const columns: Array<DataTableColumn<Connection>> = [
     {
@@ -140,13 +145,24 @@ export function ConnectionsTable({
       >
         <DataTable
           columns={columns}
-          rows={query.data}
+          rows={pagination.pageRows}
           isLoading={query.isLoading}
           isError={query.isError}
           error={query.error}
           onRetry={() => void query.refetch()}
           caption="Conexiones de WhatsApp del comercio"
           skeletonRows={2}
+          pagination={
+            <ClientPagination
+              page={pagination.page}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              totalPages={pagination.totalPages}
+              onPageChange={pagination.setPage}
+              onPageSizeChange={pagination.setPageSize}
+              noun="canales"
+            />
+          }
           empty={{
             icon: <PlugZap className="h-6 w-6" />,
             title: "Ningún canal conectado",
