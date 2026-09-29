@@ -1,0 +1,38 @@
+name: One-off - diagnostico webauth imssbienestar-ui (sin exponer secretos)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-imssbienestar-webauth-diag.yml"
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    name: revisar htpasswd/env dentro del contenedor, sin imprimir la password
+    runs-on: ubuntu-latest
+    steps:
+      - name: Diagnostico
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -uo pipefail
+            C=netpay_agent_imssbienestar_ui
+            echo "=== openssl presente en la imagen? ==="
+            docker exec "$C" sh -c 'which openssl; openssl version' 2>&1
+            echo ""
+            echo "=== WEBAUTH_USER (valor, no es secreto) y largo de WEBAUTH_PASSWORD ==="
+            docker exec "$C" sh -c 'echo "user=[$WEBAUTH_USER]"; echo "password_len=${#WEBAUTH_PASSWORD}"' 2>&1
+            echo ""
+            echo "=== .htpasswd: existe? cuantas lineas? primeros caracteres (usuario + inicio de hash, sin la password) ==="
+            docker exec "$C" sh -c 'ls -la /etc/nginx/.htpasswd 2>&1; wc -l /etc/nginx/.htpasswd 2>&1; cut -c1-12 /etc/nginx/.htpasswd 2>&1'
+            echo ""
+            echo "=== logs de arranque del contenedor (docker-entrypoint.d) ==="
+            docker logs "$C" 2>&1 | tail -40
+            echo ""
+            echo "=== nginx.conf.template ya sustituido (default.conf), solo la parte de auth ==="
+            docker exec "$C" sh -c "grep -n 'auth_basic\|htpasswd' /etc/nginx/conf.d/default.conf" 2>&1
