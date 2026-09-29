@@ -54,6 +54,14 @@ Variables nuevas (todas opcionales): `PROMPTS_DIR`, `PROMPT_VERSION`,
 `AGENT_TURN_TIMEOUT_IMAGE_SECONDS` (42), `AGENT_COALESCE_WINDOW_MS` (1500; 0
 apaga), `AGENT_COALESCE_CHANNELS` (`whatsapp`), `AGENT_RETRY_TRANSIENT` (1),
 `AGENT_HANDOFF_AFTER_FAILURES` (2; 1 = todo fallo es handoff, como antes),
+`AGENT_SCOPE_GUARD_FAST_PATH` (1; atajo sin LLM para "sí", "la 2", frases
+cortas comerciales), `AGENT_CATALOG_MAX_CHARS` (6000; tope del bloque
+`<catalogo>` del prompt, 0 = sin tope), `AGENT_MAX_CONCURRENT_TURNS` (64),
+`AGENT_MAX_CONCURRENT_TURNS_PER_TENANT` (8), `AGENT_QUEUE_TIMEOUT_SECONDS`
+(10; sin lugar → respuesta suave `engine=overloaded`), `AGENT_MAX_REQUEST_BYTES`
+(0 = video en base64 + 1 MB; 413 por Content-Length antes de parsear),
+`AGENT_ALLOWED_MODELS` (modelos que un tenant puede elegir pagando con la key
+global; con key propia no aplica),
 `AGENT_TRANSCRIPT_LIMIT` (60). `GET /diagnostics` reporta el estado de cada
 capa y `GET /metrics` los contadores del proceso.
 

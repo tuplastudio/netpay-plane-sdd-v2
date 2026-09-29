@@ -22,6 +22,7 @@ import uuid
 from collections import Counter, deque
 from typing import Any
 
+from .. import turn_usage
 from ..observability import report_turn
 
 
@@ -38,6 +39,9 @@ def log_turn_done(log: logging.Logger, trace: TurnTrace, tenant_id: str | None =
     (`bind_turn_id`). `report_turn` es no-op si Langfuse está apagado.
     """
     payload = trace.to_dict()
+    usage = turn_usage.current()
+    if usage is not None and usage.model_calls:
+        payload["usage"] = usage.to_dict()
     log.info("turn.done %s", payload)
     report_turn(payload, tenant_id=tenant_id)
 

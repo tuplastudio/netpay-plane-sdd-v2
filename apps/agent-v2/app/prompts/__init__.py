@@ -17,6 +17,7 @@ Uso::
 from .assembler import (
     DATA_TAGS,
     assemble_prompt,
+    assemble_prompt_parts,
     escape_data,
     identity_variables,
     overrides_block,
@@ -45,6 +46,7 @@ __all__ = [
     "PromptVersion",
     "PromptVersionNotFound",
     "assemble_prompt",
+    "assemble_prompt_parts",
     "escape_data",
     "get_prompt_registry",
     "identity_variables",

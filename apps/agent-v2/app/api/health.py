@@ -151,6 +151,16 @@ async def diagnostics(tenantId: str | None = Query(default=None)) -> dict[str, A
             "keepMessages": settings.keep_messages,
             "compactAfterChars": settings.compact_after_chars,
             "compactKeepTurns": settings.compact_keep_turns,
+            "catalogMaxChars": settings.catalog_max_chars,
+            "maxRequestBytes": settings.effective_max_request_bytes,
+        },
+        "capacity": {
+            "maxConcurrentTurns": settings.max_concurrent_turns,
+            "maxConcurrentTurnsPerTenant": settings.max_concurrent_turns_per_tenant,
+            "queueTimeoutSeconds": settings.queue_timeout_seconds,
+            "inFlight": runtime.limiter.in_flight(),
+            "inFlightTenant": runtime.limiter.in_flight(tenant_id) if tenant_id else None,
+            "allowedModels": list(settings.allowed_models),
         },
         "prompts": {
             "default": settings.prompt_version,
@@ -160,6 +170,7 @@ async def diagnostics(tenantId: str | None = Query(default=None)) -> dict[str, A
         "guards": {
             "inputHeuristics": settings.input_heuristics_enabled,
             "scopeGuard": settings.scope_guard_enabled,
+            "scopeGuardFastPath": settings.scope_guard_fast_path,
             "scopeGuardFailClosed": settings.scope_guard_fail_closed,
             "outputGuard": settings.output_guard_enabled,
             "presidio": settings.presidio_enabled,

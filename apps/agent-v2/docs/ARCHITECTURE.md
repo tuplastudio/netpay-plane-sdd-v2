@@ -138,6 +138,55 @@ mismo principio que el resto de las capas):
 | **Langfuse** | `app/observability.py` | `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | Manda el mismo resumen que ya loguea `turn.done` (`pipeline/trace.py`) — duración por etapa, motor, intent, reintento, nunca texto de cliente ni de respuesta — como una traza a Langfuse, para verlo en un dashboard filtrable por tenant en vez de grep sobre logs. |
 | **Flagsmith** | `app/remote_config.py` | `FLAGSMITH_ENVIRONMENT_KEY` (+ `FLAGSMITH_API_URL` si es self-hosteado) | Feature flags e hiperparámetros dinámicos: una TERCERA capa de configuración, encima del env (por proceso) y de `agent_settings.py` (por tenant, desde el panel). Deja que operación apague un guard o ajuste la temperatura por defecto para TODOS los tenants en caliente, sin redeploy y sin tocar el panel de cada negocio. Evaluación local (el SDK refresca en un hilo de fondo cada `FLAGSMITH_POLL_SECONDS`), así que cada lectura es en memoria, nunca una llamada de red por turno. Cubre a propósito solo un puñado de nombres de flag (`scope_guard_enabled`, `input_heuristics_enabled`, `nemo_guardrails_enabled`, `presidio_enabled`, `agent_temperature`) — no es un mecanismo general para mover cualquier valor de `config.py`. |
 
+### Presupuesto de tokens y caché de prefijo
+
+El prompt de sistema se arma en CADA llamada al modelo (2-4 por turno con
+herramientas) y pesa: ~40 KB de bloques estáticos, hasta 24 KB de
+conocimiento y el catálogo completo. Tres medidas mantienen ese costo bajo
+control (todas medibles en `turn.done.usage` y en `GET /metrics`:
+`tokens.input`, `tokens.output`, `tokens.cached`, `model.calls`):
+
+1. **Prefijo estable primero** (`prompts/assembler.py`,
+   `assemble_prompt_parts`). El orden del prompt es: estático → estilo →
+   ajustes → `<reglas_negocio>` → `<catalogo>` → `<informacion_negocio>` →
+   `<lecciones>` | `<memoria_conversacion>` → `<memoria_cliente>`. Todo lo
+   que no cambia entre turnos de un tenant va antes de lo que cambia por
+   conversación, así el caché de prefijo del proveedor (OpenAI automático,
+   Gemini 2.5 implícito, Anthropic) reutiliza el bloque grande. Antes
+   `<memoria_conversacion>` iba ANTES del catálogo y del conocimiento, y
+   cada turno invalidaba el caché de los dos bloques más grandes.
+   `langchain_openai` descarta `cache_control` en chat/completions, así que
+   no hay breakpoints explícitos de Anthropic: el orden es el mecanismo.
+2. **Tope del catálogo** (`AGENT_CATALOG_MAX_CHARS`, 6000;
+   `tenant_context.cap_catalog`). Por encima se recorta por producto
+   completo y se anota cuántos quedaron fuera; el modelo ya tiene
+   `buscar_productos` (caché de 120 s, sin tokens) para el resto.
+3. **Atajo del clasificador de tema** (`AGENT_SCOPE_GUARD_FAST_PATH`;
+   `guards/injection.py::obviously_on_topic`). Saludos, confirmaciones,
+   solo números y frases cortas con vocabulario comercial (hasta 12
+   palabras si ya hay carrito/cliente en el estado) no pagan la llamada al
+   clasificador LLM. Corre DESPUÉS de las heurísticas de inyección y fuera
+   de tema sobre el mismo texto; ante duda devuelve `False` y decide el
+   clasificador. Métrica: `turn.scope_guard_skipped`.
+
+Además, el `TenantBundle` se memoiza por turno (`tenant_context.turn_scope`,
+un `ContextVar` que abre `pipeline/turn.py`): la segunda llamada al modelo
+del mismo turno y el guard de salida no vuelven a leer disco, sqlite ni
+cachés.
+
+### Capacidad y costo por tenant
+
+| Riesgo | Capa | Dónde |
+|---|---|---|
+| Un tenant con cientos de mensajes seguidos acapara el proceso y la cuota del proveedor | `TurnLimiter`: semáforo global (`AGENT_MAX_CONCURRENT_TURNS`, 64) y por tenant (`AGENT_MAX_CONCURRENT_TURNS_PER_TENANT`, 8). Sin lugar en `AGENT_QUEUE_TIMEOUT_SECONDS` (10) el cliente recibe una respuesta suave (`engine="overloaded"`, `intent="OVERLOADED"`, HTTP 200) que NO se guarda en idempotencia: el reintento del puente sí entra cuando hay lugar | `runtime.py`, `pipeline/turn.py` |
+| Cuerpo HTTP gigante deserializado completo antes de validar la imagen/video | 413 por `Content-Length` en un middleware, antes de parsear (`AGENT_MAX_REQUEST_BYTES`, por defecto video en base64 + 1 MB) | `main.py` |
+| Texto libre en el panel elige un modelo carísimo a cargo de la key global | `text_model` solo acepta un slug `proveedor/modelo`; con la key GLOBAL solo modelos de `AGENT_ALLOWED_MODELS` (los demás caen al modelo por defecto con warning). Con key propia del tenant no aplica | `agent_settings.sanitize`, `agent._tenant_model_middleware` |
+| El modelo del tenant falla y el fallback gasta con la key de la plataforma | La degradación al modelo por defecto conserva la key del tenant si la tiene | `agent._tenant_model_middleware` |
+| Un sqlite de idempotencia bloqueado convierte un turno que ya salió bien en 500 | `_remember`/`_cache_hit` son best-effort (`turn.idempotency_error`) | `pipeline/turn.py` |
+
+`GET /diagnostics` expone `capacity` (topes, turnos en vuelo, modelos
+permitidos) y `guards.scopeGuardFastPath`.
+
 ### Presupuesto de tiempo
 
 commerce-api (`agent-bridge.service.ts`) aborta la llamada al agente a los
@@ -312,6 +361,19 @@ cotización, pedido y enlace de pago.
   (`tools._delivery_mode`: explícito → recordado → `default_delivery_mode`
   del tenant → `PICKUP`) para que el enlace de pago cobre el mismo envío que
   el total ya dicho al cliente.
+- **Dirección y ubicación (T-SHIP-04/07).** `recordar_direccion_entrega`
+  guarda en `delivery_address` el CP / ciudad / estado y, si el cliente
+  compartió su ubicación de WhatsApp (commerce-api la inyecta en el texto
+  como `[el cliente compartió su ubicación: LAT, LNG]`), también `lat`/`lng`.
+  `validar_zona_de_envio` y `calcular_total` mandan ese punto a commerce-api
+  (`GET /shipping/lookup?lat&lng`, `POST /pricing/preview`), que evalúa
+  primero las zonas con polígono dibujado en el panel y luego CP → ciudad →
+  catch-all → tarifa plana; la respuesta trae `matchedBy` y la tool lo
+  traduce a texto ("por la ubicación", "por código postal"). Las
+  coordenadas viajan como strings desde el modelo y `tools._parse_point`
+  las valida (rango WGS84, coma decimal); una coordenada suelta o inválida
+  se ignora, nunca rompe la llamada. Prompt: `55_envio_domicilio.md` desde
+  v1.6.0.
 - **Nombre en el mismo lote.** "Sí, emítela, soy Ana" hace que el modelo
   llame `recordar_cliente` y `emitir_cotizacion` en el mismo mensaje; ambas
   corren contra el mismo snapshot, así que `emitir_cotizacion` rescata el
@@ -421,6 +483,22 @@ Contrato `POST /chat` que consume cada lado:
   `toolCalls`.
 - **Panel de ajustes**: `GET/PUT /settings` incluye `prompt_version` y
   `options.prompt_version` (versiones cargadas).
+
+## Modo de cobro por negocio (`AgentSettings.checkout_mode`)
+
+Cada tenant elige desde el panel qué pasa cuando el cliente confirma:
+
+| `checkout_mode` | Bot | Enlace público de la cotización |
+|---|---|---|
+| `quote_only` | `emitir_cotizacion` NO crea pedido ni checkout; `generar_enlace_pago` se niega con un `ERROR:` explicativo; el prompt (bloque `MODO SOLO COTIZACIÓN` de `overrides_block`) cierra con `quote_only_closing_message`. | commerce-api lee el modo vía `AgentSettingsClient.paymentLinksEnabled` y devuelve `paymentEnabled=false`: sin botón de pagar y `POST /orders/public/quote/:token/checkout` responde 400. |
+| `quote_and_pay` (default) | Cotización + enlace de pago + PDF en un solo paso (flujo de siempre). | Botón "Aceptar y pagar". |
+| `pay_first` | Sin cotización previa: `generar_enlace_pago` directo tras el "sí" (bloque `FLUJO RÁPIDO`). | Ídem. |
+
+`bot_pay_first` sigue existiendo por compatibilidad y se deriva del modo
+(`resolve_checkout_mode`): un panel o JSON viejo con `bot_pay_first: true`
+se lee como `pay_first`; `false` no pisa un `quote_only` guardado. Las
+herramientas leen el modo del store del tenant en cada llamada, nunca del
+modelo ni del cliente. Pruebas: `tests/test_checkout_mode.py`.
 
 ## Añadir un negocio
 

@@ -101,6 +101,88 @@ class ThreadLocks:
         return 1 if lock is not None and lock.locked() else 0
 
 
+class TurnLimiter:
+    """Tope de turnos simultáneos: global y por tenant.
+
+    Sin esto, un tenant con una ráfaga de cientos de mensajes (campaña,
+    integrador en bucle, ataque) acapara el event loop, la cuota del
+    proveedor y la conexión del checkpointer para TODOS los negocios. Dos
+    semáforos: uno del proceso y uno por tenant (creados bajo demanda y
+    purgados cuando quedan libres). `0` en cualquiera de los dos topes lo
+    desactiva.
+
+    `acquire()` espera como máximo `queue_timeout`; si no consigue lugar
+    lanza `TurnOverloaded` y el pipeline contesta una respuesta suave
+    (`engine="overloaded"`) en vez de encolar sin límite o de un 5xx que el
+    puente descarta en silencio.
+    """
+
+    def __init__(self, max_total: int, max_per_tenant: int, queue_timeout: float) -> None:
+        self.max_total = max(0, int(max_total))
+        self.max_per_tenant = max(0, int(max_per_tenant))
+        self.queue_timeout = max(0.0, float(queue_timeout))
+        self._total = asyncio.Semaphore(self.max_total) if self.max_total else None
+        self._tenants: dict[str, asyncio.Semaphore] = {}
+        self._in_flight: dict[str, int] = {}
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._total or self.max_per_tenant)
+
+    def in_flight(self, tenant_id: str | None = None) -> int:
+        if tenant_id is None:
+            return sum(self._in_flight.values())
+        return self._in_flight.get(tenant_id, 0)
+
+    def _tenant_sem(self, tenant_id: str) -> asyncio.Semaphore | None:
+        if not self.max_per_tenant:
+            return None
+        sem = self._tenants.get(tenant_id)
+        if sem is None:
+            sem = asyncio.Semaphore(self.max_per_tenant)
+            self._tenants[tenant_id] = sem
+        return sem
+
+    @contextlib.asynccontextmanager
+    async def acquire(self, tenant_id: str):
+        """`async with limiter.acquire(tenant):` — lanza `TurnOverloaded` si
+        no hay lugar en `queue_timeout` segundos."""
+        tenant_sem = self._tenant_sem(tenant_id)
+        held: list[asyncio.Semaphore] = []
+        try:
+            for sem in (tenant_sem, self._total):
+                if sem is None:
+                    continue
+                try:
+                    await asyncio.wait_for(sem.acquire(), timeout=self.queue_timeout)
+                except asyncio.TimeoutError as exc:
+                    scope = "tenant" if sem is tenant_sem else "proceso"
+                    raise TurnOverloaded(scope) from exc
+                held.append(sem)
+            self._in_flight[tenant_id] = self._in_flight.get(tenant_id, 0) + 1
+            yield
+        finally:
+            if held:
+                count = self._in_flight.get(tenant_id, 1) - 1
+                if count <= 0:
+                    self._in_flight.pop(tenant_id, None)
+                    # Tenant sin turnos en vuelo: se suelta su semáforo para
+                    # que el dict no crezca con cada tenant que escribió una vez.
+                    self._tenants.pop(tenant_id, None)
+                else:
+                    self._in_flight[tenant_id] = count
+            for sem in held:
+                sem.release()
+
+
+class TurnOverloaded(Exception):
+    """No hubo lugar para el turno dentro de `queue_timeout` (ver TurnLimiter)."""
+
+    def __init__(self, scope: str) -> None:
+        super().__init__(f"sin capacidad ({scope})")
+        self.scope = scope
+
+
 class IdempotencyStore:
     """Persiste `messageId -> respuesta ya calculada` por hilo.
 
@@ -184,6 +266,11 @@ class Runtime:
         self.output_guard = OutputGuard(self.settings)
         self.coalescer: MessageCoalescer[str] = MessageCoalescer(self.settings.coalesce_window_ms)
         self.metrics = Metrics(self.settings.metrics_latency_samples)
+        self.limiter = TurnLimiter(
+            self.settings.max_concurrent_turns,
+            self.settings.max_concurrent_turns_per_tenant,
+            self.settings.queue_timeout_seconds,
+        )
         # Modelo para resúmenes de compactación y extracción episódica: tareas
         # internas, así que usan el modelo fijo del proceso, no el del tenant.
         self.utility_model: Any = None

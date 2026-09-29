@@ -110,6 +110,25 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-Internal-Key"],
 )
 
+@app.middleware("http")
+async def _limit_request_body(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """413 por `Content-Length` ANTES de leer el cuerpo.
+
+    `media_size_error` rechaza imágenes/videos grandes, pero solo después
+    de que FastAPI deserializó el JSON completo en memoria: un cuerpo de
+    cientos de MB era CPU y RAM gratis para cualquiera con la llave interna
+    (o sin ella, en local). El tope sale de `AGENT_MAX_REQUEST_BYTES` o del
+    tope de video en base64 más margen."""
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > settings.effective_max_request_bytes:
+        limit_mb = settings.effective_max_request_bytes / (1024 * 1024)
+        return JSONResponse(
+            status_code=413,
+            content={"detail": f"Cuerpo demasiado grande (máximo {limit_mb:.0f} MB)."},
+        )
+    return await call_next(request)
+
+
 @app.exception_handler(InvalidTenantId)
 async def _invalid_tenant(_request: Request, exc: InvalidTenantId) -> JSONResponse:
     """Un `tenantId` malformado es un 400 en cualquier endpoint (ver

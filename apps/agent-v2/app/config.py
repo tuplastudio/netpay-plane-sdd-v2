@@ -179,6 +179,58 @@ class Settings:
         default_factory=lambda: _env_bool("AGENT_SCOPE_GUARD", True)
     )
     scope_guard_model: str = field(default_factory=lambda: _env("SCOPE_GUARD_MODEL_ID", ""))
+    # Atajo determinista ANTES del clasificador LLM: un "sí", "la 2", "hola"
+    # o una frase corta con vocabulario comercial en medio de una venta no
+    # paga una llamada al modelo para saber que va del negocio (ver
+    # `guards/injection.py::obviously_on_topic`). Apagable por si un tenant
+    # quiere el clasificador en TODOS los turnos.
+    scope_guard_fast_path: bool = field(
+        default_factory=lambda: _env_bool("AGENT_SCOPE_GUARD_FAST_PATH", True)
+    )
+
+    # ---- Presupuesto de prompt ----
+    # El catálogo entra completo al prompt en CADA llamada al modelo. Con
+    # catálogos grandes son miles de tokens por llamada que además el modelo
+    # ya puede consultar con `buscar_productos`. Por encima de este tope se
+    # recorta por línea y se anota que hay más (0 = sin tope).
+    catalog_max_chars: int = field(
+        default_factory=lambda: _env_int("AGENT_CATALOG_MAX_CHARS", 6000)
+    )
+
+    # ---- Concurrencia (ver runtime.TurnLimiter) ----
+    # Tope de turnos simultáneos del proceso y por tenant. Un tenant con una
+    # ráfaga de cientos de mensajes (campaña, bucle de un integrador) no debe
+    # acaparar el proceso ni la cuota del proveedor para todos los demás.
+    # 0 = sin tope. Un turno que no consigue lugar en `queue_timeout_seconds`
+    # recibe una respuesta suave (`engine="overloaded"`), nunca un 5xx mudo.
+    max_concurrent_turns: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_CONCURRENT_TURNS", 64)
+    )
+    max_concurrent_turns_per_tenant: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_CONCURRENT_TURNS_PER_TENANT", 8)
+    )
+    queue_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("AGENT_QUEUE_TIMEOUT_SECONDS", 10.0)
+    )
+    # Tope del cuerpo HTTP (Content-Length) antes de parsear JSON: sin esto
+    # un cuerpo de cientos de MB se deserializa completo en memoria antes de
+    # que `media_size_error` pueda rechazarlo. 0 = derivado del tope de video
+    # (base64 + margen).
+    max_request_bytes: int = field(
+        default_factory=lambda: _env_int("AGENT_MAX_REQUEST_BYTES", 0)
+    )
+    # Modelos que un tenant puede elegir en el panel cuando paga con la key
+    # GLOBAL del proceso. Con su propia key de OpenRouter puede usar el que
+    # quiera (paga él). Vacío = sin restricción (comportamiento anterior).
+    allowed_models: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            m.strip() for m in _env(
+                "AGENT_ALLOWED_MODELS",
+                "google/gemini-2.0-flash-001,google/gemini-1.5-pro,google/gemini-2.5-pro,"
+                "openai/gpt-4o-mini,openai/gpt-4o,anthropic/claude-3-5-haiku,anthropic/claude-3-5-sonnet",
+            ).split(",") if m.strip()
+        )
+    )
 
     # ---- Audio: notas de voz de WhatsApp y micrófono del chat web ----
     stt_model: str = field(default_factory=lambda: _env("STT_MODEL_ID", "openai/whisper-1"))
@@ -391,10 +443,36 @@ class Settings:
             raise SettingsError("AGENT_METRICS_LATENCY_SAMPLES debe ser >= 1")
         if self.flagsmith_poll_seconds < 1:
             raise SettingsError("FLAGSMITH_POLL_SECONDS debe ser >= 1")
+        if self.catalog_max_chars < 0:
+            raise SettingsError("AGENT_CATALOG_MAX_CHARS no puede ser negativo")
+        if self.max_concurrent_turns < 0 or self.max_concurrent_turns_per_tenant < 0:
+            raise SettingsError("AGENT_MAX_CONCURRENT_TURNS* no pueden ser negativos")
+        if self.queue_timeout_seconds < 0:
+            raise SettingsError("AGENT_QUEUE_TIMEOUT_SECONDS no puede ser negativo")
+        if self.max_request_bytes < 0:
+            raise SettingsError("AGENT_MAX_REQUEST_BYTES no puede ser negativo")
 
     @property
     def llm_live(self) -> bool:
         return bool(self.openrouter_key)
+
+    @property
+    def effective_max_request_bytes(self) -> int:
+        """Tope del cuerpo HTTP: el configurado, o el video en base64 (4/3)
+        más 1 MB de margen para el resto del JSON."""
+        if self.max_request_bytes > 0:
+            return self.max_request_bytes
+        return (self.max_video_bytes * 4) // 3 + 1024 * 1024
+
+    def model_allowed_with_global_key(self, model: str) -> bool:
+        """¿Puede un tenant usar `model` pagando con la key del proceso?
+
+        El modelo por defecto siempre está permitido; la lista vacía no
+        restringe nada.
+        """
+        if not model or model == self.model or not self.allowed_models:
+            return True
+        return model in self.allowed_models
 
     @property
     def langfuse_enabled(self) -> bool:

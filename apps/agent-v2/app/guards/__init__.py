@@ -12,12 +12,19 @@ que el modelo obedezca el prompt.
 
 Orden en un turno (``pipeline/turn.py``)::
 
-    neutralize → detect_injection → off_scope_category → is_off_topic (LLM)
+    neutralize → detect_injection → off_scope_category
+      → obviously_on_topic (atajo sin LLM) → is_off_topic (LLM)
       → nemo_check_input (opcional) → [compactación de contexto] → grafo
       → OutputGuard.check → canal
 """
 
-from .injection import InjectionVerdict, detect_injection, neutralize, off_scope_category
+from .injection import (
+    InjectionVerdict,
+    detect_injection,
+    neutralize,
+    obviously_on_topic,
+    off_scope_category,
+)
 from .nemo_rails import check_input as nemo_check_input
 from .output import OutputGuard, OutputVerdict, strip_quoted, urls_from_messages
 from .pii import (
@@ -42,6 +49,7 @@ __all__ = [
     "is_off_topic",
     "nemo_check_input",
     "neutralize",
+    "obviously_on_topic",
     "off_scope_category",
     "redact_pii",
     "redact_pii_names",

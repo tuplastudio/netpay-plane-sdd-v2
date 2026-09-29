@@ -49,6 +49,7 @@ from ..guards import (
     is_off_topic,
     nemo_check_input,
     neutralize,
+    obviously_on_topic,
     off_scope_category,
     redirect_reply,
     strip_quoted,
@@ -60,9 +61,11 @@ from ..memory import build_llm_summarizer, compact_thread, history_chars
 from ..memory.profile import get_profile_store
 from ..remote_config import get_bool as remote_bool
 from ..security import media_size_error
-from ..state import TurnContext
-from ..tenant_context import TenantBundle, resolve_tenant_bundle
+from ..state import TurnContext, open_carts
+from ..tenant_context import TenantBundle, resolve_tenant_bundle, turn_scope
 from ..text import format_for_whatsapp
+from ..turn_usage import begin_turn_usage, current as current_usage, end_turn_usage
+from ..runtime import TurnOverloaded
 from .failures import FailureKind, classify_failure, decide_failure
 from .post_turn import record_learning, schedule_episode
 from .replies import fallback_reply, final_reply, last_assistant_reply
@@ -73,6 +76,11 @@ if TYPE_CHECKING:
     from ..runtime import Runtime
 
 log = logging.getLogger("agent-v2.turn")
+
+# Respuesta cuando el proceso o el tenant no tienen lugar para un turno más
+# (ver `runtime.TurnLimiter`). Es un 200 con texto: el puente descarta los
+# 5xx y el cliente se quedaría sin nada.
+OVERLOADED_REPLY = "Estoy atendiendo a varias personas a la vez; dame un momento y vuelve a escribirme por favor."
 
 _URL_IN_TEXT = re.compile(r"https?://[^\s<>()\"']+", re.IGNORECASE)
 
@@ -178,13 +186,25 @@ class TurnPipeline:
     async def _remember(
         self, thread_id: str, message_id: str | None, response: ChatResponse
     ) -> ChatResponse:
-        await self.runtime.idempotency.put(thread_id, message_id, response.model_dump())
+        """Guarda la respuesta por `messageId`. Best-effort: un sqlite
+        bloqueado o lleno no puede convertir un turno que YA salió bien en
+        un 500 (la respuesta ya está calculada y el hilo ya avanzó)."""
+        try:
+            await self.runtime.idempotency.put(thread_id, message_id, response.model_dump())
+        except Exception:  # noqa: BLE001
+            self.runtime.metrics.incr("turn.idempotency_error")
+            log.warning("no se pudo guardar la idempotencia de %s", message_id, exc_info=True)
         return response
 
     async def _cache_hit(
         self, thread_id: str, message_id: str | None
     ) -> ChatResponse | None:
-        cached = await self.runtime.idempotency.get(thread_id, message_id)
+        try:
+            cached = await self.runtime.idempotency.get(thread_id, message_id)
+        except Exception:  # noqa: BLE001
+            self.runtime.metrics.incr("turn.idempotency_error")
+            log.warning("no se pudo leer la idempotencia de %s", message_id, exc_info=True)
+            return None
         if cached is None:
             return None
         log.info("messageId repetido, devolviendo respuesta previa: %s", message_id)
@@ -250,10 +270,21 @@ class TurnPipeline:
         # sus logs sin tener que pasarlo por argumento. `reset()` se hace en
         # el `finally` para no contaminar turnos siguientes.
         turn_token = bind_turn_id(trace.turn_id)
+        usage_token = begin_turn_usage()
         try:
-            response = await self._run(ctx, trace)
-            return response
+            # `turn_scope`: memo del TenantBundle válido solo en este turno
+            # (las llamadas al modelo dentro del grafo y el guard de salida
+            # comparten la misma lectura de settings/conocimiento/lecciones).
+            with turn_scope():
+                return await self._run(ctx, trace)
         finally:
+            usage = current_usage()
+            if usage is not None and usage.model_calls:
+                rt.metrics.incr("tokens.input", usage.input_tokens)
+                rt.metrics.incr("tokens.output", usage.output_tokens)
+                rt.metrics.incr("tokens.cached", usage.cached_tokens)
+                rt.metrics.incr("model.calls", usage.model_calls)
+            end_turn_usage(usage_token)
             reset_turn_id(turn_token)
 
     async def _run(self, ctx: PipelineContext, trace: TurnTrace) -> ChatResponse:
@@ -271,6 +302,32 @@ class TurnPipeline:
         if burst := await self._stage_coalesce(ctx):
             return await self._remember(ctx.thread_id, req.messageId, burst)
 
+        # Capacidad: tope de turnos simultáneos del proceso y del tenant. Sin
+        # lugar en `queue_timeout_seconds` → respuesta suave y NO se guarda
+        # en idempotencia, para que un reintento del puente sí pueda entrar.
+        try:
+            async with rt.limiter.acquire(req.tenantId):
+                return await self._run_locked(ctx, trace)
+        except TurnOverloaded as exc:
+            rt.metrics.incr(f"turn.overloaded.{exc.scope}")
+            log.warning("turno rechazado por capacidad (%s) en tenant %s", exc.scope, req.tenantId)
+            ctx.trace.note(engine="overloaded", intent="OVERLOADED")
+            log_turn_done(log, ctx.trace, tenant_id=req.tenantId)
+            reply = OVERLOADED_REPLY
+            return response_from_values(
+                ctx.conversation_id,
+                {},
+                reply=format_for_whatsapp(reply) if req.channel == "whatsapp" else reply,
+                handoff=False,
+                intent="OVERLOADED",
+                engine="overloaded",
+                latency_ms=ctx.trace.elapsed_ms,
+                turn_id=ctx.trace.turn_id,
+            )
+
+    async def _run_locked(self, ctx: PipelineContext, trace: TurnTrace) -> ChatResponse:
+        req = ctx.req
+        rt = ctx.rt
         # Todo lo que sigue toca el mismo hilo: lock por conversación.
         lock = await rt.thread_locks.acquire(ctx.thread_id)
         async with lock:
@@ -558,6 +615,15 @@ class TurnPipeline:
         if req.imageBase64:
             ctx.trace.mark("scope_guard")
             return None
+        if ctx.settings.scope_guard_fast_path and obviously_on_topic(
+            ctx.text, mid_sale=self._mid_sale(ctx.state_values)
+        ):
+            # "sí", "la 2", "cuánto sale el envío": del negocio sin gastar
+            # una llamada al clasificador. Las heurísticas de inyección y
+            # fuera de tema ya corrieron antes sobre este mismo texto.
+            ctx.rt.metrics.incr("turn.scope_guard_skipped")
+            ctx.trace.mark("scope_guard", skipped=True)
+            return None
         business = ctx.ensure_business_name()
         if await is_off_topic(
             ctx.text,
@@ -576,6 +642,15 @@ class TurnPipeline:
             )
         ctx.trace.mark("scope_guard")
         return None
+
+    @staticmethod
+    def _mid_sale(state_values: dict[str, Any]) -> bool:
+        """¿La conversación ya tiene carrito, cotización o cliente? En ese
+        contexto un mensaje corto con vocabulario comercial es del negocio."""
+        if open_carts(state_values.get("carts")):
+            return True
+        customer = state_values.get("customer") or {}
+        return bool(customer.get("name") or customer.get("customerId"))
 
     async def _stage_nemo_guardrails(self, ctx: PipelineContext) -> ChatResponse | None:
         """Capa 3, opcional (NeMo Guardrails): solo corre si está prendida
@@ -609,16 +684,22 @@ class TurnPipeline:
             return
         if history_chars(ctx.state_values.get("messages")) <= s.compact_after_chars:
             return
-        with contextlib.suppress(Exception):
-            await compact_thread(
+        try:
+            result = await compact_thread(
                 ctx.rt.agent,
                 ctx.config,
                 keep_turns=s.compact_keep_turns,
                 summarizer=build_llm_summarizer(ctx.rt.utility_model) if ctx.rt.utility_model else None,
                 reason="presupuesto",
             )
-        ctx.rt.metrics.incr("turn.compacted")
-        ctx.trace.mark("compact")
+        except Exception:  # noqa: BLE001 - la compactación es higiene, no el turno
+            ctx.rt.metrics.incr("turn.compact_error")
+            log.warning("no se pudo compactar el hilo %s", ctx.thread_id, exc_info=True)
+            ctx.trace.mark("compact", error=True)
+            return
+        if result.compacted:
+            ctx.rt.metrics.incr("turn.compacted")
+        ctx.trace.mark("compact", removed=result.removed or None)
 
     async def _stage_finalize_reply(self, ctx: PipelineContext) -> None:
         """Respaldo si el modelo cerró sin texto + guard de salida + WhatsApp."""
@@ -748,11 +829,13 @@ class TurnPipeline:
             with contextlib.suppress(Exception):
                 await rt.agent.aupdate_state(ctx.config, post_update)
 
+        usage = current_usage()
         trace.note(
             engine=ctx.engine,
             intent=ctx.result.get("stage"),
             handoff=handoff or None,
             tools=len(ctx.tool_calls),
+            tokens=usage.total_tokens if usage and usage.model_calls else None,
         )
         trace.mark("post_turn")
         rt.metrics.incr("turn.ok")

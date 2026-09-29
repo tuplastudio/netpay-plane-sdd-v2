@@ -37,7 +37,8 @@ from langgraph.errors import GraphBubbleUp
 
 from .agent_settings import get_agent_settings
 from .config import Settings, get_settings
-from .prompts import assemble_prompt
+from . import turn_usage
+from .prompts import assemble_prompt_parts
 from .remote_config import get_float as remote_float
 from .state import SalesState, TurnContext, working_memory_block
 from .tenant_context import load_company_context, resolve_tenant_bundle, warm_catalog
@@ -220,6 +221,19 @@ def _extract_usage(response: Any) -> tuple[int, int] | None:
     return (input_tokens, output_tokens) if found else None
 
 
+def _extract_cached_tokens(response: Any) -> int:
+    """Tokens de entrada servidos desde el caché de prefijo del proveedor
+    (`usage_metadata.input_token_details.cache_read`). 0 si no se reporta."""
+    messages = list(getattr(response, "result", None) or []) if hasattr(response, "result") else [response]
+    cached = 0
+    for msg in messages:
+        usage = getattr(msg, "usage_metadata", None) or {}
+        details = usage.get("input_token_details") if isinstance(usage, dict) else None
+        if isinstance(details, dict):
+            cached += int(details.get("cache_read", 0) or 0)
+    return cached
+
+
 def _report_usage(tenant_id: str, model: str, response: Any) -> None:
     """Fire-and-forget: nunca debe retrasar ni tumbar el turno de chat."""
     if not tenant_id:
@@ -228,6 +242,9 @@ def _report_usage(tenant_id: str, model: str, response: Any) -> None:
     if not usage:
         return
     input_tokens, output_tokens = usage
+    # Contabilidad local por turno (traza `turn.done` + `GET /metrics`):
+    # síncrona, en memoria, nunca lanza.
+    turn_usage.record(model, input_tokens, output_tokens, _extract_cached_tokens(response))
     cost_usd = _estimate_cost_usd(model, input_tokens, output_tokens)
 
     async def _send() -> None:
@@ -262,9 +279,17 @@ def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
     hook, que es la superficie que la librería expone justo para esto.
 
     Si el modelo del tenant no existe o el proveedor lo rechaza, se reintenta
-    con la request original (que ya trae el modelo por defecto del proceso):
-    un nombre de modelo mal escrito en el panel no puede dejar mudo al
-    agente.
+    con el modelo por defecto del proceso: un nombre de modelo mal escrito
+    en el panel no puede dejar mudo al agente. Dos reglas de costo:
+
+    * Un tenant que paga con la key GLOBAL solo puede usar modelos de
+      `settings.allowed_models` (`AGENT_ALLOWED_MODELS`); cualquier otro
+      nombre cae al modelo por defecto con un warning. Sin esto, un texto
+      libre en el panel podía elegir el modelo más caro del proveedor a
+      cargo de la plataforma.
+    * Si el tenant trae su PROPIA key, la degradación al modelo por defecto
+      conserva su key: que su modelo falle (o su cuota se agote) nunca
+      traslada el gasto a la key de la plataforma.
     """
 
     @wrap_model_call(name="tenant_model_override")
@@ -288,6 +313,13 @@ def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
         )
         tenant_api_key = overrides.openrouter_api_key() if overrides else ""
 
+        if not tenant_api_key and not settings.model_allowed_with_global_key(model_name):
+            logger.warning(
+                "tenant %s: modelo %r no está en AGENT_ALLOWED_MODELS para la key global; usando %r",
+                tenant_id, model_name, settings.model,
+            )
+            model_name = settings.model
+
         if (model_name, temperature, max_tokens) == (
             settings.model,
             settings.temperature,
@@ -309,11 +341,21 @@ def _tenant_model_middleware(settings: Settings, cache: _TenantModelCache):
         except GraphBubbleUp:
             raise  # interrupts/control flow de LangGraph, no es una falla del modelo
         except Exception:
+            if model_name == settings.model and not tenant_api_key:
+                raise  # ya era el modelo por defecto con la key global: nada que degradar
             logger.warning(
-                "tenant %s: modelo %r falló, degradando a %r",
-                tenant_id, model_name, settings.model, exc_info=True,
+                "tenant %s: modelo %r falló, degradando a %r (key_propia=%s)",
+                tenant_id, model_name, settings.model, bool(tenant_api_key), exc_info=True,
             )
-            response = await handler(request)  # request original = modelo por defecto
+            if tenant_api_key:
+                # Mismo modelo por defecto, pero con la key del tenant: el
+                # gasto sigue siendo suyo.
+                fallback = await cache.get(
+                    settings.model, settings.temperature, settings.max_tokens, tenant_api_key
+                )
+                response = await handler(request.override(model=fallback))
+            else:
+                response = await handler(request)  # request original = modelo por defecto
             _report_usage(tenant_id, settings.model, response)
             return response
 
@@ -333,20 +375,28 @@ async def sales_prompt(request) -> SystemMessage:  # type: ignore[no-untyped-def
     state: dict[str, Any] = request.state
     context: TurnContext = dict(getattr(request, "runtime", None).context or {})  # type: ignore[union-attr]
     tenant_id = context.get("tenant_id", "")
+    # Memoizado por turno (`tenant_context.turn_scope`): la 2.ª llamada al
+    # modelo del mismo turno no vuelve a leer disco ni sqlite.
     bundle = await resolve_tenant_bundle(tenant_id)
     assert bundle.prompt is not None
-    return SystemMessage(
-        assemble_prompt(
-            bundle.prompt,
-            profile=bundle.profile,
-            overrides=bundle.overrides,
-            working_memory=working_memory_block(state),
-            customer_memory=str(context.get("customer_memory") or ""),
-            catalog=bundle.catalog,
-            knowledge=bundle.knowledge,
-            lessons=bundle.lessons,
-        )
+    stable, dynamic = assemble_prompt_parts(
+        bundle.prompt,
+        profile=bundle.profile,
+        overrides=bundle.overrides,
+        working_memory=working_memory_block(state),
+        customer_memory=str(context.get("customer_memory") or ""),
+        catalog=bundle.catalog,
+        knowledge=bundle.knowledge,
+        lessons=bundle.lessons,
     )
+    # Prefijo estable primero y lo dinámico al final: así el caché de
+    # prefijo del proveedor (OpenAI, Gemini 2.5, Anthropic) reutiliza el
+    # bloque grande (prompt estático + catálogo + conocimiento) entre turnos
+    # del mismo tenant. `langchain_openai` descarta `cache_control` en
+    # chat/completions, así que no se pueden poner breakpoints explícitos de
+    # Anthropic: el orden es lo que hay, y basta para los proveedores con
+    # caché automático.
+    return SystemMessage("\n\n".join(part for part in (stable, dynamic) if part))
 
 
 def build_agent(checkpointer: AsyncSqliteSaver, settings: Settings | None = None):

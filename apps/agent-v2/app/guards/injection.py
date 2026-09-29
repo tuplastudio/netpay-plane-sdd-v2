@@ -268,6 +268,61 @@ def detect_injection(text: str) -> InjectionVerdict:
     return InjectionVerdict(bool(strong) or len(weak) >= 2, categories)
 
 
+# ---- Atajo "obviamente del negocio" (ahorra la llamada al clasificador LLM)
+#
+# El clasificador de tema (`guards/scope.py`) cuesta una llamada al modelo
+# por turno. En una venta real la mayoría de los mensajes son "sí", "la 2",
+# "ok gracias", "2 litros", "cuánto sale el envío": no hace falta un LLM
+# para saber que van del negocio. Patrones a propósito estrechos: ante duda
+# devuelve False y decide el clasificador (que además falla abierto).
+_SHORT_ON_TOPIC_MAX_WORDS = 4
+_COMMERCE_VOCAB_RE = re.compile(
+    r"\b(precio|precios|cu[aá]nto|cuesta|cuestan|vale|valen|cotiza|cotizaci[oó]n|cotizar|"
+    r"pedido|pedidos|orden|comprar|compro|quiero|necesito|busco|tienen|tienes|hay|manejan|"
+    r"existencia|stock|disponible|disponibles|env[ií]o|env[ií]os|entrega|domicilio|recoger|"
+    r"pagar|pago|link|enlace|transferencia|tarjeta|factura|facturar|rfc|cfdi|"
+    r"carrito|producto|productos|cat[aá]logo|sku|litro|litros|kilo|kilos|pieza|piezas|"
+    r"caja|cajas|metro|metros|talla|color|colores|tama[ñn]o|cantidad|unidad|unidades|"
+    r"horario|sucursal|ubicaci[oó]n|direcci[oó]n|garant[ií]a|devoluci[oó]n|descuento|promoci[oó]n|"
+    r"agrega|agr[eé]game|quita|qu[ií]tame|cambia|c[aá]mbiame|confirmo|confirmar|listo|dale|va)\b",
+    _FLAGS,
+)
+_GREETING_RE = re.compile(
+    r"^(hola|buenas|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|gracias|ok|okay|va|vale|"
+    r"s[ií]|no|claro|perfecto|listo|dale|adi[oó]s|hasta\s+luego|bye|nel|sale)[\s!.,]*$",
+    _FLAGS,
+)
+_NUMERIC_RE = re.compile(r"^[\d\s.,$xX×+\-/()#°º%]+$")
+
+
+def obviously_on_topic(text: str, *, mid_sale: bool = False) -> bool:
+    """``True`` si el mensaje es del negocio sin necesidad de un LLM.
+
+    Casos cubiertos (todos sin rastro de fuera de alcance ni inyección,
+    que ya se revisaron antes en el pipeline):
+
+    * Saludo, despedida, confirmación o negación sueltos ("hola", "sí",
+      "ok gracias").
+    * Solo números/cantidades ("2", "5 x 20 L", "$150").
+    * Hasta ``_SHORT_ON_TOPIC_MAX_WORDS`` palabras con vocabulario comercial
+      ("cuánto sale", "la de 19 litros").
+    * En medio de una venta (``mid_sale``: ya hay carrito, cotización o
+      cliente en el estado), hasta 12 palabras con vocabulario comercial.
+
+    Cualquier otra cosa devuelve ``False`` y el clasificador decide.
+    """
+    body = neutralize(text)
+    if not body or len(body) > 200:
+        return False
+    if _GREETING_RE.match(body) or _NUMERIC_RE.match(body):
+        return True
+    words = body.split()
+    limit = 12 if mid_sale else _SHORT_ON_TOPIC_MAX_WORDS
+    if len(words) <= limit and _COMMERCE_VOCAB_RE.search(body):
+        return True
+    return False
+
+
 def off_scope_category(text: str) -> str | None:
     """Categoría de fuera de alcance obvia, o ``None`` si no es evidente."""
     body = neutralize(text)
