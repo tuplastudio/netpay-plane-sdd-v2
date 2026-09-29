@@ -235,20 +235,26 @@ class CommerceClient:
         postal_code: str | None = None,
         city: str | None = None,
         state: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
     ) -> dict[str, Any]:
         """Calculadora oficial. No crea nada: solo totaliza.
 
-        Para `LOCAL_DELIVERY` con `postal_code`/`city`/`state`, el backend
-        resuelve la zona de envío del admin y la usa en vez del `shippingFlat`
-        del tenant. La respuesta incluye `shippingZone` con `{id, name,
-        fallback}` para que el LLM sepa si el envío es personalizado o
-        genérico.
+        Para `LOCAL_DELIVERY` con `postal_code`/`city`/`state` y/o `lat`/`lng`,
+        el backend resuelve la zona de envío del admin y la usa en vez del
+        `shippingFlat` del tenant. La respuesta incluye `shippingZone` con
+        `{id, name, fallback, matchedBy}` para que el LLM sepa si el envío es
+        personalizado o genérico. `lat`/`lng` solo se mandan si vienen los dos
+        (una coordenada sola no resuelve ningún polígono).
         """
         body: dict[str, Any] = {"lines": lines, "deliveryMode": delivery_mode}
         if postal_code or city or state:
             body["postalCode"] = postal_code
             body["city"] = city
             body["state"] = state
+        if lat is not None and lng is not None:
+            body["lat"] = lat
+            body["lng"] = lng
         return await self._request("POST", "/pricing/preview", json_body=body)
 
     async def lookup_delivery_zone(
@@ -257,12 +263,17 @@ class CommerceClient:
         postal_code: str | None = None,
         city: str | None = None,
         state: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
     ) -> dict[str, Any]:
-        """Resuelve la zona de envío del admin para una dirección.
+        """Resuelve la zona de envío del admin para una dirección o un punto.
 
-        Devuelve `{price, zoneId, zoneName, fallback}`. `fallback=true`
-        significa que el admin no configuró una zona que coincida y se cobró
-        el `shippingFlat` genérico: el LLM debe avisar al cliente.
+        Devuelve `{price, zoneId, zoneName, fallback, matchedBy}`.
+        `fallback=true` significa que el admin no configuró una zona que
+        coincida y se cobró el `shippingFlat` genérico: el LLM debe avisar al
+        cliente. `matchedBy` ∈ polygon | postalCode | city | catchAll |
+        fallback. Con `lat`/`lng` (ubicación compartida por WhatsApp) el
+        backend prueba primero las zonas con polígono dibujado en el mapa.
         """
         params: dict[str, Any] = {}
         if postal_code:
@@ -271,6 +282,9 @@ class CommerceClient:
             params["city"] = city
         if state:
             params["state"] = state
+        if lat is not None and lng is not None:
+            params["lat"] = lat
+            params["lng"] = lng
         return await self._request("GET", "/shipping/lookup", params=params or None)
 
     async def list_delivery_zones(self, *, active_only: bool = True) -> list[dict[str, Any]]:

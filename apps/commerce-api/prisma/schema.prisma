@@ -77,6 +77,8 @@ model Tenant {
   conversationNotes ConversationNote[]
   messageNotes MessageNote[]
   deliveryZones DeliveryZone[]
+  cannedResponses CannedResponse[]
+  customerNotes CustomerNote[]
 }
 
 enum TenantStatus {
@@ -106,6 +108,7 @@ model User {
   messageNotes MessageNote[]
   handoffThreads WhatsAppConversation[] @relation("ConversationHandoffUser")
   sentMessages WhatsAppMessage[] @relation("MessageSentBy")
+  customerNotes CustomerNote[]
 }
 
 model Membership {
@@ -343,6 +346,9 @@ model Customer {
   fiscalPostalCode String? // CP fiscal, para CFDI
   fiscalCfdiUse    String? // Uso de CFDI (ej. G03), última usada
   fiscalRegimenFiscal String? // clave c_RegimenFiscal (ej. 626), última usada
+  fiscalConstanciaUrl String? // última constancia de situación fiscal subida desde la ficha
+  // Etiquetas libres del cliente ("vip", "mayoreo"), normalizadas en minúsculas (0026).
+  tags        String[] @default([])
   notes       String?
   status      CustomerStatus @default(ACTIVE)
   createdAt   DateTime @default(now()) @db.Timestamptz
@@ -355,9 +361,27 @@ model Customer {
   consents  CustomerConsent[]
   quotes    Quote[]
   orders    Order[]
+  customerNotes CustomerNote[]
 
   @@unique([tenantId, email])
   @@index([tenantId, fullName])
+}
+
+/// Notas internas de la ficha del cliente, con autor y fecha (0026). Nunca
+/// se muestran al cliente. `Customer.notes` sigue siendo el texto libre fijo.
+model CustomerNote {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @db.Uuid
+  customerId String   @db.Uuid
+  authorId   String?  @db.Uuid
+  body       String
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  author   User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, createdAt])
 }
 
 model CustomerAddress {
@@ -1007,6 +1031,12 @@ model WhatsAppConversation {
   assignedAt        DateTime? @db.Timestamptz
   firstHumanReplyAt DateTime? @db.Timestamptz
   closedAt          DateTime? @db.Timestamptz
+  /// Help desk (migración 0025): prioridad del ticket y "pendiente" (espera
+  /// algo del cliente; se limpia solo cuando vuelve a escribir o al cerrar).
+  /// El estado de ticket se deriva: CLOSED → resuelta, pendingAt → pendiente,
+  /// resto → abierta.
+  priority          ConversationPriority @default(NORMAL)
+  pendingAt         DateTime? @db.Timestamptz
   // Etiquetas libres del hilo (p.ej. "vip", "reclamo", "mayoreo"), normalizadas en minúsculas.
   tags            String[] @default([])
   lastMessageAt   DateTime?
@@ -1023,12 +1053,43 @@ model WhatsAppConversation {
   @@unique([connectionId, externalPhone])
   @@index([tenantId, status])
   @@index([tenantId, lastMessageAt])
+  @@index([tenantId, priority])
+  @@index([tenantId, pendingAt])
+  @@index([tenantId, handoffUserId])
 }
 
 enum ConversationStatus {
   OPEN
   HANDED_OFF
   CLOSED
+}
+
+/// Orden declarado a propósito: Postgres ordena enums por posición, así
+/// `orderBy: { priority: "desc" }` pone URGENT primero (ver migración 0025).
+enum ConversationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+/// Respuesta rápida ("canned response") por tenant: el atajo `/gracias` en el
+/// redactor inserta `body`. Solo la ve y edita el equipo del tenant (RLS).
+model CannedResponse {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @db.Uuid
+  /// Sin "/" ni espacios, en minúsculas; único por tenant.
+  shortcut        String
+  title           String
+  body            String
+  createdByUserId String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz
+  updatedAt       DateTime @updatedAt @db.Timestamptz
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, shortcut])
+  @@index([tenantId, title])
 }
 
 model WhatsAppMessage {
@@ -1204,6 +1265,14 @@ model DeliveryZone {
   postalCodes  String[] @default([])
   cityPattern  String?  // LIKE del cliente: "Guadalajara", "CDMX", ...
   state        String?  // "JAL", "CDMX", ...
+  /// Área dibujada en el mapa: GeoJSON `Polygon` o `MultiPolygon` con
+  /// coordenadas `[lng, lat]` (WGS84). Si está presente, la zona coincide por
+  /// punto-en-polígono con la lat/lng del cliente y se evalúa ANTES que el
+  /// CP. Una zona con polígono nunca es catch-all. Sin PostGIS: el test de
+  /// contención se hace en TypeScript (`src/shipping/geo.ts`).
+  polygon      Json?
+  /// Color de la zona en el mapa del panel (`#rrggbb`). Solo presentación.
+  color        String?
   price        Decimal  @db.Decimal(12, 2)
   /// Pedido mínimo para que la zona aplique (NULL = sin mínimo). Útil para
   /// forzar recogida en pedidos muy chicos.

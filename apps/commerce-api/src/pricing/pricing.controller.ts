@@ -1,5 +1,5 @@
 import { Body, Controller, NotFoundException, Post, UseGuards } from "@nestjs/common";
-import { PricingService } from "./pricing.service.js";
+import { PricingService, type ShippingZoneMatch } from "./pricing.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { PricingPreviewDto } from "../quotes/quote.dto.js";
@@ -30,19 +30,36 @@ export class PricingController {
     const deliveryMode = body.deliveryMode ?? "PICKUP";
 
     let shipping = priced.totals.shipping;
-    let shippingZone: { id: string | null; name: string | null; fallback: boolean } = {
+    let shippingZone: {
+      id: string | null;
+      name: string | null;
+      fallback: boolean;
+      matchedBy: ShippingZoneMatch | null;
+    } = {
       id: null,
       name: null,
       fallback: false,
+      matchedBy: null,
     };
-    if (deliveryMode === "LOCAL_DELIVERY" && (body.postalCode || body.city || body.state)) {
+    const hasPoint = typeof body.lat === "number" && typeof body.lng === "number";
+    if (
+      deliveryMode === "LOCAL_DELIVERY" &&
+      (body.postalCode || body.city || body.state || hasPoint)
+    ) {
       const resolved = await this.pricing.resolveShippingZone(tenantId, {
         postalCode: body.postalCode,
         city: body.city,
         state: body.state,
+        lat: hasPoint ? body.lat : undefined,
+        lng: hasPoint ? body.lng : undefined,
       });
       shipping = resolved.price;
-      shippingZone = { id: resolved.zoneId, name: resolved.zoneName, fallback: resolved.fallback };
+      shippingZone = {
+        id: resolved.zoneId,
+        name: resolved.zoneName,
+        fallback: resolved.fallback,
+        matchedBy: resolved.matchedBy,
+      };
     }
 
     // `total` ya viene sumado; ajustamos solo el delta de envío para no

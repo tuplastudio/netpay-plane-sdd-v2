@@ -18,6 +18,10 @@ export const envios: HelpCategory = {
         "catch-all",
         "pedido mínimo",
         "orden de evaluación",
+        "polígono",
+        "mapa",
+        "ubicación",
+        "dibujar zona",
       ],
       body: [
         {
@@ -32,19 +36,46 @@ export const envios: HelpCategory = {
         {
           type: "p",
           text:
-            "Una zona cubre un área de una de estas dos formas, o de ninguna (la zona \"catch-all\"):",
+            "Una zona cubre un área de una de estas tres formas (se pueden combinar), o de ninguna (la zona " +
+            "\"catch-all\"):",
         },
         {
           type: "list",
           items: [
+            "Por polígono en el mapa: dibujas el área directamente sobre el mapa (clic para poner cada " +
+              "esquina, arrastra una esquina para moverla). La zona aplica si la ubicación del cliente cae " +
+              "dentro del área. Sirve cuando el cliente comparte su ubicación por WhatsApp o cuando quieres " +
+              "cobrar por distancia real y no por código postal.",
             "Por códigos postales: una lista de códigos separados por coma o espacio, por ejemplo \"06000, " +
               "06010, 06020\". La zona aplica si el código postal del cliente es exactamente uno de esos.",
             "Por estado y ciudad, juntos: escribe el estado (por ejemplo \"JAL\", \"CDMX\" o \"NL\") y un " +
               "patrón de ciudad (por ejemplo \"Guadalajara\" o \"Zapopan\"). La zona aplica si el estado " +
               "coincide y la ciudad del cliente contiene ese patrón.",
-            "Sin códigos postales, sin ciudad y sin estado: es la zona catch-all. Aplica a todas las " +
-              "direcciones que no encajaron en otra zona. Solo puede haber una.",
+            "Sin polígono, sin códigos postales, sin ciudad y sin estado: es la zona catch-all. Aplica a " +
+              "todas las direcciones que no encajaron en otra zona. Solo puede haber una.",
           ],
+        },
+        { type: "h3", text: "Dibujar una zona en el mapa" },
+        {
+          type: "steps",
+          items: [
+            "En la ventana de la zona, pulsa \"Dibujar\" y haz clic en el mapa en cada esquina del área " +
+              "(mínimo tres). El área se cierra sola.",
+            "Arrastra una esquina para ajustarla. \"Deshacer\" quita la última esquina; \"Borrar\" empieza " +
+              "de cero.",
+            "Elige un color para distinguir la zona en el mapa general.",
+            "Guarda. Puedes combinar el polígono con códigos postales: si el cliente comparte ubicación se " +
+              "usa el polígono; si solo da código postal, se usan los códigos.",
+          ],
+        },
+        {
+          type: "callout",
+          tone: "info",
+          title: "Prueba antes de confiar",
+          text:
+            "En Admin → Envío a domicilio hay un probador: escribe un código postal o haz clic en el mapa " +
+            "para soltar un pin, y verás qué zona aplica, a qué precio y por qué criterio (polígono, código " +
+            "postal, ciudad, catch-all o envío fijo).",
         },
         {
           type: "callout",
@@ -82,7 +113,10 @@ export const envios: HelpCategory = {
         {
           type: "steps",
           items: [
-            "Primero se busca una zona activa que tenga el código postal del cliente.",
+            "Si el cliente compartió su ubicación (o tu equipo soltó un pin), primero se busca una zona " +
+              "activa cuyo polígono contenga ese punto. Si varias lo contienen, gana la de menor orden de " +
+              "evaluación.",
+            "Después se busca una zona activa que tenga el código postal del cliente.",
             "Si no hay, se busca una zona con el mismo estado y un patrón de ciudad que aparezca en la " +
               "ciudad del cliente.",
             "Si no hay, se usa la zona catch-all.",
@@ -197,7 +231,10 @@ export const envios: HelpCategory = {
             {
               q: "El cliente mandó su ubicación de WhatsApp.",
               a:
-                "La ubicación no basta para elegir zona. El agente le pide código postal, ciudad y estado.",
+                "Si tienes zonas dibujadas en el mapa, la ubicación basta: el agente la usa para encontrar " +
+                "la zona cuyo polígono la contiene y ya no pide el código postal para el envío (solo calle y " +
+                "número para entregar). Si la ubicación no cae en ningún polígono, el agente pide código " +
+                "postal, ciudad y estado como antes.",
             },
           ],
         },

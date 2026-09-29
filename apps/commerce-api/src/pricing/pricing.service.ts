@@ -20,6 +20,15 @@ import {
   type PricingConfig,
   type QuoteTotals,
 } from "@netpay/domain";
+import { isValidLat, isValidLng, pointInGeometry } from "../shipping/geo.js";
+import {
+  isCatchAllZone,
+  type ShippingAddressInput,
+  type ShippingZoneMatch,
+  type ShippingZoneResolution,
+} from "../shipping/zone-rules.js";
+
+export type { ShippingAddressInput, ShippingZoneMatch, ShippingZoneResolution };
 
 export interface PriceLineInput {
   variantId: string;
@@ -139,24 +148,23 @@ export class PricingService {
   /**
    * Resuelve la zona de envío para `LOCAL_DELIVERY` con los datos de dirección
    * del cliente. Orden de precedencia:
-   *   1. Coincidencia exacta por CP en `postalCodes[]`.
-   *   2. Coincidencia por `state` + `cityPattern` (LIKE del admin).
-   *   3. Zona "catch-all" (sin CP ni state; solo debería existir UNA por tenant).
-   *   4. `tenant.shippingFlat` (compatibilidad).
+   *   1. Polígono que contenga la `lat`/`lng` del cliente (T-SHIP-07), en
+   *      orden de `sortOrder`: la primera zona con polígono que lo contenga.
+   *   2. Coincidencia exacta por CP en `postalCodes[]`.
+   *   3. Coincidencia por `state` + `cityPattern` (LIKE del admin).
+   *   4. Zona "catch-all" (sin polígono, CP ni state; solo UNA por tenant).
+   *   5. `tenant.shippingFlat` (compatibilidad).
    *
-   * Devuelve `{ price, zoneId, zoneName, fallback }`. `fallback=true` cuando
-   * no se encontró zona y se cobró `shippingFlat` (el caller debe avisar al
-   * cliente que el envío es estándar, no personalizado).
+   * Devuelve `{ price, zoneId, zoneName, fallback, matchedBy }`.
+   * `fallback=true` cuando no se encontró zona y se cobró `shippingFlat` (el
+   * caller debe avisar al cliente que el envío es estándar, no
+   * personalizado). `matchedBy` dice qué criterio ganó; los callers viejos
+   * pueden ignorarlo (la forma anterior se conserva).
    */
   async resolveShippingZone(
     tenantId: string,
-    address: { postalCode?: string; city?: string; state?: string },
-  ): Promise<{
-    price: string;
-    zoneId: string | null;
-    zoneName: string | null;
-    fallback: boolean;
-  }> {
+    address: ShippingAddressInput,
+  ): Promise<ShippingZoneResolution> {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { shippingFlat: true },
@@ -168,26 +176,37 @@ export class PricingService {
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     });
     if (zones.length === 0) {
-      return { price: flat, zoneId: null, zoneName: null, fallback: true };
+      return { price: flat, zoneId: null, zoneName: null, fallback: true, matchedBy: "fallback" };
     }
+
+    const hit = (
+      z: { id: string; name: string; price: { toString(): string } },
+      matchedBy: ShippingZoneMatch,
+    ): ShippingZoneResolution => ({
+      price: this.decimalToMoney(z.price),
+      zoneId: z.id,
+      zoneName: z.name,
+      fallback: false,
+      matchedBy,
+    });
 
     const cp = (address.postalCode ?? "").trim();
     const city = (address.city ?? "").trim().toLowerCase();
     const state = (address.state ?? "").trim().toLowerCase();
+    const lat = address.lat;
+    const lng = address.lng;
 
-    // 1) Coincidencia por CP
+    // 1) Polígono que contenga el punto (solo si vino lat/lng válidas).
+    if (isValidLat(lat) && isValidLng(lng)) {
+      const byPolygon = zones.find((z) => z.polygon != null && pointInGeometry(lng, lat, z.polygon));
+      if (byPolygon) return hit(byPolygon, "polygon");
+    }
+    // 2) Coincidencia por CP
     if (cp) {
       const byCp = zones.find((z) => z.postalCodes.some((p) => p.trim() === cp));
-      if (byCp) {
-        return {
-          price: this.decimalToMoney(byCp.price),
-          zoneId: byCp.id,
-          zoneName: byCp.name,
-          fallback: false,
-        };
-      }
+      if (byCp) return hit(byCp, "postalCode");
     }
-    // 2) Coincidencia por estado + ciudad (LIKE)
+    // 3) Coincidencia por estado + ciudad (LIKE)
     if (state && city) {
       const byStateCity = zones.find(
         (z) =>
@@ -195,30 +214,13 @@ export class PricingService {
           city.includes((z.cityPattern ?? "").trim().toLowerCase()) &&
           (z.cityPattern ?? "").trim() !== "",
       );
-      if (byStateCity) {
-        return {
-          price: this.decimalToMoney(byStateCity.price),
-          zoneId: byStateCity.id,
-          zoneName: byStateCity.name,
-          fallback: false,
-        };
-      }
+      if (byStateCity) return hit(byStateCity, "city");
     }
-    // 3) Zona catch-all (sin postalCodes ni cityPattern: aplica a TODO)
-    const catchAll = zones.find(
-      (z) =>
-        z.postalCodes.length === 0 && !(z.cityPattern ?? "").trim() && !(z.state ?? "").trim(),
-    );
-    if (catchAll) {
-      return {
-        price: this.decimalToMoney(catchAll.price),
-        zoneId: catchAll.id,
-        zoneName: catchAll.name,
-        fallback: false,
-      };
-    }
-    // 4) Fallback al flat del tenant.
-    return { price: flat, zoneId: null, zoneName: null, fallback: true };
+    // 4) Zona catch-all (sin polígono, postalCodes ni cityPattern: aplica a TODO)
+    const catchAll = zones.find((z) => isCatchAllZone(z));
+    if (catchAll) return hit(catchAll, "catchAll");
+    // 5) Fallback al flat del tenant.
+    return { price: flat, zoneId: null, zoneName: null, fallback: true, matchedBy: "fallback" };
   }
 
   /**

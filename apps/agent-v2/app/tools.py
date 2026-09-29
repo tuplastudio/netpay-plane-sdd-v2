@@ -27,6 +27,12 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
+from .agent_settings import (
+    CHECKOUT_MODES,
+    DEFAULT_CHECKOUT_MODE,
+    DEFAULT_QUOTE_ONLY_CLOSING,
+    get_agent_settings,
+)
 from .commerce import CommerceClient, CommerceError, CommerceUnavailable
 from .config import get_settings
 from .security import clamp_text, require_scope, sanitize_error_message
@@ -65,6 +71,40 @@ def _require_scope(runtime: ToolRuntime, tool_name: str):
 
 def _client(runtime: ToolRuntime) -> CommerceClient:
     return CommerceClient(tenant_id=_ctx(runtime).get("tenant_id", ""))
+
+
+def _parse_coord(value: str | float | int | None, *, low: float, high: float) -> float | None:
+    """Convierte una coordenada que llega como texto del modelo a `float`.
+
+    Los args de las tools son strings (vacío = "no lo dio"), así que aquí se
+    tolera `""`, espacios y coma decimal ("19,43"). Fuera de rango o no
+    numérico → `None`: una coordenada inválida se ignora en vez de romper
+    la llamada, porque el CP/ciudad siguen pudiendo resolver la zona.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        num = float(value)
+    else:
+        text = str(value).strip().replace(",", ".")
+        if not text:
+            return None
+        try:
+            num = float(text)
+        except ValueError:
+            return None
+    if num != num or not (low <= num <= high):  # NaN o fuera de rango
+        return None
+    return num
+
+
+def _parse_point(lat: str | float | None, lng: str | float | None) -> tuple[float, float] | None:
+    """`(lat, lng)` válidas en WGS84, o `None` si falta o sobra alguna."""
+    la = _parse_coord(lat, low=-90.0, high=90.0)
+    lo = _parse_coord(lng, low=-180.0, high=180.0)
+    if la is None or lo is None:
+        return None
+    return la, lo
 
 
 def _fail(message: str) -> str:
@@ -504,6 +544,34 @@ def _pending_customer_facts(runtime: ToolRuntime) -> CustomerFacts:
     return facts
 
 
+def _checkout_mode(runtime: ToolRuntime) -> str:
+    """Modo de cobro del tenant (`agent_settings.CHECKOUT_MODES`).
+
+    Se lee del store en cada llamada (está cacheado en memoria) y nunca del
+    modelo ni del cliente: que un negocio "solo cotiza" es política del
+    admin. Sin tenant o sin ajustes → el default (`quote_and_pay`).
+    """
+    tenant_id = _ctx(runtime).get("tenant_id", "")
+    if not tenant_id:
+        return DEFAULT_CHECKOUT_MODE
+    mode = str(get_agent_settings(tenant_id).checkout_mode or "").strip().lower()
+    return mode if mode in CHECKOUT_MODES else DEFAULT_CHECKOUT_MODE
+
+
+def _quote_only_closing(runtime: ToolRuntime) -> str:
+    tenant_id = _ctx(runtime).get("tenant_id", "")
+    if not tenant_id:
+        return DEFAULT_QUOTE_ONLY_CLOSING
+    return get_agent_settings(tenant_id).quote_only_closing()
+
+
+_QUOTE_ONLY_DENIED = (
+    "Este negocio está en modo SOLO COTIZACIÓN: no se generan enlaces de pago. "
+    "Comparte la cotización y cierra con el mensaje de seguimiento configurado; "
+    "no prometas ni menciones un enlace de pago."
+)
+
+
 def _delivery_mode(runtime: ToolRuntime, record: CartRecord, explicit: str = "") -> str:
     """Modo de entrega efectivo de un carrito.
 
@@ -739,6 +807,8 @@ async def calcular_total(
     postalCode: str = "",
     city: str = "",
     state: str = "",
+    lat: str = "",
+    lng: str = "",
 ) -> Command:
     """Calcula el total exacto de UN carrito con impuestos y envío.
 
@@ -783,6 +853,10 @@ async def calcular_total(
     pc = postalCode or saved.get("postalCode") or ""
     c = city or saved.get("city") or ""
     s = state or saved.get("state") or ""
+    # Ubicación (T-SHIP-07): explícita en los args o la guardada con
+    # `recordar_direccion_entrega`. Solo se manda si vienen lat Y lng.
+    point = _parse_point(lat, lng) or _parse_point(saved.get("lat"), saved.get("lng"))
+    point_kwargs: dict[str, float] = {"lat": point[0], "lng": point[1]} if point else {}
     client = _client(runtime)
     totals, error = await _safe(
         client.price_preview(
@@ -791,6 +865,7 @@ async def calcular_total(
             postal_code=pc or None,
             city=c or None,
             state=s or None,
+            **point_kwargs,
         )
     )
     if error:
@@ -820,62 +895,93 @@ async def calcular_total(
     )
 
 
+_MATCHED_BY_LABEL: dict[str, str] = {
+    "polygon": "por la ubicación, dentro del área dibujada por el negocio",
+    "postalCode": "por código postal",
+    "city": "por ciudad y estado",
+    "catchAll": "zona general para direcciones sin zona específica",
+}
+
+
 @tool
 async def validar_zona_de_envio(
     postalCode: str = "",
     city: str = "",
     state: str = "",
+    lat: str = "",
+    lng: str = "",
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
-    """Confirma cuánto costaría el envío a la dirección del cliente.
+    """Confirma cuánto costaría el envío a la dirección o ubicación del cliente.
 
     Úsala cuando el cliente confirma una dirección a domicilio ANTES de
-    pasarle el total: si el admin configuró zonas (CP, ciudad, estado),
-    esta herramienta devuelve el precio exacto de su zona. Si no hay zona
-    que coincida, devuelve `fallback: true` con el `shippingFlat` genérico:
-    avisale al cliente que el envío es estándar (no específico de su zona).
+    pasarle el total: si el admin configuró zonas (polígono en el mapa, CP,
+    ciudad, estado), esta herramienta devuelve el precio exacto de su zona.
+    Si no hay zona que coincida, devuelve `fallback: true` con el
+    `shippingFlat` genérico: avisale al cliente que el envío es estándar (no
+    específico de su zona).
 
-    Si el cliente aún NO dio dirección completa (solo dijo "es a
-    domicilio"), no llames esto: primero pídele CP / ciudad / estado y
-    luego usa la respuesta aquí.
+    Si el cliente compartió su ubicación de WhatsApp (verás en el mensaje
+    "[el cliente compartió su ubicación: LAT, LNG]"), pasa esas coordenadas
+    en `lat` y `lng` TAL CUAL, sin pedirle nada más: el backend revisa
+    primero las zonas dibujadas en el mapa. Solo si la respuesta dice que la
+    ubicación no cayó en ninguna zona pide el CP / ciudad / estado.
+
+    Si el cliente aún NO dio dirección ni ubicación (solo dijo "es a
+    domicilio"), no llames esto: primero pídele CP / ciudad / estado.
 
     Args:
     - `postalCode`: 4-5 dígitos (MX: 5; CR/ES: 4-5). Vacío = no lo dio.
     - `city`: nombre de la ciudad ("Guadalajara", "Querétaro", ...).
     - `state`: estado/departamento ("JAL", "QRO", "CDMX", ...).
+    - `lat` / `lng`: coordenadas de la ubicación compartida ("19.4326",
+      "-99.1332"). Van juntas; vacías = no compartió ubicación.
 
-    Devuelve "Zona {nombre}: ${precio}." o "Sin zona configurada para esa
-    dirección: se cobrará el envío estándar (${precio})."
+    Devuelve "Zona {nombre}: ${precio} (criterio)." o "Sin zona configurada
+    para esa dirección: se cobrará el envío estándar (${precio})."
     """
     if denied := _require_scope(runtime, "validar_zona_de_envio"):
         return _tool_reply(runtime, _fail(denied))
-    if not (postalCode or city or state):
+    point = _parse_point(lat, lng)
+    if not (postalCode or city or state or point):
         return _tool_reply(
             runtime,
             _fail(
-                "Necesito al menos CP, ciudad o estado para resolver la zona. "
-                "Pídeselo al cliente."
+                "Necesito al menos CP, ciudad, estado o la ubicación (lat/lng) "
+                "para resolver la zona. Pídeselo al cliente."
             ),
         )
-    zone, error = await _safe(
-        _client(runtime).lookup_delivery_zone(
-            postal_code=postalCode or None,
-            city=city or None,
-            state=state or None,
-        )
-    )
+    lookup_kwargs: dict[str, Any] = {
+        "postal_code": postalCode or None,
+        "city": city or None,
+        "state": state or None,
+    }
+    if point:
+        lookup_kwargs["lat"], lookup_kwargs["lng"] = point
+    zone, error = await _safe(_client(runtime).lookup_delivery_zone(**lookup_kwargs))
     if error:
         return _tool_reply(runtime, _fail(error))
     price = (zone or {}).get("price", "0.00")
     name = (zone or {}).get("zoneName")
     fallback = bool((zone or {}).get("fallback"))
+    matched_by = str((zone or {}).get("matchedBy") or "")
     if name:
-        text = f"Zona de envío: {name} → ${price}."
+        how = _MATCHED_BY_LABEL.get(matched_by)
+        text = f"Zona de envío: {name} → ${price}" + (f" ({how})." if how else ".")
+        if point and matched_by and matched_by != "polygon" and not (postalCode or city or state):
+            # Hubo ubicación pero ningún polígono la contiene: la zona salió
+            # por otro criterio (solo puede ser catch-all sin CP/ciudad).
+            text += " La ubicación no cayó en ninguna zona dibujada en el mapa."
     elif fallback:
         text = (
             f"Sin zona configurada para esa dirección: se cobrará el envío "
             f"estándar (${price})."
         )
+        if point and not (postalCode or city or state):
+            text += (
+                " La ubicación compartida no cae en ninguna zona del mapa; "
+                "pídele el CP / ciudad / estado por si hay zona por CP."
+            )
     else:
         text = f"Envío a esa dirección: ${price}."
     return _tool_reply(runtime, text)
@@ -883,12 +989,14 @@ async def validar_zona_de_envio(
 
 @tool
 async def recordar_direccion_entrega(
-    postalCode: str,
+    postalCode: str = "",
     city: str = "",
     state: str = "",
     line1: str = "",
     line2: str = "",
     notes: str = "",
+    lat: str = "",
+    lng: str = "",
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
     """Guarda la dirección de entrega del cliente para este hilo.
@@ -901,17 +1009,33 @@ async def recordar_direccion_entrega(
     correcto.
 
     `line1` y `line2` son opcionales (calle + número, colonia,
-    referencias). El CP es obligatorio (4-5 dígitos) — sin él no se
-    puede resolver la zona del admin.
+    referencias). El CP (4-5 dígitos) es obligatorio SALVO que pases la
+    ubicación compartida por el cliente en `lat`/`lng` (las coordenadas
+    del mensaje "[el cliente compartió su ubicación: LAT, LNG]"): con
+    ubicación, el negocio puede resolver la zona por el área dibujada en
+    el mapa aunque no haya CP. Si tienes ambos, pasa ambos.
     """
     if denied := _require_scope(runtime, "recordar_direccion_entrega"):
         return _tool_reply(runtime, _fail(denied))
     cp = postalCode.strip()
-    if not (4 <= len(cp) <= 5 and cp.isdigit()):
+    # T-SHIP-07: la ubicación compartida (lat/lng) también vale como
+    # dirección de entrega cuando el negocio tiene zonas dibujadas en el
+    # mapa. Con ubicación válida el CP puede faltar; sin ubicación, el CP
+    # sigue siendo obligatorio y de 4-5 dígitos.
+    point = _parse_point(lat, lng)
+    if cp and not (4 <= len(cp) <= 5 and cp.isdigit()):
         return _tool_reply(
             runtime,
             _fail(
                 "postalCode debe ser 4-5 dígitos. Pídele al cliente que lo confirme."
+            ),
+        )
+    if not cp and not point:
+        return _tool_reply(
+            runtime,
+            _fail(
+                "Necesito el CP (4-5 dígitos) o la ubicación compartida (lat y lng) "
+                "para guardar la dirección. Pídeselo al cliente."
             ),
         )
     address: dict[str, Any] = {
@@ -925,11 +1049,15 @@ async def recordar_direccion_entrega(
     }
     # Limpia vacíos para no guardar strings vacíos en el checkpoint.
     address = {k: v for k, v in address.items() if v}
-    summary_parts = [cp]
+    if point:
+        address["lat"], address["lng"] = point
+    summary_parts = [cp] if cp else []
     if city.strip():
         summary_parts.append(city.strip())
     if state.strip():
         summary_parts.append(state.strip())
+    if point:
+        summary_parts.append(f"ubicación {point[0]:.5f}, {point[1]:.5f}")
     return _tool_reply(
         runtime,
         f"Dirección guardada: {', '.join(summary_parts)}. "
@@ -982,16 +1110,19 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
 
     # Reemitir la misma cotización crea folios duplicados y confunde al
     # cliente: si ESTE carrito ya tiene una para las mismas líneas, se reutiliza.
+    quote_only = _checkout_mode(runtime) == "quote_only"
     if record.get("quoteId") and record.get("quoteSignature") == _cart_signature(lines):
+        if quote_only:
+            payment_hint = f"Sin enlace de pago (solo cotización). Cierra con: {_quote_only_closing(runtime)}"
+        elif record.get("checkoutLink"):
+            payment_hint = f"Su enlace de pago: {record['checkoutLink']}."
+        else:
+            payment_hint = "Si el cliente quiere pagar, usa generar_enlace_pago."
         return _tool_reply(
             runtime,
             f"Ya existe la cotización {record['quoteId']} para este carrito: "
             f"{record.get('quoteLink')}. Compártela en vez de emitir otra. "
-            + (
-                f"Su enlace de pago: {record['checkoutLink']}."
-                if record.get("checkoutLink")
-                else "Si el cliente quiere pagar, usa generar_enlace_pago."
-            )
+            + payment_hint
             + ref,
         )
 
@@ -1045,16 +1176,22 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
     # juntos en el mismo mensaje: no esperar un "sí" aparte para cobrar. Cada
     # paso es best-effort y no tumba a los demás: si el pago o el PDF fallan,
     # la cotización ya emitida se comparte igual.
-    order, order_error = await _safe(client.order_from_quote(quote["id"]))
+    #
+    # En `quote_only` no se crea pedido ni checkout: la cotización es el
+    # final del flujo del bot y el pago se acuerda fuera del chat. Así el
+    # enlace público de la cotización tampoco trae un checkout abierto.
+    order: dict[str, Any] | None = None
     checkout_link: str | None = None
-    if not order_error and order:
-        checkout, checkout_error = await _safe(
-            client.start_checkout(
-                order["id"], lines=_lines_payload(lines), delivery_mode=_delivery_mode(runtime, record)
+    if not quote_only:
+        order, order_error = await _safe(client.order_from_quote(quote["id"]))
+        if not order_error and order:
+            checkout, checkout_error = await _safe(
+                client.start_checkout(
+                    order["id"], lines=_lines_payload(lines), delivery_mode=_delivery_mode(runtime, record)
+                )
             )
-        )
-        if not checkout_error and checkout:
-            checkout_link = checkout.get("checkoutUrl")
+            if not checkout_error and checkout:
+                checkout_link = checkout.get("checkoutUrl")
 
     pdf_b64, pdf_error = await _safe(client.get_quote_pdf_base64(quote["id"]))
     attachment = (
@@ -1069,7 +1206,13 @@ async def emitir_cotizacion(runtime: ToolRuntime, notas: str = "", carritoId: st
 
     lines_out = [f"Cotización {quote['id']} emitida por ${quote.get('total')}.{ref}"]
     lines_out.append(f"Enlace para verla: {link or 'no disponible'}")
-    lines_out.append(f"Enlace de pago: {checkout_link or 'no disponible por ahora'}")
+    if quote_only:
+        lines_out.append(
+            "Sin enlace de pago (modo solo cotización): no lo prometas ni lo menciones. "
+            f"Cierra con este mensaje, con tus palabras: {_quote_only_closing(runtime)}"
+        )
+    else:
+        lines_out.append(f"Enlace de pago: {checkout_link or 'no disponible por ahora'}")
     lines_out.append("PDF adjunto." if attachment else "El PDF no se pudo adjuntar ahora.")
 
     return _tool_reply(
@@ -1161,10 +1304,14 @@ async def convertir_en_pedido(runtime: ToolRuntime, carritoId: str = "") -> Comm
     if record.get("orderId"):
         # emitir_cotizacion ya arma el pedido y el enlace de pago para esta
         # cotización; llamar de nuevo crearía un segundo pedido duplicado.
+        payment_hint = (
+            "Sin enlace de pago (solo cotización)."
+            if _checkout_mode(runtime) == "quote_only"
+            else f"Enlace de pago: {record.get('checkoutLink') or 'usa generar_enlace_pago'}"
+        )
         return _tool_reply(
             runtime,
-            f"Ya hay un pedido para esta cotización: {record['orderId']}. "
-            f"Enlace de pago: {record.get('checkoutLink') or 'usa generar_enlace_pago'}{ref}",
+            f"Ya hay un pedido para esta cotización: {record['orderId']}. {payment_hint}{ref}",
         )
 
     order, error = await _safe(_client(runtime).order_from_quote(quote_id))
@@ -1187,6 +1334,14 @@ async def generar_enlace_pago(runtime: ToolRuntime, deliveryMode: str = "", carr
     """
     if denied := _require_scope(runtime, "generar_enlace_pago"):
         return _tool_reply(runtime, _fail(denied))
+    # Política del admin, no del modelo: en `quote_only` esta herramienta
+    # no existe en la práctica. Se niega antes de tocar el backend para que
+    # nunca quede un checkout abierto que el enlace público pudiera mostrar.
+    if _checkout_mode(runtime) == "quote_only":
+        return _tool_reply(
+            runtime,
+            _fail(f"{_QUOTE_ONLY_DENIED} Mensaje de seguimiento: {_quote_only_closing(runtime)}"),
+        )
     cart_id = _resolve_cart_id(runtime, carritoId)
     record = _cart_record(runtime, cart_id)
     total_open = len(open_carts(runtime.state.get("carts"))) or 1
