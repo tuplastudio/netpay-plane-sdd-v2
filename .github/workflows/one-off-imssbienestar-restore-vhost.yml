@@ -1,0 +1,71 @@
+name: One-off - restaurar vhost imssbienestar.tupla.dev en captain-nginx
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-imssbienestar-restore-vhost.yml"
+  workflow_dispatch: {}
+
+jobs:
+  restore:
+    name: reescribir vhost sin condicion (CapRover lo podo entre deploys)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+            DOMAIN=imssbienestar.tupla.dev
+            VHOST_FILE=/captain/generated/nginx/conf.d/imssbienestar.conf
+            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
+            if [ -z "$NGX" ]; then echo "captain-nginx no encontrado"; exit 1; fi
+
+            echo "=== estado actual del archivo (antes) ==="
+            sudo cat "$VHOST_FILE" 2>&1 || echo "(no existe)"
+            echo ""
+            echo "=== listado completo de conf.d ==="
+            sudo ls -la /captain/generated/nginx/conf.d/
+
+            if ! docker network inspect infra_netpay_internal --format '{{range .Containers}}{{.Name}} {{end}}' | grep -q captain-nginx; then
+              docker network connect infra_netpay_internal "$NGX" && echo "captain-nginx conectado a infra_netpay_internal"
+            fi
+
+            sudo tee "$VHOST_FILE" >/dev/null <<NGINX
+            server {
+                listen 80;
+                listen 443 ssl;
+                http2 on;
+                server_name $DOMAIN;
+                resolver 127.0.0.11 valid=10s ipv6=off;
+                ssl_certificate     /letencrypt/etc/live/$DOMAIN/fullchain.pem;
+                ssl_certificate_key /letencrypt/etc/live/$DOMAIN/privkey.pem;
+
+                location /.well-known/acme-challenge/ {
+                    alias /usr/share/nginx/domains/$DOMAIN/.well-known/acme-challenge/;
+                }
+
+                set \$upstream http://agent-imssbienestar-ui:80;
+                location / {
+                    proxy_pass \$upstream;
+                    proxy_http_version 1.1;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto \$scheme;
+                    proxy_connect_timeout 5s;
+                    proxy_read_timeout 60s;
+                }
+            }
+            NGINX
+            docker exec "$NGX" nginx -t
+            docker kill -s HUP "$NGX"
+            echo "OK: $DOMAIN restaurado"
+            sleep 2
+            echo "=== curl local post-restauracion ==="
+            docker exec "$NGX" sh -c "curl -sk -o /dev/null -w 'https local: %{http_code}\n' https://localhost -H 'Host: $DOMAIN' --resolve $DOMAIN:443:127.0.0.1"
