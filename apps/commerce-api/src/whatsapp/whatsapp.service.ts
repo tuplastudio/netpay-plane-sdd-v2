@@ -3,7 +3,14 @@
  * Ver docs/10-wha.md T-WHA-01..07.
  */
 
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import {
@@ -107,12 +114,23 @@ export const CONVERSATION_AUDIT = {
   reopened: "whatsapp.conversation.reopened",
   handoff: "whatsapp.conversation.handoff",
   claimed: "whatsapp.conversation.claimed",
+  released: "whatsapp.conversation.released",
   returned: "whatsapp.conversation.returned",
   tagsChanged: "whatsapp.conversation.tags_changed",
   customerLinked: "whatsapp.conversation.customer_linked",
   optOut: "whatsapp.conversation.opt_out",
   optIn: "whatsapp.conversation.opt_in",
 } as const;
+
+/**
+ * Quién actúa sobre un hilo desde el portal. `canManage` (OWNER/ADMIN) puede
+ * intervenir hilos ajenos; un agente común solo los suyos y los de la cola.
+ * Sin `userId` (API key/servicio) no hay atribución ni regla de dueño.
+ */
+export interface ConversationActor {
+  userId?: string;
+  canManage?: boolean;
+}
 
 /** Estados que un operador puede fijar a mano desde el portal. */
 export const MANUAL_STATUSES = ["OPEN", "CLOSED"] as const;
@@ -658,7 +676,7 @@ export class WhatsAppService {
     if (conversation.status === "CLOSED") {
       await this.prisma.whatsAppConversation.updateMany({
         where: { id: conversation.id, status: "CLOSED" },
-        data: { status: "OPEN" },
+        data: { status: "OPEN", closedAt: null },
       });
       await this.audit(input.tenantId, conversation.id, CONVERSATION_AUDIT.reopened, null, {
         reason: "Mensaje nuevo del cliente",
@@ -978,6 +996,72 @@ export class WhatsAppService {
     return this.requireConversationWithConnection(tenantId, conversationId, { requireHandoff: true });
   }
 
+  /**
+   * `requireHandedOff` + regla de dueño para el multi-agente. Un hilo con
+   * dueño solo lo contesta su dueño (o quien administra); uno en cola lo
+   * contesta cualquier agente y, al hacerlo, queda suyo (toma atómica: si dos
+   * agentes contestan a la vez, gana uno y el otro recibe 409 en vez de
+   * pisarse). Devuelve la conversación ya con el dueño vigente.
+   */
+  private async requireAttendant(
+    tenantId: string,
+    conversationId: string,
+    actor: ConversationActor,
+  ) {
+    const conv = await this.requireHandedOff(tenantId, conversationId);
+    const userId = actor.userId;
+    if (!userId || conv.handoffUserId === userId) return conv;
+
+    if (conv.handoffUserId) {
+      if (actor.canManage) return conv;
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: "Esta conversación la atiende otra persona. Pide que te la asignen.",
+      });
+    }
+    // En cola: la toma quien contesta, si es agente. Un admin que no es agente
+    // puede contestar sin tomarla.
+    if (!(await this.isActiveAgent(tenantId, userId))) {
+      if (actor.canManage) return conv;
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: "Activa tu perfil de agente para atender conversaciones.",
+      });
+    }
+    const taken = await this.takeIfFree(tenantId, conversationId, userId);
+    if (!taken) {
+      throw new ConflictException({
+        code: "CONFLICT",
+        message: "Otra persona acaba de tomar esta conversación.",
+      });
+    }
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.claimed, userId, { via: "reply" });
+    return { ...conv, handoffUserId: userId };
+  }
+
+  private async isActiveAgent(tenantId: string, userId: string): Promise<boolean> {
+    const m = await this.prisma.membership.findFirst({
+      where: { tenantId, userId, status: "ACTIVE", isAgent: true },
+      select: { id: true },
+    });
+    return !!m;
+  }
+
+  /** Toma atómica: solo si el hilo sigue sin dueño (o ya es de `userId`). */
+  private async takeIfFree(tenantId: string, conversationId: string, userId: string) {
+    const now = new Date();
+    const { count } = await this.prisma.whatsAppConversation.updateMany({
+      where: {
+        id: conversationId,
+        tenantId,
+        status: { not: "CLOSED" },
+        OR: [{ handoffUserId: null }, { handoffUserId: userId }],
+      },
+      data: { status: "HANDED_OFF", handoffToHuman: true, handoffUserId: userId, assignedAt: now },
+    });
+    return count > 0;
+  }
+
   /** Persiste el saliente del operador y mueve `lastMessageAt`. */
   private async persistOutbound(
     conv: { id: string; tenantId: string },
@@ -985,8 +1069,11 @@ export class WhatsAppService {
       messageType: "TEXT" | "IMAGE" | "AUDIO" | "VIDEO" | "DOCUMENT";
       body: string;
       result: SendMessageResult;
+      /** Persona del portal que lo mandó (atribución del reporte de atención). */
+      sentByUserId?: string;
     },
   ) {
+    const now = new Date();
     const [message] = await this.prisma.$transaction([
       this.prisma.whatsAppMessage.create({
         data: {
@@ -998,13 +1085,24 @@ export class WhatsAppService {
           body: input.body,
           status: input.result.status === "SENT" ? "SENT" : "FAILED",
           errorMessage: input.result.error,
-          sentAt: input.result.status === "SENT" ? new Date() : null,
+          sentAt: input.result.status === "SENT" ? now : null,
+          sentByUserId: input.sentByUserId ?? null,
         },
       }),
       this.prisma.whatsAppConversation.update({
         where: { id: conv.id },
-        data: { lastMessageAt: new Date() },
+        data: { lastMessageAt: now },
       }),
+      // Primera respuesta humana desde el handoff: solo la primera (el filtro
+      // `firstHumanReplyAt: null` hace idempotente esta escritura).
+      ...(input.sentByUserId && input.result.status === "SENT"
+        ? [
+            this.prisma.whatsAppConversation.updateMany({
+              where: { id: conv.id, firstHumanReplyAt: null },
+              data: { firstHumanReplyAt: now },
+            }),
+          ]
+        : []),
     ]);
     return message;
   }
@@ -1015,7 +1113,12 @@ export class WhatsAppService {
    * activa": el cliente escribió a un número concreto y debe recibir la
    * respuesta desde ese mismo número).
    */
-  async replyToConversation(tenantId: string, conversationId: string, body: string) {
+  async replyToConversation(
+    tenantId: string,
+    conversationId: string,
+    body: string,
+    actor: ConversationActor = {},
+  ) {
     const text = body?.trim();
     if (!text) {
       throw new BadRequestException({
@@ -1023,7 +1126,7 @@ export class WhatsAppService {
         message: "El mensaje no puede ir vacío",
       });
     }
-    const conv = await this.requireHandedOff(tenantId, conversationId);
+    const conv = await this.requireAttendant(tenantId, conversationId, actor);
     // Filtro de respuestas humanas: si el tenant lo activó y la acción es
     // `block`, esto lanza 422 y el mensaje nunca sale. Ver
     // reply-moderation.service.ts (apagado por defecto y falla hacia abierto).
@@ -1034,7 +1137,12 @@ export class WhatsAppService {
       type: "text",
       body: text,
     });
-    const message = await this.persistOutbound(conv, { messageType: "TEXT", body: text, result });
+    const message = await this.persistOutbound(conv, {
+      messageType: "TEXT",
+      body: text,
+      result,
+      sentByUserId: actor.userId,
+    });
     await this.noteModerationWarning(tenantId, message.id, decision);
     return message;
   }
@@ -1072,7 +1180,12 @@ export class WhatsAppService {
    * el handoff. Endpoint dedicado y estrecho (T-WHA, "Cotizar rápido") para no
    * aflojar la regla general de `reply`: solo sirve para esto.
    */
-  async sendQuoteMessage(tenantId: string, conversationId: string, body: string) {
+  async sendQuoteMessage(
+    tenantId: string,
+    conversationId: string,
+    body: string,
+    actor: ConversationActor = {},
+  ) {
     const text = body?.trim();
     if (!text) {
       throw new BadRequestException({
@@ -1089,7 +1202,12 @@ export class WhatsAppService {
       type: "text",
       body: text,
     });
-    return this.persistOutbound(conv, { messageType: "TEXT", body: text, result });
+    return this.persistOutbound(conv, {
+      messageType: "TEXT",
+      body: text,
+      result,
+      sentByUserId: actor.userId,
+    });
   }
 
   /**
@@ -1101,6 +1219,7 @@ export class WhatsAppService {
     tenantId: string,
     conversationId: string,
     input: OperatorAttachmentInput,
+    actor: ConversationActor = {},
   ) {
     const mimetype = (input.mimetype ?? "").trim().toLowerCase();
     const filename = (input.filename ?? "").trim();
@@ -1127,7 +1246,7 @@ export class WhatsAppService {
       });
     }
 
-    const conv = await this.requireHandedOff(tenantId, conversationId);
+    const conv = await this.requireAttendant(tenantId, conversationId, actor);
     const adapter = this.adapterFor(conv.connection.provider);
     const mediatype = mediaTypeFromMime(mimetype);
     const caption = input.caption?.trim() || undefined;
@@ -1154,6 +1273,7 @@ export class WhatsAppService {
       messageType: MEDIA_TO_MESSAGE_TYPE[mediatype],
       body: caption || filename,
       result,
+      sentByUserId: actor.userId,
     });
     await this.noteModerationWarning(tenantId, message.id, decision);
     return message;
@@ -1223,7 +1343,12 @@ export class WhatsAppService {
     }
     const updated = await this.prisma.whatsAppConversation.update({
       where: { id: conversationId },
-      data: { status, handoffToHuman: false, handoffUserId: null },
+      data: {
+        status,
+        handoffToHuman: false,
+        handoffUserId: null,
+        closedAt: status === "CLOSED" ? new Date() : null,
+      },
     });
     // Mismo estado del otro lado: cerrar guarda el episodio y borra el hilo
     // del agente (un cliente que vuelve no hereda carritos viejos); reabrir
@@ -1371,18 +1496,76 @@ export class WhatsAppService {
    */
   async claim(tenantId: string, conversationId: string, userId: string) {
     const conv = await this.requireConversation(tenantId, conversationId);
+    if (conv.status === "CLOSED") {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La conversación está cerrada. Reábrela primero.",
+      });
+    }
     if (conv.handoffUserId && conv.handoffUserId !== userId) {
       throw new BadRequestException({
         code: "RULE_VIOLATION",
         message: "Ya está asignada a otra persona",
       });
     }
+    if (!(await this.isActiveAgent(tenantId, userId))) {
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: "Solo las personas marcadas como agente pueden tomar conversaciones.",
+      });
+    }
+    // Dos agentes que pulsan "Tomar" a la vez: el `updateMany` condicionado a
+    // que siga libre deja pasar a uno solo.
+    if (!(await this.takeIfFree(tenantId, conversationId, userId))) {
+      throw new ConflictException({
+        code: "CONFLICT",
+        message: "Otra persona acaba de tomar esta conversación.",
+      });
+    }
+    if (!conv.handoffToHuman) {
+      await this.prisma.whatsAppConversation.update({
+        where: { id: conversationId },
+        data: { handoffAt: new Date(), firstHumanReplyAt: null },
+      });
+    }
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.claimed, userId);
+    return this.requireConversation(tenantId, conversationId);
+  }
+
+  /**
+   * Suelta el hilo a la cola: sigue con humanos (el bot no contesta) pero sin
+   * dueño, para que otro agente lo tome. Lo hace su dueño o quien administra.
+   */
+  async releaseToQueue(tenantId: string, conversationId: string, actor: ConversationActor) {
+    const conv = await this.requireConversation(tenantId, conversationId);
+    if (!conv.handoffToHuman || !conv.handoffUserId) {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La conversación no está asignada a nadie",
+      });
+    }
+    this.assertCanActOn(conv, actor);
     const updated = await this.prisma.whatsAppConversation.update({
       where: { id: conversationId },
-      data: { status: "HANDED_OFF", handoffToHuman: true, handoffUserId: userId },
+      data: { handoffUserId: null, assignedAt: null },
     });
-    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.claimed, userId);
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.released, actor.userId, {
+      previousUserId: conv.handoffUserId,
+    });
     return updated;
+  }
+
+  /** Un hilo con dueño solo lo mueve su dueño o quien administra. */
+  private assertCanActOn(
+    conv: { handoffUserId: string | null },
+    actor: ConversationActor,
+  ): void {
+    if (!conv.handoffUserId || !actor.userId || actor.canManage) return;
+    if (conv.handoffUserId === actor.userId) return;
+    throw new ForbiddenException({
+      code: "FORBIDDEN",
+      message: "Esta conversación la atiende otra persona.",
+    });
   }
 
   /**
@@ -1459,8 +1642,9 @@ export class WhatsAppService {
   }
 
   /** Devuelve el hilo al agente: a partir de aquí el bot vuelve a contestar. */
-  async returnToAgent(tenantId: string, conversationId: string, actorId?: string) {
-    await this.requireConversation(tenantId, conversationId);
+  async returnToAgent(tenantId: string, conversationId: string, actor: ConversationActor = {}) {
+    const conv = await this.requireConversation(tenantId, conversationId);
+    this.assertCanActOn(conv, actor);
     const updated = await this.prisma.whatsAppConversation.update({
       where: { id: conversationId },
       data: { handoffToHuman: false, handoffUserId: null, status: "OPEN" },
@@ -1469,7 +1653,7 @@ export class WhatsAppService {
     // contestaba vacío (HUMAN_ACTIVE) al siguiente mensaje: el bot "volvía"
     // solo en la base de datos.
     await this.agentLifecycle.release(tenantId, conversationId);
-    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.returned, actorId);
+    await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.returned, actor.userId);
     return updated;
   }
 
@@ -1495,18 +1679,28 @@ export class WhatsAppService {
     userId: string,
     actorId?: string,
   ) {
-    const conv = await this.prisma.whatsAppConversation.findFirst({
-      where: { id: conversationId, tenantId },
-    });
-    if (!conv) {
-      throw new NotFoundException({ code: "NOT_FOUND", message: "Conversación no accesible" });
+    const conv = await this.requireConversation(tenantId, conversationId);
+    if (conv.status === "CLOSED") {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "La conversación está cerrada. Reábrela primero.",
+      });
     }
+    if (!(await this.isActiveAgent(tenantId, userId))) {
+      throw new BadRequestException({
+        code: "RULE_VIOLATION",
+        message: "Esa persona no está activa como agente de atención",
+      });
+    }
+    const now = new Date();
     const updated = await this.prisma.whatsAppConversation.update({
       where: { id: conversationId },
       data: {
         status: "HANDED_OFF",
         handoffToHuman: true,
         handoffUserId: userId,
+        assignedAt: now,
+        ...(conv.handoffToHuman ? {} : { handoffAt: now, firstHumanReplyAt: null }),
       },
       include: { handoffUser: { select: { fullName: true } } },
     });
@@ -1700,9 +1894,17 @@ export class WhatsAppService {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
       ...(cursorOk ? { cursor: { id: cursorOk.id }, skip: 1 } : {}),
+      include: { sentBy: { select: { id: true, fullName: true } } },
     });
     const hasMore = rows.length > limit;
-    const page = (hasMore ? rows.slice(0, limit) : rows).reverse();
+    // Autoría: solo se afirma "persona" cuando hay `sentByUserId`; un saliente
+    // sin él puede ser del bot, una plantilla o anterior a la atribución, y el
+    // portal lo rotula neutro en vez de inventarlo.
+    const page = (hasMore ? rows.slice(0, limit) : rows)
+      .map(({ sentBy, ...m }) =>
+        sentBy ? { ...m, sender: "HUMAN" as const, senderUser: sentBy } : m,
+      )
+      .reverse();
     const oldest = page[0];
     return {
       data: page,

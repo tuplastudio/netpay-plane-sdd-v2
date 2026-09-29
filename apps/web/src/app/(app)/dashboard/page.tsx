@@ -319,6 +319,7 @@ const QUICK_ACTIONS: ReadonlyArray<{
   { href: "/customers", label: "Dar de alta un cliente", icon: UserPlus, anyOf: ["customers.write"] },
   { href: "/catalog", label: "Ver catálogo", icon: Package, anyOf: ["catalog.read"] },
   { href: "/conversations", label: "Abrir la bandeja", icon: MessagesSquare, anyOf: ["chat.read"] },
+  { href: "/conversations/reporte", label: "Reporte de atención", icon: TrendingUp, anyOf: ["chat.read"] },
   { href: "/agent", label: "Consola del agente", icon: Bot, anyOf: AGENT_MANAGE },
 ];
 

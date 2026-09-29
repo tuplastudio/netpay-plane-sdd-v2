@@ -597,3 +597,119 @@ export function useSendQuoteMessage(conversationId: string | undefined) {
     onError: (error) => toast.error(apiErrorMessage(error, "No se pudo enviar la cotización")),
   });
 }
+
+/**
+ * Asigna el hilo a un agente concreto (transferencia entre agentes). El API
+ * exige que la persona esté activa como agente.
+ */
+export function useAssign() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; userId: string; name: string }) => {
+      await api.post(`/whatsapp/conversations/${input.id}/handoff`, { userId: input.userId });
+    },
+    onSuccess: async (_d, input) => {
+      toast.success(`Conversación asignada a ${input.name}`);
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-agents"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", input.id] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo asignar la conversación")),
+  });
+}
+
+/** Suelta el hilo a la cola: sigue con personas, sin dueño, para que otro lo tome. */
+export function useReleaseToQueue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      await api.post(`/whatsapp/conversations/${conversationId}/release`);
+    },
+    onSuccess: async (_d, conversationId) => {
+      toast.success("Conversación devuelta a la cola");
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-agents"] });
+      await queryClient.invalidateQueries({ queryKey: ["whatsapp-context", conversationId] });
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo devolver a la cola")),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Reporte de atención (`GET /reports/attention`)
+// ---------------------------------------------------------------------------
+
+export interface AttentionAgentRow {
+  userId: string;
+  fullName: string;
+  email: string;
+  active: boolean;
+  assignedNow: number;
+  handled: number;
+  messagesSent: number;
+  avgFirstReplySeconds: number | null;
+}
+
+export interface AttentionDayRow {
+  day: string;
+  newConversations: number;
+  inbound: number;
+  outboundHuman: number;
+  outboundBot: number;
+}
+
+export interface AttentionReport {
+  range: { from: string; to: string; timezone: string };
+  overview: {
+    newConversations: number;
+    escalated: number;
+    escalationRate: number | null;
+    closed: number;
+    unattended: number;
+    avgFirstReplySeconds: number | null;
+    medianFirstReplySeconds: number | null;
+    avgResolutionSeconds: number | null;
+    inbound: number;
+    outboundHuman: number;
+    outboundBot: number;
+  };
+  now: {
+    queue: number;
+    oldestQueueWaitSeconds: number | null;
+    awaitingReply: number;
+    assigned: number;
+  };
+  agents: AttentionAgentRow[];
+  byDay: AttentionDayRow[];
+}
+
+export function useAttentionReport(range: { from: string; to: string }, enabled = true) {
+  return useQuery({
+    queryKey: ["reports-attention", range],
+    queryFn: async () => {
+      const res = await api.get<{ data: AttentionReport }>("/reports/attention", {
+        params: range,
+      });
+      return res.data.data;
+    },
+    placeholderData: keepPreviousData,
+    refetchInterval: whenVisible(60_000),
+    enabled,
+  });
+}
+
+/** Duración corta en español: "45 s", "12 min", "3 h 20 min", "2 d". `—` sin dato. */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "—";
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return rest ? `${hours} h ${rest} min` : `${hours} h`;
+  }
+  const days = Math.floor(hours / 24);
+  const restH = hours % 24;
+  return restH ? `${days} d ${restH} h` : `${days} d`;
+}

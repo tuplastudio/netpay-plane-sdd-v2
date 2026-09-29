@@ -1,5 +1,6 @@
-import { Controller, Get, UseGuards } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { ReportsService } from "./reports.service.js";
+import { AttentionReportService, resolveRange } from "./attention.service.js";
 import { RoleGuard, RequireScopes } from "../auth/guards/role.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { effectiveScopesOf } from "../auth/policies.js";
@@ -20,7 +21,38 @@ import { effectiveScopesOf } from "../auth/policies.js";
 @Controller("reports")
 @UseGuards(RoleGuard)
 export class ReportsController {
-  constructor(private readonly reports: ReportsService) {}
+  constructor(
+    private readonly reports: ReportsService,
+    private readonly attention: AttentionReportService,
+  ) {}
+
+  /**
+   * Reporte de atención de conversaciones: volumen, tiempos de respuesta y
+   * carga por agente. Scope `chat.read`: es lo que ya abre la bandeja, así que
+   * nadie gana acceso nuevo a los hilos; FINANCE/CATALOG/VIEWER no lo ven.
+   */
+  @Get("attention")
+  @RequireScopes("chat.read")
+  async attentionReport(@Query("from") from?: string, @Query("to") to?: string) {
+    const tenantId = RequestContext.tenantId!;
+    const parse = (name: string, raw?: string) => {
+      if (!raw) return undefined;
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException(`${name} no es una fecha válida`);
+      return d;
+    };
+    let range;
+    try {
+      range = resolveRange(parse("from", from), parse("to", to));
+    } catch (e) {
+      if (e instanceof RangeError) throw new BadRequestException(e.message);
+      throw e;
+    }
+    return {
+      data: await this.attention.report(tenantId, range),
+      requestId: RequestContext.requestId,
+    };
+  }
 
   @Get("summary")
   @RequireScopes("payments.read")

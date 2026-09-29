@@ -23,6 +23,7 @@ import {
   MANUAL_STATUSES,
   MAX_MESSAGE_LIMIT,
   WhatsAppService,
+  type ConversationActor,
   type ConversationListFilters,
   type ConversationSort,
   type ManualConversationStatus,
@@ -99,6 +100,15 @@ function parseMessageLimit(raw: string | undefined): number {
  * Tenant de la petición o 404. Nunca se debe llegar a Prisma con
  * `where: { tenantId: undefined }`: Prisma lo interpreta como "sin filtro".
  */
+/** Quién actúa: usuario del portal y si administra (puede intervenir hilos ajenos). */
+function currentActor(): ConversationActor {
+  const p = RequestContext.principal;
+  return {
+    userId: p.type === "USER" ? p.userId : undefined,
+    canManage: p.role === "OWNER" || p.role === "ADMIN" || p.isSuperAdmin === true,
+  };
+}
+
 function requireTenant(): string {
   const tenantId = RequestContext.tenantId;
   if (!tenantId) throw new NotFoundException({ code: "NOT_FOUND", message: "Sin tenant" });
@@ -551,7 +561,7 @@ export class WhatsAppController {
   async sendQuote(@Param("id") id: string, @Body() body: { body: string }) {
     const tenantId = requireTenant();
     return {
-      data: await this.wa.sendQuoteMessage(tenantId, id, body?.body),
+      data: await this.wa.sendQuoteMessage(tenantId, id, body?.body, currentActor()),
       requestId: RequestContext.requestId,
     };
   }
@@ -605,7 +615,7 @@ export class WhatsAppController {
   async reply(@Param("id") id: string, @Body() body: { body: string }) {
     const tenantId = requireTenant();
     return {
-      data: await this.wa.replyToConversation(tenantId, id, body?.body),
+      data: await this.wa.replyToConversation(tenantId, id, body?.body, currentActor()),
       requestId: RequestContext.requestId,
     };
   }
@@ -624,7 +634,7 @@ export class WhatsAppController {
         mimetype: body?.mimetype,
         base64: body?.base64,
         caption: body?.caption,
-      }),
+      }, currentActor()),
       requestId: RequestContext.requestId,
     };
   }
@@ -650,13 +660,25 @@ export class WhatsAppController {
     };
   }
 
+  /** Suelta el hilo a la cola de agentes (sigue con humanos, sin dueño). */
+  @Post("conversations/:id/release")
+  @HttpCode(200)
+  @RequireScopes("chat.write" as never)
+  async release(@Param("id") id: string) {
+    const tenantId = requireTenant();
+    return {
+      data: await this.wa.releaseToQueue(tenantId, id, currentActor()),
+      requestId: RequestContext.requestId,
+    };
+  }
+
   @Post("conversations/:id/return")
   @HttpCode(200)
   @RequireScopes("chat.write" as never)
   async returnToAgent(@Param("id") id: string) {
     const tenantId = requireTenant();
     return {
-      data: await this.wa.returnToAgent(tenantId, id, RequestContext.userId),
+      data: await this.wa.returnToAgent(tenantId, id, currentActor()),
       requestId: RequestContext.requestId,
     };
   }

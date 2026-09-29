@@ -91,6 +91,7 @@ describe("setStatus: cerrar y reabrir a mano", () => {
       status: "CLOSED",
       handoffToHuman: false,
       handoffUserId: null,
+      closedAt: expect.any(Date),
     });
     expect(fake.audits).toHaveLength(1);
     expect(fake.audits[0]).toMatchObject({
@@ -112,6 +113,7 @@ describe("setStatus: cerrar y reabrir a mano", () => {
       status: "OPEN",
       handoffToHuman: false,
       handoffUserId: null,
+      closedAt: null,
     });
     expect(fake.audits[0]).toMatchObject({ action: CONVERSATION_AUDIT.reopened });
     // Reabrir suelta el handoff también en el agente, no solo en la base.
@@ -176,7 +178,7 @@ describe("ingestInbound: un cliente que vuelve a escribir reabre su ticket", () 
 
     expect(fake.updateManys).toHaveLength(1);
     expect(fake.updateManys[0]!.where).toEqual({ id: CONV, status: "CLOSED" });
-    expect(fake.updateManys[0]!.data).toEqual({ status: "OPEN" });
+    expect(fake.updateManys[0]!.data).toEqual({ status: "OPEN", closedAt: null });
     expect(fake.audits[0]).toMatchObject({
       action: CONVERSATION_AUDIT.reopened,
       targetId: CONV,

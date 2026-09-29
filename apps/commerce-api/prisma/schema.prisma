@@ -105,6 +105,7 @@ model User {
   conversationNotes ConversationNote[]
   messageNotes MessageNote[]
   handoffThreads WhatsAppConversation[] @relation("ConversationHandoffUser")
+  sentMessages WhatsAppMessage[] @relation("MessageSentBy")
 }
 
 model Membership {
@@ -1000,6 +1001,12 @@ model WhatsAppConversation {
   status          ConversationStatus @default(OPEN)
   handoffToHuman  Boolean  @default(false)
   handoffUserId   String?  @db.Uuid
+  /// Cuándo entró a la cola humana / cuándo una persona lo tomó / primera
+  /// respuesta humana desde ese handoff / cierre. Alimentan el reporte de atención.
+  handoffAt         DateTime? @db.Timestamptz
+  assignedAt        DateTime? @db.Timestamptz
+  firstHumanReplyAt DateTime? @db.Timestamptz
+  closedAt          DateTime? @db.Timestamptz
   // Etiquetas libres del hilo (p.ej. "vip", "reclamo", "mayoreo"), normalizadas en minúsculas.
   tags            String[] @default([])
   lastMessageAt   DateTime?
@@ -1048,14 +1055,18 @@ model WhatsAppMessage {
   sentAt          DateTime?
   deliveredAt     DateTime?
   readAt          DateTime?
+  /// Persona del portal que mandó este saliente (NULL = bot/automático).
+  sentByUserId    String?  @db.Uuid
   createdAt       DateTime @default(now()) @db.Timestamptz
 
   conversation WhatsAppConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sentBy       User?                @relation("MessageSentBy", fields: [sentByUserId], references: [id], onDelete: SetNull)
   notes        MessageNote[]
 
   @@unique([tenantId, externalId])
   @@index([tenantId, conversationId])
   @@index([conversationId, createdAt])
+  @@index([tenantId, sentByUserId, createdAt])
 }
 
 // Nota interna sobre UN mensaje puntual (no todo el hilo). Espejo de ConversationNote.

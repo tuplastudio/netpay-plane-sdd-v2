@@ -126,7 +126,7 @@ export class ConversationAutoCloseService implements OnModuleInit, OnModuleDestr
     const ids = stale.map((c) => c.id);
     const { count } = await this.prisma.whatsAppConversation.updateMany({
       where: { ...where, id: { in: ids } },
-      data: { status: "CLOSED", handoffToHuman: false, handoffUserId: null },
+      data: { status: "CLOSED", handoffToHuman: false, handoffUserId: null, closedAt: new Date() },
     });
     if (count === 0) return 0;
 

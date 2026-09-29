@@ -147,7 +147,13 @@ export class AgentBridgeService {
     if (payload.handoff) {
       await this.prisma.whatsAppConversation.update({
         where: { id: input.conversationId },
-        data: { status: "HANDED_OFF", handoffToHuman: true },
+        data: {
+          status: "HANDED_OFF",
+          handoffToHuman: true,
+          handoffAt: new Date(),
+          assignedAt: null,
+          firstHumanReplyAt: null,
+        },
       });
     }
 

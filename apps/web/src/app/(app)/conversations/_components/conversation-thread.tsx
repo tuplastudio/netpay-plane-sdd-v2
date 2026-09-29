@@ -44,8 +44,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { usePermissions } from "@/components/app/use-permissions";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton, SkeletonRegion, SkeletonText } from "@/components/ui/skeleton";
@@ -63,11 +66,13 @@ import {
   providerLabel,
   useAddNote,
   useAddMessageNote,
+  useAgents,
+  useAssign,
   useClaim,
-  useHandoff,
   useMessageNotes,
   useMessages,
   useNotes,
+  useReleaseToQueue,
   useReply,
   useReturnToAgent,
   useSendAttachment,
@@ -1648,8 +1653,12 @@ export function ConversationThread({
   /** Solo en móvil: vuelve a la lista. */
   onBack?: () => void;
 }) {
-  const handoff = useHandoff(userId);
   const claim = useClaim();
+  const assign = useAssign();
+  const releaseToQueue = useReleaseToQueue();
+  const agents = useAgents();
+  const { can } = usePermissions();
+  const canManage = can("users.manage");
   const returnToAgent = useReturnToAgent();
   const setStatus = useSetConversationStatus();
   const [confirmReturn, setConfirmReturn] = useState(false);
@@ -1700,6 +1709,20 @@ export function ConversationThread({
   }
 
   const current = conversation;
+  const isOwner = !!userId && current.handoffUserId === userId;
+  const ownedByOther = !!current.handoffUserId && !isOwner;
+  // `undefined` mientras carga la lista: no se bloquea nada por adelantado.
+  const iAmAgent = agents.data && userId ? agents.data.some((a) => a.userId === userId) : undefined;
+  const canReassign =
+    current.status !== "CLOSED" && (canManage || isOwner || !current.handoffUserId);
+  const assignTargets = (agents.data ?? []).filter((a) => a.userId !== current.handoffUserId);
+  // Quién puede escribir: el dueño, cualquier agente si está en cola, o quien administra.
+  const blockedReason: string | null =
+    ownedByOther && !canManage
+      ? `${current.handoffUser?.fullName ?? "Otra persona"} atiende esta conversación. Pídele que te la asigne o que la suelte a la cola.`
+      : !current.handoffUserId && iAmAgent === false && !canManage
+        ? "Activa tu perfil de agente (Admin › Miembros) para atender conversaciones."
+        : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" onKeyDown={handleThreadKeyDown}>
@@ -1754,26 +1777,31 @@ export function ConversationThread({
         />
 
         {current.handoffToHuman ? (
-          <Badge variant="warning" size="sm" className="max-w-[9rem] shrink-0 truncate">
-            {current.handoffUser ? current.handoffUser.fullName : "Con una persona"}
+          <Badge
+            variant={current.handoffUser ? "warning" : "destructive"}
+            size="sm"
+            className="max-w-[9rem] shrink-0 truncate"
+          >
+            {current.handoffUser
+              ? isOwner
+                ? "Tuya"
+                : current.handoffUser.fullName
+              : "En cola"}
           </Badge>
-        ) : current.status !== "CLOSED" ? (
-          <>
-            <HeaderAction
-              icon={UserCog}
-              label="Transferir a una persona"
-              disabled={!userId}
-              loading={handoff.isPending && handoff.variables === current.id}
-              onClick={() => handoff.mutate(current.id)}
-            />
-            <HeaderAction
-              icon={Hand}
-              label="Tomar la conversación"
-              disabled={!userId}
-              loading={claim.isPending && claim.variables === current.id}
-              onClick={() => claim.mutate(current.id)}
-            />
-          </>
+        ) : null}
+
+        {current.status !== "CLOSED" && !current.handoffUser ? (
+          <HeaderAction
+            icon={Hand}
+            label={
+              iAmAgent === false
+                ? "Activa tu perfil de agente (Admin › Miembros) para tomar conversaciones"
+                : "Tomar la conversación"
+            }
+            disabled={!userId || iAmAgent === false}
+            loading={claim.isPending && claim.variables === current.id}
+            onClick={() => claim.mutate(current.id)}
+          />
         ) : null}
 
         <TagsEditor conversation={current} className="min-w-0 flex-1" />
@@ -1794,6 +1822,36 @@ export function ConversationThread({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {canReassign && assignTargets.length > 0 ? (
+              <>
+                <DropdownMenuLabel>Asignar a…</DropdownMenuLabel>
+                {assignTargets.map((a) => (
+                  <DropdownMenuItem
+                    key={a.userId}
+                    disabled={assign.isPending}
+                    onSelect={() =>
+                      assign.mutate({ id: current.id, userId: a.userId, name: a.fullName })
+                    }
+                  >
+                    <UserCog aria-hidden className="h-4 w-4" />
+                    <span className="min-w-0 flex-1 truncate">{a.fullName}</span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {a.activeConversations}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+              </>
+            ) : null}
+            {current.handoffUser && (isOwner || canManage) ? (
+              <DropdownMenuItem
+                disabled={releaseToQueue.isPending}
+                onSelect={() => releaseToQueue.mutate(current.id)}
+              >
+                <Hand aria-hidden className="h-4 w-4" />
+                Soltar a la cola
+              </DropdownMenuItem>
+            ) : null}
             {current.handoffToHuman ? (
               <DropdownMenuItem
                 // Diferido un tick: si el diálogo se monta mientras el menú
@@ -1857,7 +1915,17 @@ export function ConversationThread({
               derecha.
             </div>
           ) : null}
-          {current.status !== "CLOSED" && current.handoffToHuman ? (
+          {current.status !== "CLOSED" && current.handoffToHuman && blockedReason ? (
+            <div className="shrink-0 border-t border-border p-3">
+              <div
+                role="status"
+                className="flex items-center gap-2 rounded-card bg-secondary px-3 py-2.5 text-sm text-muted-foreground"
+              >
+                <UserCog aria-hidden className="h-4 w-4 shrink-0" />
+                {blockedReason}
+              </div>
+            </div>
+          ) : current.status !== "CLOSED" && current.handoffToHuman ? (
             <Composer
               conversationId={current.id}
               onReturn={() => setConfirmReturn(true)}

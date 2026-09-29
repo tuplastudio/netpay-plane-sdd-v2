@@ -106,7 +106,15 @@ describe("AgentBridgeService.handleInbound — handoff desfasado", () => {
     expect(payload?.intent).toBe(HUMAN_ACTIVE_INTENT);
     // Conserva el comportamiento previo del puente para un handoff devuelto
     // por el agente: la base se marca HANDED_OFF (una persona debe revisarlo).
-    expect(fake.updates).toEqual([{ status: "HANDED_OFF", handoffToHuman: true }]);
+    expect(fake.updates).toEqual([
+      {
+        status: "HANDED_OFF",
+        handoffToHuman: true,
+        handoffAt: expect.any(Date),
+        assignedAt: null,
+        firstHumanReplyAt: null,
+      },
+    ]);
   });
 
   it("un handoff real del agente (con texto) marca HANDED_OFF sin reintentar", async () => {
@@ -126,7 +134,15 @@ describe("AgentBridgeService.handleInbound — handoff desfasado", () => {
 
     expect(bodies).toHaveLength(1);
     expect(sent).toHaveLength(1);
-    expect(fake.updates).toEqual([{ status: "HANDED_OFF", handoffToHuman: true }]);
+    expect(fake.updates).toEqual([
+      {
+        status: "HANDED_OFF",
+        handoffToHuman: true,
+        handoffAt: expect.any(Date),
+        assignedAt: null,
+        firstHumanReplyAt: null,
+      },
+    ]);
   });
 
   it("no invoca al agente si la base ya dice que una persona atiende", async () => {

@@ -1,10 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDebounced } from "./use-debounced";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   CalendarDays,
+  BarChart3,
   CheckCircle2,
+  Hourglass,
   Inbox,
   MessagesSquare,
   RotateCcw,
@@ -87,6 +90,7 @@ function StatsStrip({
   const handedOff = stats?.handedOff ?? 0;
   const unanswered = stats?.unanswered ?? 0;
   const today = stats?.today ?? 0;
+  const queue = stats?.queue ?? 0;
   const loading = query.isLoading;
 
   const items = [
@@ -97,6 +101,13 @@ function StatsStrip({
       value: handedOff,
       icon: UserCog,
       tone: (handedOff > 0 ? "warning" : "neutral") as "warning" | "neutral",
+    },
+    {
+      key: "queue",
+      label: "En cola",
+      value: queue,
+      icon: Hourglass,
+      tone: (queue > 0 ? "destructive" : "neutral") as "destructive" | "neutral",
     },
     {
       key: "unans",
@@ -337,7 +348,15 @@ export function ConversationsView() {
             Bandeja de WhatsApp; filtros, orden y vista viven en la URL.
           </p>
         </div>
-        <StatsStrip query={list} />
+        <div className="flex min-w-0 items-center gap-2">
+          <StatsStrip query={list} />
+          <Button asChild variant="outline" size="sm" className="h-7 shrink-0 px-2 text-xs">
+            <Link href="/conversations/reporte">
+              <BarChart3 aria-hidden className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Reporte</span>
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Fila 2: toolbar. En teléfono las pestañas y los filtros van en dos
