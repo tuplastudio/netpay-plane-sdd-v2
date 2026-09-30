@@ -79,6 +79,7 @@ model Tenant {
   deliveryZones DeliveryZone[]
   cannedResponses CannedResponse[]
   customerNotes CustomerNote[]
+  dataSources  DataSource[]
 }
 
 enum TenantStatus {
@@ -1287,4 +1288,103 @@ model DeliveryZone {
 
   @@unique([tenantId, name])
   @@index([tenantId, active])
+}
+
+// === Data sources (sync de catálogo) ===
+// Fuentes externas (API REST o servidor MCP) desde las que se sincroniza el
+// catálogo. La credencial se guarda cifrada (secret-cipher, misma clave que
+// los secretos de Integration) y NUNCA sale por el API. `config` es el mapeo
+// (ver src/data-sources/data-source-config.ts y docs/integrations/data-sources.md).
+// Las variantes creadas por una fuente llevan `originSystem = DataSource.id`.
+
+enum DataSourceKind {
+  REST
+  MCP
+}
+
+enum DataSourceStatus {
+  ACTIVE   // se sincroniza (manual y por schedule)
+  PAUSED   // solo manual
+  ERROR    // el último run falló; el schedule sigue intentando
+}
+
+enum DataSourceAuthType {
+  NONE
+  BEARER
+  API_KEY_HEADER
+  BASIC
+}
+
+enum DataSourceRunStatus {
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
+enum DataSourceTrigger {
+  MANUAL
+  SCHEDULE
+}
+
+model DataSource {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String   @db.Uuid
+  name                 String
+  kind                 DataSourceKind
+  status               DataSourceStatus @default(ACTIVE)
+  /// REST: base URL (a la que se concatena `config.listPath`). MCP: URL del
+  /// endpoint Streamable HTTP.
+  url                  String
+  authType             DataSourceAuthType @default(NONE)
+  /// Token / API key / "usuario:contraseña", cifrado con secret-cipher.
+  credentialEnc        String?
+  /// Solo API_KEY_HEADER: nombre del header (p.ej. "X-API-Key").
+  authHeaderName       String?
+  /// Headers extra `{ "X-Shop": "mx" }` (sin secretos: van en credentialEnc).
+  headers              Json?
+  /// Mapeo REST o MCP (ver data-source-config.ts). Validado al guardar.
+  config               Json
+  /// Programación: intervalo en minutos O cron de 5 campos. Ambos null = solo manual.
+  scheduleEveryMinutes Int?
+  scheduleCron         String?
+  /// Archivar variantes de esta fuente que dejaron de venir. Nunca se borra.
+  deactivateMissing    Boolean  @default(false)
+  nextRunAt            DateTime? @db.Timestamptz
+  lastRunAt            DateTime? @db.Timestamptz
+  lastStatus           DataSourceRunStatus?
+  lastError            String?
+  /// Lock del scheduler/sync: mientras esté puesto (y no haya expirado) no se
+  /// lanza otro run de la misma fuente.
+  lockedAt             DateTime? @db.Timestamptz
+  createdById          String?  @db.Uuid
+  createdAt            DateTime @default(now()) @db.Timestamptz
+  updatedAt            DateTime @updatedAt @db.Timestamptz
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  runs   DataSourceRun[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+  @@index([status, nextRunAt])
+}
+
+model DataSourceRun {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String   @db.Uuid
+  dataSourceId  String   @db.Uuid
+  startedAt     DateTime @default(now()) @db.Timestamptz
+  finishedAt    DateTime? @db.Timestamptz
+  status        DataSourceRunStatus @default(RUNNING)
+  /// `{ fetched, created, updated, skipped, deactivated, errors }`
+  stats         Json?
+  /// Hasta 10 errores `{ sku?, index?, message }` para diagnosticar el mapeo.
+  errorSample   Json?
+  triggeredBy   DataSourceTrigger
+  triggeredById String?  @db.Uuid
+
+  dataSource DataSource @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, dataSourceId, startedAt])
+  @@index([dataSourceId, status])
 }
