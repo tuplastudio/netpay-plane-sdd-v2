@@ -11,6 +11,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             staleTime: 30_000,
+            // Volver a la pestaña disparaba un refetch de TODAS las consultas
+            // montadas (dashboard, bandeja, listado, /auth/me...) aunque
+            // llevaran segundos frescas. Lo que necesita estar vivo ya sondea
+            // con `refetchInterval` propio; el resto se refresca al navegar
+            // o al mutar (invalidateQueries).
+            refetchOnWindowFocus: false,
+            // Al recuperar la red sí conviene reintentar lo que quedó viejo.
+            refetchOnReconnect: true,
             retry: (failureCount, error) => {
               const status = (error as { status?: number })?.status;
               if (status && status >= 400 && status < 500) return false;

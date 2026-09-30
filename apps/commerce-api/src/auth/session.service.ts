@@ -1,6 +1,7 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service.js";
+import { PrismaService, type PrismaWriteEvent } from "../prisma/prisma.service.js";
 import { hashToken, newSessionToken } from "./rate-limit.service.js";
+import { TtlCache } from "../common/ttl-cache.js";
 
 export interface OpenSessionInput {
   tenantId: string;
@@ -11,9 +12,69 @@ export interface OpenSessionInput {
   inactivityTtlMs?: number; // default 30min
 }
 
+export interface ResolvedSession {
+  sessionId: string;
+  userId: string;
+  tenantId: string;
+  role: string;
+  isSuperAdmin: boolean;
+}
+
+/**
+ * Vida de la sesión resuelta en memoria. Cada petición autenticada por
+ * cookie hacía 2 lecturas (Session + Membership); con el portal abriendo
+ * 5–10 peticiones por pantalla eso es puro ruido en la base. El TTL es corto
+ * y además CUALQUIER escritura en Session/Membership/User vacía la caché
+ * (ver constructor), así que revocar, cambiar de empresa o deshabilitar una
+ * membresía se ve en la siguiente petición.
+ */
+export const SESSION_CACHE_TTL_MS = 5_000;
+
+/**
+ * `lastActivityAt` se escribía en CADA petición. La regla de inactividad es
+ * de 30 min, así que basta con persistirla una vez por minuto por sesión.
+ */
+export const ACTIVITY_TOUCH_INTERVAL_MS = 60_000;
+
+/** Modelos cuya escritura invalida la caché de sesiones. */
+const SESSION_CACHE_MODELS = ["Session", "Membership", "User"] as const;
+
+/**
+ * `touchActivity` escribe solo `lastActivityAt`; esa escritura no cambia nada
+ * de lo cacheado y no debe vaciar la caché (si no, cada toque la tiraría).
+ */
+export function isActivityTouch(event: PrismaWriteEvent): boolean {
+  if (event.model !== "Session" || event.action !== "update") return false;
+  const data = event.args?.data;
+  if (!data || typeof data !== "object") return false;
+  const keys = Object.keys(data as Record<string, unknown>);
+  return keys.length === 1 && keys[0] === "lastActivityAt";
+}
+
 @Injectable()
 export class SessionService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly cache = new TtlCache<string, ResolvedSession>({
+    ttlMs: SESSION_CACHE_TTL_MS,
+    maxEntries: 5_000,
+  });
+  private readonly touched = new TtlCache<string, true>({
+    ttlMs: ACTIVITY_TOUCH_INTERVAL_MS,
+    maxEntries: 20_000,
+  });
+
+  constructor(private readonly prisma: PrismaService) {
+    // Los tests construyen el servicio con un Prisma falso sin `onWrite`;
+    // en ese caso la invalidación explícita de abajo (revoke, setActiveTenant,
+    // refresh) es la que aplica.
+    this.prisma.onWrite?.(SESSION_CACHE_MODELS, (event) => {
+      if (!isActivityTouch(event)) this.cache.clear();
+    });
+  }
+
+  /** Vacía la caché de sesiones resueltas (todas las entradas). */
+  invalidateAll(): void {
+    this.cache.clear();
+  }
 
   async openSession(input: OpenSessionInput): Promise<{ token: string; expiresAt: Date }> {
     const { token, hash } = newSessionToken();
@@ -42,23 +103,36 @@ export class SessionService {
    * `Session.tenantId` es el tenant activo (lo fija login y lo cambia
    * `setActiveTenant`) y el rol se relee de la membresía viva en ese tenant.
    * Sin membresía ACTIVE ahí, la sesión no vale aunque el token sea bueno.
+   *
+   * El resultado positivo se cachea `SESSION_CACHE_TTL_MS` por hash del
+   * token (nunca por el token en claro); los negativos no se cachean.
    */
-  async resolveSession(token: string | undefined): Promise<{
-    sessionId: string;
-    userId: string;
-    tenantId: string;
-    role: string;
-    isSuperAdmin: boolean;
-  } | null> {
+  async resolveSession(token: string | undefined): Promise<ResolvedSession | null> {
     if (!token) return null;
     const hash = hashToken(token);
+    const resolved = await this.cache.getOrLoad(hash, () => this.loadSession(hash));
+    return resolved ?? null;
+  }
+
+  private async loadSession(hash: string): Promise<ResolvedSession | undefined> {
+    // `select` acotado: antes se hacía `include: { tenant: true }` y la fila
+    // completa del tenant (plantillas JSON, branding...) viajaba en cada
+    // petición sin usarse.
     const session = await this.prisma.session.findUnique({
       where: { tokenHash: hash },
-      include: { tenant: true, user: { select: { isSuperAdmin: true } } },
+      select: {
+        id: true,
+        tenantId: true,
+        userId: true,
+        revokedAt: true,
+        expiresAt: true,
+        lastActivityAt: true,
+        user: { select: { isSuperAdmin: true } },
+      },
     });
-    if (!session) return null;
-    if (session.revokedAt) return null;
-    if (session.expiresAt.getTime() <= Date.now()) return null;
+    if (!session) return undefined;
+    if (session.revokedAt) return undefined;
+    if (session.expiresAt.getTime() <= Date.now()) return undefined;
 
     // Sesión abierta pero con inactividad > 30 min → se rechaza.
     // El frontend debería refrescar antes de ese límite; si el navegador se
@@ -66,15 +140,16 @@ export class SessionService {
     const INACTIVITY_TTL_MS = 30 * 60 * 1000;
     if (session.lastActivityAt) {
       const idleMs = Date.now() - new Date(session.lastActivityAt).getTime();
-      if (idleMs > INACTIVITY_TTL_MS) return null;
+      if (idleMs > INACTIVITY_TTL_MS) return undefined;
     }
 
     const membership = await this.prisma.membership.findUnique({
       where: {
         tenantId_userId: { tenantId: session.tenantId, userId: session.userId },
       },
+      select: { role: true, status: true },
     });
-    if (!membership || membership.status !== "ACTIVE") return null;
+    if (!membership || membership.status !== "ACTIVE") return undefined;
 
     return {
       sessionId: session.id,
@@ -96,6 +171,7 @@ export class SessionService {
       where: { id: sessionId },
       data: { tenantId, lastActivityAt: new Date() },
     });
+    this.cache.clear();
   }
 
   /**
@@ -112,7 +188,13 @@ export class SessionService {
     return last?.tenantId ?? null;
   }
 
+  /**
+   * Registra actividad de la sesión, como mucho una vez por
+   * `ACTIVITY_TOUCH_INTERVAL_MS` por sesión (el resto de llamadas son no-op).
+   */
   async touchActivity(sessionId: string): Promise<void> {
+    if (this.touched.get(sessionId)) return;
+    this.touched.set(sessionId, true);
     await this.prisma.session.update({
       where: { id: sessionId },
       data: { lastActivityAt: new Date() },
@@ -131,6 +213,9 @@ export class SessionService {
    * si la sesión ya no vale.
    */
   async refreshSession(token: string | undefined): Promise<{ expiresAt: Date } | null> {
+    // Refresh es la operación que decide si la sesión sigue viva: se
+    // resuelve contra la base, no desde la caché.
+    if (token) this.cache.delete(hashToken(token));
     const session = await this.resolveSession(token);
     if (!session) return null;
 
@@ -139,6 +224,7 @@ export class SessionService {
       where: { id: session.sessionId },
       data: { expiresAt: newExpiresAt, lastActivityAt: new Date() },
     });
+    this.touched.set(session.sessionId, true);
 
     return { expiresAt: newExpiresAt };
   }
@@ -149,6 +235,7 @@ export class SessionService {
       where: { tokenHash: hash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    this.cache.delete(hash);
   }
 
   async revokeAllForUser(userId: string): Promise<void> {
@@ -156,6 +243,7 @@ export class SessionService {
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    this.cache.deleteWhere((_hash, session) => session.userId === userId);
   }
 }
 

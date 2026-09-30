@@ -2,9 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { PAGE_SIZE_OPTIONS, type TablePagerProps } from "./table-pager";
+
+/**
+ * Página que conviene precargar tras pintar `page`: la siguiente, si existe.
+ * `null` cuando ya es la última (o no hay total fiable). Pura, para probarla.
+ */
+export function nextPageToPrefetch(page: number, total: number, pageSize: number): number | null {
+  if (!Number.isFinite(total) || total <= 0 || pageSize <= 0) return null;
+  const totalPages = Math.ceil(total / pageSize);
+  return page < totalPages ? page + 1 : null;
+}
 
 /** Forma que devuelven los listados paginados de commerce-api. */
 export interface PagedResponse<T> {
@@ -91,14 +101,20 @@ export function usePagedQuery<T>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterSignature]);
 
-  const query = useQuery({
-    queryKey: [...key, cleanParams, page, pageSize],
-    queryFn: async (): Promise<PagedResponse<T>> => {
+  const queryClient = useQueryClient();
+  const fetchPage = useCallback(
+    async (p: number): Promise<PagedResponse<T>> => {
       const res = await api.get<PagedResponse<T>>(path, {
-        params: { ...cleanParams, limit: pageSize, offset: (page - 1) * pageSize },
+        params: { ...cleanParams, limit: pageSize, offset: (p - 1) * pageSize },
       });
       return res.data;
     },
+    [path, cleanParams, pageSize],
+  );
+
+  const query = useQuery({
+    queryKey: [...key, cleanParams, page, pageSize],
+    queryFn: () => fetchPage(page),
     placeholderData: keepPreviousData,
     enabled,
   });
@@ -106,6 +122,21 @@ export function usePagedQuery<T>({
   const rows = query.data?.data;
   const paged = query.data?.pageInfo !== undefined;
   const total = query.data?.pageInfo?.total ?? rows?.length ?? 0;
+
+  // Precarga la página siguiente en cuanto llega la actual: "Siguiente" pinta
+  // al instante desde caché. Comparte `queryKey` con la consulta real, así
+  // que no se duplica la petición cuando el usuario avanza.
+  useEffect(() => {
+    if (!enabled || !paged || query.isFetching) return;
+    const next = nextPageToPrefetch(page, total, pageSize);
+    if (next === null) return;
+    void queryClient.prefetchQuery({
+      queryKey: [...key, cleanParams, next, pageSize],
+      queryFn: () => fetchPage(next),
+    });
+    // `key` es un literal estable del llamador; se usa la firma de filtros.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, paged, query.isFetching, page, total, pageSize, filterSignature, fetchPage, queryClient]);
 
   // Quedó fuera de rango (se borraron filas, el total encogió): ir a la última.
   useEffect(() => {

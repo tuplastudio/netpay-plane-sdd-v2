@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import type { ConfirmChannel } from "amqplib";
 import { RabbitClient } from "./rabbit.client.js";
+import { POLL_MIN_MS, nextPollDelay } from "./poll-backoff.js";
 
 /**
  * Outbox publisher.
@@ -21,7 +22,8 @@ export class OutboxPublisher {
   private readonly rabbit: RabbitClient;
   private running = false;
   private timer: NodeJS.Timeout | null = null;
-  private readonly POLL_MS = 1000;
+  /** Espera actual entre sondeos; crece cuando la cola viene vacía (ver poll-backoff.ts). */
+  private pollMs = POLL_MIN_MS;
   private readonly LEASE_MS = 30_000;
   private readonly BATCH = 50;
 
@@ -44,13 +46,17 @@ export class OutboxPublisher {
   private tick(): void {
     if (!this.running) return;
     this.pollOnce()
+      .then((hadWork) => {
+        this.pollMs = nextPollDelay(this.pollMs, hadWork);
+      })
       .catch((err) => this.logger.error(`Poll error: ${String(err)}`))
       .finally(() => {
-        if (this.running) this.timer = setTimeout(() => this.tick(), this.POLL_MS);
+        if (this.running) this.timer = setTimeout(() => this.tick(), this.pollMs);
       });
   }
 
-  private async pollOnce(): Promise<void> {
+  /** Devuelve `true` si reclamó al menos una fila (para el backoff del sondeo). */
+  private async pollOnce(): Promise<boolean> {
     const leaseUntil = new Date(Date.now() - this.LEASE_MS);
 
     const claimed = await this.prisma.outboxEvent.findMany({
@@ -62,7 +68,7 @@ export class OutboxPublisher {
       take: this.BATCH,
     });
 
-    if (claimed.length === 0) return;
+    if (claimed.length === 0) return false;
 
     const now = new Date();
     const leaseExpiry = new Date(now.getTime() + this.LEASE_MS);
@@ -111,5 +117,6 @@ export class OutboxPublisher {
         this.logger.error(`Publish failed event=${event.id}: ${String(err)}`);
       }
     }
+    return true;
   }
 }

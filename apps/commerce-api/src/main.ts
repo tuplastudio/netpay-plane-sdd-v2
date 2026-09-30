@@ -5,6 +5,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { ValidationPipe, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import helmet from "helmet";
+import compression from "compression";
 import cookieParser from "cookie-parser";
 import * as bodyParser from "body-parser";
 import type { NextFunction, Request, Response } from "express";
@@ -12,6 +13,7 @@ import { AppModule } from "./app.module.js";
 import { validateStartupConfig } from "./ops/security.middleware.js";
 import { originGuard } from "./common/http/origin-guard.js";
 import { publicRateLimit } from "./common/http/public-rate-limit.js";
+import { publicCacheHeaders } from "./common/http/public-cache-headers.js";
 import { validationExceptionFactory } from "./common/validation/validation-exception.factory.js";
 import { UPLOADS_ROUTE, uploadsDir } from "./tenants/logo-storage.js";
 
@@ -35,6 +37,11 @@ async function bootstrap() {
   app.set("trust proxy", trustHops);
 
   app.use(helmet());
+  // gzip/brotli negociado por Accept-Encoding. Los listados (pedidos,
+  // conversaciones, catálogo con imágenes) son JSON muy repetitivo: comprime
+  // 5–10x. Respuestas < 1 KB y tipos ya comprimidos (imágenes, PDF) se dejan
+  // pasar tal cual.
+  app.use(compression({ threshold: 1024 }));
   app.use(cookieParser());
 
   // Archivos subidos (logo de la empresa) servidos tal cual desde disco. Va
@@ -82,6 +89,9 @@ async function bootstrap() {
       { prefix: "/api/v1/orders/public", limit: 120, windowMs: minute },
     ]),
   );
+
+  // Lecturas públicas por token: revalidación obligatoria + ETag (304).
+  app.use(publicCacheHeaders(["/api/v1/quotes/public", "/api/v1/orders/public"]));
 
   // Webhook primero (raw) para verificación HMAC; JSON en el resto.
   app.use(

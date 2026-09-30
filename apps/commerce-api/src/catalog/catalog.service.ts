@@ -416,6 +416,20 @@ export class CatalogService {
   }
 
   /**
+   * Skus de variante que ya existen en el tenant, de entre `skus`. Una sola
+   * consulta `IN (...)`; con listas vacías no toca la base.
+   */
+  private async existingVariantSkus(tenantId: string, skus: string[]): Promise<Set<string>> {
+    const unique = [...new Set(skus)];
+    if (unique.length === 0) return new Set();
+    const rows = await this.prisma.productVariant.findMany({
+      where: { tenantId, sku: { in: unique } },
+      select: { sku: true },
+    });
+    return new Set(rows.map((r) => r.sku));
+  }
+
+  /**
    * Dry-run de importación CSV: valida formato y reglas básicas.
    * No muta datos. Devuelve errores por fila.
    * Ver docs/04-cat.md T-CAT-06.
@@ -439,6 +453,13 @@ export class CatalogService {
       });
     }
 
+    // Una sola consulta para saber qué skus ya existen, en vez de un
+    // `findFirst` por fila (10 000 filas = 10 000 viajes a la base).
+    const existingSkus = await this.existingVariantSkus(
+      tenantId,
+      rows.map((r) => r.sku?.trim()).filter((s): s is string => !!s),
+    );
+
     const skuIndex = new Map<string, number>();
     for (let i = 0; i < rows.length; i++) {
       const parsed = this.validateImportRow(rows[i]!);
@@ -449,10 +470,7 @@ export class CatalogService {
         } else {
           skuIndex.set(parsed.sku, i);
         }
-        const existing = await this.prisma.productVariant.findFirst({
-          where: { tenantId, sku: parsed.sku },
-        });
-        if (existing) result.wouldUpdate += 1;
+        if (existingSkus.has(parsed.sku)) result.wouldUpdate += 1;
         else result.wouldCreate += 1;
       }
       if (errs.length > 0) {
@@ -504,6 +522,21 @@ export class CatalogService {
       results: [] as Array<{ row: number; sku: string; action: "created" | "updated"; id: string }>,
     };
 
+    // Variantes existentes de todos los skus del archivo en UNA consulta; los
+    // skus repetidos dentro del archivo se rechazan más abajo, así que el
+    // mapa sigue siendo válido durante todo el recorrido.
+    const requestedSkus = [...new Set(rows.map((r) => r.sku?.trim()).filter((s): s is string => !!s))];
+    const existingBySku = new Map(
+      requestedSkus.length
+        ? (
+            await this.prisma.productVariant.findMany({
+              where: { tenantId, sku: { in: requestedSkus } },
+              select: { id: true, sku: true, satProductCode: true, satUnitCode: true },
+            })
+          ).map((v) => [v.sku, v] as const)
+        : [],
+    );
+
     const skuIndex = new Map<string, number>();
     for (let i = 0; i < rows.length; i++) {
       const parsed = this.validateImportRow(rows[i]!);
@@ -528,7 +561,7 @@ export class CatalogService {
         satUnitCode?: string;
       };
 
-      const existing = await this.prisma.productVariant.findFirst({ where: { tenantId, sku } });
+      const existing = existingBySku.get(sku);
       try {
         if (existing) {
           await this.prisma.productVariant.update({

@@ -267,6 +267,8 @@ model Product {
   @@unique([tenantId, sku])
   @@index([tenantId, status])
   @@index([tenantId, title])
+  // Listado del catálogo: ORDER BY updatedAt DESC, id DESC por tenant (0027).
+  @@index([tenantId, updatedAt])
 }
 
 enum CatalogStatus {
@@ -366,6 +368,9 @@ model Customer {
 
   @@unique([tenantId, email])
   @@index([tenantId, fullName])
+  // Listado (status ACTIVE + ORDER BY updatedAt) y KPI "clientes nuevos hoy" (0027).
+  @@index([tenantId, status, updatedAt])
+  @@index([tenantId, createdAt])
 }
 
 /// Notas internas de la ficha del cliente, con autor y fecha (0026). Nunca
@@ -498,6 +503,9 @@ model Quote {
 
   @@index([tenantId, status])
   @@index([tenantId, expiresAt])
+  // Listado (ORDER BY updatedAt) y ficha del cliente (cotizaciones por cliente) (0027).
+  @@index([tenantId, updatedAt])
+  @@index([tenantId, customerId])
   // El barrido de vencimiento/recordatorios (quote-reminder.service.ts) busca
   // por estado y vigencia a través de TODOS los tenants, así que necesita su
   // propio índice: los dos de arriba empiezan por tenantId y no le sirven.
@@ -601,6 +609,9 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([quoteId])
+  // Listado (ORDER BY updatedAt) y cifras por cliente (groupBy customerId) (0027).
+  @@index([tenantId, updatedAt])
+  @@index([tenantId, customerId])
 }
 
 enum OrderSource {
@@ -743,6 +754,8 @@ model CheckoutSession {
   @@index([tenantId, status])
   @@index([orderId])
   @@index([orderId, status])
+  // Listado de cobros: ORDER BY createdAt DESC por tenant (0027).
+  @@index([tenantId, createdAt])
 }
 
 enum PaymentStatus {
@@ -1057,6 +1070,8 @@ model WhatsAppConversation {
   @@index([tenantId, priority])
   @@index([tenantId, pendingAt])
   @@index([tenantId, handoffUserId])
+  // Ficha del cliente y resolución de canal: hilos por customerId (0027).
+  @@index([tenantId, customerId])
 }
 
 enum ConversationStatus {
