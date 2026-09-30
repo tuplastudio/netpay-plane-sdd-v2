@@ -62,3 +62,10 @@ super-admin-*.png
 customers-*.png
 channels-*.png
 /*.png
+
+# Artefactos de `npm pack`/`npm publish --dry-run` en paquetes publicables
+# por su cuenta (p.ej. apps/mcp-server). El monorepo usa pnpm; un
+# package-lock.json local o el .tgz empacado no son fuente, son basura de
+# prueba local.
+*.tgz
+apps/mcp-server/package-lock.json
