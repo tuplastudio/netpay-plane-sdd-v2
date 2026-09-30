@@ -133,7 +133,7 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-11 shrink-0 gap-2 px-1.5 data-[state=open]:bg-secondary sm:h-9 lg:px-2">
+        <Button variant="ghost" className="h-11 shrink-0 gap-2 px-1.5 data-[state=open]:bg-secondary xl:h-9 lg:px-2">
           {/* Nombre accesible: el sr-only + el texto visible. Un aria-label
               aquí taparía el nombre que se ve en pantalla. */}
           <span className="sr-only">Menú de cuenta</span>

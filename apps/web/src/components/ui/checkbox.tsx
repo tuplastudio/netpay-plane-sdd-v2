@@ -14,7 +14,7 @@ export interface CheckboxProps
  * 6.5:1 sobre blanco y #2fe0b4 11.5:1 sobre el lienzo oscuro; la palomita la
  * pone el navegador en el color que contraste. El borde en reposo es límite
  * de control y usa `border-input` (≥3.3:1 en ambos modos). Caja de 20px en
- * móvil (blanco táctil con su etiqueta), 16px desde `sm`.
+ * móvil y tablet (blanco táctil con su etiqueta), 16px desde `xl`.
  *
  * Siempre con nombre accesible: `<Label htmlFor>` o `aria-label`.
  *
@@ -30,7 +30,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       ref={ref}
       type="checkbox"
       className={cn(
-        "h-5 w-5 shrink-0 cursor-pointer rounded-sm border border-input accent-primary sm:h-4 sm:w-4",
+        "h-5 w-5 shrink-0 cursor-pointer rounded-sm border border-input accent-primary xl:h-4 xl:w-4",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         "aria-invalid:border-destructive",
         "disabled:cursor-not-allowed disabled:opacity-50",

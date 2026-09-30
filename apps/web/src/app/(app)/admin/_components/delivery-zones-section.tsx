@@ -402,6 +402,7 @@ export function DeliveryZonesSection() {
       numeric: true,
       width: "5rem",
       className: "hidden sm:table-cell",
+      headerClassName: "hidden sm:table-cell",
       cell: (zone) => <span className="tabular-nums text-muted-foreground">{zone.sortOrder}</span>,
     },
     {

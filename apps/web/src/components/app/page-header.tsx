@@ -106,7 +106,7 @@ export function PageHeader({
             <Link
               href={backHref}
               aria-label={resolvedBackLabel}
-              className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-hairline bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground sm:h-10 sm:w-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="mt-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-hairline bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground xl:h-10 xl:w-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <ChevronLeft aria-hidden className="h-4 w-4" />
             </Link>

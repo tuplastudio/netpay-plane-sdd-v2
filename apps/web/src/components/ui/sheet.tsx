@@ -86,8 +86,8 @@ const SheetContent = React.forwardRef<
         ) : null}
         <TitleRegistry.Provider value={register}>{children}</TitleRegistry.Provider>
         <DialogPrimitive.Close
-          // Mismo anillo que `Button` (menta). Blanco táctil de 44px en móvil.
-          className="absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground ring-offset-background transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none sm:h-9 sm:w-9"
+          // Mismo anillo que `Button` (menta). Blanco táctil de 44px en móvil y tablet.
+          className="absolute right-3 top-3 inline-flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground ring-offset-background transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none xl:h-9 xl:w-9"
           aria-label="Cerrar"
         >
           <X aria-hidden className="h-4 w-4" />

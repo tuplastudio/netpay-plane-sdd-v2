@@ -383,8 +383,8 @@ export default function OrderDetailPage() {
           </Alert>
         )}
 
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className="space-y-6 md:col-span-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
             {canWrite && (order.status === "CHECKOUT_OPEN" || order.status === "AWAITING_PAYMENT") && (
               <Section
                 title="Esperando pago"

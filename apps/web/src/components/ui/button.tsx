@@ -11,7 +11,10 @@ export const buttonVariants = cva(
   // texto muted (≥4.5:1), o texto `muted-soft` en las variantes sin relleno;
   // nunca opacidad, que dejaba la menta con texto ilegible. Un botón en
   // `loading` conserva su color: el spinner ya comunica el estado.
-  // Móvil primero: 44px de alto; desde `sm` se compacta.
+  // Móvil primero: 44px de alto; desde `xl` (1280px, escritorio real con
+  // mouse) se compacta. Tablet e iPad landscape (640-1279) se quedan en
+  // tamaño táctil: `sm` compactaba demasiado pronto y todo iPad, portrait o
+  // landscape, terminaba con controles de mouse en una pantalla de dedo.
   // Etiqueta siempre body-sm (14px) en peso 500, en todos los tamaños salvo
   // `lg` (body, 16px): un botón nunca cambia de tamaño de letra por su alto.
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-body-sm font-medium transition-[color,background-color,border-color,transform,box-shadow] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
@@ -51,13 +54,13 @@ export const buttonVariants = cva(
         link: "rounded-none text-legal-link underline-offset-4 hover:underline active:scale-100 inactive:text-muted-soft",
       },
       size: {
-        // Móvil: alto táctil ≥44px; en escritorio se compacta.
-        // default 40 = mismo alto que `Input`/`Select`, para que un botón
-        // junto a un campo quede alineado. sm 36 = barras de tabla, filtros.
-        default: "h-11 px-5 sm:h-10",
-        sm: "h-11 px-4 sm:h-9",
+        // Móvil y tablet: alto táctil ≥44px; solo desde `xl` (desktop) se
+        // compacta. default 40 = mismo alto que `Input`/`Select`, para que un
+        // botón junto a un campo quede alineado. sm 36 = barras de tabla, filtros.
+        default: "h-11 px-5 xl:h-10",
+        sm: "h-11 px-4 xl:h-9",
         lg: "h-12 px-7 text-body",
-        icon: "h-11 w-11 rounded-full sm:h-9 sm:w-9",
+        icon: "h-11 w-11 rounded-full xl:h-9 xl:w-9",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

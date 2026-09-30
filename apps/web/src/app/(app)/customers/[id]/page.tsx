@@ -366,8 +366,8 @@ export default function CustomerDetailPage() {
           </TabsList>
 
           <TabsContent value="resumen">
-            <div className="grid gap-6 pt-6 lg:grid-cols-3">
-              <div className="space-y-6 lg:col-span-2">
+            <div className="grid gap-6 pt-6 xl:grid-cols-3">
+              <div className="space-y-6 xl:col-span-2">
                 <Section
                   title="Línea de tiempo"
                   description="Cotizaciones, pedidos, pagos, conversaciones y notas, de lo más reciente a lo más antiguo."

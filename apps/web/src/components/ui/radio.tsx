@@ -101,10 +101,10 @@ RadioGroup.displayName = "RadioGroup";
  *
  * `accent-primary` = menta profunda: el punto del radio nativo es un objeto
  * gráfico (1.4.11, ≥3:1) y da 6.5:1 en claro / 11.5:1 en oscuro. 20px en
- * móvil, 16px desde `sm`.
+ * móvil y tablet, 16px desde `xl`.
  */
 const radioInputClass =
-  "h-5 w-5 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 sm:h-4 sm:w-4";
+  "h-5 w-5 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 xl:h-4 xl:w-4";
 
 export interface RadioProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {
   /** Etiqueta visible. Si la omites, pon `aria-label`. */
@@ -127,7 +127,7 @@ export const Radio = React.forwardRef<HTMLInputElement, RadioProps>(
     return (
       <label
         className={cn(
-          "flex min-h-11 cursor-pointer items-center gap-2 text-body-sm sm:min-h-0",
+          "flex min-h-11 cursor-pointer items-center gap-2 text-body-sm xl:min-h-0",
           disabled && "cursor-not-allowed opacity-50",
           className,
         )}

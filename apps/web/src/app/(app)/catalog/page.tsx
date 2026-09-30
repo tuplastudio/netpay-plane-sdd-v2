@@ -536,7 +536,7 @@ export default function CatalogPage() {
           {moreOpen ? (
             <div
               id="catalog-more-filters"
-              className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-5"
+              className="mt-4 grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
             >
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5">

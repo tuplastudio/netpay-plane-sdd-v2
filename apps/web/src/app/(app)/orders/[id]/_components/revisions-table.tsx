@@ -165,7 +165,7 @@ export function RevisionsTable({
               {expanded ? (
                 <TableRow interactive={false} id={panelId}>
                   <TableCell colSpan={8} className="bg-muted/40 p-0">
-                    <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_16rem]">
+                    <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
                       <div className="overflow-hidden rounded-card border bg-card">
                         {r.lines.length === 0 ? (
                           <p className="p-4 text-sm text-muted-foreground">

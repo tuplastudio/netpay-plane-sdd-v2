@@ -7,7 +7,7 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
 /**
  * `<select>` nativo estilizado. Sin Radix a propósito: el select del sistema
  * ya es accesible, teclable y en móvil abre la rueda nativa.
- * Mismas medidas (44px móvil / 40px desde `sm`), fondo, borde, radio, foco,
+ * Mismas medidas (44px móvil/tablet / 40px desde `xl`), fondo, borde, radio, foco,
  * error y deshabilitado que `Input` (`fieldClassName`).
  *
  * Necesita nombre accesible: envuélvelo en `<Label htmlFor>` o pásale
@@ -27,7 +27,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         ref={ref}
         className={cn(
           fieldClassName,
-          "flex h-11 appearance-none py-2 pl-3.5 pr-9 sm:h-10",
+          "flex h-11 appearance-none py-2 pl-3.5 pr-9 xl:h-10",
           className,
         )}
         {...props}

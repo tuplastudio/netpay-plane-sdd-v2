@@ -382,7 +382,7 @@ function SidebarLink({
             onClick={onClick}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "group relative flex h-10 items-center justify-center rounded-md transition-colors",
+              "group relative flex h-11 items-center justify-center rounded-md transition-colors xl:h-10",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               active
                 ? "bg-secondary text-foreground"
@@ -418,8 +418,10 @@ function SidebarLink({
         // El peso 500 solo lo lleva la entrada activa; el resto va en 400 y
         // tinta secundaria (steel), como en la referencia Mintlify.
         // Activo = surface-2, tinta plena, punto menta a la derecha y
-        // `aria-current="page"` para lectores. ≥44px en el drawer móvil.
-        "group relative flex min-h-11 gap-3 rounded-md px-3 text-body-sm transition-colors lg:min-h-10",
+        // `aria-current="page"` para lectores. ≥44px en drawer móvil, tablet
+        // portrait y el riel fijo en iPad landscape (1024-1279); solo desde
+        // `xl` (desktop real con mouse) baja a 40px.
+        "group relative flex min-h-11 gap-3 rounded-md px-3 text-body-sm transition-colors xl:min-h-10",
         dense ? "py-1.5" : "py-2",
         withDescription ? "items-start" : "items-center",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -566,7 +568,7 @@ export function SidebarCollapseToggle({
       aria-label={label}
       aria-expanded={!collapsed}
       className={cn(
-        "flex h-10 items-center gap-3 rounded-md text-body-sm text-muted-foreground transition-colors",
+        "flex h-11 items-center gap-3 rounded-md text-body-sm text-muted-foreground transition-colors xl:h-10",
         "hover:bg-accent hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         collapsed ? "w-full justify-center" : "w-full px-3",

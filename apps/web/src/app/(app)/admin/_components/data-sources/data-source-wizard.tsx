@@ -387,7 +387,7 @@ function MappingStep({
             </Select>
           </Field>
           {draft.paginationType === "page" ? (
-            <div className="grid gap-4 sm:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
               <Field id="ds-page-param" label="Parámetro de página">
                 <Input id="ds-page-param" value={draft.pageParam} onChange={(e) => patch({ pageParam: e.target.value })} placeholder="page" className="font-mono text-sm" />
               </Field>

@@ -325,7 +325,14 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
 
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_1.1fr_1.2fr]">
         {/* --- COL 1: catálogo (tabs + grid) ----------------------------- */}
-        <div className="flex min-h-0 flex-col border-r">
+        {/* Bajo `lg` las 3 columnas se apilan como filas de un grid con alto
+            automático: `flex-1 min-h-0` del contenedor exterior no reparte
+            alto entre filas apiladas (solo entre columnas de una sola fila),
+            así que sin este tope cada panel crece a su alto de contenido
+            completo y el sheet entero se vuelve una sola página larga en vez
+            de 3 columnas con scroll propio. El tope le da al `flex-1
+            overflow-y-auto` interno de la lista algo real contra qué acotarse. */}
+        <div className="flex max-h-[42dvh] min-h-0 flex-col border-r lg:max-h-none">
           <div className="space-y-2 border-b px-4 py-3">
             <Label htmlFor="quote-customer" className="text-xs">
               Cliente
@@ -360,7 +367,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
 
           {products.isLoading ? (
             <SkeletonRegion label="Cargando catálogo…" className="flex-1 overflow-y-auto p-3">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-1 xl:grid-cols-2">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <Skeleton key={i} className="h-20 rounded-lg" />
                 ))}
@@ -381,7 +388,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                   }
                 />
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-2 lg:grid-cols-1 xl:grid-cols-2">
                   {filtered?.map((p) => (
                     <ProductCard
                       key={p.id}
@@ -420,7 +427,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                   value={k}
                   className="mt-0 flex-1 overflow-y-auto p-3"
                 >
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-1 xl:grid-cols-2">
                     {grouped[k]!.map((p) => (
                       <ProductCard
                         key={p.id}
@@ -437,7 +444,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
         </div>
 
         {/* --- COL 2: variantes del producto elegido --------------------- */}
-        <div className="flex min-h-0 flex-col border-r">
+        <div className="flex max-h-[42dvh] min-h-0 flex-col border-r lg:max-h-none">
           <div className="border-b px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               Variantes
@@ -523,7 +530,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
         </div>
 
         {/* --- COL 3: carrito + totales ---------------------------------- */}
-        <div className="flex min-h-0 flex-col">
+        <div className="flex max-h-[42dvh] min-h-0 flex-col lg:max-h-none">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">

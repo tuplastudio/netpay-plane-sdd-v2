@@ -46,6 +46,10 @@ const columns: Array<DataTableColumn<AuditEvent>> = [
       </span>
     ),
     width: "13rem",
+    // 11+16+12+13rem de columnas fijas ya suman 832px, más ancho que un
+    // tablet en portrait (768px); esta se ve completa al abrir el evento.
+    className: "hidden lg:table-cell",
+    headerClassName: "hidden lg:table-cell",
     cell: (e) =>
       e.targetType || e.targetId ? (
         <span className="inline-flex items-baseline gap-1.5">

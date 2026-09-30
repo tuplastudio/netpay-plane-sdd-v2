@@ -28,8 +28,16 @@ export interface DataTableColumn<T> {
   numeric?: boolean;
   /** Ancho fijo/máximo de la columna, tal cual va a `style.width` ("8rem", "15%"). */
   width?: string;
-  /** Clases extra para las celdas de esta columna (no para el encabezado). */
+  /**
+   * Clases extra para las celdas de esta columna. Si usas clases de
+   * visibilidad (`hidden md:table-cell`) para ocultar la columna en tablet,
+   * pásalas TAMBIÉN en `headerClassName` — si no, el `<th>` se queda visible
+   * mientras las celdas del cuerpo desaparecen y las columnas de header y
+   * cuerpo dejan de alinear.
+   */
   className?: string;
+  /** Clases extra para el encabezado (`<th>`) de esta columna. Ver `className`. */
+  headerClassName?: string;
   /** Contenido de la celda para una fila. */
   cell: (row: T) => React.ReactNode;
 }
@@ -205,6 +213,7 @@ export function DataTable<T>({
           <TableHead
             key={col.key}
             numeric={col.numeric}
+            className={col.headerClassName}
             style={col.width ? { width: col.width } : undefined}
           >
             {col.header}

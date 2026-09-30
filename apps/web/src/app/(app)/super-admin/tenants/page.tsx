@@ -46,6 +46,11 @@ const columns: Array<DataTableColumn<TenantRow>> = [
     header: "Pedidos",
     numeric: true,
     width: "6rem",
+    // Columnas fijas ya suman 45rem (720px) y dejan casi nada para el
+    // nombre de empresa en un tablet portrait (768px); esta y "Creada" se
+    // ocultan primero (se ven completas en /super-admin/[id]).
+    className: "hidden xl:table-cell",
+    headerClassName: "hidden xl:table-cell",
     cell: (t) => formatInt(t._count.orders),
   },
   {
@@ -59,6 +64,8 @@ const columns: Array<DataTableColumn<TenantRow>> = [
     key: "createdAt",
     header: "Creada",
     width: "9rem",
+    className: "hidden xl:table-cell",
+    headerClassName: "hidden xl:table-cell",
     cell: (t) => <DateTime value={t.createdAt} withTime={false} className="text-muted-foreground" />,
   },
 ];

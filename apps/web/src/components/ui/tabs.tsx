@@ -132,11 +132,11 @@ export function TabsTrigger({
       onClick={() => ctx.setValue(value)}
       onFocus={() => ctx.setValue(value)}
       className={cn(
-        // Alto táctil 44px en móvil, 36px desde `sm`.
-        "min-h-11 shrink-0 whitespace-nowrap font-medium transition-colors focus-visible:outline-none sm:min-h-9",
+        // Alto táctil 44px en móvil y tablet, 36px desde `xl`.
+        "min-h-11 shrink-0 whitespace-nowrap font-medium transition-colors focus-visible:outline-none xl:min-h-9",
         ctx.variant === "pill"
           ? cn(
-              "rounded-full px-4 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card sm:py-1.5",
+              "rounded-full px-4 py-2 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card xl:py-1.5",
               // Seleccionado = subir de superficie (surface-2), no color.
               active ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
             )

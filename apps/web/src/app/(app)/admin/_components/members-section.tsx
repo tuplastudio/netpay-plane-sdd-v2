@@ -266,6 +266,12 @@ export function MembersSection() {
       key: "since",
       header: "Alta",
       width: "13rem",
+      // Columnas fijas (rol+estado+agente+alta+acciones) ya suman 51rem
+      // (816px), más que un tablet en portrait (768px); esta es la de menos
+      // uso frecuente y no tiene control interactivo, así que se oculta
+      // primero. `agent` se queda: tiene un checkbox, no solo texto.
+      className: "hidden xl:table-cell",
+      headerClassName: "hidden xl:table-cell",
       cell: (m) =>
         m.kind === "MEMBERSHIP" ? (
           <DateTime value={m.joinedAt} withTime={false} className="text-muted-foreground" />

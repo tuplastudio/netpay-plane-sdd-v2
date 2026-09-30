@@ -205,7 +205,7 @@ export function TenantSwitcher() {
               variant={impersonating ? "warning" : "outline"}
               size="sm"
               className={cn(
-                "h-11 max-w-[14rem] gap-1.5 px-2.5 sm:h-9 sm:max-w-[18rem]",
+                "h-11 max-w-[14rem] gap-1.5 px-2.5 xl:h-9 sm:max-w-[18rem]",
               )}
               loading={(isSuperAdmin && current.isLoading) || switchMembership.isPending}
             >
