@@ -59,6 +59,23 @@ export interface AgentResponse {
   engine: string;
   node: string;
   latencyMs: number;
+  /** Etapa del hilo (`DESCUBRIMIENTO`, `ARMANDO_CARRITO`, …), si el agente la expone. */
+  stage?: string | null;
+  /** Id del turno para correlacionar con los logs del agente (`turn.done`). */
+  turnId?: string;
+}
+
+/**
+ * `GET /conversations/{id}`: lo que el agente recuerda del hilo. Se usa al
+ * restaurar un hilo guardado, para contrastar el estado local con el real.
+ */
+export interface AgentConversationState {
+  conversationId: string;
+  stage?: string | null;
+  cart?: CartLine[];
+  carts?: AgentCart[];
+  handoff?: boolean;
+  messages?: number;
 }
 
 /**
@@ -87,6 +104,9 @@ export interface ChatMessage {
     engine?: string;
     latencyMs?: number;
     tools?: AgentResponse["toolCalls"];
+    intent?: string | null;
+    stage?: string | null;
+    turnId?: string;
   };
 }
 

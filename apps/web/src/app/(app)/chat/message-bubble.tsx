@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DateTime } from "@/components/app/date-time";
@@ -16,10 +16,13 @@ import type { ChatMessage } from "./types";
 export function MessageBubble({
   message,
   onPick,
+  onRetry,
   disabled,
 }: {
   message: ChatMessage;
   onPick: (text: string) => void;
+  /** Solo para mensajes salientes en `FAILED`: vuelve a mandar el mismo texto. */
+  onRetry?: () => void;
   disabled: boolean;
 }) {
   const isOutbound = message.role === "user";
@@ -52,6 +55,23 @@ export function MessageBubble({
         >
           {message.content}
         </div>
+
+        {isOutbound && message.status === "FAILED" && onRetry ? (
+          <div className="flex items-center justify-end gap-2 text-xs text-destructive">
+            <span>No se pudo enviar.</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={disabled}
+              onClick={onRetry}
+            >
+              <RotateCcw aria-hidden className="h-3 w-3" />
+              Reintentar
+            </Button>
+          </div>
+        ) : null}
 
         {message.meta?.candidates && message.meta.candidates.length > 0 && (
           <div className="grid gap-2 sm:grid-cols-2">

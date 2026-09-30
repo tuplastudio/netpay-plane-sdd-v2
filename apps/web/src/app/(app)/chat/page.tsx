@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, MessagesSquare, UserRound } from "lucide-react";
+import { AlertCircle, MessagesSquare, MessageSquarePlus, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -12,11 +12,22 @@ import { api, fetchAuthMe } from "@/lib/api";
 import { FullHeightMain } from "@/components/app/app-shell";
 import { PageHeader } from "@/components/app/page-header";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import {
+  browserSessionStorage,
+  chatErrorFromBody,
+  clearChatSession,
+  describeChatError,
+  newConversationId,
+  readChatSession,
+  shortConversationId,
+  writeChatSession,
+} from "./chat-session";
 import { Composer } from "./composer";
 import { ContextPanels } from "./context-panels";
 import { MessageBubble, TypingBubble } from "./message-bubble";
 import type {
   AgentCart,
+  AgentConversationState,
   AgentHealth,
   AgentResponse,
   CartLine,
@@ -26,32 +37,55 @@ import type {
 /**
  * Chat con el agente comercial.
  *
- * El agente vive en apps/agent-service y se consume por el rewrite `/agent/*`
- * de Next (mismo origen). El catálogo se manda como respaldo: si el agente ya
- * tiene su API key, consulta el backend por su cuenta y este payload se ignora.
+ * El agente vive en apps/agent-v2 y se consume por el route handler `/agent/*`
+ * de Next (mismo origen), que pasa por el proxy de commerce-api. El catálogo se
+ * manda como respaldo: si el agente ya tiene su API key, consulta el backend
+ * por su cuenta y este payload se ignora.
+ *
+ * Identidad del hilo: el `conversationId` lo genera ESTE navegador al primer
+ * mensaje y se manda en cada turno. Antes se mandaba `null` y el agente
+ * resolvía `{tenant}:anon`, un único hilo compartido por todo el comercio:
+ * recargar o "reiniciar" volvía a la misma conversación con su carrito y
+ * cotización viejos. El id (y el hilo pintado) se guarda en `sessionStorage`
+ * por comercio (ver `chat-session.ts`): un refresh no pierde el hilo, un cambio
+ * de comercio sí lo reinicia.
  *
  * Layout: dos paneles. El de la izquierda es la conversación —cabecera fija,
  * hilo con scroll propio y redactor anclado al pie—; el de la derecha es el
- * contexto (carrito, cotización, motor). La página no hace scroll en escritorio,
- * pero el alto no se calcula aquí: `<FullHeightMain />` le pide al shell que el
- * `<main>` ocupe la ventana, y esta pantalla solo se estira dentro de él con
- * `lg:min-h-0 lg:flex-1`. Cada panel resuelve su propio desbordamiento. No
- * vuelvas a poner un alto fijo: se desincroniza con la altura del topbar.
+ * contexto (hilo activo, carrito, cotización, motor). La página no hace scroll
+ * en escritorio, pero el alto no se calcula aquí: `<FullHeightMain />` le pide
+ * al shell que el `<main>` ocupe la ventana, y esta pantalla solo se estira
+ * dentro de él con `lg:min-h-0 lg:flex-1`. Cada panel resuelve su propio
+ * desbordamiento. No vuelvas a poner un alto fijo: se desincroniza con la
+ * altura del topbar.
  */
 
 const AGENT_BASE = "/agent";
+/** Un turno con LLM y herramientas puede tardar; el proxy corta a los 120 s. */
+const CHAT_TIMEOUT_MS = 90_000;
 
 const SAMPLE_PROMPTS = [
   "¿Qué venden?",
-  "¿Hacen envíos a Monterrey?",
-  "Quiero 3 Jazyfrut de jamaica",
+  "¿Hacen envíos a otra ciudad?",
+  "Quiero cotizar 3 piezas de un producto",
   "¿Cómo puedo pagar?",
+];
+
+const PRINCIPAL_SCOPES = [
+  "catalog.read",
+  "quotes.read",
+  "quotes.write",
+  "orders.read",
+  "orders.write",
+  "chat.read",
+  "chat.write",
 ];
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -61,11 +95,18 @@ export default function ChatPage() {
   const [handoff, setHandoff] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  /** Comercio cuyo hilo guardado ya se cargó; hasta entonces no se persiste
+   *  nada, para no escribir el estado del comercio anterior bajo la clave del
+   *  nuevo. */
+  const [hydratedFor, setHydratedFor] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   /** Candado contra el doble envío: el estado de React llega tarde a un doble clic. */
   const sendingRef = useRef(false);
+  /** Espejo de `conversationId` para `send`: evita un closure viejo (p. ej. el
+   *  `onstop` del grabador, creado antes del primer mensaje). */
+  const conversationIdRef = useRef<string | null>(null);
 
   /**
    * Tenant real de la sesión, con el mismo patrón que `AgentSettingsForm`:
@@ -85,13 +126,15 @@ export default function ChatPage() {
   const tenantFailed = !tenantResolving && !tenantId;
 
   const health = useQuery({
-    queryKey: ["agent-health"],
+    // El tenant va en la clave: al cambiar de comercio el estado del motor
+    // (modelo, key propia, documentos) es otro y no debe quedar cacheado.
+    queryKey: ["agent-health", tenantId],
+    enabled: Boolean(tenantId),
     queryFn: async (): Promise<AgentHealth> => {
       // /diagnostics devuelve estado del LLM tenant-aware (key global o
       // key del propio tenant). Con `tenantId` el chat reporta el modo
-      // REAL del agente para esta conversación; antes este fetch iba a
-      // /healthz que solo trae `{status, version}` y por eso el label
-      // "Motor determinista (sin OPENROUTER_KEY)" aparecía SIEMPRE.
+      // REAL del agente para esta conversación; /healthz solo trae
+      // `{status, version}`.
       const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
       const res = await fetch(`${AGENT_BASE}/diagnostics${qs}`);
       if (!res.ok) throw new Error("agente no disponible");
@@ -143,6 +186,104 @@ export default function ChatPage() {
     [products.data],
   );
 
+  /** Deja el hilo en cero (memoria y refs). No toca el storage ni el agente. */
+  const clearLocalThread = useCallback(() => {
+    conversationIdRef.current = null;
+    setConversationId(null);
+    setStartedAt(null);
+    setMessages([]);
+    setCart([]);
+    setCarts([]);
+    setQuote(null);
+    setCheckout(null);
+    setHandoff(false);
+  }, []);
+
+  /**
+   * Al conocer (o cambiar) el comercio: se carga SU hilo guardado o se arranca
+   * limpio. Cambiar de comercio nunca hereda el hilo del anterior.
+   */
+  useEffect(() => {
+    if (!tenantId) return;
+    const stored = readChatSession(browserSessionStorage(), tenantId);
+    if (stored) {
+      conversationIdRef.current = stored.conversationId;
+      setConversationId(stored.conversationId);
+      setStartedAt(stored.startedAt);
+      setMessages(stored.messages);
+      setCart(stored.cart);
+      setCarts(stored.carts);
+      setQuote(stored.quote);
+      setCheckout(stored.checkout);
+      setHandoff(stored.handoff);
+    } else {
+      clearLocalThread();
+    }
+    setHydratedFor(tenantId);
+  }, [tenantId, clearLocalThread]);
+
+  /** Persistencia: cada cambio del hilo se guarda bajo la clave del comercio. */
+  useEffect(() => {
+    if (!tenantId || hydratedFor !== tenantId) return;
+    const storage = browserSessionStorage();
+    if (!conversationId || !startedAt) {
+      clearChatSession(storage, tenantId);
+      return;
+    }
+    writeChatSession(storage, tenantId, {
+      conversationId,
+      startedAt,
+      messages,
+      cart,
+      carts,
+      quote,
+      checkout,
+      handoff,
+    });
+  }, [tenantId, hydratedFor, conversationId, startedAt, messages, cart, carts, quote, checkout, handoff]);
+
+  /**
+   * Tras restaurar un hilo, se contrasta con el agente: si él ya no lo tiene
+   * (cierre por inactividad, borrado desde el panel) se arranca uno nuevo en
+   * vez de seguir escribiéndole a un hilo muerto; si sí, el carrito y el
+   * handoff se toman de su estado, que es la verdad.
+   */
+  useEffect(() => {
+    if (!tenantId || hydratedFor !== tenantId || !conversationId) return;
+    const restoredId = conversationId;
+    let cancelled = false;
+    (async () => {
+      let res: Response;
+      try {
+        res = await fetch(
+          `${AGENT_BASE}/conversations/${encodeURIComponent(restoredId)}?tenantId=${encodeURIComponent(tenantId)}`,
+        );
+      } catch {
+        return; // sin red: el hilo local sigue y el próximo envío avisará
+      }
+      if (cancelled || conversationIdRef.current !== restoredId) return;
+      if (res.status === 404) {
+        clearLocalThread();
+        toast.info("La conversación anterior ya no existe en el agente. Empezamos una nueva.");
+        return;
+      }
+      if (!res.ok) return; // p. ej. 403 sin `chat.read`: no invalida el hilo local
+      const state = (await res.json().catch(() => null)) as AgentConversationState | null;
+      if (!state || cancelled || conversationIdRef.current !== restoredId) return;
+      setCart(state.cart ?? []);
+      setCarts(state.carts ?? []);
+      setHandoff(Boolean(state.handoff));
+      const primary = state.carts?.[0];
+      if (primary?.quote) setQuote(primary.quote);
+      if (primary?.checkout) setCheckout(primary.checkout);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Solo al hidratar: `conversationId` cambia después únicamente por reinicio (a null).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, hydratedFor]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
@@ -151,7 +292,7 @@ export default function ChatPage() {
   }, [messages, busy]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, opts: { retryOf?: string } = {}) => {
       if (!text.trim()) return;
       // Sin tenant no se manda nada: adivinarlo escribiría el hilo en el
       // comercio equivocado. El redactor ya está bloqueado en ese estado; esto
@@ -161,8 +302,25 @@ export default function ChatPage() {
       sendingRef.current = true;
       setBusy(true);
 
-      const outboundId = crypto.randomUUID();
-      if (text.trim()) {
+      // El hilo nace en el navegador: el id viaja en cada turno y el agente
+      // lo usa tal cual como `thread_id`.
+      let activeConversationId = conversationIdRef.current;
+      if (!activeConversationId) {
+        activeConversationId = newConversationId();
+        conversationIdRef.current = activeConversationId;
+        setConversationId(activeConversationId);
+        setStartedAt(Date.now());
+      }
+
+      // El id del mensaje saliente es también el `messageId` de idempotencia
+      // del agente: un reintento con el mismo id devuelve la respuesta ya
+      // calculada si la primera petición sí llegó y solo se perdió la vuelta.
+      const outboundId = opts.retryOf ?? newConversationId();
+      if (opts.retryOf) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === outboundId ? { ...m, status: "PENDING" } : m)),
+        );
+      } else {
         setMessages((prev) => [
           ...prev,
           {
@@ -173,8 +331,8 @@ export default function ChatPage() {
             status: "PENDING",
           },
         ]);
+        setInput("");
       }
-      setInput("");
 
       const markOutbound = (status: ChatMessage["status"]) =>
         setMessages((prev) =>
@@ -185,44 +343,41 @@ export default function ChatPage() {
         const res = await fetch(`${AGENT_BASE}/chat`, {
           method: "POST",
           headers: { "content-type": "application/json" },
+          signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
           body: JSON.stringify({
             tenantId,
-            conversationId,
-            messageId: crypto.randomUUID(),
+            conversationId: activeConversationId,
+            messageId: outboundId,
             text,
             channel: "web",
             catalog: catalogPayload,
-            principalScopes: [
-              "catalog.read",
-              "quotes.read",
-              "quotes.write",
-              "orders.read",
-              "orders.write",
-              "chat.read",
-              "chat.write",
-            ],
+            principalScopes: PRINCIPAL_SCOPES,
           }),
         });
 
         if (!res.ok) {
-          const detail = await res.json().catch(() => ({}));
-          throw new Error(detail.detail ?? `error ${res.status}`);
+          const body: unknown = await res.json().catch(() => null);
+          throw chatErrorFromBody(res.status, body);
         }
 
         const data: AgentResponse = await res.json();
         markOutbound("DELIVERED");
-        setConversationId(data.conversationId);
+        // El agente manda: si por alguna razón devuelve otro id, se sigue ese.
+        if (data.conversationId && data.conversationId !== conversationIdRef.current) {
+          conversationIdRef.current = data.conversationId;
+          setConversationId(data.conversationId);
+        }
         setCart(data.cart ?? []);
         setCarts(data.carts ?? []);
-        if (data.quote) setQuote(data.quote);
-        if (data.checkout) setCheckout(data.checkout);
+        setQuote(data.quote ?? null);
+        setCheckout(data.checkout ?? null);
         if (data.handoff) setHandoff(true);
 
         if (data.reply) {
           setMessages((prev) => [
             ...prev,
             {
-              id: crypto.randomUUID(),
+              id: newConversationId(),
               role: "assistant",
               content: data.reply,
               createdAt: Date.now(),
@@ -235,6 +390,9 @@ export default function ChatPage() {
                 engine: data.engine,
                 latencyMs: data.latencyMs,
                 tools: data.toolCalls,
+                intent: data.intent,
+                stage: data.stage,
+                turnId: data.turnId,
               },
             },
           ]);
@@ -244,17 +402,21 @@ export default function ChatPage() {
         }
       } catch (error) {
         markOutbound("FAILED");
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "El agente no respondió. Revisa el servicio.",
-        );
+        toast.error(describeChatError(error));
       } finally {
         sendingRef.current = false;
         setBusy(false);
       }
     },
-    [catalogPayload, conversationId, tenantId],
+    [catalogPayload, tenantId],
+  );
+
+  /** Reintento de un mensaje que no salió: mismo texto, mismo `messageId`. */
+  const retry = useCallback(
+    (message: ChatMessage) => {
+      void send(message.content, { retryOf: message.id });
+    },
+    [send],
   );
 
   async function toggleRecording() {
@@ -277,28 +439,25 @@ export default function ChatPage() {
         const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
         // Se transcribe ANTES de mandar a /chat (mismo orden que ya usa
         // WhatsApp: commerce-api llama /audio/stt antes del puente al
-        // agente — ver whatsapp.controller.ts). Antes esto mandaba
-        // audioBase64 crudo a /chat, que no lo lee: el modelo nunca oía
-        // la nota de voz.
+        // agente — ver whatsapp.controller.ts).
         setBusy(true);
         let text = "";
         try {
           const res = await fetch(`${AGENT_BASE}/audio/stt`, {
             method: "POST",
             headers: { "content-type": "application/json" },
+            signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
             body: JSON.stringify({ audioBase64: base64 }),
           });
           if (!res.ok) {
-            const detail = await res.json().catch(() => ({}));
-            throw new Error(detail.detail ?? "No se pudo transcribir el audio");
+            const body: unknown = await res.json().catch(() => null);
+            throw chatErrorFromBody(res.status, body);
           }
           const data = (await res.json()) as { text?: string };
           text = (data.text ?? "").trim();
         } catch (error) {
           setBusy(false);
-          toast.error(
-            error instanceof Error ? error.message : "No se pudo transcribir el audio.",
-          );
+          toast.error(describeChatError(error));
           return;
         }
         if (!text) {
@@ -318,45 +477,51 @@ export default function ChatPage() {
     }
   }
 
-  async function resetConversation() {
+  /**
+   * Nueva conversación: tira el hilo en el agente (checkpoint + caché de
+   * idempotencia), lo borra del storage y deja la pantalla en cero. El
+   * siguiente mensaje estrena un id.
+   */
+  async function startNewConversation() {
     setResetting(true);
     try {
+      const current = conversationIdRef.current;
       // Sin tenant no hay a quién pedirle el borrado remoto: se limpia el hilo
       // local y ya. Borrar en el tenant equivocado sería peor.
-      if (conversationId && tenantId) {
-        await fetch(
-          `${AGENT_BASE}/conversations/${conversationId}?tenantId=${encodeURIComponent(tenantId)}`,
-          {
-            method: "DELETE",
-          },
-        ).catch(() => undefined);
+      if (current && tenantId) {
+        const res = await fetch(
+          `${AGENT_BASE}/conversations/${encodeURIComponent(current)}?tenantId=${encodeURIComponent(tenantId)}`,
+          { method: "DELETE" },
+        ).catch(() => null);
+        // 404 = el agente ya no lo tenía: nada que borrar. Otro fallo no
+        // detiene el reinicio (el id nuevo ya no toca ese hilo), pero se avisa.
+        if (res && !res.ok && res.status !== 404) {
+          toast.warning(
+            "No se pudo borrar el hilo anterior en el agente; se arranca uno nuevo de todos modos.",
+          );
+        }
       }
-      setMessages([]);
-      setConversationId(null);
-      setCart([]);
-      setCarts([]);
-      setQuote(null);
-      setCheckout(null);
-      setHandoff(false);
+      clearLocalThread();
+      if (tenantId) clearChatSession(browserSessionStorage(), tenantId);
     } finally {
       setResetting(false);
       setResetConfirmOpen(false);
     }
   }
 
-  function handleResetClick() {
+  function handleNewConversationClick() {
     if (messages.length === 0) {
-      void resetConversation();
+      void startNewConversation();
       return;
     }
     setResetConfirmOpen(true);
   }
 
   const business = health.data?.knowledge?.business ?? "el negocio";
-  // El handoff bloquea el redactor, igual que antes: un healthcheck en rojo se
-  // avisa pero no impide intentar mandar, porque /chat puede seguir vivo aunque
-  // /healthz falle. Lo que sí bloquea es no saber el tenant: mandar sin él
-  // guardaría la conversación en otro comercio.
+  // El handoff bloquea el redactor: un healthcheck en rojo se avisa pero no
+  // impide intentar mandar, porque /chat puede seguir vivo aunque /healthz
+  // falle. Lo que sí bloquea es no saber el tenant: mandar sin él guardaría
+  // la conversación en otro comercio.
   const composerDisabled = handoff || !tenantId;
   const composerDisabledReason = handoff
     ? "El hilo lo lleva una persona: el agente ya no responde aquí."
@@ -413,16 +578,27 @@ export default function ChatPage() {
                   withDot
                 />
               ) : null}
+              {conversationId ? (
+                <StatusBadge
+                  status="ACTIVE"
+                  tone="info"
+                  label={`Hilo ${shortConversationId(conversationId)}`}
+                  title={conversationId}
+                  withDot={false}
+                />
+              ) : null}
             </>
           }
           actions={
             <Button
               size="sm"
               variant="outline"
-              onClick={handleResetClick}
+              onClick={handleNewConversationClick}
               loading={resetting}
+              disabled={busy || tenantResolving}
             >
-              Reiniciar conversación
+              <MessageSquarePlus aria-hidden className="h-4 w-4" />
+              Nueva conversación
             </Button>
           }
         />
@@ -430,11 +606,11 @@ export default function ChatPage() {
         <ConfirmDialog
           open={resetConfirmOpen}
           onOpenChange={setResetConfirmOpen}
-          title="¿Reiniciar conversación?"
-          description="Se borra el historial del chat, carrito y cotización en curso. No se puede deshacer."
-          confirmLabel="Reiniciar"
+          title="¿Empezar una conversación nueva?"
+          description="Se borra el historial del chat, el carrito y la cotización en curso, también en el agente. No se puede deshacer."
+          confirmLabel="Nueva conversación"
           pending={resetting}
-          onConfirm={resetConversation}
+          onConfirm={startNewConversation}
         />
 
         <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -491,6 +667,7 @@ export default function ChatPage() {
                       message={message}
                       disabled={composerDisabled || busy}
                       onPick={(text) => void send(text)}
+                      onRetry={message.status === "FAILED" ? () => retry(message) : undefined}
                     />
                   ))}
                   {busy && <TypingBubble />}
@@ -532,8 +709,8 @@ export default function ChatPage() {
                 <AlertTitle>El agente no está disponible</AlertTitle>
                 <AlertDescription className="space-y-2">
                   <p>
-                    No respondió el healthcheck, así que no se pueden mandar
-                    mensajes.
+                    No respondió el healthcheck. Puedes intentar mandar de
+                    todos modos; si falla, reintenta en unos segundos.
                   </p>
                   <Button
                     variant="outline"
@@ -555,7 +732,8 @@ export default function ChatPage() {
                 <UserRound aria-hidden />
                 <AlertTitle>Un asesor humano tomó la conversación</AlertTitle>
                 <AlertDescription>
-                  El agente ya no responde en este hilo.
+                  El agente ya no responde en este hilo. Empieza una conversación
+                  nueva si quieres volver a hablar con él.
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -577,6 +755,7 @@ export default function ChatPage() {
             className="lg:min-h-0 lg:overflow-y-auto lg:pb-1"
           >
             <ContextPanels
+              conversation={{ id: conversationId, startedAt, busy }}
               cart={cart}
               carts={carts}
               quote={quote}

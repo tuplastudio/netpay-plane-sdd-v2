@@ -2,18 +2,21 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlertCircle, ExternalLink, RefreshCw, ShoppingCart } from "lucide-react";
+import { AlertCircle, ExternalLink, MessagesSquare, RefreshCw, ShoppingCart } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Section } from "@/components/app/section";
+import { DateTime } from "@/components/app/date-time";
 import { DescriptionList, FieldRow } from "@/components/app/field-row";
 import { Money } from "@/components/app/money";
+import { shortConversationId } from "./chat-session";
 import type { AgentCart, AgentHealth, AgentResponse, CartLine, ChatMessage } from "./types";
 
 export function ContextPanels({
+  conversation,
   cart,
   carts = [],
   quote,
@@ -26,6 +29,8 @@ export function ContextPanels({
   retryingHealth,
   retryingCatalog,
 }: {
+  /** Hilo activo: `id` nulo mientras no se manda el primer mensaje. */
+  conversation: { id: string | null; startedAt: number | null; busy: boolean };
   cart: CartLine[];
   /** Todos los pedidos abiertos; se pintan aparte solo cuando hay más de uno. */
   carts?: AgentCart[];
@@ -46,6 +51,9 @@ export function ContextPanels({
 }) {
   const [showTrace, setShowTrace] = React.useState(false);
   const traceCalls = messages.flatMap((message) => message.meta?.tools ?? []).slice(-8);
+  /** Metadatos del último turno del agente (modelo, latencia, herramientas). */
+  const lastTurn = [...messages].reverse().find((message) => message.role === "assistant")?.meta;
+  const modelLabel = health.data?.llm?.live ? health.data.llm.model : null;
 
   const engineLabel = health.data?.llm?.live
     ? `${health.data.llm.model}${health.data.llm.toolCalling ? " · tools" : ""}`
@@ -71,6 +79,49 @@ export function ContextPanels({
           </AlertDescription>
         </Alert>
       ) : null}
+
+      <Section title="Conversación" contentClassName="space-y-3 text-sm">
+        {conversation.id ? (
+          <>
+            <DescriptionList>
+              <FieldRow label="Hilo" mono>
+                <span title={conversation.id}>{shortConversationId(conversation.id)}</span>
+              </FieldRow>
+              <FieldRow label="Inicio">
+                <DateTime value={conversation.startedAt} className="text-sm" />
+              </FieldRow>
+              <FieldRow label="Mensajes" numeric>
+                {messages.length}
+              </FieldRow>
+            </DescriptionList>
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              {conversation.busy ? "El agente está escribiendo…" : "Esperando tu mensaje."}
+            </p>
+            {lastTurn ? (
+              <p className="break-words text-xs text-muted-foreground">
+                Último turno:{" "}
+                {[
+                  modelLabel ?? lastTurn.engine,
+                  typeof lastTurn.latencyMs === "number" ? `${lastTurn.latencyMs} ms` : null,
+                  lastTurn.tools && lastTurn.tools.length > 0
+                    ? `${lastTurn.tools.length} herramienta${lastTurn.tools.length === 1 ? "" : "s"}`
+                    : null,
+                  lastTurn.stage ?? lastTurn.intent ?? null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <EmptyState
+            className="px-0 py-6"
+            icon={<MessagesSquare className="h-5 w-5" />}
+            title="Sin hilo activo"
+            description="El primer mensaje abre una conversación nueva con su propio id."
+          />
+        )}
+      </Section>
 
       {carts.length > 1 ? (
         <Section

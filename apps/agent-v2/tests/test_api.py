@@ -419,6 +419,61 @@ async def test_turn_pipeline_stages_are_callable_independently(client: TestClien
     assert ctx.content == "hola"
 
 
+async def test_prepare_without_conversation_id_starts_a_fresh_thread(client: TestClient) -> None:
+    """Sin `conversationId` ni teléfono, cada turno abre un hilo NUEVO.
+
+    Regresión: antes caía en ``{tenant}:anon``, un solo hilo compartido por
+    todo el negocio, y el chat web "se quedaba en la conversación anterior"
+    (carrito y cotización viejos) tras recargar o reiniciar.
+    """
+    from app.contracts import ChatRequest
+    from app.pipeline.trace import TurnTrace
+    from app.pipeline.turn import PipelineContext
+
+    pipeline = main.runtime.pipeline
+    assert pipeline is not None
+    ids: list[str] = []
+    for _ in range(2):
+        ctx = PipelineContext(
+            req=ChatRequest(tenantId="t1", text="hola", channel="web"),
+            rt=main.runtime,
+            settings=pipeline.settings,
+            trace=TurnTrace(),
+        )
+        await pipeline._prepare(ctx)
+        assert ctx.conversation_id and ctx.conversation_id != "t1:anon"
+        assert ctx.thread_id == f"t1:{ctx.conversation_id}"
+        ids.append(ctx.conversation_id)
+    assert ids[0] != ids[1], "dos arranques anónimos no deben compartir hilo"
+
+    # Con teléfono el hilo sí es estable: el mismo número reengancha el mismo hilo.
+    ctx = PipelineContext(
+        req=ChatRequest(tenantId="t1", text="hola", channel="whatsapp", customerPhone="5215512345678"),
+        rt=main.runtime,
+        settings=pipeline.settings,
+        trace=TurnTrace(),
+    )
+    await pipeline._prepare(ctx)
+    assert ctx.conversation_id == "t1:5215512345678"
+
+
+def test_chat_without_conversation_id_does_not_reattach_previous_thread(client: TestClient) -> None:
+    """Dos `POST /chat` anónimos (sin `conversationId`) devuelven ids distintos
+    y el segundo no ve el historial del primero."""
+    first = client.post("/chat", json={"tenantId": "t1", "text": "hola", "channel": "web"})
+    second = client.post("/chat", json={"tenantId": "t1", "text": "hola otra vez", "channel": "web"})
+    assert first.status_code == 200 and second.status_code == 200, (first.text, second.text)
+    a, b = first.json()["conversationId"], second.json()["conversationId"]
+    assert a != b and "anon" not in a and "anon" not in b
+    # El primero sigue vivo y accesible por su id; el segundo es un hilo aparte.
+    assert client.get(f"/conversations/{a}?tenantId=t1").json()["messages"] == 2
+    assert client.get(f"/conversations/{b}?tenantId=t1").json()["messages"] == 2
+    # Y continuar con el id devuelto sí reengancha el hilo.
+    third = client.post("/chat", json={"tenantId": "t1", "conversationId": a, "text": "sigo", "channel": "web"})
+    assert third.json()["conversationId"] == a
+    assert client.get(f"/conversations/{a}?tenantId=t1").json()["messages"] == 4
+
+
 async def test_pipeline_context_redirect_returns_response(client: TestClient) -> None:
     """`PipelineContext.redirect()` arma un `ChatResponse` listo y registra métricas."""
     from app.contracts import ChatRequest

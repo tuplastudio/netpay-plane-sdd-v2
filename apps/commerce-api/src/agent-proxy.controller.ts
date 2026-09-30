@@ -44,10 +44,24 @@ import { NoScopeRequired } from "./auth/guards/role.guard.js";
 const GLOBAL_ONLY = [/^prompts\/reload\/?$/, /^evals(\/|$)/, /^metrics\/?$/];
 /** Escrituras que un usuario sin `tenant.admin` sí puede hacer. */
 export const AGENT_READERS: Scope[] = ["chat.read", "integrations.read", "tenant.admin"];
-const MEMBER_WRITES: Array<{ pattern: RegExp; scope: Scope }> = [
+/**
+ * `methods` acota la excepción a esos verbos; sin él aplica a cualquier
+ * escritura sobre la ruta. `DELETE conversations/:id` es el "Nueva
+ * conversación" del chat web: quien puede escribirle al agente (`chat.write`)
+ * puede tirar su propio hilo. Antes exigía `tenant.admin`/`integrations.write`,
+ * así que a VENDOR/SUPPORT el reinicio les fallaba en silencio (403) y el
+ * agente seguía en la conversación anterior. Cerrar, compactar o liberar
+ * (`/close`, `/compact`, `/release`) siguen siendo de administración.
+ */
+export const MEMBER_WRITES: Array<{ pattern: RegExp; scope: Scope; methods?: string[] }> = [
   { pattern: /^chat\/?$/, scope: "chat.write" },
   { pattern: /^audio\//, scope: "chat.write" },
+  { pattern: /^conversations\/[^/]+\/?$/, scope: "chat.write", methods: ["DELETE"] },
 ];
+/** Tope de espera por respuesta del agente: un turno con LLM y herramientas
+ *  puede tardar decenas de segundos, pero sin tope una caída a medias dejaba
+ *  la petición del navegador colgada para siempre. */
+export const DEFAULT_AGENT_PROXY_TIMEOUT_MS = 120_000;
 
 @Controller("agent")
 @NoScopeRequired()
@@ -97,7 +111,9 @@ export class AgentProxyController {
       return;
     }
     if (!isRead && !superAdmin) {
-      const memberWrite = MEMBER_WRITES.find((w) => w.pattern.test(path));
+      const memberWrite = MEMBER_WRITES.find(
+        (w) => w.pattern.test(path) && (!w.methods || w.methods.includes(req.method)),
+      );
       // Configurar el bot (ajustes, conocimiento, memoria, aprendizajes):
       // OWNER (`tenant.admin`) o ADMIN (`integrations.write`).
       const accepted: Scope[] = memberWrite ? [memberWrite.scope] : ["tenant.admin", "integrations.write"];
@@ -172,13 +188,20 @@ export class AgentProxyController {
         method: req.method,
         headers,
         body,
+        signal: AbortSignal.timeout(this.timeoutMs()),
         // @ts-expect-error duplex no está en el tipo público de RequestInit
         duplex,
       });
     } catch (err) {
-      this.logger.error(
-        `Agent proxy: ${req.method} ${upstream} → ${(err as Error).message}`,
-      );
+      const error = err as Error;
+      this.logger.error(`Agent proxy: ${req.method} ${upstream} → ${error.message}`);
+      if (error.name === "TimeoutError" || error.name === "AbortError") {
+        res.status(504).json({
+          code: "AGENT_TIMEOUT",
+          message: "El agente tardó demasiado en responder",
+        });
+        return;
+      }
       res.status(502).json({
         code: "AGENT_UNREACHABLE",
         message: "El agente no respondió",
@@ -199,5 +222,10 @@ export class AgentProxyController {
 
   private agentKey(): string {
     return this.config.get<string>("AGENT_INTERNAL_KEY") ?? "";
+  }
+
+  private timeoutMs(): number {
+    const raw = Number(this.config.get<string>("AGENT_PROXY_TIMEOUT_MS"));
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AGENT_PROXY_TIMEOUT_MS;
   }
 }
