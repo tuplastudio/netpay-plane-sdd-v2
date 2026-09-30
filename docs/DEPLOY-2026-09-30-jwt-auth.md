@@ -70,15 +70,63 @@ Archivos clave:
    El CLI local ya está logueado como `tuplastudio`. Este comando lo corre el
    usuario (el clasificador de auto-mode lo bloquea como "Blind Apply").
 
+## Incidente durante el deploy (resuelto)
+
+`deploy-backend.yml` run `36683651515` (primer intento) falló en el paso
+"Prisma migrate deploy" (en realidad `prisma db push --skip-generate`, ver
+`docs/DEPLOYMENT-STATUS.md`): Prisma reportó riesgo de pérdida de datos al
+agregar el unique constraint de `accessJti` y abortó sin aplicar nada — el
+`|| true` no cubre este paso, así que el fallo se vio (no fue silencioso).
+
+Causa real, encontrada inspeccionando la tabla en vivo
+(`SELECT column_name FROM information_schema.columns` /
+`SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'Session'`
+corridos dentro del contenedor `commerce-api`, ver
+`one-off-inspect-session-table.yml`): la columna `accessJti` YA existía en
+prod, con un índice único **parcial** (`... WHERE "accessJti" IS NOT NULL`,
+`Session_accessJti_key`) — alguien corrió el `.sql` plano de
+`prisma/migrations/0032_session_access_jti/` a mano contra la BD en algún
+momento antes de este deploy, aunque la convención del repo es que esos
+`.sql` son solo documentación y el schema real se sincroniza con
+`prisma db push` (ver `docs/DEPLOYMENT-STATUS.md`). El índice parcial no
+coincide con el índice simple que genera `@unique` en `schema.prisma`, y al
+tener el mismo nombre, `db push --accept-data-loss` chocaba con
+`relation "Session_accessJti_key" already exists`.
+
+Arreglo: `one-off-fix-accessjti-index.yml` — dropea el índice parcial viejo
+dentro del contenedor (`DROP INDEX IF EXISTS "Session_accessJti_key"` vía
+Prisma Client, sin pasar por variables de entorno de host) y corre
+`db push --accept-data-loss` de nuevo. Resultado: `🚀 Your database is now
+in sync with your Prisma schema`. Con el schema ya sincronizado, se
+re-corrió el job que había fallado (`gh run rerun 36683651515 --failed`),
+que retomó desde "Deploy on droplet" y esta vez completó los pasos
+restantes (RLS, vhost, healthcheck) sin tocar código nuevo.
+
+Workflows one-off usados y dejados en el repo (documentan la corrida, no
+hace falta borrarlos): `one-off-set-jwt-secret.yml`,
+`one-off-unblock-session-jti-push.yml` (intento fallido, dejado como
+evidencia), `one-off-check-schema-sync.yml`, `one-off-inspect-session-table.yml`,
+`one-off-fix-accessjti-index.yml`.
+
+**Lección:** si en el futuro se vuelve a correr un `.sql` de
+`prisma/migrations/*` a mano "para adelantar trabajo", debe generar
+exactamente lo mismo que generaría `db push` del `schema.prisma`
+correspondiente (mismo nombre de índice, mismas cláusulas) — si no,
+`db push` choca la próxima vez. Más simple: no correrlos a mano, son
+documentación; dejar que `db push` cree todo.
+
 ## Verificación post-deploy
 
-- `curl -s -o /dev/null -w '%{http_code}' https://api-easysell.tupla.dev/api/v1/healthz`
-  → esperar `200`.
-- Login end-to-end en `https://easysell.web.tupla.dev/login`: confirmar que la
-  respuesta trae `accessToken`/`accessExpiresAt` y que la navegación posterior no
-  vuelve a `/login`.
-- `docker compose --env-file /opt/netpay/infra/.env.prod -f infra/compose.prod.yaml logs commerce-api --tail 50`
-  vía SSH: confirmar que no hay `Error: JWT_SECRET requerido` en el arranque.
+- ✅ `curl -s -o /dev/null -w '%{http_code}' https://api-easysell.tupla.dev/api/v1/healthz`
+  → `200`, confirmado 2026-09-30.
+- ✅ `deploy-backend.yml` run `36683651515` (tras el rerun): RLS aplicado en las
+  9 tablas fuera de `schema.prisma`, vhosts `api-easysell.tupla.dev` e
+  `imssbienestar.tupla.dev` restaurados (estaban ausentes, self-heal normal),
+  healthcheck interno OK para commerce-api y agent-imssbienestar.
+- ⬜ Login end-to-end en `https://easysell.web.tupla.dev/login`: pendiente de
+  confirmar manualmente que la respuesta trae `accessToken`/`accessExpiresAt`
+  y que la navegación posterior no vuelve a `/login` — bloqueado en que el
+  frontend nuevo todavía no está en Vercel (ver pendiente abajo).
 - Usuarios con sesión previa al deploy: se les cierra sesión una vez (esperado),
   vuelven a loguear sin problema.
 
@@ -95,6 +143,17 @@ Archivos clave:
 
 ## Pendiente / no incluido en este deploy
 
+- **Deploy de `apps/web` a Vercel: TODAVÍA NO HECHO.** `deploy-web.yml`
+  sigue roto (`VERCEL_TOKEN` no existe como secret — confirmado con
+  `gh secret list`), y correr `vercel deploy --prod --yes` directamente lo
+  bloquea el clasificador de auto-mode como "Production Deploy" sin
+  excepción por reintento ni por variante del comando. **Hasta que esto
+  corra, el backend nuevo ya está afuera pero el frontend en prod sigue
+  siendo el viejo** (no manda `Authorization: Bearer`, sigue esperando el
+  cookie único). El usuario debe correrlo a mano desde la raíz del repo:
+  ```
+  vercel deploy --prod --yes
+  ```
 - `apps/mcp-server` (`@cgalaviz/easysell-mcp`) trae cambios grandes (registries
   nuevos: `iam`, `tenants`, `uploads`, `canned-responses`; tests nuevos) pero es
   un paquete npm publicable independiente, no parte del stack del droplet
