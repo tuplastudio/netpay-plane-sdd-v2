@@ -1,0 +1,107 @@
+# Deploy 2026-09-30: access JWT + refresh token opaco
+
+## Qué cambió
+
+Reemplaza la sesión de un solo cookie (`__Host-session`, 12h absoluto / 30 min
+inactividad) por un par de tokens:
+
+- **Access token**: JWT firmado (HS256, 15 min por defecto, `ACCESS_TOKEN_TTL_MS`),
+  viaja en `Authorization: Bearer <token>`, se valida **sin tocar la BD** (firma +
+  expiry + `jti`). El frontend lo guarda en memoria (`apps/web/src/lib/access-token.ts`),
+  nunca en `localStorage`/`sessionStorage`.
+- **Refresh token**: opaco, cookie HttpOnly `__Host-refresh` en prod (`refresh` en
+  dev), 30 días por defecto, se **rota** en cada `POST /auth/refresh` (el viejo se
+  revoca, se emite uno nuevo).
+- `Session.accessJti` (columna nueva) permite revocar el access antes de su `exp`
+  natural: cambio de rol, logout inmediato, detección de robo.
+
+Commits: `143a2a5` (feat principal), `f1dd267..143a2a5` en `main`.
+
+Archivos clave:
+- `apps/commerce-api/src/auth/jwt.service.ts` (nuevo) — firma/verifica el access JWT.
+- `apps/commerce-api/src/auth/session.service.ts`, `auth.controller.ts`, `auth.service.ts`,
+  `guards/principal.guard.ts`, `guards/authenticated.guard.ts` — flujo login/refresh/logout.
+- `apps/commerce-api/src/ops/security.middleware.ts` — valida `JWT_SECRET` al arrancar.
+- `apps/commerce-api/prisma/schema.prisma` + `prisma/migrations/0032_session_access_jti/` —
+  columna `Session.accessJti` (el `.sql` es documentación; en prod el schema se
+  sincroniza con `prisma db push --skip-generate`, ver `docs/DEPLOYMENT-STATUS.md`).
+- `apps/web/src/lib/access-token.ts` (nuevo) — store en memoria del access token.
+- `apps/web/src/lib/api.ts` — interceptor inyecta el Bearer, guarda el access token
+  que devuelven `/auth/login`, `/auth/mfa/verify` y `/auth/refresh`.
+
+## Por qué importa el orden
+
+1. **`JWT_SECRET` tiene que existir en prod ANTES de que commerce-api reinicie.**
+   `jwt.service.ts` y `security.middleware.ts` hacen fail-fast al arrancar si
+   `JWT_SECRET` falta o mide menos de 32 chars — sin eso el proceso no levanta,
+   caída total de la API (no solo login).
+2. **commerce-api y web son un cambio acoplado.** El backend ya no acepta el
+   cookie viejo de sesión; el frontend viejo no manda `Authorization: Bearer`.
+   Un usuario con la sesión vieja pierde la sesión al primer request después del
+   deploy del backend — es esperado, no es un bug — pero si el **frontend nuevo**
+   no está desplegado, no puede volver a loguearse coherentemente (login sí
+   funciona porque es endpoint público, pero cualquier navegación posterior
+   fallará hasta que el web nuevo esté afuera).
+
+## Pasos ejecutados
+
+1. `.github/workflows/one-off-set-jwt-secret.yml` — workflow one-off, push-triggered
+   (el repo en GitHub tiene default branch `fix/password-recovery-hardening`, no
+   `main`, así que `workflow_dispatch` no ve workflows nuevos en `main`; se dispara
+   por `paths:` sobre el propio archivo). SSH al droplet (`appleboy/ssh-action`,
+   secrets `APP_HOST`/`APP_USER`/`SSH_PRIVATE_KEY`), genera `openssl rand -hex 32`
+   **en el propio droplet** (nunca pasa por logs de CI) y lo agrega a
+   `/opt/netpay/infra/.env.prod` si no existe ya. Idempotente. Run:
+   `gh run list --workflow=one-off-set-jwt-secret.yml`.
+2. Verificación local antes de pushear: `pnpm test` en `apps/commerce-api`
+   (72 archivos, 614 tests, todos verdes), `tsc --noEmit` limpio, `nest build`
+   limpio, `next build` limpio en `apps/web`.
+3. Commit `143a2a5` a `main` → dispara `deploy-backend.yml` (paths incluyen
+   `apps/commerce-api/**`), que hace build + `docker compose up` de commerce-api
+   en el droplet y corre `prisma db push --skip-generate` para sincronizar
+   `Session.accessJti`.
+4. Deploy de `apps/web` a Vercel: **manual**, `deploy-web.yml` sigue roto
+   (`VERCEL_TOKEN` no existe como secret — confirmado con `gh secret list`).
+   Correr desde la RAÍZ del repo (no desde `apps/web`, porque `rootDirectory` en
+   Vercel ya es `apps/web`):
+   ```
+   vercel deploy --prod --yes
+   ```
+   El CLI local ya está logueado como `tuplastudio`. Este comando lo corre el
+   usuario (el clasificador de auto-mode lo bloquea como "Blind Apply").
+
+## Verificación post-deploy
+
+- `curl -s -o /dev/null -w '%{http_code}' https://api-easysell.tupla.dev/api/v1/healthz`
+  → esperar `200`.
+- Login end-to-end en `https://easysell.web.tupla.dev/login`: confirmar que la
+  respuesta trae `accessToken`/`accessExpiresAt` y que la navegación posterior no
+  vuelve a `/login`.
+- `docker compose --env-file /opt/netpay/infra/.env.prod -f infra/compose.prod.yaml logs commerce-api --tail 50`
+  vía SSH: confirmar que no hay `Error: JWT_SECRET requerido` en el arranque.
+- Usuarios con sesión previa al deploy: se les cierra sesión una vez (esperado),
+  vuelven a loguear sin problema.
+
+## Rollback
+
+- `git revert 143a2a5` + push a `main` → vuelve el cookie único; `Session.accessJti`
+  queda en la tabla sin usarse (columna nullable, no rompe nada, `prisma db push`
+  no la borra a menos que se quite del schema en el revert).
+- El `JWT_SECRET` agregado en `.env.prod` se puede dejar — no se lee si el código
+  revertido no lo usa.
+- Si el frontend nuevo salió pero el backend se revierte: el interceptor de
+  `api.ts` sigue mandando `Authorization: Bearer` de más, inofensivo (el backend
+  viejo lo ignora y usa el cookie).
+
+## Pendiente / no incluido en este deploy
+
+- `apps/mcp-server` (`@cgalaviz/easysell-mcp`) trae cambios grandes (registries
+  nuevos: `iam`, `tenants`, `uploads`, `canned-responses`; tests nuevos) pero es
+  un paquete npm publicable independiente, no parte del stack del droplet
+  (no está en `infra/compose.prod.yaml` ni en los `paths:` de `deploy-backend.yml`).
+  Se commiteó a `main` junto con el resto pero **no se publicó a npm** — publicar
+  es una acción separada e irreversible (registro público), pendiente de decisión
+  explícita.
+- `apps/agent-v2/tests/test_robustness.py` es un test nuevo, no requiere deploy
+  propio (agent-v2 sí está en `deploy-backend.yml`, así que su imagen se
+  reconstruyó igual en este run, pero el cambio es solo de tests).
