@@ -1,0 +1,38 @@
+name: One-off - inspeccionar columnas e indices de Session
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-inspect-session-table.yml"
+  workflow_dispatch: {}
+
+jobs:
+  inspect:
+    name: solo lectura via node stdin con @prisma/client
+    runs-on: ubuntu-latest
+    steps:
+      - name: inspect
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 3m
+          script: |
+            set -uo pipefail
+            cd /opt/netpay-build/infra
+            cat <<'NODE_EOF' > /tmp/inspect-session.js
+            const { PrismaClient } = require("@prisma/client");
+            const p = new PrismaClient();
+            (async () => {
+              const cols = await p.$queryRawUnsafe("SELECT column_name, is_nullable FROM information_schema.columns WHERE table_name = 'Session' ORDER BY ordinal_position");
+              console.log("COLUMNS", JSON.stringify(cols));
+              const idx = await p.$queryRawUnsafe("SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'Session'");
+              console.log("INDEXES", JSON.stringify(idx));
+              await p.$disconnect();
+            })().catch((e) => { console.error("FAIL", e.message); process.exit(1); });
+            NODE_EOF
+            docker compose -f compose.prod.yaml --env-file .env.prod cp /tmp/inspect-session.js commerce-api:/tmp/inspect-session.js
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T -w /repo/apps/commerce-api commerce-api node /tmp/inspect-session.js
+            rm -f /tmp/inspect-session.js
