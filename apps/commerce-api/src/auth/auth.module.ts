@@ -19,6 +19,8 @@ import { AuthenticatedGuard } from "./guards/authenticated.guard.js";
 import { PrincipalGuard } from "./guards/principal.guard.js";
 import { RoleGuard } from "./guards/role.guard.js";
 import { SuperAdminGuard } from "./guards/super-admin.guard.js";
+import { ApiKeyUsageService } from "./usage/api-key-usage.service.js";
+import { ApiKeyUsageMiddleware } from "./usage/api-key-usage.middleware.js";
 
 @Module({
   imports: [EmailModule],
@@ -33,6 +35,8 @@ import { SuperAdminGuard } from "./guards/super-admin.guard.js";
     TokenService,
     MfaService,
     ApiKeyService,
+    ApiKeyUsageService,
+    ApiKeyUsageMiddleware,
     MembershipService,
     InvitationMailer,
     PasswordResetMailer,
@@ -49,6 +53,8 @@ import { SuperAdminGuard } from "./guards/super-admin.guard.js";
     TokenService,
     MfaService,
     ApiKeyService,
+    ApiKeyUsageService,
+    ApiKeyUsageMiddleware,
     MembershipService,
     InvitationMailer,
     PasswordResetMailer,

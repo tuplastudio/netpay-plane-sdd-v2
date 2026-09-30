@@ -31,6 +31,8 @@ export interface Principal {
 interface RequestStore {
   requestId: string;
   principal: Principal;
+  /** Scopes que exigió la ruta (`@RequireScopes`); los fija `RoleGuard`. */
+  requiredScopes?: ReadonlyArray<string>;
 }
 
 const storage = new AsyncLocalStorage<RequestStore>();
@@ -65,6 +67,20 @@ export const RequestContext = {
 
   get tenantId(): string | undefined {
     return storage.getStore()?.principal.tenantId;
+  },
+
+  /**
+   * Scopes exigidos por la ruta en curso. Los anota `RoleGuard` para que la
+   * bitácora de uso de API keys (`ApiKeyUsageMiddleware`) registre qué
+   * permiso ejerció (o intentó ejercer) cada petición.
+   */
+  get requiredScopes(): ReadonlyArray<string> {
+    return storage.getStore()?.requiredScopes ?? [];
+  },
+
+  setRequiredScopes(scopes: ReadonlyArray<string>): void {
+    const store = storage.getStore();
+    if (store) store.requiredScopes = scopes;
   },
 
   get userId(): string | undefined {

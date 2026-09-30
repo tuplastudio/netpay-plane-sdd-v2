@@ -61,6 +61,10 @@ export class RoleGuard implements CanActivate {
       });
     }
 
+    // Se anota antes de autorizar: un 403 por scope faltante también debe
+    // quedar en la bitácora de uso con el scope que se intentó ejercer.
+    RequestContext.setRequiredScopes(requiredScopes);
+
     const principal = RequestContext.principal;
 
     if (principal.type === "ANONYMOUS") {

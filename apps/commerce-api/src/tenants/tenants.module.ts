@@ -6,12 +6,18 @@ import {
   SuperAdminTenantsController,
   TenantSelfController,
 } from "./tenants.controller.js";
+import { SuperAdminApiKeyOpsController } from "./super-admin-api-key-ops.controller.js";
 import { TenantProvisioningService } from "./tenant-provisioning.service.js";
 import { TenantLogoService } from "./tenant-logo.service.js";
 
 @Module({
   imports: [AuthModule, SuperAdminModule],
-  controllers: [SuperAdminTenantsController, SuperAdminApiKeysController, TenantSelfController],
+  controllers: [
+    SuperAdminTenantsController,
+    SuperAdminApiKeysController,
+    SuperAdminApiKeyOpsController,
+    TenantSelfController,
+  ],
   providers: [TenantProvisioningService, TenantLogoService],
   exports: [TenantProvisioningService],
 })

@@ -7,18 +7,37 @@ import {
   HttpCode,
   NotFoundException,
   Param,
+  Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { ApiKeyService } from "./api-key.service.js";
+import { ApiKeyUsageService } from "./usage/api-key-usage.service.js";
 import { RoleGuard, RequireScopes } from "./guards/role.guard.js";
 import { PrincipalGuard } from "./guards/principal.guard.js";
 import { RequestContext } from "../common/context/request-context.js";
 import { InviteService } from "./invite.service.js";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { InvitationMailer } from "./invitation-mailer.service.js";
-import { CreateApiKeyDto, CreateInvitationDto } from "./iam.dto.js";
-import { effectiveScopesOf } from "./policies.js";
+import {
+  ApiKeyUsageQueryDto,
+  ApiKeyUsageSummaryQueryDto,
+  CreateApiKeyDto,
+  CreateInvitationDto,
+  RotateApiKeyDto,
+  UpdateApiKeyDto,
+} from "./iam.dto.js";
+import { effectiveScopesOf, isScope } from "./policies.js";
+
+/** Acciones de auditoría de API keys de tenant (las globales llevan `apikey.global.*`). */
+export const API_KEY_AUDIT = {
+  created: "apikey.created",
+  updated: "apikey.updated",
+  rotated: "apikey.rotated",
+  revoked: "apikey.revoked",
+} as const;
 
 @Controller("iam")
 @UseGuards(PrincipalGuard, RoleGuard)
@@ -28,14 +47,15 @@ export class ApiKeyController {
     private readonly invite: InviteService,
     private readonly prisma: PrismaService,
     private readonly mailer: InvitationMailer,
+    private readonly usage: ApiKeyUsageService,
   ) {}
 
   // ---- API keys (T-IAM-05) ----
   @Get("api-keys")
   @RequireScopes("apikeys.manage")
-  async listKeys() {
+  async listKeys(@Query("includeRevoked") includeRevoked?: string) {
     const tenantId = this.requireTenant();
-    const keys = await this.apiKeys.list(tenantId);
+    const keys = await this.apiKeys.list(tenantId, { includeRevoked: includeRevoked === "true" });
     return { data: keys, requestId: RequestContext.requestId };
   }
 
@@ -62,15 +82,7 @@ export class ApiKeyController {
     const tenantId = this.requireTenant();
     const userId = RequestContext.userId;
     if (!userId) throw new ForbiddenException();
-
-    const granted = effectiveScopesOf(RequestContext.principal);
-    const excess = body.scopes.filter((s) => !granted.has(s));
-    if (excess.length > 0) {
-      throw new ForbiddenException({
-        code: "FORBIDDEN",
-        message: `No puedes otorgar scopes que tú no tienes: ${excess.join(", ")}`,
-      });
-    }
+    this.assertCanGrantScopes(body.scopes);
 
     const created = await this.apiKeys.create({
       tenantId,
@@ -79,7 +91,63 @@ export class ApiKeyController {
       scopes: body.scopes,
       expiresInDays: body.expiresInDays,
     });
+    await this.audit(tenantId, API_KEY_AUDIT.created, created.id, {
+      name: created.name,
+      prefix: created.prefix,
+      scopes: created.scopes,
+      expiresAt: created.expiresAt?.toISOString() ?? null,
+    });
     return { data: created, requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Renombrar, cambiar scopes o vencimiento. Mismo candado de scopes que al
+   * crear: nadie amplía una key por encima de lo que su propio rol tiene.
+   */
+  @Patch("api-keys/:id")
+  @RequireScopes("apikeys.manage")
+  async updateKey(@Param("id") id: string, @Body() body: UpdateApiKeyDto) {
+    const tenantId = this.requireTenant();
+    if (body.scopes) this.assertCanGrantScopes(body.scopes);
+    const { before, after } = await this.apiKeys.update({
+      tenantId,
+      id,
+      name: body.name,
+      scopes: body.scopes,
+      expiresAt: body.expiresAt === undefined ? undefined : body.expiresAt === null ? null : new Date(body.expiresAt),
+    });
+    await this.audit(tenantId, API_KEY_AUDIT.updated, id, {
+      prefix: after.prefix,
+      changes: diffApiKey(before, after),
+    });
+    return { data: after, requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Rota la key: secreto nuevo (se devuelve una sola vez) y la vieja en
+   * gracia. Ver `ApiKeyService.rotate`.
+   */
+  @Post("api-keys/:id/rotate")
+  @RequireScopes("apikeys.manage")
+  async rotateKey(@Param("id") id: string, @Body() body: RotateApiKeyDto) {
+    const tenantId = this.requireTenant();
+    const userId = RequestContext.userId;
+    if (!userId) {
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: "Solo una sesión de usuario puede rotar una API key",
+      });
+    }
+    const rotated = await this.apiKeys.rotate({ tenantId, id, actorId: userId, graceHours: body.graceHours });
+    await this.audit(tenantId, API_KEY_AUDIT.rotated, id, {
+      name: rotated.name,
+      previousPrefix: rotated.previousKey.prefix,
+      newKeyId: rotated.id,
+      newPrefix: rotated.prefix,
+      graceHours: rotated.previousKey.graceHours,
+      previousValidUntil: rotated.previousKey.validUntil.toISOString(),
+    });
+    return { data: rotated, requestId: RequestContext.requestId };
   }
 
   @Delete("api-keys/:id")
@@ -87,7 +155,44 @@ export class ApiKeyController {
   @RequireScopes("apikeys.manage")
   async revokeKey(@Param("id") id: string) {
     const tenantId = this.requireTenant();
+    // Se lee antes para dejar nombre y prefijo en la bitácora; el 404 de una
+    // key ajena o ya revocada lo sigue dando el servicio.
+    const key = await this.prisma.apiKey.findFirst({
+      where: { id, tenantId, revokedAt: null },
+      select: { name: true, prefix: true },
+    });
     await this.apiKeys.revoke(tenantId, id);
+    await this.audit(tenantId, API_KEY_AUDIT.revoked, id, {
+      name: key?.name ?? null,
+      prefix: key?.prefix ?? null,
+    });
+  }
+
+  // ---- Bitácora de uso ----
+
+  @Get("api-keys/:id/usage")
+  @RequireScopes("apikeys.manage")
+  async keyUsage(@Param("id") id: string, @Query() query: ApiKeyUsageQueryDto) {
+    const tenantId = this.requireTenant();
+    await this.apiKeys.get(tenantId, id);
+    const page = await this.usage.list(id, {
+      from: query.from ? new Date(query.from) : undefined,
+      to: query.to ? new Date(query.to) : undefined,
+      path: query.path,
+      status: query.status,
+      cursor: query.cursor,
+      limit: query.limit,
+    });
+    return { data: page.items, pageInfo: page.pageInfo, requestId: RequestContext.requestId };
+  }
+
+  @Get("api-keys/:id/usage/summary")
+  @RequireScopes("apikeys.manage")
+  async keyUsageSummary(@Param("id") id: string, @Query() query: ApiKeyUsageSummaryQueryDto) {
+    const tenantId = this.requireTenant();
+    await this.apiKeys.get(tenantId, id);
+    const summary = await this.usage.summary(id, query.days ?? 30);
+    return { data: summary, requestId: RequestContext.requestId };
   }
 
   // ---- Users / memberships (T-IAM-04 subset) ----
@@ -156,9 +261,55 @@ export class ApiKeyController {
     }
   }
 
+  /** Ver `createKey`: no se otorgan scopes que el emisor no tiene. */
+  private assertCanGrantScopes(scopes: ReadonlyArray<string>): void {
+    const granted = effectiveScopesOf(RequestContext.principal);
+    const excess = scopes.filter((s) => !isScope(s) || !granted.has(s));
+    if (excess.length > 0) {
+      throw new ForbiddenException({
+        code: "FORBIDDEN",
+        message: `No puedes otorgar scopes que tú no tienes: ${excess.join(", ")}`,
+      });
+    }
+  }
+
+  private async audit(
+    tenantId: string,
+    action: string,
+    targetId: string,
+    metadata: Prisma.InputJsonObject,
+  ): Promise<void> {
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId: RequestContext.userId ?? null,
+        action,
+        targetType: "ApiKey",
+        targetId,
+        metadata,
+      },
+    });
+  }
+
   private requireTenant(): string {
     const t = RequestContext.tenantId;
     if (!t) throw new NotFoundException({ code: "UNAUTHORIZED", message: "Sin tenant" });
     return t;
   }
+}
+
+/** Solo los campos que cambiaron, con antes/después, para el AuditLog. */
+export function diffApiKey(
+  before: { name: string; scopes: string[]; expiresAt: Date | null },
+  after: { name: string; scopes: string[]; expiresAt: Date | null },
+): Prisma.InputJsonObject {
+  const changes: Record<string, { from: Prisma.InputJsonValue | null; to: Prisma.InputJsonValue | null }> = {};
+  if (before.name !== after.name) changes.name = { from: before.name, to: after.name };
+  const sameScopes =
+    before.scopes.length === after.scopes.length && before.scopes.every((s) => after.scopes.includes(s));
+  if (!sameScopes) changes.scopes = { from: before.scopes, to: after.scopes };
+  const b = before.expiresAt?.toISOString() ?? null;
+  const a = after.expiresAt?.toISOString() ?? null;
+  if (b !== a) changes.expiresAt = { from: b, to: a };
+  return changes;
 }

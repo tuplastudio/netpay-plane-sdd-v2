@@ -102,6 +102,30 @@ Versionar marca, contacto, zona horaria, condiciones, retiro, costo envío, vige
 
 **Evidencia para cerrar:** cambio de código/contrato, prueba indicada y resultado reproducible vinculados a T-IAM-05. Estado inicial: `TODO`.
 
+#### T-IAM-05b — Gestión de API keys y bitácora de uso
+
+- **Bitácora (`ApiKeyUsage`)**: una fila por petición autenticada con API key
+  (método, ruta normalizada sin ids, status, duración, IP, user-agent recortado,
+  scope exigido, código de error). La escribe `ApiKeyUsageMiddleware` vía un
+  buffer en memoria (lote de 100 o cada 5 s; vaciado en shutdown). `lastUsedAt`
+  de la key se actualiza como máximo una vez por minuto por key. Retención
+  `API_KEY_USAGE_RETENTION_DAYS` (90): purga automática cada 6 h en el API y
+  manual con `POST /super-admin/api-keys/usage/purge`.
+- **Consulta**: `GET /iam/api-keys/:id/usage` (cursor, filtros `from`, `to`,
+  `path`, `status` = `404` o `4xx`) y `GET /iam/api-keys/:id/usage/summary?days=30`
+  (totales, serie diaria, top rutas, por status, IPs distintas). Mismas rutas bajo
+  `/super-admin/tenants/:id/api-keys/:keyId/...` y `/super-admin/api-keys/:id/...`.
+- **Rotación** (`POST /iam/api-keys/:id/rotate`): se acuña una key nueva con el
+  mismo nombre/scopes/vencimiento y la vieja queda en gracia `graceHours`
+  (default `API_KEY_ROTATION_GRACE_HOURS` = 24; 0 = revocar en el acto): su
+  `expiresAt` se recorta a `now + gracia` y se marca `rotatedAt`/`rotatedToId`.
+  Exige sesión humana. `PATCH /iam/api-keys/:id` edita nombre, scopes (sin exceder
+  los del editor) y `expiresAt` (`null` = sin vencimiento).
+- **Auditoría**: `apikey.created` / `apikey.updated` (diff) / `apikey.rotated` /
+  `apikey.revoked`, y `apikey.global.*` para keys globales.
+- **RLS**: `ApiKeyUsage.tenantId` es NULL-able (keys globales sin `X-Tenant-Id`);
+  la política oculta esas filas a sesiones de tenant y permite su inserción.
+
 ### REQ-IAM-06 / T-IAM-06 — Aislar persistencia y auditoría
 
 **Regla normativa:** Tenant se valida también en jobs, caché y SQL.

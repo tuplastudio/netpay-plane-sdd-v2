@@ -10,7 +10,7 @@
  * propio rol no tiene).
  */
 
-import { Transform } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -18,19 +18,118 @@ import {
   IsBoolean,
   IsEmail,
   IsIn,
+  IsISO8601,
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from "class-validator";
 import type { Role } from "@prisma/client";
 import { ALL_SCOPES, Scope } from "./policies.js";
 import { ASSIGNABLE_ROLES } from "./membership.service.js";
 
 const trim = ({ value }: { value: unknown }) => (typeof value === "string" ? value.trim() : value);
+
+/** Tope del periodo de gracia al rotar: una semana. */
+export const MAX_ROTATION_GRACE_HOURS = 168;
+
+/**
+ * `PATCH /iam/api-keys/:id`: renombrar, cambiar scopes o vencimiento. Todo
+ * opcional; lo que no viene no se toca. `expiresAt: null` quita el
+ * vencimiento (a diferencia de omitirlo). La regla de "no otorgar scopes que
+ * no tienes" se aplica en el controlador, igual que al crear.
+ */
+export class UpdateApiKeyDto {
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(100)
+  name?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(ALL_SCOPES.length)
+  @IsIn(ALL_SCOPES, { each: true, message: "scopes contiene un permiso desconocido" })
+  scopes?: Scope[];
+
+  /** ISO 8601 en el futuro, o `null` para "sin vencimiento". */
+  @ValidateIf((_, value) => value !== undefined && value !== null)
+  @IsISO8601({ strict: true }, { message: "expiresAt debe ser una fecha ISO 8601" })
+  expiresAt?: string | null;
+}
+
+/**
+ * `POST /iam/api-keys/:id/rotate`. `graceHours` = cuánto sigue valiendo la key
+ * vieja tras emitir la nueva; 0 la revoca de inmediato. Sin el campo aplica el
+ * default del servicio (`API_KEY_ROTATION_GRACE_HOURS`, 24 h).
+ */
+export class RotateApiKeyDto {
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_ROTATION_GRACE_HOURS)
+  graceHours?: number;
+}
+
+/** Query de `GET /iam/api-keys/:id/usage`. */
+export class ApiKeyUsageQueryDto {
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  from?: string;
+
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  to?: string;
+
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(200)
+  path?: string;
+
+  /** Código exacto (`404`) o clase (`4xx`). */
+  @IsOptional()
+  @Matches(/^([1-5]\d\d|[1-5]xx)$/i, { message: "status debe ser un código (404) o una clase (4xx)" })
+  status?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+}
+
+/** Query de `GET /iam/api-keys/:id/usage/summary`. */
+export class ApiKeyUsageSummaryQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  days?: number;
+}
+
+/** Body de `POST /super-admin/api-keys/usage/purge`. */
+export class PurgeApiKeyUsageDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  days?: number;
+}
 
 export class CreateApiKeyDto {
   @Transform(trim)

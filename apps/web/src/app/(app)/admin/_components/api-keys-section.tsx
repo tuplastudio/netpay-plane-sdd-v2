@@ -6,13 +6,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, KeyRound, MoreHorizontal, Plus } from "lucide-react";
+import { Activity, Copy, KeyRound, MoreHorizontal, Pencil, Plus, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,27 +31,28 @@ import {
 import { Section } from "@/components/app/section";
 import { InfoTip, Tip } from "@/components/app/info-tip";
 import { DataTable, type DataTableColumn } from "@/components/app/data-table";
-import { DateTime } from "@/components/app/date-time";
+import { DateTime, formatDateTimeLong } from "@/components/app/date-time";
 import { EntityId } from "@/components/app/entity-id";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { apiErrorMessage } from "./api-error";
-
-/** `GET /iam/api-keys` (apps/commerce-api/src/auth/api-key.service.ts → list). */
-interface ApiKey {
-  id: string;
-  prefix: string;
-  name: string;
-  scopes: string[];
-  createdAt: string;
-  expiresAt: string | null;
-  lastUsedAt: string | null;
-}
+import {
+  API_KEY_STATUS_LABELS,
+  API_KEY_STATUS_TONES,
+  formatRelativeTime,
+  isApiKeyMutable,
+  type ApiKey,
+} from "./api-key-helpers";
+import { ScopePicker } from "./api-key-scope-picker";
+import { ApiKeyUsageSheet } from "./api-key-usage-sheet";
+import { ApiKeyEditSheet } from "./api-key-edit-sheet";
+import { ApiKeyRotateDialog } from "./api-key-rotate-dialog";
 
 const DEFAULT_BASE_PATH = "/iam/api-keys";
 
 /** La caché se parte por ruta: las keys de /admin y las de cada empresa en
  * /super-admin son listas distintas aunque el componente sea el mismo. */
-export const apiKeysQueryKey = (basePath: string) => ["api-keys", basePath] as const;
+export const apiKeysQueryKey = (basePath: string, includeRevoked = false) =>
+  ["api-keys", basePath, includeRevoked] as const;
 
 export interface ApiKeysSectionProps {
   /**
@@ -74,20 +76,6 @@ export interface ApiKeysSectionProps {
   scopesMode?: "choose" | "all";
 }
 
-/** Scopes disponibles, agrupados por dominio para que el sheet sea legible. */
-const SCOPE_GROUPS: Array<{ title: string; scopes: string[] }> = [
-  { title: "Catálogo", scopes: ["catalog.read", "catalog.write"] },
-  { title: "Clientes", scopes: ["customers.read", "customers.write"] },
-  { title: "Cotizaciones", scopes: ["quotes.read", "quotes.write"] },
-  { title: "Pedidos", scopes: ["orders.read", "orders.write", "orders.cancel_own", "orders.cancel_any"] },
-  { title: "Pagos", scopes: ["payments.read", "payments.refund", "payments.export"] },
-  { title: "Chat", scopes: ["chat.read", "chat.write"] },
-  { title: "Notificaciones", scopes: ["notifications.read", "notifications.write"] },
-  { title: "Integraciones", scopes: ["integrations.read", "integrations.write"] },
-  { title: "Auditoría", scopes: ["audit.read"] },
-  { title: "Administración", scopes: ["tenant.admin", "users.invite", "users.manage", "apikeys.manage"] },
-];
-
 /**
  * `scopes` es opcional en el esquema: con scopesMode "all" el form no lo
  * pinta y nunca lo manda. Con "choose" sí es obligatorio, pero eso se exige
@@ -101,8 +89,8 @@ const schema = z.object({
     .string()
     .trim()
     .refine(
-      (v) => v === "" || (/^\d+$/.test(v) && Number(v) > 0),
-      "Días enteros mayores a cero, o vacío",
+      (v) => v === "" || (/^\d+$/.test(v) && Number(v) > 0 && Number(v) <= 730),
+      "Días enteros entre 1 y 730, o vacío",
     ),
 });
 
@@ -124,9 +112,15 @@ export function ApiKeysSection({
   scopesMode = "choose",
 }: ApiKeysSectionProps = {}) {
   const queryClient = useQueryClient();
-  const queryKey = apiKeysQueryKey(basePath);
-  const [newSecret, setNewSecret] = useState<string | null>(null);
+  const [includeRevoked, setIncludeRevoked] = useState(false);
+  const queryKey = apiKeysQueryKey(basePath, includeRevoked);
+  const [newSecret, setNewSecret] = useState<{ secret: string; note?: string } | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<ApiKey | null>(null);
+  const [usageTarget, setUsageTarget] = useState<ApiKey | null>(null);
+  const [editTarget, setEditTarget] = useState<ApiKey | null>(null);
+  const [rotateTarget, setRotateTarget] = useState<ApiKey | null>(null);
+
+  const invalidateKeys = () => queryClient.invalidateQueries({ queryKey: ["api-keys", basePath] });
 
   const revoke = useMutation({
     mutationFn: async (id: string) => {
@@ -135,7 +129,7 @@ export function ApiKeysSection({
     onSuccess: async () => {
       toast.success("API key revocada");
       setRevokeTarget(null);
-      await queryClient.invalidateQueries({ queryKey });
+      await invalidateKeys();
     },
     onError: (error) => {
       setRevokeTarget(null);
@@ -146,7 +140,9 @@ export function ApiKeysSection({
   const keys = useQuery({
     queryKey,
     queryFn: async () => {
-      const res = await api.get<{ data: ApiKey[] }>(basePath);
+      const res = await api.get<{ data: ApiKey[] }>(basePath, {
+        params: includeRevoked ? { includeRevoked: "true" } : undefined,
+      });
       return res.data.data;
     },
   });
@@ -155,36 +151,34 @@ export function ApiKeysSection({
     {
       key: "name",
       header: "Nombre",
-      cell: (k) => <span className="font-medium">{k.name}</span>,
-    },
-    {
-      key: "prefix",
-      header: (
-        <span className="inline-flex items-center gap-1">
-          Prefijo
-          <InfoTip label="Prefijo" text="Primeros caracteres de la key, para identificarla en logs e integraciones. El secreto completo solo se mostró al crearla." />
-        </span>
-      ),
-      width: "12rem",
       cell: (k) => (
-        <EntityId
-          value={k.prefix}
-          length={k.prefix.length}
-          copyLabel={`Copiar prefijo de ${k.name}`}
-          toastLabel="Prefijo"
-        />
+        <span className="flex flex-col">
+          <span className="font-medium">{k.name}</span>
+          <EntityId
+            value={k.prefix}
+            length={k.prefix.length}
+            copyLabel={`Copiar prefijo de ${k.name}`}
+            toastLabel="Prefijo"
+            className="text-xs text-muted-foreground"
+          />
+        </span>
       ),
     },
     {
       key: "scopes",
-      header: "Permisos",
+      header: (
+        <span className="inline-flex items-center gap-1">
+          Permisos
+          <InfoTip label="Permisos" text="Lo único que esta key puede hacer. Edítala para ampliarlos o acotarlos." />
+        </span>
+      ),
       cell: (k) =>
         scopesMode === "all" ? (
           <Badge variant="warning" size="sm" className="font-medium">
             Todos (global)
           </Badge>
         ) : k.scopes.length > 0 ? (
-          <span className="flex flex-wrap gap-1">
+          <span className="flex max-w-xs flex-wrap gap-1">
             {k.scopes.map((s) => (
               <Badge key={s} variant="neutral" size="sm" className="font-mono font-medium">
                 {s}
@@ -201,10 +195,21 @@ export function ApiKeysSection({
         ),
     },
     {
-      key: "createdAt",
-      header: "Creada",
-      width: "9rem",
-      cell: (k) => <DateTime value={k.createdAt} withTime={false} className="text-muted-foreground" />,
+      key: "createdBy",
+      header: "Creada por",
+      width: "11rem",
+      cell: (k) =>
+        k.createdBy ? (
+          <span className="flex flex-col" title={k.createdBy.email}>
+            <span>{k.createdBy.fullName || k.createdBy.email}</span>
+            <DateTime value={k.createdAt} withTime={false} className="text-xs text-muted-foreground" />
+          </span>
+        ) : (
+          <span className="flex flex-col">
+            <span className="text-muted-foreground">Sistema</span>
+            <DateTime value={k.createdAt} withTime={false} className="text-xs text-muted-foreground" />
+          </span>
+        ),
     },
     {
       key: "expiresAt",
@@ -222,16 +227,29 @@ export function ApiKeysSection({
       header: (
         <span className="inline-flex items-center gap-1">
           Último uso
-          <InfoTip label="Último uso" text="Última petición autenticada con esta key. Si dice Nunca, ninguna integración la ha usado todavía." />
+          <InfoTip label="Último uso" text="Última petición autenticada con esta key (se actualiza como máximo una vez por minuto). Si dice Nunca, ninguna integración la ha usado todavía." />
         </span>
       ),
-      width: "11rem",
-      cell: (k) =>
-        k.lastUsedAt ? (
-          <DateTime value={k.lastUsedAt} className="text-muted-foreground" />
-        ) : (
-          <span className="text-muted-foreground">Nunca</span>
-        ),
+      width: "9rem",
+      cell: (k) => <LastUsed value={k.lastUsedAt} />,
+    },
+    {
+      key: "status",
+      header: "Estado",
+      width: "7rem",
+      cell: (k) => (
+        <StatusBadge
+          status={k.status}
+          size="sm"
+          tone={API_KEY_STATUS_TONES[k.status]}
+          label={API_KEY_STATUS_LABELS[k.status]}
+          title={
+            k.status === "ROTATED"
+              ? `Rotada. Sigue valiendo hasta ${formatDateTimeLong(k.expiresAt)}.`
+              : undefined
+          }
+        />
+      ),
     },
     {
       key: "actions",
@@ -248,9 +266,27 @@ export function ApiKeysSection({
             </DropdownMenuTrigger>
           </Tip>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem className="text-destructive" onSelect={() => setRevokeTarget(k)}>
-              Revocar key
+            <DropdownMenuItem onSelect={() => setUsageTarget(k)}>
+              <Activity aria-hidden className="h-4 w-4" />
+              Ver uso
             </DropdownMenuItem>
+            {isApiKeyMutable(k) ? (
+              <>
+                <DropdownMenuItem onSelect={() => setEditTarget(k)}>
+                  <Pencil aria-hidden className="h-4 w-4" />
+                  Editar
+                </DropdownMenuItem>
+                {k.status === "ACTIVE" ? (
+                  <DropdownMenuItem onSelect={() => setRotateTarget(k)}>
+                    <RefreshCw aria-hidden className="h-4 w-4" />
+                    Rotar secreto
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem className="text-destructive" onSelect={() => setRevokeTarget(k)}>
+                  Revocar key
+                </DropdownMenuItem>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -264,14 +300,24 @@ export function ApiKeysSection({
         headerIcon={<KeyRound className="h-4 w-4" />}
         description={description}
         actions={
-          <CreateApiKeyButton
-            basePath={basePath}
-            scopesMode={scopesMode}
-            onCreated={(secret) => setNewSecret(secret)}
-            // Si ya había un secreto recién creado, el siguiente sheet se abre
-            // reseteado (no muestra el secreto anterior).
-            resetKey={newSecret}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Checkbox
+                checked={includeRevoked}
+                onChange={(e) => setIncludeRevoked(e.currentTarget.checked)}
+                aria-label="Mostrar keys revocadas"
+              />
+              Mostrar revocadas
+            </label>
+            <CreateApiKeyButton
+              basePath={basePath}
+              scopesMode={scopesMode}
+              onCreated={(secret) => setNewSecret({ secret })}
+              // Si ya había un secreto recién creado, el siguiente sheet se abre
+              // reseteado (no muestra el secreto anterior).
+              resetKey={newSecret?.secret ?? null}
+            />
+          </div>
         }
         padded={false}
       >
@@ -282,10 +328,11 @@ export function ApiKeysSection({
           isError={keys.isError}
           error={keys.error}
           onRetry={() => void keys.refetch()}
+          getRowClassName={(k) => (isApiKeyMutable(k) ? undefined : "text-muted-foreground")}
           caption="API keys del tenant"
           empty={{
             icon: <KeyRound className="h-6 w-6" />,
-            title: "Sin API keys",
+            title: includeRevoked ? "Sin API keys" : "Sin API keys activas",
             description:
               "Crea una key para que un sistema externo consulte el catálogo o registre pedidos sin usar tu sesión.",
           }}
@@ -293,9 +340,9 @@ export function ApiKeysSection({
       </Section>
 
       {/*
-        Banner persistente que muestra el secreto recién creado. No vive dentro
-        del sheet: si el usuario lo cierra, todavía tiene que poder copiar el
-        secreto. Se quita solo cuando crea otra key o cuando pulsa "Ya la guardé".
+        Banner persistente que muestra el secreto recién creado o rotado. No vive
+        dentro del sheet: si el usuario lo cierra, todavía tiene que poder copiar
+        el secreto. Se quita solo cuando crea otra key o cuando pulsa "Ya la guardé".
       */}
       {newSecret ? (
         <div
@@ -307,15 +354,16 @@ export function ApiKeysSection({
             <KeyRound aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold">Copia esta key ahora: no se muestra de nuevo</p>
+              {newSecret.note ? <p className="mt-1 text-xs">{newSecret.note}</p> : null}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <code className="break-all rounded-md bg-background px-2 py-1 font-mono text-xs">
-                  {newSecret}
+                  {newSecret.secret}
                 </code>
                 <Button
                   variant="outline"
                   size="sm"
                   aria-label="Copiar API key"
-                  onClick={() => void copyToClipboard(newSecret, "API key")}
+                  onClick={() => void copyToClipboard(newSecret.secret, "API key")}
                 >
                   <Copy className="h-3.5 w-3.5" />
                   Copiar
@@ -333,7 +381,7 @@ export function ApiKeysSection({
         open={revokeTarget !== null}
         onOpenChange={(open) => !open && setRevokeTarget(null)}
         title={`¿Revocar "${revokeTarget?.name ?? ""}"?`}
-        description="Cualquier integración usando esta key deja de funcionar de inmediato. No se puede deshacer."
+        description="Cualquier integración usando esta key deja de funcionar de inmediato. No se puede deshacer. Si quieres cambiar el secreto sin cortar el servicio, usa Rotar."
         confirmLabel="Revocar"
         pending={revoke.isPending}
         onConfirm={() => {
@@ -341,7 +389,51 @@ export function ApiKeysSection({
           revoke.mutate(revokeTarget.id);
         }}
       />
+
+      <ApiKeyUsageSheet
+        basePath={basePath}
+        apiKey={usageTarget}
+        open={usageTarget !== null}
+        onOpenChange={(open) => !open && setUsageTarget(null)}
+      />
+
+      <ApiKeyEditSheet
+        basePath={basePath}
+        scopesMode={scopesMode}
+        apiKey={editTarget}
+        open={editTarget !== null}
+        onOpenChange={(open) => !open && setEditTarget(null)}
+        onSaved={() => void invalidateKeys()}
+      />
+
+      <ApiKeyRotateDialog
+        basePath={basePath}
+        apiKey={rotateTarget}
+        open={rotateTarget !== null}
+        onOpenChange={(open) => !open && setRotateTarget(null)}
+        onRotated={(rotated) => {
+          setNewSecret({
+            secret: rotated.secret,
+            note:
+              rotated.previousKey.graceHours > 0
+                ? `La key anterior (${rotated.previousKey.prefix}) sigue valiendo hasta ${formatDateTimeLong(rotated.previousKey.validUntil)}.`
+                : `La key anterior (${rotated.previousKey.prefix}) quedó revocada.`,
+          });
+          void invalidateKeys();
+        }}
+      />
     </>
+  );
+}
+
+/** "hace 3 minutos" con el timestamp exacto en el title; "Nunca" si no hay. */
+function LastUsed({ value }: { value: string | null }) {
+  const relative = formatRelativeTime(value);
+  if (!relative) return <span className="text-muted-foreground">Nunca</span>;
+  return (
+    <time dateTime={value ?? undefined} title={formatDateTimeLong(value)} className="whitespace-nowrap text-muted-foreground">
+      {relative}
+    </time>
   );
 }
 
@@ -431,7 +523,7 @@ function CreateApiKeyForm({
     onSuccess: async (data) => {
       toast.success("API key creada");
       reset();
-      await queryClient.invalidateQueries({ queryKey: apiKeysQueryKey(basePath) });
+      await queryClient.invalidateQueries({ queryKey: ["api-keys", basePath] });
       onCreated(data.secret);
     },
     onError: (error) => toast.error(apiErrorMessage(error, "No se pudo crear la API key")),
@@ -490,50 +582,12 @@ function CreateApiKeyForm({
             integraciones de plataforma que de verdad necesiten operar sobre cualquier empresa.
           </p>
         ) : (
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Permisos</legend>
-          <p className="text-xs text-muted-foreground">
-            Marca los que necesite la integración. Empieza con los mínimos: leer cuando solo consulta,
-            escribir solo cuando registra o modifica datos.
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {SCOPE_GROUPS.map((group) => (
-              <div key={group.title} className="rounded-md border bg-card p-3">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {group.title}
-                </p>
-                <div className="space-y-1.5">
-                  {group.scopes.map((scope) => {
-                    const id = `scope-${scope.replace(/\./g, "-")}`;
-                    const checked = selectedScopes.includes(scope);
-                    return (
-                      <label
-                        key={scope}
-                        htmlFor={id}
-                        className="flex cursor-pointer items-center gap-2 text-sm"
-                      >
-                        <Checkbox
-                          id={id}
-                          checked={checked}
-                          onChange={(e) => {
-                            const next = e.currentTarget.checked
-                              ? [...selectedScopes, scope]
-                              : selectedScopes.filter((s) => s !== scope);
-                            setValue("scopes", next, { shouldDirty: true, shouldValidate: true });
-                          }}
-                        />
-                        <span className="font-mono text-xs">{scope}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-          {errors.scopes && (
-            <p className="text-xs text-destructive">{errors.scopes.message}</p>
-          )}
-        </fieldset>
+          <ScopePicker
+            idPrefix="scope"
+            selected={selectedScopes}
+            onChange={(next) => setValue("scopes", next, { shouldDirty: true, shouldValidate: true })}
+            error={errors.scopes?.message}
+          />
         )}
 
         <div className="space-y-1.5">
@@ -553,7 +607,7 @@ function CreateApiKeyForm({
             </p>
           ) : (
             <p id="key-expires-hint" className="text-xs text-muted-foreground">
-              Opcional. Vacío = sin vencimiento.
+              Opcional. Vacío = sin vencimiento. Máximo 730 días; podrás cambiarlo después.
             </p>
           )}
         </div>
