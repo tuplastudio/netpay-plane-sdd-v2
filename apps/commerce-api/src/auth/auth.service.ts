@@ -14,6 +14,7 @@ import { scopesFor } from "./policies.js";
 import { RateLimitService } from "./rate-limit.service.js";
 import { SessionService } from "./session.service.js";
 import { MfaService } from "./mfa.service.js";
+import { AccessTokenService } from "./jwt.service.js";
 import { encryptSecret, decryptSecret } from "../common/crypto/secret-cipher.js";
 
 interface MfaChallenge {
@@ -35,6 +36,7 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly rateLimit: RateLimitService,
     readonly sessions: SessionService,
+    readonly accessTokens: AccessTokenService,
     private readonly mfa: MfaService,
   ) {}
 
@@ -44,7 +46,25 @@ export class AuthService {
     tenantSlug?: string;
     ip?: string;
     userAgent?: string;
-  }) {
+  }): Promise<
+    | {
+        mfaRequired: true;
+        mfaChallengeToken: string;
+        expiresAt: string;
+      }
+    | {
+        mfaRequired: false;
+        refreshToken: string;
+        refreshExpiresAt: string;
+        accessToken: string;
+        accessExpiresAt: string;
+        userId: string;
+        tenantId: string;
+        role: string;
+        isSuperAdmin: boolean;
+        mfaSetupRecommended: boolean;
+      }
+  > {
     const key = RateLimitService.keyFor(input.email.toLowerCase(), input.ip);
     if (!this.rateLimit.allow(key)) {
       throw new HttpException(
@@ -132,15 +152,26 @@ export class AuthService {
       userAgent: input.userAgent,
     });
 
+    const access = await this.accessTokens.sign({
+      userId: user.id,
+      sessionId: session.sessionId,
+      tenantId: membership.tenantId,
+      role: membership.role,
+      isSuperAdmin: user.isSuperAdmin,
+    });
+    await this.sessions.recordAccessJti(session.sessionId, access.jti);
+
     return {
-      sessionToken: session.token,
+      refreshToken: session.refreshToken,
+      refreshExpiresAt: session.expiresAt.toISOString(),
+      accessToken: access.token,
+      accessExpiresAt: access.expiresAt.toISOString(),
       userId: user.id,
       tenantId: membership.tenantId,
       role: membership.role,
       isSuperAdmin: user.isSuperAdmin,
       mfaRequired: false,
       mfaSetupRecommended: ["OWNER", "ADMIN", "FINANCE"].includes(membership.role),
-      expiresAt: session.expiresAt.toISOString(),
     };
   }
 
@@ -264,14 +295,25 @@ export class AuthService {
       userAgent: input.userAgent,
     });
 
+    const access = await this.accessTokens.sign({
+      userId: challenge.userId,
+      sessionId: session.sessionId,
+      tenantId: challenge.tenantId,
+      role: challenge.role,
+      isSuperAdmin: user.isSuperAdmin,
+    });
+    await this.sessions.recordAccessJti(session.sessionId, access.jti);
+
     return {
-      sessionToken: session.token,
+      refreshToken: session.refreshToken,
+      refreshExpiresAt: session.expiresAt.toISOString(),
+      accessToken: access.token,
+      accessExpiresAt: access.expiresAt.toISOString(),
       userId: challenge.userId,
       tenantId: challenge.tenantId,
       role: challenge.role,
       isSuperAdmin: user.isSuperAdmin,
       mfaRequired: false,
-      expiresAt: session.expiresAt.toISOString(),
     };
   }
 
@@ -425,8 +467,8 @@ export class AuthService {
     };
   }
 
-  async logout(sessionToken: string | undefined): Promise<void> {
-    if (!sessionToken) return;
-    await this.sessions.revoke(sessionToken);
+  async logout(refreshToken: string | undefined): Promise<void> {
+    if (!refreshToken) return;
+    await this.sessions.revoke(refreshToken);
   }
 }

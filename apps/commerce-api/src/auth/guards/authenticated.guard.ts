@@ -7,9 +7,7 @@ import {
 import { Request } from "express";
 import { SessionService } from "../session.service.js";
 import { RequestContext } from "../../common/context/request-context.js";
-
-export const SESSION_COOKIE =
-  process.env.NODE_ENV === "production" ? "__Host-session" : "session";
+import { REFRESH_COOKIE } from "./principal.guard.js";
 
 @Injectable()
 export class AuthenticatedGuard implements CanActivate {
@@ -18,7 +16,9 @@ export class AuthenticatedGuard implements CanActivate {
   async canActivate(host: ExecutionContext): Promise<boolean> {
     const req = host.switchToHttp().getRequest<Request>();
     const cookies = (req.cookies ?? {}) as Record<string, string>;
-    const token = cookies[SESSION_COOKIE];
+    // El guard verifica el REFRESH (lo único que vive en cookie). El access
+    // ya lo validó `PrincipalGuard` en el camino normal del frontend.
+    const token = cookies[REFRESH_COOKIE];
     const session = await this.sessions.resolveSession(token);
     if (!session) {
       throw new UnauthorizedException({

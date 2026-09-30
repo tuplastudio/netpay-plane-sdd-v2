@@ -30,6 +30,14 @@ function fieldToZod(field: Field): z.ZodTypeAny {
     case "any":
       schema = z.any();
       break;
+    default: {
+      // Exhaustividad: si alguien añade un tipo nuevo a `Field` (en
+      // registry/types.ts) sin tocar este switch, el compilador lo señala
+      // aquí (`never` no asignable a `string`) en vez de dejar salir un
+      // `undefined` como schema, que MCP aceptaría silenciosamente.
+      const _exhaustive: never = field;
+      throw new Error(`Tipo de Field no soportado: ${JSON.stringify(_exhaustive)}`);
+    }
   }
   if (field.description) schema = schema.describe(field.description);
   return field.required ? schema : schema.optional();

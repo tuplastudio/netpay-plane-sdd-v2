@@ -8,8 +8,8 @@ export interface OpenSessionInput {
   userId: string;
   ipAddress?: string;
   userAgent?: string;
-  absoluteTtlMs?: number; // default 12h
-  inactivityTtlMs?: number; // default 30min
+  absoluteTtlMs?: number; // default 30d (SESSION_ABSOLUTE_TTL_MS)
+  inactivityTtlMs?: number; // default 7d (SESSION_INACTIVITY_TTL_MS)
 }
 
 export interface ResolvedSession {
@@ -35,6 +35,42 @@ export const SESSION_CACHE_TTL_MS = 5_000;
  * de 30 min, así que basta con persistirla una vez por minuto por sesión.
  */
 export const ACTIVITY_TOUCH_INTERVAL_MS = 60_000;
+
+/**
+ * Vida ABSOLUTA de la sesión: cuanto vive el token desde que se emite hasta
+ * que deja de valer, aunque el usuario siga activo. Por defecto 30 días:
+ * cubre todo un ciclo mensual de uso sin pedir re-login, sin ser tan largo
+ * que un token robado quede vivo para siempre. Configurable vía
+ * `SESSION_ABSOLUTE_TTL_MS` (en ms, ej. 30 días = `2592000000`).
+ */
+const DEFAULT_ABSOLUTE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Vida por INACTIVIDAD: si entre dos peticiones del usuario pasa más de este
+ * tiempo, la sesión muere (el usuario debe volver a loguearse). Por defecto
+ * 7 días: cualquier persona que vuelve a la plataforma en una semana sigue
+ * dentro. Configurable vía `SESSION_INACTIVITY_TTL_MS`.
+ */
+const DEFAULT_INACTIVITY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Cuánto se extiende la vida absoluta en cada `POST /auth/refresh` exitoso. */
+const REFRESH_TTL_MS = (() => {
+  const raw = process.env.SESSION_ABSOLUTE_TTL_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ABSOLUTE_TTL_MS;
+})();
+
+function readAbsoluteTtlMs(): number {
+  const raw = process.env.SESSION_ABSOLUTE_TTL_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_ABSOLUTE_TTL_MS;
+}
+
+function readInactivityTtlMs(): number {
+  const raw = process.env.SESSION_INACTIVITY_TTL_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_INACTIVITY_TTL_MS;
+}
 
 /** Modelos cuya escritura invalida la caché de sesiones. */
 const SESSION_CACHE_MODELS = ["Session", "Membership", "User"] as const;
@@ -76,16 +112,24 @@ export class SessionService {
     this.cache.clear();
   }
 
-  async openSession(input: OpenSessionInput): Promise<{ token: string; expiresAt: Date }> {
+  async openSession(input: OpenSessionInput): Promise<{
+    refreshToken: string;
+    sessionId: string;
+    expiresAt: Date;
+  }> {
     const { token, hash } = newSessionToken();
     const now = new Date();
-    const absoluteTtl = input.absoluteTtlMs ?? 12 * 60 * 60 * 1000;
+    const absoluteTtl = input.absoluteTtlMs ?? readAbsoluteTtlMs();
     const expiresAt = new Date(now.getTime() + absoluteTtl);
 
-    await this.prisma.session.create({
+    const created = await this.prisma.session.create({
       data: {
         tenantId: input.tenantId,
         userId: input.userId,
+        // `tokenHash` es ahora el hash del REFRESH token opaco (cookie). El
+        // access token es un JWT firmado y viaja por `Authorization: Bearer`,
+        // su jti se guarda aparte en `accessJti` tras firmarlo en
+        // `auth.controller` (login/mfa/refresh).
         tokenHash: hash,
         issuedAt: now,
         lastActivityAt: now,
@@ -93,9 +137,10 @@ export class SessionService {
         ipAddress: input.ipAddress,
         userAgent: input.userAgent,
       },
+      select: { id: true },
     });
 
-    return { token, expiresAt };
+    return { refreshToken: token, sessionId: created.id, expiresAt };
   }
 
   /**
@@ -112,6 +157,74 @@ export class SessionService {
     const hash = hashToken(token);
     const resolved = await this.cache.getOrLoad(hash, () => this.loadSession(hash));
     return resolved ?? null;
+  }
+
+  /**
+   * Resuelve la sesión cuando el request llega con un JWT de access (Bearer)
+   * válido. La firma del JWT ya autenticó al portador; aquí confirmamos que la
+   * sesión subyacente no fue revocada ni expiró, y que la membresía sigue
+   * ACTIVE. El `jti` debe coincidir con el último emitido (si rotó, los
+   * access viejos mueren — defensa contra replay).
+   *
+   * Usa la misma caché que `resolveSession`, keyed por `sessionId|jti` para
+   * no abrir un canal de cache paralelo.
+   */
+  async resolveByAccessToken(input: {
+    sessionId: string;
+    jti: string;
+  }): Promise<ResolvedSession | null> {
+    const cacheKey = `${input.sessionId}|${input.jti}`;
+    const resolved = await this.cache.getOrLoad(cacheKey, () =>
+      this.loadSessionByAccess(input.sessionId, input.jti),
+    );
+    return resolved ?? null;
+  }
+
+  private async loadSessionByAccess(
+    sessionId: string,
+    jti: string,
+  ): Promise<ResolvedSession | undefined> {
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+      select: {
+        id: true,
+        tenantId: true,
+        userId: true,
+        revokedAt: true,
+        expiresAt: true,
+        lastActivityAt: true,
+        accessJti: true,
+        user: { select: { isSuperAdmin: true } },
+      },
+    });
+    if (!session) return undefined;
+    if (session.revokedAt) return undefined;
+    if (session.expiresAt.getTime() <= Date.now()) return undefined;
+    // jti distinto al último persistido = access viejo (rotado por un refresh
+    // posterior). El middleware ya rechazó la firma; aquí cortamos el replay.
+    if (session.accessJti !== jti) return undefined;
+
+    const INACTIVITY_TTL_MS = readInactivityTtlMs();
+    if (session.lastActivityAt) {
+      const idleMs = Date.now() - new Date(session.lastActivityAt).getTime();
+      if (idleMs > INACTIVITY_TTL_MS) return undefined;
+    }
+
+    const membership = await this.prisma.membership.findUnique({
+      where: {
+        tenantId_userId: { tenantId: session.tenantId, userId: session.userId },
+      },
+      select: { role: true, status: true },
+    });
+    if (!membership || membership.status !== "ACTIVE") return undefined;
+
+    return {
+      sessionId: session.id,
+      userId: session.userId,
+      tenantId: session.tenantId,
+      role: membership.role,
+      isSuperAdmin: session.user.isSuperAdmin,
+    };
   }
 
   private async loadSession(hash: string): Promise<ResolvedSession | undefined> {
@@ -134,10 +247,11 @@ export class SessionService {
     if (session.revokedAt) return undefined;
     if (session.expiresAt.getTime() <= Date.now()) return undefined;
 
-    // Sesión abierta pero con inactividad > 30 min → se rechaza.
+    // Sesión abierta pero con inactividad > N → se rechaza.
     // El frontend debería refrescar antes de ese límite; si el navegador se
-    // quedó abierto sin requests, forzamos re-login.
-    const INACTIVITY_TTL_MS = 30 * 60 * 1000;
+    // quedó abierto sin requests, forzamos re-login. `SESSION_INACTIVITY_TTL_MS`
+    // controla N (default 7 días).
+    const INACTIVITY_TTL_MS = readInactivityTtlMs();
     if (session.lastActivityAt) {
       const idleMs = Date.now() - new Date(session.lastActivityAt).getTime();
       if (idleMs > INACTIVITY_TTL_MS) return undefined;
@@ -202,31 +316,115 @@ export class SessionService {
   }
 
   /**
-   * Extiende la vida de la sesión. Llamado por `POST /auth/refresh`, que es
-   * `@Public()`: el `PrincipalGuard` no corre antes, así que **esta** es la
-   * única validación. Reusa `resolveSession` para aplicar exactamente las
-   * mismas reglas que cualquier otra petición (token válido, no revocada, no
-   * expirada, inactividad < 30 min, membresía ACTIVE): una sesión que no
-   * podría entrar a `/auth/me` tampoco puede extenderse.
+   * Rota el refresh token: invalida el anterior (revoca la sesión vieja,
+   * corta cualquier access JWT aún válido cuyo jti apunte a esa sesión) y
+   * crea una sesión NUEVA con un refresh NUEVO. Esto cierra la ventana de
+   * replay si el refresh viejo fue filtrado: el atacante no puede renovar
+   * porque el refresh ya no está en la BD.
    *
-   * Devuelve la nueva fecha de expiración absoluta (12h desde ahora) o `null`
-   * si la sesión ya no vale.
+   * Llamado por `POST /auth/refresh`, que es `@Public()` (el `PrincipalGuard`
+   * no corre antes). La única validación de la petición es `resolveSession`
+   * sobre el refresh cookie — mismas reglas que cualquier endpoint
+   * autenticado (token válido, no revocado, no expirado, inactividad dentro
+   * del límite, membresía ACTIVE).
+   *
+   * Devuelve la sesión nueva (refresh + expiración) o `null` si la sesión
+   * original ya no vale (en cuyo caso el caller responde 401 y el frontend
+   * redirige a /login).
    */
-  async refreshSession(token: string | undefined): Promise<{ expiresAt: Date } | null> {
-    // Refresh es la operación que decide si la sesión sigue viva: se
-    // resuelve contra la base, no desde la caché.
-    if (token) this.cache.delete(hashToken(token));
-    const session = await this.resolveSession(token);
-    if (!session) return null;
+  async rotateRefresh(token: string | undefined): Promise<{
+    refreshToken: string;
+    sessionId: string;
+    expiresAt: Date;
+    userId: string;
+    tenantId: string;
+    role: string;
+    isSuperAdmin: boolean;
+  } | null> {
+    if (!token) return null;
+    // Refresh decide si la sesión sigue viva: resuelve contra la BD, no caché.
+    const oldHash = hashToken(token);
+    this.cache.delete(oldHash);
+    const existing = await this.resolveSession(token);
+    if (!existing) return null;
 
-    const newExpiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000);
-    await this.prisma.session.update({
-      where: { id: session.sessionId },
-      data: { expiresAt: newExpiresAt, lastActivityAt: new Date() },
+    const { token: newRefresh, hash: newHash } = newSessionToken();
+    const newExpiresAt = new Date(Date.now() + REFRESH_TTL_MS);
+    const now = new Date();
+
+    // Una sola escritura atómica sería ideal (no la tenemos en Prisma 5 sin
+    // $transaction de 2 queries). El orden importa:
+    //   1. Crear la nueva sesión primero (con `tokenHash` nuevo, mismo
+    //      tenantId/userId, expiración nueva). Si esto falla, la sesión vieja
+    //      sigue válida y el refresh viejo sigue funcionando (no se rompe
+    //      nada).
+    //   2. Revocar la vieja. Si esto falla, la nueva sigue válida y la vieja
+    //      queda activa con un refresh que ya entregamos al cliente — el
+    //      atacante que tuviera el refresh viejo podría seguir usándolo
+    //      hasta que la inactividad o expiración lo maten. Para evitarlo, el
+    //      2 se hace en una `updateMany` con `tokenHash: oldHash`,
+    //      `revokedAt: null` (idempotente) y, si la BD reporta 0 filas
+    //      modificadas, NO se devuelve la nueva sesión al caller.
+    const created = await this.prisma.session.create({
+      data: {
+        tenantId: existing.tenantId,
+        userId: existing.userId,
+        tokenHash: newHash,
+        issuedAt: now,
+        lastActivityAt: now,
+        expiresAt: newExpiresAt,
+        accessJti: null,
+      },
+      select: { id: true },
     });
-    this.touched.set(session.sessionId, true);
 
-    return { expiresAt: newExpiresAt };
+    const revoked = await this.prisma.session.updateMany({
+      where: { tokenHash: oldHash, revokedAt: null },
+      data: { revokedAt: now },
+    });
+    if (revoked.count === 0) {
+      // La sesión vieja ya estaba revocada (otra rotación concurrente, o
+      // logout). No le damos al cliente la nueva sesión: podría ser un replay.
+      // Tira la nueva fila para no dejar basura.
+      await this.prisma.session.delete({ where: { id: created.id } }).catch(() => undefined);
+      return null;
+    }
+
+    // El rol se relee de la membresía viva, como hace `loadSession`.
+    const membership = await this.prisma.membership.findUnique({
+      where: {
+        tenantId_userId: { tenantId: existing.tenantId, userId: existing.userId },
+      },
+      select: { role: true, status: true },
+    });
+    if (!membership || membership.status !== "ACTIVE") {
+      await this.prisma.session.delete({ where: { id: created.id } }).catch(() => undefined);
+      return null;
+    }
+
+    return {
+      refreshToken: newRefresh,
+      sessionId: created.id,
+      expiresAt: newExpiresAt,
+      userId: existing.userId,
+      tenantId: existing.tenantId,
+      role: membership.role,
+      isSuperAdmin: existing.isSuperAdmin,
+    };
+  }
+
+  /**
+   * Persiste el `accessJti` recién emitido para la sesión, para que
+   * `resolveByAccessToken` pueda detectar replays cuando se rote.
+   */
+  async recordAccessJti(sessionId: string, jti: string): Promise<void> {
+    await this.prisma.session.update({
+      where: { id: sessionId },
+      data: { accessJti: jti, lastActivityAt: new Date() },
+    });
+    // Invalida la caché de ese sessionId para forzar re-validación con el
+    // nuevo jti (la entrada anterior podría tener el jti anterior).
+    this.cache.deleteWhere((_k, s) => s.sessionId === sessionId);
   }
 
   async revoke(token: string): Promise<void> {

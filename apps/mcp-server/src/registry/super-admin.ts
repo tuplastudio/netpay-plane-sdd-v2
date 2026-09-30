@@ -12,11 +12,20 @@ import type { RouteDef } from "./types.js";
  */
 const ASSIGNABLE_ROLES = ["OWNER", "ADMIN", "VENDOR", "FINANCE", "CATALOG", "SUPPORT", "VIEWER"];
 
+/**
+ * Path del endpoint que `client.ts` usa como probe para detectar si la API
+ * key es GLOBAL (ver `probeKeyKind`). Exportado desde el registry para que
+ * un rename o mudanza aquí no rompa el probe silenciosamente (antes estaba
+ * hardcodeado en client.ts y eso significaba que el aviso de "key global"
+ * en main.ts dejaba de aparecer si esto se renombraba).
+ */
+export const SUPER_ADMIN_OVERVIEW_PATH = "/super-admin/overview";
+
 export const superAdminRoutes: RouteDef[] = [
   {
     name: "super_admin_overview",
     method: "GET",
-    path: "/super-admin/overview",
+    path: SUPER_ADMIN_OVERVIEW_PATH,
     description: "Agregados de toda la plataforma: conteos de empresas, usuarios distintos, invitaciones pendientes y uso del mes en curso.",
     scopes: [],
   },
@@ -173,6 +182,7 @@ export const superAdminRoutes: RouteDef[] = [
       "plataforma. El backend exige sesión de super-admin HUMANO para esto: una key global no puede emitir " +
       "más keys globales por sí sola, así que esta llamada falla con una key global y necesita sesión de panel.",
     scopes: [],
+    destructiveHint: true,
     body: {
       name: { type: "string", required: true },
       expiresInDays: { type: "number", description: "1 a 730. Sin esto, no vence." },
@@ -184,6 +194,36 @@ export const superAdminRoutes: RouteDef[] = [
     path: "/super-admin/api-keys/:id",
     description: "Revoca una key global. Mismo requisito de sesión humana que crearla.",
     scopes: [],
+    destructiveHint: true,
     pathParams: { id: { type: "string" } },
+  },
+  {
+    name: "super_admin_usage_summary",
+    method: "GET",
+    path: "/super-admin/usage",
+    description:
+      "Resumen de uso/costo cross-tenant: tokens y USD por tenant en un rango. " +
+      "Sin tenantId, agrega a todos los tenants; con tenantId filtra a uno. " +
+      "Útil para facturación interna y para detectar anomalías. Solo key GLOBAL.",
+    scopes: [],
+    query: {
+      tenantId: { type: "string", description: "UUID de un tenant concreto; sin él, todos." },
+      from: { type: "string", description: "Fecha ISO, inclusive." },
+      to: { type: "string", description: "Fecha ISO, inclusive." },
+    },
+  },
+  {
+    name: "super_admin_usage_detail",
+    method: "GET",
+    path: "/super-admin/usage/detail",
+    description:
+      "Drill-down de uso: desglose día × modelo de un tenant en un rango. tenantId es REQUERIDO " +
+      "(sin él el backend responde 400). Solo key GLOBAL.",
+    scopes: [],
+    query: {
+      tenantId: { type: "string", required: true, description: "UUID del tenant a detallar." },
+      from: { type: "string", description: "Fecha ISO, inclusive." },
+      to: { type: "string", description: "Fecha ISO, inclusive." },
+    },
   },
 ];

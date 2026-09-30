@@ -1,4 +1,4 @@
-# easysell-mcp — MCP de Easy Sell
+# @cgalaviz/easysell-mcp — MCP de Easy Sell
 
 Servidor [MCP](https://modelcontextprotocol.io) que expone la API de Easy Sell
 (commerce-api: catálogo, clientes, cotizaciones, pedidos, pagos, envíos,
@@ -8,18 +8,19 @@ herramientas para Claude o cualquier agente compatible con MCP.
 
 Corre por **stdio** — el cliente (Claude Desktop, Claude Code, cualquier host
 MCP) lo lanza como proceso local. No expone ningún puerto ni requiere
-desplegarlo aparte. Publicado en npm como `easysell-mcp`.
+desplegarlo aparte. Publicado en npm como `@cgalaviz/easysell-mcp` (el bin se
+llama `easysell-mcp`).
 
 ## Instalar y correr
 
 ```bash
-npx easysell-mcp
+npx @cgalaviz/easysell-mcp
 ```
 
-(o instalado globalmente: `npm install -g easysell-mcp` y luego `easysell-mcp`).
-Necesita `COMMERCE_API_KEY` en el entorno — ver **Autenticación** abajo. Sin
-ella, el proceso falla al arrancar con un mensaje explicando qué falta, no con
-un error de red genérico en la primera tool que se intente usar.
+(o instalado globalmente: `npm install -g @cgalaviz/easysell-mcp` y luego
+`easysell-mcp`). Necesita `COMMERCE_API_KEY` en el entorno — ver **Autenticación**
+abajo. Sin ella, el proceso falla al arrancar con un mensaje explicando qué
+falta, no con un error de red genérico en la primera tool que se intente usar.
 
 ## Autenticación
 
@@ -88,7 +89,7 @@ puede, en teoría, terminar tocando cualquier empresa.
 ## Build (para desarrollo local del propio servidor)
 
 ```bash
-pnpm --filter easysell-mcp build
+pnpm --filter @cgalaviz/easysell-mcp build
 ```
 
 Genera `apps/mcp-server/dist/main.js`.
@@ -98,7 +99,7 @@ Genera `apps/mcp-server/dist/main.js`.
 ```bash
 claude mcp add easysell \
   --env COMMERCE_API_KEY=npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
-  -- npx easysell-mcp
+  -- npx @cgalaviz/easysell-mcp
 ```
 
 O agregando a mano en `.mcp.json` (raíz del proyecto o `~/.claude.json`):
@@ -108,7 +109,7 @@ O agregando a mano en `.mcp.json` (raíz del proyecto o `~/.claude.json`):
   "mcpServers": {
     "easysell": {
       "command": "npx",
-      "args": ["easysell-mcp"],
+      "args": ["@cgalaviz/easysell-mcp"],
       "env": {
         "COMMERCE_API_KEY": "npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
@@ -127,7 +128,7 @@ Config):
   "mcpServers": {
     "easysell": {
       "command": "npx",
-      "args": ["easysell-mcp"],
+      "args": ["@cgalaviz/easysell-mcp"],
       "env": {
         "COMMERCE_API_KEY": "npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
@@ -139,9 +140,9 @@ Config):
 ## Cualquier otro agente / cliente MCP
 
 Cualquier host que hable el protocolo MCP por stdio sirve: lanzar
-`npx easysell-mcp` (o `node apps/mcp-server/dist/main.js` desde el repo) con
-`COMMERCE_API_KEY` en el entorno del proceso. No hay nada específico de
-Claude en el servidor — es un `McpServer` estándar del SDK oficial
+`npx @cgalaviz/easysell-mcp` (o `node apps/mcp-server/dist/main.js` desde el
+repo) con `COMMERCE_API_KEY` en el entorno del proceso. No hay nada específico
+de Claude en el servidor — es un `McpServer` estándar del SDK oficial
 (`@modelcontextprotocol/sdk`).
 
 ## Qué cubre
@@ -165,9 +166,9 @@ secret (operativos, de una sola vez, mejor desde el panel), e impersonar
 ## Desarrollo
 
 ```bash
-pnpm --filter easysell-mcp dev     # tsx, sin build previo
-pnpm --filter easysell-mcp typecheck
-pnpm --filter easysell-mcp lint
+pnpm --filter @cgalaviz/easysell-mcp dev     # tsx, sin build previo
+pnpm --filter @cgalaviz/easysell-mcp typecheck
+pnpm --filter @cgalaviz/easysell-mcp lint
 ```
 
 Para probar interactivamente sin un cliente MCP completo, usa el
@@ -177,15 +178,79 @@ Para probar interactivamente sin un cliente MCP completo, usa el
 npx @modelcontextprotocol/inspector node apps/mcp-server/dist/main.js
 ```
 
+## API keys — guía completa
+
+Hay dos tipos y son cosas distintas.
+
+### Key de tenant (la que vas a usar el 99% del tiempo)
+
+1. **Panel** → **Empresa → API keys** → **"Crear API key"**.
+2. Nombre: algo descriptivo (ej. `"MCP Claude Code local"`, `"Agente chat producción"`).
+3. Scopes: **mínimo privilegio**. Para un agente de chat que cotiza, cobra y
+   lee catálogo: `catalog.read`, `customers.read`, `quotes.write`, `orders.write`,
+   `chat.read`, `chat.write`. Para reporting/auditoría sumá `payments.read`,
+   `audit.read`. **Nunca** pongas `tenant.admin` o `apikeys.manage` salvo que la
+   tool específica lo pida.
+4. Sin expiración, o 90/180 días si querés rotación automática. Una key eterna
+   es una fuga permanente si se filtra.
+5. **La key completa (`npk_...`) se muestra UNA sola vez** al crearla. Copiala
+   a un gestor de secretos del sistema (1Password CLI, macOS Keychain,
+   `gpg`-encrypted file) ANTES de cerrar el modal.
+6. La key queda asociada a UN tenant — si el agente debe operar varias
+   empresas, necesitás una key por tenant, o una key global.
+
+### Key global (T-IAM-09b — solo super-admin de plataforma)
+
+Cubre TODOS los tenants sin que la API key quede atada a uno. Pensada para
+soporte de plataforma y automatizaciones cross-tenant.
+
+1. **Panel** → **Plataforma → API keys globales** → **"Crear API key global"**.
+2. No hay scopes que elegir — siempre lleva todos.
+3. La key se crea en la cuenta de un humano (sesión de panel); una key global
+   **no puede emitir más keys globales** por sí sola (esto es por diseño).
+4. Para acotar a un tenant puntual sin perder los permisos, export
+   `COMMERCE_TENANT_ID=<uuid>` y el header `X-Tenant-Id` se manda solo. Sin
+   esa env, la key opera sobre cualquier empresa.
+
+### Convención operativa
+
+- **Una key por cliente MCP / por despliegue**: Claude Desktop en la laptop
+  del dueño, Claude Code en CI, el agente de chat en el contenedor del
+  cliente — cada uno su propia key. Si una se filtra, revocas esa y las
+  demás siguen.
+- **Rotación**: cuando un empleado del cliente que tenía acceso a la key se
+  va, o cada 90-180 días como política, revocá la key en el panel y emití
+  una nueva. El equipo de Tupla no necesita intervenir.
+- **Logs**: si tu `.mcp.json` o `claude_desktop_config.json` se sincroniza
+  (iCloud, backup, dotfiles repo), se respalda o se comparte, considerá la
+  key expuesta — revocala y emití una nueva.
+- **Menos es más**: si la tool que vas a usar no necesita `tenant.admin` para
+  funcionar (ver el README de cada tool), no le des ese scope a la key.
+
 ## Publicar una versión nueva en npm
+
+El paquete está bajo el scope personal `@cgalaviz/` (la cuenta npm del autor).
+Como ya publicaste `atiendeya-mcp` antes, la cuenta tiene historial y no
+requiere pasos previos.
 
 ```bash
 cd apps/mcp-server
-pnpm build
-npm version patch   # o minor/major
-npm publish
+npm login                 # user + 2FA OTP
+pnpm --filter @cgalaviz/easysell-mcp build
+npm version patch          # o minor/major
+npm publish               # corre typecheck+lint+test+build (prepublishOnly)
 ```
 
-Requiere 2FA en la cuenta npm (no un token con bypass-2FA — npm los está
-restringiendo para publish directo): `npm publish` pide el código OTP en el
-momento.
+`npm publish` exige **2FA en el momento del publish** (no un token con
+bypass-2FA — npm los está restringiendo para publish directo).
+
+### Verificar después de publicar
+
+```bash
+npm view @cgalaviz/easysell-mcp version bin engines
+npx @cgalaviz/easysell-mcp < /dev/null   # arranca: "140 tools registradas"
+```
+
+Si el publish falla con `404 Not Found - PUT`, lo más probable es que la
+sesión de npm haya expirado o que el usuario autenticado no sea `cgalaviz` —
+verificá con `npm whoami` y `npm login` de nuevo si hace falta.

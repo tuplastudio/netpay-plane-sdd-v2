@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { registerRoutes } from "./tools.js";
 import { registerCatalogImageTools } from "./registry/catalog-images.js";
 import { registerBinaryDownloadTools } from "./registry/binary-downloads.js";
+import { registerTenantUploads } from "./registry/uploads.js";
 import { allRoutes } from "./registry/index.js";
 import { probeKeyKind } from "./client.js";
 
@@ -24,6 +25,7 @@ const server = new McpServer({ name: "easysell", version: "0.1.0" });
 registerRoutes(server, allRoutes);
 registerCatalogImageTools(server);
 registerBinaryDownloadTools(server);
+registerTenantUploads(server);
 
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();

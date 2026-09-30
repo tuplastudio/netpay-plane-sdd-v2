@@ -113,7 +113,21 @@ function serviceOf(db: ReturnType<typeof makePrisma>) {
   const sessions = new SessionService(db.prisma as never);
   const passwords = { verify: async () => true, hash: async (p: string) => p };
   const rateLimit = { allow: () => true, recordFailure: () => {}, reset: () => {} };
-  return new AuthService(db.prisma as never, passwords as never, rateLimit as never, sessions, {} as never);
+  const accessTokens = {
+    sign: async () => ({
+      token: "test.jwt.token",
+      jti: "test-jti",
+      expiresAt: new Date(Date.now() + 900_000),
+    }),
+  };
+  return new AuthService(
+    db.prisma as never,
+    passwords as never,
+    rateLimit as never,
+    sessions,
+    accessTokens as never,
+    {} as never,
+  );
 }
 
 let db: ReturnType<typeof makePrisma>;

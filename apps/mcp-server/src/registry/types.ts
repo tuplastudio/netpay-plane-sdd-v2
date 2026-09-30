@@ -24,8 +24,14 @@ export interface RouteDef {
   /** Ruta con placeholders `:param`, relativa a `COMMERCE_API_BASE_URL` (sin incluir /api/v1). */
   path: string;
   description: string;
-  /** Scope(s) de commerce-api que exige el endpoint; solo informativo (el servidor real hace el 403 si falta). */
-  scopes: string[];
+  /**
+   * Scope(s) de commerce-api que exige el endpoint. `[]` significa "no
+   * requiere scope adicional al de estar autenticado" — se permite
+   * explícitamente para no obligar a mentir con un placeholder
+   * (`["_none"]` etc.). Solo informativo: el servidor real hace el 403 si
+   * falta (ver `apps/commerce-api/src/auth/principal.guard.ts`).
+   */
+  scopes: readonly string[];
   pathParams?: Record<string, Field>;
   query?: Record<string, Field>;
   body?: Record<string, Field>;

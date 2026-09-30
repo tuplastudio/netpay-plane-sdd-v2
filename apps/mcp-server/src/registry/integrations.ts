@@ -51,13 +51,17 @@ export const integrationRoutes: RouteDef[] = [
     name: "integrations_publish",
     method: "POST",
     path: "/integrations/:id/publish",
-    description: "Publica un evento saliente hacia el endpoint de una integración OUTBOUND/BIDIRECTIONAL, firmado con su secreto.",
+    description:
+      "Publica un evento saliente hacia el endpoint de una integración OUTBOUND/BIDIRECTIONAL, firmado con su secreto. " +
+      "ADVERTENCIA: el secreto viaja en el body y queda registrado en cualquier log del cliente MCP que persista argumentos " +
+      "(Claude Code, Claude Desktop y otros lo hacen para debug). No llames esta tool desde contextos donde el log de tool " +
+      "args sea visible a terceros.",
     scopes: ["integrations.write"],
     pathParams: { id: { type: "string" } },
     body: {
       eventName: { type: "string", required: true },
       payload: { type: "any", required: true },
-      secret: { type: "string", required: true, description: "Debe coincidir con el secreto de la integración." },
+      secret: { type: "string", required: true, description: "Debe coincidir con el secreto de la integración. Viaja en el body — ver ADVERTENCIA en la descripción." },
     },
   },
 ];

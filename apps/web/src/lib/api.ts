@@ -6,6 +6,11 @@ import {
   sessionFromMe,
   writeSession,
 } from "./session";
+import {
+  clearAccessToken,
+  getAccessToken,
+  setAccessToken,
+} from "./access-token";
 
 /**
  * Cliente HTTP. Se reescribe a /api/v1 en el proxy de Next.js (next.config.mjs)
@@ -28,6 +33,42 @@ export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
     headers: { "content-type": "application/json" },
     timeout: 30_000,
   });
+
+  // Request interceptor: inyecta `Authorization: Bearer <accessToken>` cuando
+  // hay uno en memoria. El refresh cookie se reenvía solo por `withCredentials`.
+  // Los endpoints que NO llevan bearer son los que NO deben autenticarse:
+  // `/auth/login`, `/auth/mfa/verify`, `/auth/refresh`, `/auth/forgot-password`,
+  // `/auth/reset-password`, `/auth/accept-invite`, `/auth/bootstrap`. La lista
+  // está en `NO_AUTH_PATHS` y se chequea contra `config.url`.
+  client.interceptors.request.use((config) => {
+    const url = config.url ?? "";
+    const isAuthEndpoint = NO_AUTH_PATHS.some((p) => url.includes(p));
+    if (!isAuthEndpoint) {
+      const token = getAccessToken();
+      if (token) {
+        config.headers = config.headers ?? ({} as typeof config.headers);
+        config.headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
+    return config;
+  });
+
+  // Response interceptor: si la respuesta de un endpoint de auth trae un
+  // `accessToken` en JSON, lo guarda en memoria. Login y MFA/verify la
+  // usan; /auth/refresh también (pero ese caso lo cubre `attemptRefresh`
+  // directamente porque necesita los campos específicos).
+  client.interceptors.response.use(
+    (response) => {
+      const body = response.data as { data?: { accessToken?: string; accessExpiresAt?: string } } | undefined;
+      const at = body?.data?.accessToken;
+      const exp = body?.data?.accessExpiresAt;
+      if (typeof at === "string" && typeof exp === "string") {
+        setAccessToken(at, exp);
+      }
+      return response;
+    },
+    (error) => Promise.reject(error),
+  );
 
   let isRefreshing = false;
   let refreshQueue: Array<{
@@ -56,14 +97,36 @@ export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
 
     isRefreshing = true;
     try {
+      // /auth/refresh rota el par (access, refresh): la respuesta trae el
+      // access nuevo. El response interceptor genérico ya lo guarda en
+      // memoria cuando lo ve en `data.accessToken`, así que aquí solo
+      // esperamos a que la promesa resuelva.
       await client.post("/auth/refresh");
       onRefreshSuccess();
     } catch {
+      clearAccessToken();
       clearSession();
       onRefreshFailure();
       throw new Error("Session expired");
     }
   }
+
+  // Endpoints donde NO se inyecta Bearer (request) ni se intenta refresh
+  // (response) — son los puntos de la vida de la autenticación, no recursos
+  // autenticados.
+  // - `/auth/refresh`: deadlock con `attemptRefresh` (ver doc original abajo).
+  // - `/auth/login` y `/auth/mfa/verify`: credenciales inválidas, no sesión.
+  // - `/auth/forgot-password`, `/auth/reset-password`, `/auth/accept-invite`,
+  //   `/auth/bootstrap`: anónimos por diseño.
+  const NO_AUTH_PATHS = [
+    "/auth/refresh",
+    "/auth/login",
+    "/auth/mfa/verify",
+    "/auth/forgot-password",
+    "/auth/reset-password",
+    "/auth/accept-invite",
+    "/auth/bootstrap",
+  ];
 
   // Endpoints de auth que NUNCA deben disparar un refresh en su propio 401:
   // - `/auth/refresh`: es la llamada que hace `attemptRefresh` mismo. Sin esta
@@ -108,11 +171,13 @@ export function createApiClient(opts?: { baseURL?: string }): AxiosInstance {
 
         try {
           await attemptRefresh();
-          // Refresh ok: reintentar el request original
+          // Refresh ok: reintentar el request original con el Bearer nuevo
+          // (el interceptor de request lo lee de `getAccessToken()` otra vez).
           return client(config! as Parameters<typeof client>[0]);
         } catch {
           // Refresh falló: limpiar sesión y rechazar para que la UI
           // haga lo que tenga que hacer (normalmente redirect a /login).
+          clearAccessToken();
           clearSession();
           if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
             window.location.href = "/login";

@@ -17,4 +17,20 @@ export const reportRoutes: RouteDef[] = [
       "ventas de 7 días. Requiere payments.read.",
     scopes: ["payments.read"],
   },
+  {
+    name: "reports_attention",
+    method: "GET",
+    path: "/reports/attention",
+    description:
+      "Reporte operativo de atención al cliente de WhatsApp: volumen de conversaciones, " +
+      "tiempos de primera respuesta, carga por agente. Útil para decidir staffing y SLA. " +
+      "Requiere chat.read.",
+    scopes: ["chat.read"],
+    query: {
+      from: { type: "string", description: "Fecha ISO, inclusive." },
+      to: { type: "string", description: "Fecha ISO, inclusive." },
+      agentId: { type: "string", description: "UUID de un agente humano; sin él, agrega a todos." },
+      provider: { type: "string", enum: ["META", "EVOLUTION"], description: "Filtra por proveedor de WhatsApp." },
+    },
+  },
 ];

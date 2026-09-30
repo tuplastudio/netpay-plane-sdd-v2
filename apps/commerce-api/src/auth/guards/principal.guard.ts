@@ -21,6 +21,7 @@ import { Request } from "express";
 import { Reflector } from "@nestjs/core";
 import { SessionService } from "../session.service.js";
 import { ApiKeyService } from "../api-key.service.js";
+import { AccessTokenService } from "../jwt.service.js";
 import { RequestContext } from "../../common/context/request-context.js";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -31,6 +32,14 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 export const IMPERSONATE_COOKIE =
   process.env.NODE_ENV === "production" ? "__Host-impersonate" : "impersonate";
+
+/**
+ * Nombre del cookie con el refresh token opaco. El access JWT NO viaja en
+ * cookie, va en `Authorization: Bearer`. Ver `auth.controller.ts` para la
+ * definición simétrica del lado del response.
+ */
+export const REFRESH_COOKIE =
+  process.env.NODE_ENV === "production" ? "__Host-refresh" : "refresh";
 
 /**
  * Atributos con los que se emiten las cookies de sesión e impersonación. Hay
@@ -101,6 +110,7 @@ export class PrincipalGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly sessions: SessionService,
     private readonly apiKeys: ApiKeyService,
+    private readonly accessTokens: AccessTokenService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -113,8 +123,6 @@ export class PrincipalGuard implements CanActivate {
 
     const req = host.switchToHttp().getRequest<Request>();
     const cookies = (req.cookies ?? {}) as Record<string, string>;
-    const cookieName =
-      process.env.NODE_ENV === "production" ? "__Host-session" : "session";
 
     // 1) Aserción interna firmada del agente multi-tenant. El tenant queda
     // ligado criptográficamente a esta petición y caduca en 60 segundos.
@@ -136,109 +144,146 @@ export class PrincipalGuard implements CanActivate {
       return true;
     }
 
-    // 2) API key (Bearer) tiene prioridad sobre cookie.
+    // 2) Authorization: Bearer. Acepta JWT de access (camino normal del
+    // frontend) y API keys (`npk_...`). El JWT se valida con la firma
+    // primero (sin BD); después se confirma que la sesión siga viva
+    // (`resolveByAccessToken`).
     const auth = req.headers["authorization"] as string | undefined;
-    if (auth?.startsWith("Bearer npk_")) {
-      const principal = await this.apiKeys.resolve(auth.slice("Bearer ".length));
-      if (!principal) {
+    if (auth?.startsWith("Bearer ")) {
+      const tokenRaw = auth.slice("Bearer ".length);
+
+      if (tokenRaw.startsWith("npk_")) {
+        return this.handleApiKey(req, tokenRaw);
+      }
+
+      // Access JWT
+      let claims;
+      try {
+        claims = await this.accessTokens.verify(tokenRaw);
+      } catch {
         throw new UnauthorizedException({
           code: "UNAUTHORIZED",
-          message: "API key inválida o revocada",
+          message: "Access token inválido o expirado",
         });
       }
 
-      // Key global (sin tenant propio, T-IAM-09b): el tenant sobre el que
-      // actúa esta petición en particular lo manda X-Tenant-Id. Sin ese
-      // header queda sin tenant — vale para /super-admin/* y para
-      // administrar otras keys globales, y cualquier ruta que exija tenant
-      // (`requireTenant()`) responde su 404 normal de "Sin tenant", igual
-      // que si fuera una key de tenant mal configurada.
-      let tenantId = principal.tenantId ?? undefined;
-      if (principal.isGlobal) {
-        const headerTenant = req.headers["x-tenant-id"];
-        const raw = Array.isArray(headerTenant) ? headerTenant[0] : headerTenant;
-        if (raw) {
-          if (!UUID_RE.test(raw)) {
-            throw new BadRequestException({
-              code: "VALIDATION_FAILED",
-              message: "X-Tenant-Id debe ser un UUID",
-            });
-          }
-          const tenant = await this.prisma.tenant.findUnique({ where: { id: raw }, select: { status: true } });
-          if (!tenant || tenant.status !== "ACTIVE") {
-            throw new BadRequestException({
-              code: "VALIDATION_FAILED",
-              message: "X-Tenant-Id no corresponde a un tenant activo",
-            });
-          }
-          tenantId = raw;
-        }
+      const session = await this.sessions.resolveByAccessToken({
+        sessionId: claims.sid,
+        jti: claims.jti,
+      });
+      if (!session) {
+        // Firma OK pero sesión revocada / expirada / jti viejo / membresía
+        // caída: el frontend debe disparar /auth/refresh. El 401 lo hace el
+        // interceptor (lib/api.ts) — desde el guard respondemos 401 normal.
+        throw new UnauthorizedException({
+          code: "UNAUTHORIZED",
+          message: "Sesión inválida o expirada",
+        });
       }
 
-      RequestContext.setPrincipal({
-        type: "API_KEY",
-        tenantId,
-        scopes: [...principal.scopes],
-        apiKeyId: principal.apiKeyId,
-        isSuperAdmin: principal.isGlobal,
-      });
-      return true;
+      return this.applySessionToContext(req, session, cookies);
     }
 
-    // 3) Sesión cookie.
-    const token = cookies[cookieName];
-    const session = await this.sessions.resolveSession(token);
+    // 3) Sin Bearer → fallback al refresh cookie. Útil para SSR (route
+    // handlers del frontend Next.js que reenvían la cookie automáticamente)
+    // y para clientes sin header (legacy). El backend valida igual contra la
+    // BD; un refresh robado no se queda vivo tras un logout/rotación.
+    const refreshToken = cookies[REFRESH_COOKIE];
+    const session = await this.sessions.resolveSession(refreshToken);
     if (session) {
-      // Impersonación: solo super-admin puede activarla, y solo sobre un
-      // tenant ACTIVE. Si la cookie está pero el tenant ya no existe o
-      // está suspendido, se ignora silenciosamente: la sesión sigue
-      // operando como super-admin sin tenant (que es exactamente el modo
-      // consola de plataforma).
-      let impersonatedTenantId: string | undefined;
-      let impersonatedRole: string | undefined;
-      const impersonateSlug = cookies[IMPERSONATE_COOKIE];
-      if (session.isSuperAdmin && impersonateSlug) {
-        const target = await this.prisma.tenant.findUnique({
-          where: { slug: impersonateSlug },
-          select: { id: true, status: true },
-        });
-        if (target && target.status === "ACTIVE") {
-          impersonatedTenantId = target.id;
-          // Super-admin opera como OWNER del tenant impersonado: tiene
-          // todos los scopes del catálogo y de la administración.
-          impersonatedRole = "OWNER";
-        } else {
-          this.logger.warn(
-            `Impersonate cookie apunta a slug=${impersonateSlug} sin tenant ACTIVE; ignorando`,
-          );
-        }
-      }
-
-      RequestContext.setPrincipal({
-        type: "USER",
-        userId: session.userId,
-        // tenantId y role se sustituyen por los del tenant impersonado
-        // cuando la cookie aplica. El `isSuperAdmin` se conserva en el
-        // principal para que los endpoints `/super-admin/*` (protegidos
-        // por SuperAdminGuard) sigan disponibles.
-        tenantId: impersonatedTenantId ?? session.tenantId,
-        role: impersonatedRole ?? session.role,
-        sessionId: session.sessionId,
-        isSuperAdmin: session.isSuperAdmin,
-        // Marca de impersonación: sin esto, todo lo que el super-admin hace
-        // dentro del tenant queda auditado como si lo hubiera hecho el dueño.
-        // El middleware de AuditLog (PrismaService) la copia al metadata de
-        // cada fila escrita durante la petición.
-        impersonated: Boolean(impersonatedTenantId),
-        impersonatorUserId: impersonatedTenantId ? session.userId : undefined,
-      });
-      await this.sessions.touchActivity(session.sessionId);
-      return true;
+      return this.applySessionToContext(req, session, cookies);
     }
 
     throw new UnauthorizedException({
       code: "UNAUTHORIZED",
       message: "Autenticación requerida",
     });
+  }
+
+  private async handleApiKey(req: Request, tokenRaw: string): Promise<boolean> {
+    const principal = await this.apiKeys.resolve(tokenRaw);
+    if (!principal) {
+      throw new UnauthorizedException({
+        code: "UNAUTHORIZED",
+        message: "API key inválida o revocada",
+      });
+    }
+
+    let tenantId = principal.tenantId ?? undefined;
+    if (principal.isGlobal) {
+      const headerTenant = req.headers["x-tenant-id"];
+      const raw = Array.isArray(headerTenant) ? headerTenant[0] : headerTenant;
+      if (raw) {
+        if (!UUID_RE.test(raw)) {
+          throw new BadRequestException({
+            code: "VALIDATION_FAILED",
+            message: "X-Tenant-Id debe ser un UUID",
+          });
+        }
+        const tenant = await this.prisma.tenant.findUnique({
+          where: { id: raw },
+          select: { status: true },
+        });
+        if (!tenant || tenant.status !== "ACTIVE") {
+          throw new BadRequestException({
+            code: "VALIDATION_FAILED",
+            message: "X-Tenant-Id no corresponde a un tenant activo",
+          });
+        }
+        tenantId = raw;
+      }
+    }
+
+    RequestContext.setPrincipal({
+      type: "API_KEY",
+      tenantId,
+      scopes: [...principal.scopes],
+      apiKeyId: principal.apiKeyId,
+      isSuperAdmin: principal.isGlobal,
+    });
+    return true;
+  }
+
+  private async applySessionToContext(
+    _req: Request,
+    session: {
+      sessionId: string;
+      userId: string;
+      tenantId: string;
+      role: string;
+      isSuperAdmin: boolean;
+    },
+    cookies: Record<string, string>,
+  ): Promise<boolean> {
+    let impersonatedTenantId: string | undefined;
+    let impersonatedRole: string | undefined;
+    const impersonateSlug = cookies[IMPERSONATE_COOKIE];
+    if (session.isSuperAdmin && impersonateSlug) {
+      const target = await this.prisma.tenant.findUnique({
+        where: { slug: impersonateSlug },
+        select: { id: true, status: true },
+      });
+      if (target && target.status === "ACTIVE") {
+        impersonatedTenantId = target.id;
+        impersonatedRole = "OWNER";
+      } else {
+        this.logger.warn(
+          `Impersonate cookie apunta a slug=${impersonateSlug} sin tenant ACTIVE; ignorando`,
+        );
+      }
+    }
+
+    RequestContext.setPrincipal({
+      type: "USER",
+      userId: session.userId,
+      tenantId: impersonatedTenantId ?? session.tenantId,
+      role: impersonatedRole ?? session.role,
+      sessionId: session.sessionId,
+      isSuperAdmin: session.isSuperAdmin,
+      impersonated: Boolean(impersonatedTenantId),
+      impersonatorUserId: impersonatedTenantId ? session.userId : undefined,
+    });
+    await this.sessions.touchActivity(session.sessionId);
+    return true;
   }
 }

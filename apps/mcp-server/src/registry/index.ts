@@ -13,6 +13,9 @@ import { usageRoutes } from "./usage.js";
 import { conversationRoutes } from "./conversations.js";
 import { auditRoutes } from "./audit.js";
 import { superAdminRoutes } from "./super-admin.js";
+import { cannedResponseRoutes } from "./canned-responses.js";
+import { tenantRoutes } from "./tenants.js";
+import { iamRoutes } from "./iam.js";
 
 export const allRoutes: RouteDef[] = [
   ...catalogRoutes,
@@ -28,5 +31,8 @@ export const allRoutes: RouteDef[] = [
   ...usageRoutes,
   ...conversationRoutes,
   ...auditRoutes,
+  ...cannedResponseRoutes,
+  ...tenantRoutes,
+  ...iamRoutes,
   ...superAdminRoutes,
 ];

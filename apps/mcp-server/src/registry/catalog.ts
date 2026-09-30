@@ -75,7 +75,9 @@ export const catalogRoutes: RouteDef[] = [
     name: "catalog_add_variant",
     method: "POST",
     path: "/catalog/products/:id/variants",
-    description: "Agrega una variante nueva a un producto existente.",
+    description:
+      "Agrega una variante nueva a un producto existente. El `sku` debe ser único por producto " +
+      "(el backend rechaza 409 si ya existe otra variante del mismo producto con ese sku).",
     scopes: ["catalog.write"],
     pathParams: { id: { type: "string", description: "id del producto" } },
     body: variantFields,

@@ -15,6 +15,7 @@ import { ApiKeyService } from "./api-key.service.js";
 import { MembershipService } from "./membership.service.js";
 import { InvitationMailer } from "./invitation-mailer.service.js";
 import { PasswordResetMailer } from "./password-reset-mailer.service.js";
+import { AccessTokenService } from "./jwt.service.js";
 import { AuthenticatedGuard } from "./guards/authenticated.guard.js";
 import { PrincipalGuard } from "./guards/principal.guard.js";
 import { RoleGuard } from "./guards/role.guard.js";
@@ -40,6 +41,7 @@ import { ApiKeyUsageMiddleware } from "./usage/api-key-usage.middleware.js";
     MembershipService,
     InvitationMailer,
     PasswordResetMailer,
+    AccessTokenService,
     AuthenticatedGuard,
     PrincipalGuard,
     RoleGuard,
@@ -58,6 +60,7 @@ import { ApiKeyUsageMiddleware } from "./usage/api-key-usage.middleware.js";
     MembershipService,
     InvitationMailer,
     PasswordResetMailer,
+    AccessTokenService,
     AuthenticatedGuard,
     PrincipalGuard,
     RoleGuard,

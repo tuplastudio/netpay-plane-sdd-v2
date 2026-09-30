@@ -61,6 +61,48 @@ export const conversationRoutes: RouteDef[] = [
     body: { status: { type: "string", required: true, enum: ["OPEN", "CLOSED"] } },
   },
   {
+    name: "conversations_set_priority",
+    method: "PATCH",
+    path: "/whatsapp/conversations/:id/priority",
+    description: "Cambia la prioridad operativa del hilo (LOW/NORMAL/HIGH/URGENT) para la cola de atención.",
+    scopes: ["chat.write"],
+    pathParams: { id: { type: "string" } },
+    body: { priority: { type: "string", required: true, enum: ["LOW", "NORMAL", "HIGH", "URGENT"] } },
+  },
+  {
+    name: "conversations_set_pending",
+    method: "PATCH",
+    path: "/whatsapp/conversations/:id/pending",
+    description:
+      "Marca/desmarca el hilo como pendiente de seguimiento humano (no afecta el handoff al bot). " +
+      "Útil para colas internas: el agente marca que va a volver a contactar y evita que el hilo se olvide.",
+    scopes: ["chat.write"],
+    pathParams: { id: { type: "string" } },
+    body: { pending: { type: "boolean", required: true } },
+  },
+  {
+    name: "conversations_bulk",
+    method: "POST",
+    path: "/whatsapp/conversations/bulk",
+    description:
+      "Aplica una acción masiva a hasta 100 hilos a la vez: cerrar, reabrir, asignar, etiquetar, " +
+      "cambiar prioridad o marcar pendiente. action define cuál se aplica y los campos extra " +
+      "(userId/tags/priority/...) solo aplican a las acciones que los usen.",
+    scopes: ["chat.write"],
+    body: {
+      ids: { type: "array", required: true, items: { type: "string" }, description: "Hasta 100 UUIDs." },
+      action: {
+        type: "string",
+        required: true,
+        enum: ["close", "reopen", "assign", "set_tags", "set_priority", "set_pending", "release"],
+      },
+      userId: { type: "string", description: "Requerido si action es assign." },
+      tags: { type: "array", items: { type: "string" }, description: "Requerido si action es set_tags (reemplaza)." },
+      priority: { type: "string", enum: ["LOW", "NORMAL", "HIGH", "URGENT"], description: "Requerido si action es set_priority." },
+      pending: { type: "boolean", description: "Requerido si action es set_pending." },
+    },
+  },
+  {
     name: "conversations_list_agents",
     method: "GET",
     path: "/whatsapp/agents",
@@ -193,6 +235,17 @@ export const conversationRoutes: RouteDef[] = [
     method: "POST",
     path: "/whatsapp/conversations/:id/return",
     description: "Devuelve al agente automático un hilo que estaba en manos de una persona.",
+    scopes: ["chat.write"],
+    pathParams: { id: { type: "string" } },
+  },
+  {
+    name: "conversations_release",
+    method: "POST",
+    path: "/whatsapp/conversations/:id/release",
+    description:
+      "Libera un hilo a la cola de \"sin asignar\". Complementa `conversations_return_to_agent`: " +
+      "este NO devuelve el hilo al bot, solo lo quita del dueño actual para que cualquier " +
+      "humano pueda tomarlo con `conversations_claim`.",
     scopes: ["chat.write"],
     pathParams: { id: { type: "string" } },
   },

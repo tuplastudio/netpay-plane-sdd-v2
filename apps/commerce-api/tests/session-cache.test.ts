@@ -27,6 +27,7 @@ function makeDb() {
     userId: "u-ana",
     tokenHash: hashToken("token-ana"),
     revokedAt: null,
+    accessJti: null,
     expiresAt: new Date(Date.now() + 3600_000),
     lastActivityAt: new Date(),
     user: { isSuperAdmin: false },
@@ -49,7 +50,22 @@ function makeDb() {
     session: {
       findUnique: async ({ where }: { where: Row }) => {
         calls.sessionFind += 1;
-        return session.tokenHash === where.tokenHash ? { ...session } : null;
+        if (where.tokenHash !== undefined) {
+          return session.tokenHash === where.tokenHash ? { ...session } : null;
+        }
+        if (where.id !== undefined) {
+          return session.id === where.id ? { ...session } : null;
+        }
+        return null;
+      },
+      create: async ({ data }: { data: Row }) => {
+        const created: Row = {
+          ...data,
+          id: `s-${Date.now()}`,
+          accessJti: data.accessJti ?? null,
+        };
+        emit("Session", "create", { data });
+        return { id: created.id };
       },
       update: async ({ where, data }: { where: Row; data: Row }) => {
         calls.sessionUpdate += 1;
@@ -65,6 +81,7 @@ function makeDb() {
         emit("Session", "updateMany", { where, data });
         return { count: 1 };
       },
+      delete: async () => undefined,
     },
     membership: {
       findUnique: async ({ where }: { where: { tenantId_userId: Row } }) => {
@@ -140,13 +157,18 @@ describe("SessionService: caché de sesión resuelta", () => {
     expect(await sessions.resolveSession("token-ana")).toBeNull();
   });
 
-  it("refreshSession resuelve contra la base (no desde caché) y extiende", async () => {
+  it("rotateRefresh resuelve contra la base (no desde caché) y emite sesión nueva", async () => {
     const db = makeDb();
     const sessions = new SessionService(db.prisma as never);
     await sessions.resolveSession("token-ana");
     const before = db.calls.sessionFind;
-    const refreshed = await sessions.refreshSession("token-ana");
-    expect(refreshed?.expiresAt.getTime()).toBeGreaterThan(Date.now() + 11 * 3600_000);
+    const result = await sessions.rotateRefresh("token-ana");
+    expect(result).not.toBeNull();
+    expect(result!.expiresAt.getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 3600_000);
+    expect(result!.refreshToken).toBeTruthy();
+    expect(result!.refreshToken).not.toBe("token-ana");
+    // Re-resuelve contra la BD: el cache se invalidó al iniciar la rotación
+    // para forzar la validación de revocación y expiración contra la BD.
     expect(db.calls.sessionFind).toBe(before + 1);
   });
 });

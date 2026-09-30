@@ -108,6 +108,11 @@ export function validateStartupConfig(): void {
   if (!process.env.TOKEN_ENCRYPTION_KEY_REF || process.env.TOKEN_ENCRYPTION_KEY_REF.length < 32) {
     errors.push("TOKEN_ENCRYPTION_KEY_REF debe tener >=32 chars");
   }
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+    errors.push(
+      "JWT_SECRET requerido (>=32 chars). Genera uno con `openssl rand -hex 32`.",
+    );
+  }
   // Sin esto, PaymentService cae al literal "dev-webhook-secret" que está en
   // el repo y cualquiera puede firmar un webhook de pago de cualquier empresa.
   // En local se tolera para no trabar el arranque del entorno de desarrollo.

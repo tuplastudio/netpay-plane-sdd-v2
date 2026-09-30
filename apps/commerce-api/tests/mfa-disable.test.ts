@@ -5,6 +5,7 @@ import type { PrismaService } from "../src/prisma/prisma.service.js";
 import type { PasswordService } from "../src/auth/password.service.js";
 import type { RateLimitService } from "../src/auth/rate-limit.service.js";
 import type { SessionService } from "../src/auth/session.service.js";
+import type { AccessTokenService } from "../src/auth/jwt.service.js";
 import { MfaService } from "../src/auth/mfa.service.js";
 import { encryptSecret } from "../src/common/crypto/secret-cipher.js";
 
@@ -90,6 +91,7 @@ function makeService(user: {
     {} as unknown as PasswordService,
     {} as unknown as RateLimitService,
     {} as unknown as SessionService,
+    {} as unknown as AccessTokenService,
     mfa,
   );
   return { service, writes, state };

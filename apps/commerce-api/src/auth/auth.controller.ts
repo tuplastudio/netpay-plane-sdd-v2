@@ -26,8 +26,18 @@ import {
   VerifyMfaDto,
 } from "./auth.dto.js";
 
-const SESSION_COOKIE =
-  process.env.NODE_ENV === "production" ? "__Host-session" : "session";
+/**
+ * Cookie con el refresh token opaco. `__Host-` exige Secure + Path=/ + sin
+ * Domain; el navegador rechaza cualquier Set-Cookie que no los cumpla. En dev
+ * (sin HTTPS) el nombre cae al alias sin prefijo para no romper el flujo.
+ *
+ * El access token NO va en cookie: viaja en `Authorization: Bearer` desde el
+ * frontend (memoria, no localStorage). Así un XSS no roba access de un
+ * cookie accesible por JS, y un refresh robado desde el cookie jar igual
+ * queda confinado a la rotación por session id (ver `SessionService.rotateRefresh`).
+ */
+const REFRESH_COOKIE =
+  process.env.NODE_ENV === "production" ? "__Host-refresh" : "refresh";
 
 @Controller("auth")
 export class AuthController {
@@ -68,19 +78,18 @@ export class AuthController {
       userAgent: req.headers["user-agent"],
     });
 
-    if ("sessionToken" in result) {
-      res.cookie(SESSION_COOKIE, result.sessionToken, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        expires: new Date(result.expiresAt),
+    if ("refreshToken" in result) {
+      const r = result;
+      // Cookie HttpOnly con el refresh opaco. El access JWT va en el body.
+      res.cookie(REFRESH_COOKIE, r.refreshToken, {
+        ...COOKIE_ATTRS,
+        expires: new Date(r.refreshExpiresAt),
       });
       RequestContext.setPrincipal({
         type: "USER",
-        userId: result.userId,
-        tenantId: result.tenantId,
-        role: result.role,
+        userId: r.userId,
+        tenantId: r.tenantId,
+        role: r.role,
       });
     }
 
@@ -106,12 +115,9 @@ export class AuthController {
       userAgent: req.headers["user-agent"],
     });
 
-    res.cookie(SESSION_COOKIE, result.sessionToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      expires: new Date(result.expiresAt),
+    res.cookie(REFRESH_COOKIE, result.refreshToken, {
+      ...COOKIE_ATTRS,
+      expires: new Date(result.refreshExpiresAt),
     });
     RequestContext.setPrincipal({
       type: "USER",
@@ -210,18 +216,22 @@ export class AuthController {
   }
 
   /**
-   * Refresca la sesión: extiende el TTL de la cookie sin pedir credenciales.
+   * Rota el par (access, refresh): invalida el refresh anterior (cierra la
+   * ventana de replay si fue filtrado) y emite un access JWT nuevo + un
+   * refresh nuevo. El frontend lo llama automáticamente cuando recibe un
+   * 401 de cualquier API (interceptor de `lib/api.ts`): si el refresh
+   * succeede, reintenta la petición original; si falla, redirige a /login.
    *
-   * Es `@Public()` a propósito. Si pasara por el `PrincipalGuard`, una sesión
-   * expirada recibiría 401 del guard antes de llegar aquí y el refresh nunca
+   * Es `@Public()` a propósito: si pasara por el `PrincipalGuard`, una
+   * sesión expirada recibiría 401 antes de llegar aquí y el refresh nunca
    * podría hacer nada. La validación completa (token, revocación, expiración,
-   * inactividad de 30 min y membresía ACTIVE) la hace `refreshSession` con
-   * las mismas reglas que el guard.
+   * inactividad ≤ `SESSION_INACTIVITY_TTL_MS` y membresía ACTIVE) la hace
+   * `SessionService.rotateRefresh` con las mismas reglas que cualquier
+   * endpoint autenticado.
    *
-   * El frontend lo llama automáticamente cuando recibe un 401 de cualquier
-   * API (interceptor de `lib/api.ts`): si el refresh succeede, reintenta la
-   * petición original; si falla, redirige a /login. Un 401 aquí significa
-   * "vuelve a iniciar sesión".
+   * La vida del refresh nuevo es `SESSION_ABSOLUTE_TTL_MS` (default 30 días)
+   * desde este momento; el access nuevo dura `ACCESS_TOKEN_TTL_MS` (default
+   * 15 min).
    */
   @Public()
   @Post("refresh")
@@ -230,24 +240,42 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
-    const result = token ? await this.auth.sessions.refreshSession(token) : null;
+    const token = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE];
+    const result = token ? await this.auth.sessions.rotateRefresh(token) : null;
 
     if (!result || !token) {
-      res.clearCookie(SESSION_COOKIE, COOKIE_ATTRS);
+      res.clearCookie(REFRESH_COOKIE, COOKIE_ATTRS);
       throw new UnauthorizedException({
         code: "SESSION_EXPIRED",
         message: "Sesión expirada o inactividad prolongada. Inicia sesión de nuevo.",
       });
     }
 
-    res.cookie(SESSION_COOKIE, token, {
+    // Refresh nuevo (rotado, no reusado) en cookie HttpOnly.
+    res.cookie(REFRESH_COOKIE, result.refreshToken, {
       ...COOKIE_ATTRS,
       expires: result.expiresAt,
     });
 
+    // Access nuevo en JSON body. El jti persistido cubre el caso "el atacante
+    // presentó el access viejo antes de la rotación": el primer refresh deja
+    // un nuevo jti en `Session.accessJti` y los access viejos (incluido el
+    // que tenía el atacante) ya no resuelven.
+    const access = await this.auth.accessTokens.sign({
+      userId: result.userId,
+      sessionId: result.sessionId,
+      tenantId: result.tenantId,
+      role: result.role,
+      isSuperAdmin: result.isSuperAdmin,
+    });
+    await this.auth.sessions.recordAccessJti(result.sessionId, access.jti);
+
     return {
-      data: { ok: true, expiresAt: result.expiresAt.toISOString() },
+      data: {
+        accessToken: access.token,
+        accessExpiresAt: access.expiresAt.toISOString(),
+        refreshExpiresAt: result.expiresAt.toISOString(),
+      },
       requestId: RequestContext.requestId,
     };
   }
@@ -258,9 +286,9 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<void> {
-    const token = (req.cookies as Record<string, string> | undefined)?.[SESSION_COOKIE];
+    const token = (req.cookies as Record<string, string> | undefined)?.[REFRESH_COOKIE];
     await this.auth.logout(token);
-    res.clearCookie(SESSION_COOKIE, COOKIE_ATTRS);
+    res.clearCookie(REFRESH_COOKIE, COOKIE_ATTRS);
     // La cookie de impersonación no tiene estado en servidor: si no se borra
     // aquí sobrevive al logout, y al volver a entrar desde el mismo navegador
     // el super-admin reaparecía dentro del tenant que estaba impersonando sin

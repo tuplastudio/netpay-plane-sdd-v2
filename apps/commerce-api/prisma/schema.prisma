@@ -156,7 +156,15 @@ model Session {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId     String   @db.Uuid
   userId       String   @db.Uuid
-  tokenHash    String   @unique // SHA256 del token opaco
+  // SHA256 del refresh token opaco (cookie HttpOnly). NO es el access token:
+  // el access token es un JWT firmado que viaja en Authorization: Bearer y se
+  // valida sin tocar la BD hasta que vence. El refresh es lo que vincula la
+  // sesión con la BD y lo que se rota en cada POST /auth/refresh.
+  tokenHash    String   @unique
+  // JTI (id único) del último access token emitido para esta sesión. Permite
+  // revocar el access antes de su expiración natural (cambio de rol, logout
+  // inmediato, etc.) sin esperar al exp del JWT.
+  accessJti    String?  @unique
   issuedAt     DateTime @default(now()) @db.Timestamptz
   lastActivityAt DateTime @default(now()) @db.Timestamptz
   expiresAt    DateTime @db.Timestamptz

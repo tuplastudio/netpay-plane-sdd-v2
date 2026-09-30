@@ -1,13 +1,16 @@
 {
-  "name": "easysell-mcp",
-  "version": "0.3.0",
+  "name": "@cgalaviz/easysell-mcp",
+  "version": "0.4.1",
   "description": "Servidor MCP sobre la API de Easy Sell: catálogo, clientes, cotizaciones, pedidos, pagos, envíos, reportes, notificaciones, integraciones, conversaciones de WhatsApp, auditoría y administración de plataforma, autenticado con tu API key.",
   "keywords": ["mcp", "model-context-protocol", "easysell", "whatsapp", "ecommerce"],
   "license": "MIT",
   "author": "Tupla (https://tupla.dev)",
   "type": "module",
   "engines": { "node": ">=18" },
-  "files": ["dist", "README.md"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": ["dist", "README.md", "LICENSE"],
   "bin": {
     "easysell-mcp": "./dist/main.js"
   },
@@ -15,18 +18,22 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.1",
     "zod": "3.25.76"
   },
   "devDependencies": {
-    "@netpay/config": "workspace:*",
+    "@eslint/js": "9.17.0",
     "@types/node": "22.10.5",
+    "@typescript-eslint/eslint-plugin": "8.18.2",
+    "@typescript-eslint/parser": "8.18.2",
     "eslint": "9.17.0",
+    "globals": "15.14.0",
     "tsx": "4.19.2",
     "typescript": "5.6.3",
     "vitest": "2.1.8"
