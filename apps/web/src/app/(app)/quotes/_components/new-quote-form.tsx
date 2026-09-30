@@ -490,7 +490,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{v.title}</p>
-                        <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                        <p className="font-mono text-micro uppercase text-muted-foreground">
                           {v.sku}
                         </p>
                         <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
@@ -570,7 +570,7 @@ function QuoteSheet({ onDone }: { onDone: () => void }) {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="line-clamp-2 text-sm font-medium">{l.title}</p>
-                        <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                        <p className="font-mono text-micro uppercase text-muted-foreground">
                           {l.sku}
                         </p>
                       </div>
@@ -775,12 +775,12 @@ function ProductCard({
       }
     >
       <p className="line-clamp-2 text-sm font-medium">{product.title}</p>
-      <p className="font-mono text-[10px] uppercase text-muted-foreground">{product.sku}</p>
+      <p className="font-mono text-micro uppercase text-muted-foreground">{product.sku}</p>
       <div className="mt-auto flex items-end justify-between pt-1">
         <span className="text-xs font-semibold tabular-nums text-foreground">
           {firstActive ? formatMoney(priceFrom || firstActive.price) : "—"}
         </span>
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        <span className="text-micro uppercase tracking-wider text-muted-foreground">
           {product.variants.length} v.
         </span>
       </div>

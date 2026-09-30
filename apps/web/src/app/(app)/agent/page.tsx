@@ -544,7 +544,7 @@ export default function AgentConsolePage() {
                 <GraduationCap aria-hidden className="h-3.5 w-3.5" />
                 Aprendizaje
                 {pendingSignals > 0 ? (
-                  <span className="ml-1 rounded-full bg-warning px-1.5 tabular-nums text-[10px] text-warning-foreground">
+                  <span className="ml-1 rounded-full bg-warning px-1.5 tabular-nums text-micro text-warning-foreground">
                     {pendingSignals}
                   </span>
                 ) : null}

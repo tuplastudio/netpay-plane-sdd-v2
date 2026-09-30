@@ -235,7 +235,7 @@ export function EvolutionOnboardSheet({ open, onOpenChange }: Props) {
                   id="evo-phone"
                   inputMode="numeric"
                   autoComplete="off"
-                  placeholder="55 0000 0000"
+                  placeholder="Ej. 55 1234 5678"
                   aria-invalid={!nationalDigitsValid}
                   aria-describedby="evo-phone-hint"
                   value={nationalNumber}

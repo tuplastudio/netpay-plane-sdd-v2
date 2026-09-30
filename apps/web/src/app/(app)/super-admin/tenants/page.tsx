@@ -116,7 +116,7 @@ export default function SuperAdminTenantsPage() {
                 <Input
                   id="tenants-search"
                   type="search"
-                  placeholder="Nombre o slug"
+                  placeholder="Buscar por nombre o slug…"
                   className="pl-9"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}

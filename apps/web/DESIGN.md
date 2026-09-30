@@ -160,3 +160,58 @@ Touch targets: pill buttons 36–40px desktop → 44px mobile; circular icon but
 - Transitions: 150–200ms ease recommended.
 - Form success state: green border + success badge.
 - Syntax highlighting palette not formalized.
+
+## Tipografía y formularios — 2026-09-29
+
+Cambio transversal en `apps/web`: una sola escala tipográfica y un solo
+contrato de campo. Detalle en `src/components/DESIGN-SYSTEM.md` (§1
+"Tipografía" y §2 `Input`).
+
+**Diagnóstico.** El sidebar iba en 14px/500 mientras el cuerpo de las
+pantallas tenía 409 usos de `text-xs` (12px) contra 245 de `text-sm`: casi
+todo el texto secundario (ayuda, errores, meta, celdas) era 12px y la barra,
+en 14 medium, se veía "más grande que la plataforma".
+
+**Escala final (portal operativo).**
+
+| Peldaño | Token | Tamaño |
+| --- | --- | --- |
+| Título de pantalla | `text-h1` | 24→28px / 600 |
+| Título de sección, tarjeta, sheet, diálogo | `text-h2` | 18px / 600 |
+| Sub-bloque | `text-h3` | 16px / 600 |
+| Prosa, descripción bajo el h1 | `text-body` | 16px |
+| UI por defecto (nav, celdas, campos, botones, menús, etiquetas) | `text-body-sm` | 14px |
+| Ayuda, error, tooltip, migas, cabecera de tabla, badge | `text-caption` | 13px |
+| Chips `sm`, contadores, marcas de tiempo | `text-micro` | 12px / 500 |
+| Rótulos de grupo (sidebar, menús) | `text-micro-uppercase` | 11px / 600 |
+| Código, ids, SKUs | `text-code-md` / `text-code-sm` (`font-mono`) | 14 / 13px |
+
+`display-*` (26→72px) queda solo para páginas públicas. Los alias de
+Tailwind se remapearon a la escala (`text-xs` = 13, `text-sm` = 14,
+`text-base` = 16, `text-lg` = 18) para que el código existente cayera en
+peldaños reales sin reescribir cientos de archivos; en código nuevo se usa
+el nombre semántico. Se eliminaron los `text-[10px]`/`text-[11px]` de
+conversaciones, cotizaciones, agente y páginas públicas (quedan solo en
+ejes de gráficas).
+
+**Chrome.** Sidebar en body-sm 400 (steel); activa en 500 + tinta plena;
+grupos en micro-uppercase; nombre de empresa body-sm 600. Topbar: nombre de
+usuario body-sm, rol en caption. `PageHeader` baja de display-md (36px) a
+h1 (28px); `Section` sube de 17px a h2 (18px) y su descripción baja de 16 a
+14 para no superar a las tablas que acompaña.
+
+**Formularios.** `Input`, `Textarea` y `Select` comparten `fieldClassName`:
+44px móvil / 40px desde `sm` (igual que `Button`), 16px en móvil y body-sm
+en escritorio, placeholder `muted-foreground` (6.3:1 claro / 8.2:1 oscuro,
+par nuevo en `scripts/contrast-audit.mjs`), foco borde + anillo menta,
+error por `aria-invalid`, deshabilitado con relleno `muted` y texto muted
+(sin opacidad). Ayuda y error en caption. Placeholders revisados en los
+formularios de `src/app` (clientes, cotizaciones, pagos, admin, canales,
+conversaciones, super-admin, checkout, autenticación) con formato `Ej. …`,
+sin repetir la etiqueta y sin datos de negocio reales (se retiró "Aglos"
+del alta de empresa y "pinturas" del asistente del bot).
+
+**Pendiente (fuera de alcance).** `catalog/_components/variants-editor.tsx`,
+`create-product-sheet.tsx` y `edit-product-sheet.tsx` conservan
+placeholders en minúscula con ejemplos de pinturas (`ej. PINT-MATE-1L-BLA`);
+los está reescribiendo el agente de productos.

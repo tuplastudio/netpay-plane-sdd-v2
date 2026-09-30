@@ -105,7 +105,7 @@ export function BulkActionsBar({
           <Input
             autoFocus
             aria-label="Etiqueta a agregar"
-            placeholder="etiqueta…"
+            placeholder="Ej. mayoreo"
             maxLength={30}
             value={tagDraft}
             onChange={(e) => setTagDraft(e.target.value)}

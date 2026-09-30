@@ -47,7 +47,10 @@ const Table = React.forwardRef<HTMLTableElement, TableProps>(
         data-ui-table=""
         data-sticky-header={stickyHeader ? "" : undefined}
         className={cn(
-          "w-full caption-bottom border-collapse text-sm",
+          // Celdas en body-sm (14px); la cabecera baja a caption (13px) en
+          // mayúsculas. Nada dentro de una tabla va por debajo de 13px salvo
+          // chips `size="sm"` (micro, 12px).
+          "w-full caption-bottom border-collapse text-body-sm",
           stickyFirstColumn &&
             "[&_tr>*:first-child]:sticky [&_tr>*:first-child]:left-0 [&_tr>*:first-child]:z-[1] [&_tr>*:first-child]:bg-card",
           className,
@@ -127,7 +130,7 @@ const TableHead = React.forwardRef<HTMLTableCellElement, TableHeadProps>(
       ref={ref}
       scope={scope}
       className={cn(
-        "h-10 px-3 text-left align-middle text-[0.8125rem] font-medium uppercase tracking-wide text-muted-foreground",
+        "h-10 px-3 text-left align-middle text-caption font-medium uppercase tracking-wide text-muted-foreground",
         numeric && "text-right tabular-nums",
         className,
       )}
@@ -157,7 +160,7 @@ const TableCaption = React.forwardRef<
   HTMLTableCaptionElement,
   React.HTMLAttributes<HTMLTableCaptionElement>
 >(({ className, ...props }, ref) => (
-  <caption ref={ref} className={cn("mt-3 text-xs text-muted-foreground", className)} {...props} />
+  <caption ref={ref} className={cn("mt-3 text-caption text-muted-foreground", className)} {...props} />
 ));
 TableCaption.displayName = "TableCaption";
 

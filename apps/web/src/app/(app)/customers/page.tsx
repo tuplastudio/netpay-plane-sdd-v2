@@ -287,7 +287,7 @@ export default function CustomersPage() {
                 <Label htmlFor="fullName">Nombre completo</Label>
                 <Input
                   id="fullName"
-                  placeholder="Nombre y apellidos"
+                  placeholder="Ej. Ana Torres Ruiz"
                   aria-invalid={!!errors.fullName}
                   aria-describedby={errors.fullName ? "fullName-error" : undefined}
                   {...register("fullName")}
@@ -320,7 +320,7 @@ export default function CustomersPage() {
                   id="phone"
                   aria-invalid={!!errors.phone}
                   aria-describedby={errors.phone ? "phone-error" : undefined}
-                  placeholder="+52 1 55 ..."
+                  placeholder="Ej. 55 1234 5678"
                   {...register("phone")}
                 />
                 {errors.phone && (
@@ -335,7 +335,7 @@ export default function CustomersPage() {
                   id="taxId"
                   aria-invalid={!!errors.taxId}
                   aria-describedby={errors.taxId ? "taxId-error" : undefined}
-                  placeholder="XAXX010101000"
+                  placeholder="Ej. XAXX010101000"
                   {...register("taxId")}
                 />
                 {errors.taxId && (
@@ -366,7 +366,7 @@ export default function CustomersPage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Nombre, correo, teléfono o RFC…"
+                placeholder="Buscar por nombre, correo, teléfono o RFC…"
                 className="pl-9"
                 aria-label="Buscar clientes"
               />

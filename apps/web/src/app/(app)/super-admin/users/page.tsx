@@ -137,7 +137,7 @@ export default function SuperAdminUsersPage() {
               <Input
                 id="users-search"
                 type="search"
-                placeholder="Escribe para filtrar…"
+                placeholder="Buscar por nombre o correo…"
                 className="pl-9"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

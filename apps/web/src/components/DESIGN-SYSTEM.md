@@ -184,25 +184,45 @@ componentes de UI (foco, borde de control, puntos) ≥3:1.
 - Cuerpo **16px / 1.5 / tracking 0** (el `body` ya lo trae). Nunca interlínea
   <1.5 en 14–16px. Display: tracking negativo suave, interlínea ≥1.05.
 
+**Una sola escala** (`tailwind.config.ts` → `fontSize`). El portal operativo
+usa siete peldaños y nada fuera de ellos; los `display-*` son solo para
+páginas públicas (login, cotización pública, checkout, seguimiento).
+
 | Token | Tamaño | Peso | Interlínea | Tracking | Uso |
 | --- | --- | --- | --- | --- | --- |
-| `text-display-xxl` | 36→72px | 600 | 1.05 | -0.03em | Hero de página pública |
-| `text-display-xl` | 32→56px | 600 | 1.10 | -0.025em | Apertura de sección grande |
-| `text-display-lg` | 28→48px | 600 | 1.10 | -0.02em | Cifra protagonista, hero de login |
-| `text-display-md` | 26→36px | 600 | 1.20 | -0.015em | h1 de página (`PageHeader`) |
-| `text-headline` | 22px | 600 | 1.30 | 0 | Títulos de tarjeta |
-| `text-subhead` | 18px | 400 | 1.50 | 0 | Subtítulo de hero, lead |
-| `text-body-lg` | 18px | 400 | 1.50 | 0 | Párrafo destacado |
-| `text-body` | 16px | 400 | 1.50 | 0 | Cuerpo por defecto |
-| `text-body-sm` | 14px | 400 | 1.50 | 0 | Celdas de tabla, navegación |
-| `text-body-sm-medium` | 14px | 500 | 1.50 | 0 | Nav activa, etiquetas de botón y pestaña |
-| `text-caption` | 13px | 400 | 1.40 | 0 | Ayuda, letra pequeña |
-| `text-micro` | 12px | 500 | 1.40 | 0 | Microcopy, chips |
-| `text-micro-uppercase` | 11px | 600 | 1.40 | +0.5px | Cabeceras de sección de sidebar, "REQUERIDO" |
-| `text-code-md` / `text-code-sm` | 14 / 13px | 400 | 1.5 / 1.4 | 0 | Bloques de código (`font-mono`) |
+| `text-h1` | 24→28px | 600 | 1.20 | -0.015em | h1 de pantalla (`PageHeader`). Uno por pantalla. |
+| `text-h2` | 18px | 600 | 1.40 | -0.01em | Título de `Section`, `CardTitle`, `SheetTitle`, `AlertDialogTitle`, `EmptyState` |
+| `text-h3` | 16px | 600 | 1.50 | 0 | Sub-bloque dentro de una sección, título de tarjeta chica |
+| `text-body` | 16px | 400 | 1.50 | 0 | Prosa, descripción bajo el h1, páginas de ayuda |
+| `text-body-sm` | 14px | 400 | 1.50 | 0 | **Tamaño de UI por defecto**: nav del sidebar, celdas, inputs, botones, menús, etiquetas, descripciones de sección |
+| `text-body-sm-medium` | 14px | 500 | 1.50 | 0 | Nav activa, etiqueta de pestaña, rótulo del topbar |
+| `text-caption` | 13px | 400 | 1.40 | 0 | Ayuda y error bajo un campo, pista de `StatTile`, tooltip, migas, cabecera de tabla (uppercase), `Badge` default |
+| `text-micro` | 12px | 500 | 1.40 | 0 | Chips `size="sm"`, contadores, marcas de tiempo en burbujas. Mínimo para texto corrido. |
+| `text-micro-uppercase` | 11px | 600 | 1.40 | +0.5px | Rótulos de grupo (sidebar, `DropdownMenuLabel`), "REQUERIDO". Nunca prosa. |
+| `text-code-md` / `text-code-sm` | 14 / 13px | 400 | 1.5 / 1.4 | 0 | Código, ids, SKUs (`font-mono`) |
+| `text-display-md/lg/xl/xxl` | 26→72px | 600 | 1.05–1.2 | negativo | Solo páginas públicas y bandas hero |
 
-h1 → `PageHeader` (display-md). h2 → `Section`. Un solo `<h1>` por pantalla.
-Ids/SKUs → `font-mono text-code-sm`.
+Alias históricos (`text-headline` 22, `text-subhead` 18/400, `text-body-lg`)
+siguen existiendo; en código nuevo usa h1/h2/h3.
+
+**`text-xs`/`text-sm`/`text-base`/`text-lg` están remapeados a la escala**:
+`text-xs` = caption (13px, ya no 12), `text-sm` = body-sm, `text-base` =
+body, `text-lg` = 18px. Así los cientos de usos previos caen en un peldaño
+real sin reescribirlos, pero en código nuevo escribe el nombre semántico.
+Prohibido `text-[11px]`, `text-[10px]` y similares fuera de ejes de gráficas.
+
+Jerarquía por pantalla, de arriba abajo: h1 (28) → descripción (16) →
+h2 de sección (18) → descripción de sección / celdas / campos (14) → ayuda,
+error, cabecera de tabla (13) → chips (12) → rótulos de grupo (11). Si una
+pantalla necesita más de estos peldaños, el problema es la pantalla.
+
+Chrome: el sidebar va en **body-sm 400** (steel) y solo la entrada activa en
+500 con tinta plena; los títulos de grupo en micro-uppercase; el nombre de
+la empresa en body-sm 600. Es el mismo 14px de las tablas: la barra no puede
+verse más grande que el contenido.
+
+h1 → `PageHeader` (`text-h1`). h2 → `Section` (`text-h2`). Un solo `<h1>`
+por pantalla. Ids/SKUs → `font-mono text-code-sm`.
 
 ### Espaciado, radios y elevación
 
@@ -286,11 +306,28 @@ asChild?: boolean   // con asChild, `loading` se ignora
 
 ### `Input` · `Textarea` · `Select` · `Checkbox` · `Label`
 
-Mismo alto (44px móvil, 40 desde `sm`), fondo (`bg-background`, el lienzo),
-radio `rounded-md` (8px) y foco. Para error pasa `aria-invalid` y el borde
-rojo sale solo. `Select` es un `<select>` nativo estilizado (sin Radix, sin
-dependencia nueva); `Checkbox` es un `<input type="checkbox">` con
-`accent-primary` (20px en móvil, 16 desde `sm`).
+Mismo alto (**44px móvil, 40 desde `sm`**: `h-11 sm:h-10`, igual que
+`Button` default), padding 14px, fondo (`bg-background`, el lienzo), radio
+`rounded-md` (8px), texto (16px móvil / body-sm desde `sm`) y foco. Todo
+sale de `fieldClassName` (`ui/input.tsx`): `Input`, `Textarea` y `Select`
+comparten el contrato entero, incluido el deshabilitado (relleno `muted`,
+texto `muted-foreground`, borde hairline; **sin opacidad**). Para error pasa
+`aria-invalid` y el borde rojo sale solo. `Select` es un `<select>` nativo
+estilizado (sin Radix, sin dependencia nueva); `Checkbox` es un
+`<input type="checkbox">` con `accent-primary` (20px en móvil, 16 desde `sm`).
+
+Un campo se compone siempre igual: `Label` (body-sm 500) → control →
+ayuda/error en **`text-caption`** (13px), ayuda en `muted-foreground`, error
+en `destructive`, ambos enlazados por `aria-describedby`. Alturas distintas
+solo en búsquedas dentro de menús o barras de tabla (`h-9` / `h-8`).
+
+**Placeholders**: son un *ejemplo*, no la etiqueta repetida ni una orden.
+Formato `Ej. …` (con punto y sin dos puntos), español neutro, sin datos de
+negocio reales. `Label="Nombre del producto"` → `placeholder="Ej. Playera
+de algodón unisex"`; `Label="RFC"` → `placeholder="Ej. XAXX010101000"`;
+búsquedas → `"Buscar por nombre o SKU…"`. Contraste del placeholder
+(`muted-foreground` sobre lienzo): 6.3:1 claro, 8.2:1 oscuro, par
+"placeholder de campo" del `contrast-audit`.
 
 El borde en reposo de los cuatro es `border-input` (≥3.3:1 contra canvas,
 surface-1 y surface-2 en ambos modos: `#6e7875` oscuro, `#7a827f` claro): el
@@ -304,8 +341,11 @@ para evitar el zoom de iOS.
 ```tsx
 <div className="space-y-1.5">
   <Label htmlFor="sku">SKU</Label>
-  <Input id="sku" aria-invalid={!!errors.sku} {...register("sku")} />
-  {errors.sku && <p className="text-xs text-destructive">{errors.sku.message}</p>}
+  <Input id="sku" placeholder="Ej. PLAY-ALG-M-AZUL" aria-invalid={!!errors.sku}
+    aria-describedby={errors.sku ? "sku-error" : "sku-hint"} {...register("sku")} />
+  {errors.sku
+    ? <p id="sku-error" className="text-caption text-destructive">{errors.sku.message}</p>
+    : <p id="sku-hint" className="text-caption text-muted-foreground">Único por producto.</p>}
 </div>
 
 <Select id="estado" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -398,8 +438,10 @@ lista es una píldora sobre surface-1 y el activo sube a surface-2. Alto táctil
 
 ### `Table`
 
-Cabecera 13px `muted-foreground` en mayúsculas; filas con `hairline-soft`,
-hover `bg-muted`, seleccionada `bg-secondary`. El contenedor lleva
+Cabecera `text-caption` (13px) 500 `muted-foreground` en mayúsculas; celdas
+`text-body-sm` (14px); ids/SKUs `font-mono text-code-sm`; chips en la fila
+`size="sm"` (micro). Filas con `hairline-soft`, hover `bg-muted`,
+seleccionada `bg-secondary`. El contenedor lleva
 `.scroll-x-shadow`: en móvil una sombra en el borde avisa que hay más
 columnas y desaparece al final del scroll (si la tabla va sobre canvas y no
 sobre una tarjeta, pásale `containerClassName="[--scroll-shadow-bg:var(--background)]"`).
@@ -569,8 +611,8 @@ size:    "sm" | "default"     // idénticos a StatusBadge
 Los tonos de estado van sobre su tinte `*-subtle` con `*-foreground` (≥5.9:1
 claro, ≥7.4:1 oscuro). `Badge` es rectangular (`rounded-sm`); `StatusBadge`
 es píldora (`rounded-full`) sobre `neutral-subtle` + hairline, para que un
-tenant que tiñe `secondary` no le cambie el color. `size="sm"` mide 12px en
-ambos: nada por debajo. `brand` = menta con tinta ink (descuentos, "gratis");
+tenant que tiñe `secondary` no le cambie el color. `size="default"` es
+caption (13px) y `size="sm"` micro (12px) en ambos: nada por debajo. `brand` = menta con tinta ink (descuentos, "gratis");
 `highlight` = coral con tinta ink ("nuevo", "recomendado"). Nunca texto
 blanco sobre menta ni sobre coral.
 

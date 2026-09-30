@@ -189,7 +189,7 @@ export function ConnectSheet({
                 id="connect-phone"
                 inputMode="tel"
                 autoComplete="off"
-                placeholder="+5215500000000"
+                placeholder="Ej. +52 1 55 1234 5678"
                 aria-describedby="connect-phone-hint"
                 value={form.phoneNumber}
                 onChange={(e) => set("phoneNumber", e.target.value)}
@@ -213,7 +213,7 @@ export function ConnectSheet({
                     id="connect-meta-token"
                     type="password"
                     autoComplete="off"
-                    placeholder="EAAG..."
+                    placeholder="Ej. EAAG…"
                     value={form.token}
                     onChange={(e) => set("token", e.target.value)}
                   />
@@ -229,7 +229,7 @@ export function ConnectSheet({
                   <Input
                     id="connect-meta-phone-id"
                     autoComplete="off"
-                    placeholder="123456789012345"
+                    placeholder="Ej. 123456789012345"
                     value={form.phoneId}
                     onChange={(e) => set("phoneId", e.target.value)}
                   />
@@ -260,7 +260,7 @@ export function ConnectSheet({
                     id="connect-evo-key"
                     type="password"
                     autoComplete="off"
-                    placeholder="Tu API key de Evolution"
+                    placeholder="Ej. 4F2A9C…"
                     value={form.apiKey}
                     onChange={(e) => set("apiKey", e.target.value)}
                   />
@@ -273,7 +273,7 @@ export function ConnectSheet({
                   <Input
                     id="connect-evo-instance"
                     autoComplete="off"
-                    placeholder="mi-tienda"
+                    placeholder="Ej. mi-tienda"
                     value={form.instance}
                     onChange={(e) => set("instance", e.target.value)}
                   />

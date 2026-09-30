@@ -19,27 +19,61 @@ const config: Config = {
         /* Geist Mono: código, ids, SKUs, firmas. Nunca prosa. */
         mono: ["var(--font-mono)", "SF Mono", "Menlo", "Consolas", "monospace"],
       },
-      /* Escala tipográfica (TOKEN-SPEC.md). Display en 600 con tracking
-         negativo suave (nunca por debajo de -0.03em) e interlínea ≥1.05.
-         Cuerpo 16/1.5, nunca comprimido. Los `clamp()` escriben primero el
-         valor móvil (<480px). */
+      /* Escala tipográfica ÚNICA del portal (DESIGN-SYSTEM.md §1 "Tipografía").
+         Siete peldaños de UI + display para páginas públicas:
+
+           h1 24→28 · h2 18 · h3 16 · body 16 · body-sm 14 · caption 13 ·
+           micro 12 · micro-uppercase 11 · code-md/sm 14/13 (mono)
+
+         Los alias de Tailwind (`text-xs/sm/base/lg`) se REMAPEAN a esta
+         escala para que los cientos de usos existentes caigan en un peldaño
+         real: `text-xs` ya no es 12px sino caption (13px) — el 12 se reserva
+         a `micro` (chips, contadores). En código nuevo usa el nombre
+         semántico (`text-caption`, no `text-xs`).
+
+         Display en 600 con tracking negativo suave (nunca por debajo de
+         -0.03em) e interlínea ≥1.05. Cuerpo 16/1.5, nunca comprimido. Los
+         `clamp()` escriben primero el valor móvil (<480px). */
       fontSize: {
+        /* --- Display: solo páginas públicas y bandas hero. --- */
         "display-xxl": ["clamp(2.25rem, 6vw, 4.5rem)", { lineHeight: "1.05", letterSpacing: "-0.03em", fontWeight: "600" }],
         "display-xl": ["clamp(2rem, 5vw, 3.5rem)", { lineHeight: "1.1", letterSpacing: "-0.025em", fontWeight: "600" }],
         "display-lg": ["clamp(1.75rem, 4vw, 3rem)", { lineHeight: "1.1", letterSpacing: "-0.02em", fontWeight: "600" }],
         "display-md": ["clamp(1.625rem, 3vw, 2.25rem)", { lineHeight: "1.2", letterSpacing: "-0.015em", fontWeight: "600" }],
+
+        /* --- Encabezados del portal operativo. --- */
+        /** h1 de pantalla (`PageHeader`): 24px en móvil, 28px desde ~1024px. */
+        h1: ["clamp(1.5rem, 1.25rem + 0.8vw, 1.75rem)", { lineHeight: "1.2", letterSpacing: "-0.015em", fontWeight: "600" }],
+        /** h2: título de `Section`, `Card`, `Sheet`, diálogo, estado vacío. */
+        h2: ["1.125rem", { lineHeight: "1.4", letterSpacing: "-0.01em", fontWeight: "600" }],
+        /** h3: sub-bloques dentro de una sección, título de tarjeta chica. */
+        h3: ["1rem", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "600" }],
+        /* Alias históricos de titulares; en código nuevo usa h1/h2/h3. */
         headline: ["1.375rem", { lineHeight: "1.3", letterSpacing: "0", fontWeight: "600" }],
         subhead: ["1.125rem", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "400" }],
+
+        /* --- Cuerpo. --- */
         "body-lg": ["1.125rem", { lineHeight: "1.5", letterSpacing: "0" }],
+        /** Prosa, lead bajo el h1, descripciones de ayuda. */
         body: ["1rem", { lineHeight: "1.5", letterSpacing: "0" }],
-        "body-sm": ["0.875rem", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "400" }],
+        /** Tamaño de UI por defecto: nav, celdas, inputs, botones, menús, etiquetas. */
+        "body-sm": ["0.875rem", { lineHeight: "1.5", letterSpacing: "0" }],
         "body-sm-medium": ["0.875rem", { lineHeight: "1.5", letterSpacing: "0", fontWeight: "500" }],
+        /** Ayuda, error, pista, tooltip, migas, cabecera de tabla (uppercase). */
         caption: ["0.8125rem", { lineHeight: "1.4", letterSpacing: "0" }],
+        /** Chips, contadores, marcas de tiempo. Nunca prosa. */
         micro: ["0.75rem", { lineHeight: "1.4", letterSpacing: "0", fontWeight: "500" }],
+        /** Rótulos de grupo (sidebar, menús), "REQUERIDO". Mínimo de la escala. */
         "micro-uppercase": ["0.6875rem", { lineHeight: "1.4", letterSpacing: "0.5px", fontWeight: "600" }],
         /* Solo tamaño: la familia la pone `font-mono`. */
         "code-md": ["0.875rem", { lineHeight: "1.5", letterSpacing: "0" }],
         "code-sm": ["0.8125rem", { lineHeight: "1.4", letterSpacing: "0" }],
+
+        /* --- Alias de Tailwind remapeados a la escala (ver nota arriba). --- */
+        xs: ["0.8125rem", { lineHeight: "1.4" }], // = caption
+        sm: ["0.875rem", { lineHeight: "1.5" }], // = body-sm
+        base: ["1rem", { lineHeight: "1.5" }], // = body
+        lg: ["1.125rem", { lineHeight: "1.4" }], // = h2 (sin peso)
       },
       letterSpacing: {
         display: "-0.02em",

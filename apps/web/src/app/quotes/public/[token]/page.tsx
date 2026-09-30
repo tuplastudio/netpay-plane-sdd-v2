@@ -572,7 +572,7 @@ function StickyPayBar({
     <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-card/95 p-3 shadow-airbnb-lg backdrop-blur sm:hidden">
       <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] text-muted-foreground">Total</p>
+          <p className="text-caption text-muted-foreground">Total</p>
           <Money value={quote.total} currency={currency} showCurrency emphasis className="text-lg leading-none" />
         </div>
         <PayButton token={token} checkoutToken={quote.checkoutToken} compact />

@@ -12,7 +12,9 @@ export const buttonVariants = cva(
   // nunca opacidad, que dejaba la menta con texto ilegible. Un botón en
   // `loading` conserva su color: el spinner ya comunica el estado.
   // Móvil primero: 44px de alto; desde `sm` se compacta.
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-[color,background-color,border-color,transform,box-shadow] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  // Etiqueta siempre body-sm (14px) en peso 500, en todos los tamaños salvo
+  // `lg` (body, 16px): un botón nunca cambia de tamaño de letra por su alto.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-body-sm font-medium transition-[color,background-color,border-color,transform,box-shadow] duration-150 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -50,9 +52,11 @@ export const buttonVariants = cva(
       },
       size: {
         // Móvil: alto táctil ≥44px; en escritorio se compacta.
+        // default 40 = mismo alto que `Input`/`Select`, para que un botón
+        // junto a un campo quede alineado. sm 36 = barras de tabla, filtros.
         default: "h-11 px-5 sm:h-10",
         sm: "h-11 px-4 sm:h-9",
-        lg: "h-12 px-7 text-base",
+        lg: "h-12 px-7 text-body",
         icon: "h-11 w-11 rounded-full sm:h-9 sm:w-9",
       },
     },

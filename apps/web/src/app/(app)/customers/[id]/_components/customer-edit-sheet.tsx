@@ -177,7 +177,7 @@ export function CustomerEditSheet({
               <Label htmlFor="edit-customer-fullName">Nombre completo</Label>
               <Input
                 id="edit-customer-fullName"
-                placeholder="Nombre y apellidos"
+                placeholder="Ej. Ana Torres Ruiz"
                 autoFocus
                 aria-invalid={!!errors.fullName}
                 aria-describedby={errors.fullName ? "edit-customer-fullName-error" : undefined}
@@ -210,7 +210,7 @@ export function CustomerEditSheet({
               <Input
                 id="edit-customer-phone"
                 inputMode="tel"
-                placeholder="+52 1 55 …"
+                placeholder="Ej. 55 1234 5678"
                 aria-invalid={!!errors.phone}
                 aria-describedby={errors.phone ? "edit-customer-phone-error" : "edit-customer-phone-hint"}
                 {...register("phone")}
@@ -232,7 +232,7 @@ export function CustomerEditSheet({
               </span>
               <Input
                 id="edit-customer-taxId"
-                placeholder="XAXX010101000"
+                placeholder="Ej. XAXX010101000"
                 maxLength={13}
                 className="font-mono uppercase"
                 aria-invalid={!!errors.taxId}
@@ -261,7 +261,7 @@ export function CustomerEditSheet({
                       addTag();
                     }
                   }}
-                  placeholder="vip, mayoreo… (Enter para agregar)"
+                  placeholder="Ej. vip, mayoreo (Enter para agregar)"
                   maxLength={30}
                 />
                 <Button type="button" variant="outline" onClick={addTag} disabled={!tagDraft.trim()}>
@@ -292,7 +292,7 @@ export function CustomerEditSheet({
               <Label htmlFor="edit-customer-notes">Notas de la ficha</Label>
               <Textarea
                 id="edit-customer-notes"
-                placeholder="Preferencias, acuerdos especiales, contexto para otros vendedores…"
+                placeholder="Ej. Prefiere entrega por la tarde; siempre pide factura"
                 rows={3}
                 aria-invalid={!!errors.notes}
                 {...register("notes")}

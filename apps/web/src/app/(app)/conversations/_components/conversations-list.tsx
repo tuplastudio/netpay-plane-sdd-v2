@@ -145,7 +145,7 @@ function AssigneeCell({ conversation }: { conversation: Conversation }) {
     <span className="flex min-w-0 items-center gap-1.5" title={conversation.handoffUser.fullName}>
       <span
         aria-hidden
-        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground"
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-micro font-semibold text-muted-foreground"
       >
         {initialsOf(conversation.handoffUser.fullName)}
       </span>
@@ -317,7 +317,7 @@ export function ConversationsList({
                   />
                 ) : null}
               </div>
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-micro text-muted-foreground">
                 {providerLabel(c.connection.provider)}
               </span>
             </div>
@@ -350,7 +350,7 @@ export function ConversationsList({
                 </Badge>
               ))}
               {c.tags.length > 2 ? (
-                <span className="text-[10px] text-muted-foreground" title={c.tags.join(", ")}>
+                <span className="text-micro text-muted-foreground" title={c.tags.join(", ")}>
                   +{c.tags.length - 2}
                 </span>
               ) : null}
@@ -460,7 +460,7 @@ export function ConversationsList({
         pagination={
           pagination ??
           (capped ? (
-            <p className="p-3 text-center text-[11px] text-muted-foreground">
+            <p className="p-3 text-center text-micro text-muted-foreground">
               Se muestran las {CONVERSATIONS_LIMIT} más recientes.
             </p>
           ) : undefined)

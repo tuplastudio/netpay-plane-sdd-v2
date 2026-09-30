@@ -178,7 +178,7 @@ export function WhatsAppTemplatesSection() {
                     <Input
                       id={`name-${index}`}
                       value={row.name}
-                      placeholder="recordatorio_cotizacion"
+                      placeholder="Ej. recordatorio_cotizacion"
                       onChange={(e) => update(index, { name: e.target.value })}
                     />
                   </div>

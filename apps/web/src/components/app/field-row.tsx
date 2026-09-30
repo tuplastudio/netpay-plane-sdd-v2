@@ -23,7 +23,7 @@ export const DescriptionList = React.forwardRef<HTMLDListElement, DescriptionLis
     <dl
       ref={ref}
       className={cn(
-        "text-sm",
+        "text-body-sm",
         divided ? "divide-y divide-hairline-soft" : "space-y-2 sm:space-y-1",
         className,
       )}

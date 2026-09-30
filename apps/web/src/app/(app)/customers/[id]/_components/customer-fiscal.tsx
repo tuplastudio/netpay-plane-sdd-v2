@@ -222,7 +222,7 @@ export function CustomerFiscal({ customer, canWrite }: { customer: CustomerDetai
                 <Input
                   id="fiscal-taxId"
                   className="font-mono uppercase"
-                  placeholder="XAXX010101000"
+                  placeholder="Ej. XAXX010101000"
                   maxLength={13}
                   aria-invalid={!!errors.taxId}
                   aria-describedby={errors.taxId ? "fiscal-taxId-error" : undefined}
@@ -238,7 +238,7 @@ export function CustomerFiscal({ customer, canWrite }: { customer: CustomerDetai
                 <LabelWithHelp htmlFor="fiscal-legalName" text="Razón social" help={FIELD_HELP.legalName} />
                 <Input
                   id="fiscal-legalName"
-                  placeholder="Como aparece en la constancia"
+                  placeholder="Ej. Comercializadora del Norte, S.A. de C.V."
                   aria-invalid={!!errors.legalName}
                   {...register("legalName")}
                 />
@@ -250,7 +250,7 @@ export function CustomerFiscal({ customer, canWrite }: { customer: CustomerDetai
                   id="fiscal-cp"
                   inputMode="numeric"
                   maxLength={5}
-                  placeholder="06600"
+                  placeholder="Ej. 06600"
                   aria-invalid={!!errors.fiscalPostalCode}
                   aria-describedby={errors.fiscalPostalCode ? "fiscal-cp-error" : undefined}
                   {...register("fiscalPostalCode")}

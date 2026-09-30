@@ -75,9 +75,9 @@ export const RadioGroup = React.forwardRef<HTMLFieldSetElement, RadioGroupProps>
           className={cn("min-w-0 space-y-2", className)}
           {...props}
         >
-          <legend className={cn("text-sm font-medium", hideLegend && "sr-only")}>{legend}</legend>
+          <legend className={cn("text-body-sm font-medium", hideLegend && "sr-only")}>{legend}</legend>
           {description ? (
-            <p id={descriptionId} className="text-xs text-muted-foreground">
+            <p id={descriptionId} className="text-caption text-muted-foreground">
               {description}
             </p>
           ) : null}
@@ -104,7 +104,7 @@ RadioGroup.displayName = "RadioGroup";
  * móvil, 16px desde `sm`.
  */
 const radioInputClass =
-  "h-5 w-5 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:h-4 sm:w-4";
+  "h-5 w-5 shrink-0 cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 sm:h-4 sm:w-4";
 
 export interface RadioProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "type"> {
   /** Etiqueta visible. Si la omites, pon `aria-label`. */
@@ -127,7 +127,7 @@ export const Radio = React.forwardRef<HTMLInputElement, RadioProps>(
     return (
       <label
         className={cn(
-          "flex min-h-11 cursor-pointer items-center gap-2 text-sm sm:min-h-0",
+          "flex min-h-11 cursor-pointer items-center gap-2 text-body-sm sm:min-h-0",
           disabled && "cursor-not-allowed opacity-50",
           className,
         )}
@@ -181,7 +181,7 @@ export const RadioCard = React.forwardRef<HTMLInputElement, RadioCardProps>(
         className={cn(
           // Tarjeta plana con hairline; la opción marcada sube el borde a la
           // menta profunda (`primary`, ≥3:1) y tiñe el fondo con `brand-soft`.
-          "flex gap-2.5 rounded-lg border border-hairline bg-card p-3 text-left text-sm transition-colors",
+          "flex gap-2.5 rounded-lg border border-hairline bg-card p-3 text-left text-body-sm transition-colors",
           "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
           disabled
             ? "cursor-not-allowed opacity-50"
@@ -200,7 +200,7 @@ export const RadioCard = React.forwardRef<HTMLInputElement, RadioCardProps>(
         <span className="min-w-0">
           <span className="block font-medium">{label}</span>
           {description ? (
-            <span className="block text-xs text-muted-foreground">{description}</span>
+            <span className="block text-caption text-muted-foreground">{description}</span>
           ) : null}
         </span>
       </label>

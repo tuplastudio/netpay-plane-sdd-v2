@@ -413,14 +413,18 @@ function SidebarLink({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={cn(
+        // Mismo tamaño que el cuerpo de la app (body-sm, 14px): la barra no
+        // debe verse "más grande" que las tablas y formularios que acompaña.
+        // El peso 500 solo lo lleva la entrada activa; el resto va en 400 y
+        // tinta secundaria (steel), como en la referencia Mintlify.
         // Activo = surface-2, tinta plena, punto menta a la derecha y
         // `aria-current="page"` para lectores. ≥44px en el drawer móvil.
-        "group relative flex min-h-11 gap-3 rounded-md px-3 text-body-sm-medium transition-colors lg:min-h-10",
+        "group relative flex min-h-11 gap-3 rounded-md px-3 text-body-sm transition-colors lg:min-h-10",
         dense ? "py-1.5" : "py-2",
         withDescription ? "items-start" : "items-center",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         active
-          ? "bg-secondary text-foreground"
+          ? "bg-secondary font-medium text-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-foreground",
       )}
     >
@@ -432,7 +436,7 @@ function SidebarLink({
           active ? "text-foreground" : "text-muted-foreground group-hover:text-foreground",
         )}
       />
-      <span className="flex min-w-0 flex-col leading-tight">
+      <span className="flex min-w-0 flex-col gap-0.5 leading-tight">
         <span className="truncate">{item.label}</span>
         {withDescription ? (
           <span className="text-caption font-normal text-muted-foreground">{item.description}</span>
@@ -523,8 +527,11 @@ export function Brand({ className, collapsed = false }: { className?: string; co
         </span>
       )}
       {collapsed ? null : (
+        // Nombre de la empresa en body-sm (mismo cuerpo que la nav) en 600, y
+        // el nombre del producto como rótulo micro-uppercase, igual que los
+        // títulos de grupo de abajo.
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-sm font-semibold">{displayName}</span>
+          <span className="truncate text-body-sm font-semibold">{displayName}</span>
           <span className="truncate text-micro-uppercase uppercase text-muted-foreground">
             {name ? PLATFORM_NAME : "Portal operativo"}
           </span>
@@ -559,7 +566,7 @@ export function SidebarCollapseToggle({
       aria-label={label}
       aria-expanded={!collapsed}
       className={cn(
-        "flex h-10 items-center gap-3 rounded-md text-body-sm-medium text-muted-foreground transition-colors",
+        "flex h-10 items-center gap-3 rounded-md text-body-sm text-muted-foreground transition-colors",
         "hover:bg-accent hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         collapsed ? "w-full justify-center" : "w-full px-3",

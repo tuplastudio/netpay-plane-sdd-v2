@@ -78,7 +78,7 @@ export function CannedResponsePicker({
       aria-label="Respuestas rápidas"
       className="absolute bottom-full left-0 right-0 z-30 mb-2 max-h-72 overflow-y-auto rounded-card border border-border bg-card p-1 shadow-airbnb-lg"
     >
-      <div className="flex items-center justify-between gap-2 px-2 py-1 text-[11px] text-muted-foreground">
+      <div className="flex items-center justify-between gap-2 px-2 py-1 text-micro text-muted-foreground">
         <span className="inline-flex items-center gap-1">
           <Zap aria-hidden className="h-3 w-3" />
           Respuestas rápidas · ↑↓ elegir · Enter insertar · Esc cerrar
@@ -174,7 +174,7 @@ function CannedForm({
               id="canned-shortcut"
               value={form.shortcut}
               onChange={(e) => setForm({ ...form, shortcut: e.target.value.toLowerCase().replace(/^\//, "") })}
-              placeholder="gracias"
+              placeholder="Ej. gracias"
               maxLength={30}
               className="pl-6 font-mono"
               aria-invalid={form.shortcut.length > 0 && !shortcutOk ? true : undefined}
@@ -189,7 +189,7 @@ function CannedForm({
             id="canned-title"
             value={form.title}
             onChange={(e) => setForm({ ...form, title: e.target.value })}
-            placeholder="Agradecimiento"
+            placeholder="Ej. Agradecimiento"
             maxLength={80}
           />
         </div>
@@ -201,7 +201,7 @@ function CannedForm({
           rows={4}
           value={form.body}
           onChange={(e) => setForm({ ...form, body: e.target.value })}
-          placeholder="¡Gracias por escribirnos! En un momento te atendemos."
+          placeholder="Ej. ¡Gracias por escribirnos! En un momento te atendemos."
           maxLength={WHATSAPP_TEXT_MAX}
         />
       </div>

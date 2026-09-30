@@ -116,16 +116,16 @@ export function CreateTenantSheet({
             ) : null}
 
             <Field label="Nombre de la empresa" error={errors.name?.message}>
-              {(p) => <Input {...p} placeholder="Aglos, S.A." {...form.register("name")} />}
+              {(p) => <Input {...p} placeholder="Ej. Comercializadora del Norte, S.A. de C.V." {...form.register("name")} />}
             </Field>
             <Field label="Slug" hint="Identificador único, ej. aglos" error={errors.slug?.message}>
-              {(p) => <Input {...p} placeholder="aglos" {...form.register("slug")} />}
+              {(p) => <Input {...p} placeholder="Ej. comercializadora-norte" {...form.register("slug")} />}
             </Field>
             <Field label="Nombre del propietario" error={errors.ownerFullName?.message}>
-              {(p) => <Input {...p} placeholder="Nombre completo" {...form.register("ownerFullName")} />}
+              {(p) => <Input {...p} placeholder="Ej. Ana Torres Ruiz" {...form.register("ownerFullName")} />}
             </Field>
             <Field label="Correo del propietario" error={errors.ownerEmail?.message}>
-              {(p) => <Input type="email" {...p} placeholder="[email protected]" {...form.register("ownerEmail")} />}
+              {(p) => <Input type="email" {...p} placeholder="Ej. ana@empresa.com" {...form.register("ownerEmail")} />}
             </Field>
 
             <Button type="submit" className="w-full" loading={create.isPending}>

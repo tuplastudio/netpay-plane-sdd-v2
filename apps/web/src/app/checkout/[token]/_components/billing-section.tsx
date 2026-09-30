@@ -285,7 +285,7 @@ function ManualInvoiceForm({
             id="billing-rfc"
             value={overrides.rfc ?? ""}
             onChange={(e) => setOverrides({ ...overrides, rfc: e.target.value.toUpperCase() })}
-            placeholder="XAXX010101000"
+            placeholder="Ej. XAXX010101000"
             aria-invalid={!rfcOk}
             className="font-mono text-xs uppercase"
             maxLength={13}
@@ -297,7 +297,7 @@ function ManualInvoiceForm({
             id="billing-razon"
             value={overrides.legalName ?? ""}
             onChange={(e) => setOverrides({ ...overrides, legalName: e.target.value })}
-            placeholder="Empresa S.A. de C.V."
+            placeholder="Ej. Comercializadora del Norte, S.A. de C.V."
             maxLength={200}
           />
         </div>
@@ -309,7 +309,7 @@ function ManualInvoiceForm({
             onChange={(e) =>
               setOverrides({ ...overrides, postalCode: e.target.value.replace(/\D/g, "").slice(0, 5) })
             }
-            placeholder="64000"
+            placeholder="Ej. 64000"
             inputMode="numeric"
             aria-invalid={!cpOk}
             className="tabular-nums"
@@ -324,7 +324,7 @@ function ManualInvoiceForm({
             onChange={(e) =>
               setOverrides({ ...overrides, regimenFiscal: e.target.value.replace(/\D/g, "").slice(0, 3) })
             }
-            placeholder="626"
+            placeholder="Ej. 626"
             inputMode="numeric"
             className="tabular-nums"
             maxLength={3}

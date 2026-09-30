@@ -209,7 +209,7 @@ function StatsStrip({
               <span className={cn("text-sm font-semibold", STAT_VALUE_TONE[it.tone])}>
                 {loading ? "…" : it.value}
               </span>
-              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+              <span className="hidden text-micro text-muted-foreground sm:inline">
                 {it.label}
               </span>
             </span>

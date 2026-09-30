@@ -97,7 +97,7 @@ export function TabsList({
       role="tablist"
       onKeyDown={onKeyDown}
       className={cn(
-        "flex max-w-full items-center overflow-x-auto text-sm",
+        "flex max-w-full items-center overflow-x-auto text-body-sm",
         variant === "pill"
           ? "inline-flex gap-1 rounded-full bg-card p-1"
           : "gap-4 border-b border-hairline",
