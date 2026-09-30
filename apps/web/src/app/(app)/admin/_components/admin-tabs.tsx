@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BellRing, Building2, KeyRound, Palette, ShieldCheck, Truck, Users } from "lucide-react";
+import { BellRing, Building2, KeyRound, Palette, ShieldCheck, Truck, Users, Webhook } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { Bot } from "lucide-react";
@@ -19,6 +19,7 @@ import { NotificationsSection } from "./notifications-section";
 import { WhatsAppTemplatesSection } from "./whatsapp-templates-section";
 import { SecurityTabs } from "./security-tabs";
 import { DeliveryZonesSection } from "./delivery-zones-section";
+import { OutboundHooksSection } from "./outbound-hooks-section";
 
 /**
  * Secciones de la administración, en una barra lateral (no en pestañas): con
@@ -38,6 +39,7 @@ const SECTIONS = [
   { value: "envio", label: "Envío a domicilio", icon: Truck, anyOf: ["tenant.admin"] },
   { value: "usuarios", label: "Usuarios", icon: Users, anyOf: ["users.manage"] },
   { value: "api-keys", label: "API keys", icon: KeyRound, anyOf: ["apikeys.manage"] },
+  { value: "hooks", label: "Hooks salientes", icon: Webhook, anyOf: ["integrations.read"] },
   { value: "notificaciones", label: "Notificaciones", icon: BellRing, anyOf: ["notifications.read"] },
   // Contraseña y verificación en dos pasos son de la propia cuenta: todos.
   { value: "seguridad", label: "Seguridad", icon: ShieldCheck, anyOf: [] },
@@ -132,6 +134,7 @@ export function AdminTabs() {
             <ApiKeysSection />
           </>
         ) : null}
+        {section === "hooks" ? <OutboundHooksSection /> : null}
         {section === "notificaciones" ? (
           <>
             <NotificationsSection />

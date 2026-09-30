@@ -15,6 +15,8 @@ import { CustomerService } from "../customers/customer.service.js";
 import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
 import type { Paging } from "../common/pagination.js";
+import { domainEvents } from "../hooks/domain-event-bus.js";
+import { quoteEventData } from "../hooks/event-data.js";
 
 @Injectable()
 export class QuoteService {
@@ -323,11 +325,13 @@ export class QuoteService {
         message: `No se puede emitir en estado ${q.status}`,
       });
     }
-    return this.prisma.quote.update({
+    const issued = await this.prisma.quote.update({
       where: { id: q.id },
       data: { status: "ISSUED", issuedAt: new Date(), version: { increment: 1 } },
       include: { lines: true },
     });
+    await domainEvents.emit(tenantId, "quote.issued", quoteEventData(issued));
+    return issued;
   }
 
   /** Cancel: cierra la cotización. */
@@ -370,10 +374,12 @@ export class QuoteService {
         message: "Cotización vencida",
       });
     }
-    return this.prisma.quote.update({
+    const accepted = await this.prisma.quote.update({
       where: { id: q.id },
       data: { status: "ACCEPTED", acceptedAt: new Date(), version: { increment: 1 } },
     });
+    await domainEvents.emit(tenantId, "quote.accepted", quoteEventData(accepted));
+    return accepted;
   }
 
   /** Marca como vencida (job scheduled). */

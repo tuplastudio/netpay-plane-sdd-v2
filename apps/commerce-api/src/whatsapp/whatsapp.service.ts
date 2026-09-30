@@ -56,6 +56,8 @@ import {
   isWithinServiceWindow,
   samePhone,
 } from "./service-window.js";
+import { domainEvents } from "../hooks/domain-event-bus.js";
+import { handoffEventData } from "../hooks/event-data.js";
 
 /** Tope de adjunto que manda un operador desde el portal (decodificado). */
 export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -1706,10 +1708,22 @@ export class WhatsAppService {
       });
     }
     if (!conv.handoffToHuman) {
+      const handoffAt = new Date();
       await this.prisma.whatsAppConversation.update({
         where: { id: conversationId },
-        data: { handoffAt: new Date(), firstHumanReplyAt: null },
+        data: { handoffAt, firstHumanReplyAt: null },
       });
+      await domainEvents.emit(
+        tenantId,
+        "conversation.handoff",
+        handoffEventData({
+          conversationId,
+          customerId: conv.customerId,
+          assignedUserId: userId,
+          source: "human",
+          at: handoffAt,
+        }),
+      );
     }
     await this.audit(tenantId, conversationId, CONVERSATION_AUDIT.claimed, userId);
     return this.requireConversation(tenantId, conversationId);
@@ -1891,6 +1905,19 @@ export class WhatsAppService {
       userId,
       userName: updated.handoffUser?.fullName ?? null,
     });
+    if (!conv.handoffToHuman) {
+      await domainEvents.emit(
+        tenantId,
+        "conversation.handoff",
+        handoffEventData({
+          conversationId,
+          customerId: conv.customerId,
+          assignedUserId: userId,
+          source: "human",
+          at: now,
+        }),
+      );
+    }
     const { handoffUser: _handoffUser, ...conversation } = updated;
     return conversation;
   }

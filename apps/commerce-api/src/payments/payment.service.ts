@@ -27,6 +27,8 @@ import { NotificationService } from "../notifications/notification.service.js";
 import { pickChannel } from "../notifications/pick-channel.js";
 import type { Paging } from "../common/pagination.js";
 import { decideRefund, parseMoney, remainingRefundable, ZERO } from "./refund-math.js";
+import { domainEvents } from "../hooks/domain-event-bus.js";
+import { orderEventData, paymentEventData } from "../hooks/event-data.js";
 
 /**
  * Secreto HMAC del webhook del gateway dummy.
@@ -873,14 +875,30 @@ export class PaymentService {
         this.logger.log(`Webhook duplicado ignorado: sesión ${session.id} ya no estaba pendiente`);
         return;
       }
+      const capturedAt = new Date();
       if (outcome === "ORPHAN") {
         this.logger.warn(
           `Captura huérfana: orderId=${orderId} sessionId=${session.id} dummy=${dummySessionId} amount=${sessionAmount} — pedido no cobrable, requiere reembolso`,
+        );
+        await domainEvents.emit(
+          session.tenantId,
+          "payment.succeeded",
+          paymentEventData(session, { status: "CAPTURED", orderPaid: false, at: capturedAt, paymentMethod: extras.paymentMethod }),
         );
         return;
       }
       this.logger.log(`Order ${orderId} PAID via dummy ${dummySessionId}`);
       await this.notifyPaymentResult(orderId, session.tenantId, "PAYMENT_SIMULATED_SUCCESS", sessionAmount);
+      await domainEvents.emit(
+        session.tenantId,
+        "payment.succeeded",
+        paymentEventData(session, { status: "CAPTURED", orderPaid: true, at: capturedAt, paymentMethod: extras.paymentMethod }),
+      );
+      await domainEvents.emit(
+        session.tenantId,
+        "order.paid",
+        orderEventData({ ...order, status: "PAID", paidAt: capturedAt }),
+      );
     } else if (upper === "FAILED") {
       const moved = await this.prisma.checkoutSession.updateMany({
         where: { id: session.id, status: "PENDING" },
@@ -896,6 +914,11 @@ export class PaymentService {
         return;
       }
       await this.notifyPaymentResult(orderId, session.tenantId, "PAYMENT_SIMULATED_FAILED", sessionAmount);
+      await domainEvents.emit(
+        session.tenantId,
+        "payment.failed",
+        paymentEventData(session, { status: "FAILED", at: new Date(), paymentMethod: extras.paymentMethod }),
+      );
     }
   }
 

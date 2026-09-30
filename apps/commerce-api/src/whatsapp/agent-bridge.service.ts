@@ -14,6 +14,8 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { AgentLifecycleClient } from "./agent-lifecycle.client.js";
 import { WhatsAppService } from "./whatsapp.service.js";
+import { domainEvents } from "../hooks/domain-event-bus.js";
+import { handoffEventData } from "../hooks/event-data.js";
 
 /** Respuesta de `POST /chat` (agent-v2). Solo lo que el canal necesita: el
  *  resto del contrato (carts, totals, quote, checkout, ...) lo consumen el
@@ -145,16 +147,28 @@ export class AgentBridgeService {
     }
 
     if (payload.handoff) {
+      const handoffAt = new Date();
       await this.prisma.whatsAppConversation.update({
         where: { id: input.conversationId },
         data: {
           status: "HANDED_OFF",
           handoffToHuman: true,
-          handoffAt: new Date(),
+          handoffAt,
           assignedAt: null,
           firstHumanReplyAt: null,
         },
       });
+      await domainEvents.emit(
+        input.tenantId,
+        "conversation.handoff",
+        handoffEventData({
+          conversationId: input.conversationId,
+          customerId: conversation.customerId,
+          assignedUserId: null,
+          source: "agent",
+          at: handoffAt,
+        }),
+      );
     }
 
     return payload;

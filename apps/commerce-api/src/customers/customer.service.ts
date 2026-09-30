@@ -13,6 +13,8 @@ import {
 import { PrismaService } from "../prisma/prisma.service.js";
 import { Prisma, type Customer } from "@prisma/client";
 import type { Paging } from "../common/pagination.js";
+import { domainEvents } from "../hooks/domain-event-bus.js";
+import { customerEventData } from "../hooks/event-data.js";
 import {
   PAID_ORDER_STATUSES,
   PENDING_ORDER_STATUSES,
@@ -239,7 +241,7 @@ export class CustomerService {
         message: "fullName requerido",
       });
     }
-    return this.prisma.customer.create({
+    const created = await this.prisma.customer.create({
       data: {
         tenantId,
         fullName: input.fullName,
@@ -263,6 +265,8 @@ export class CustomerService {
       },
       include: { addresses: true },
     });
+    await domainEvents.emit(tenantId, "customer.created", customerEventData(created, "panel"));
+    return created;
   }
 
   async update(
@@ -464,6 +468,11 @@ export class CustomerService {
       customer = await this.prisma.customer.create({
         data: { tenantId, fullName, phone, email: safeEmail },
       });
+      await domainEvents.emit(
+        tenantId,
+        "customer.created",
+        customerEventData(customer, channel ? "whatsapp" : "panel"),
+      );
     }
 
     if (channel && phone) {
