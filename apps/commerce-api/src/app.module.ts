@@ -14,6 +14,7 @@ import { PaymentModule } from "./payments/payment.module.js";
 import { ReportsModule } from "./reports/reports.module.js";
 import { NotificationModule } from "./notifications/notification.module.js";
 import { IntegrationModule } from "./integrations/integration.module.js";
+import { DataSourceModule } from "./data-sources/data-source.module.js";
 import { WhatsAppModule } from "./whatsapp/whatsapp.module.js";
 import { OpsModule } from "./ops/ops.module.js";
 import { TenantsModule } from "./tenants/tenants.module.js";
@@ -48,6 +49,7 @@ import { ApiKeyUsageMiddleware } from "./auth/usage/api-key-usage.middleware.js"
     ReportsModule,
     NotificationModule,
     IntegrationModule,
+    DataSourceModule,
     WhatsAppModule,
     OpsModule,
     TenantsModule,
