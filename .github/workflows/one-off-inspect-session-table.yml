@@ -33,6 +33,7 @@ jobs:
               await p.$disconnect();
             })().catch((e) => { console.error("FAIL", e.message); process.exit(1); });
             NODE_EOF
-            docker compose -f compose.prod.yaml --env-file .env.prod cp /tmp/inspect-session.js commerce-api:/tmp/inspect-session.js
-            docker compose -f compose.prod.yaml --env-file .env.prod exec -T -w /repo/apps/commerce-api commerce-api node /tmp/inspect-session.js
+            docker compose -f compose.prod.yaml --env-file .env.prod cp /tmp/inspect-session.js commerce-api:/repo/apps/commerce-api/inspect-session.js
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T -w /repo/apps/commerce-api commerce-api node ./inspect-session.js
+            docker compose -f compose.prod.yaml --env-file .env.prod exec -T -w /repo/apps/commerce-api commerce-api rm -f inspect-session.js
             rm -f /tmp/inspect-session.js
