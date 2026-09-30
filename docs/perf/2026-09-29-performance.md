@@ -47,7 +47,7 @@ consumo desde `apps/web`. Rama `perf/platform-backend`.
    ETag de Express dé 304 en los sondeos de "¿ya se pagó?".
 9. **Rate limit** — barrido de buckets vencidos una vez por ventana.
 
-### Índices nuevos (`schema.prisma` + `prisma/migrations/0027_perf_indexes.sql`)
+### Índices nuevos (`schema.prisma` + `prisma/migrations/0028_perf_indexes.sql`)
 
 | Tabla | Índice | Para |
 | --- | --- | --- |
