@@ -1,7 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-const SESSION_COOKIE_PROD = "__Host-session";
-const SESSION_COOKIE_DEV = "session";
+// Cookie del refresh token opaco (ver `REFRESH_COOKIE` en
+// `apps/commerce-api/src/auth/guards/principal.guard.ts`). El access JWT no
+// viaja en cookie, así que esto solo indica "hay refresh vivo", no que el
+// access en memoria del cliente siga vigente — el propio front revalida con
+// `/auth/refresh` si hace falta.
+const SESSION_COOKIE_PROD = "__Host-refresh";
+const SESSION_COOKIE_DEV = "refresh";
 
 const PROTECTED_PREFIXES = [
   "/admin",
@@ -70,6 +75,10 @@ export async function middleware(req: NextRequest) {
     if (reqContentType) headers.set("content-type", reqContentType);
     const cookie = req.headers.get("cookie");
     if (cookie) headers.set("cookie", cookie);
+    // Access JWT: viaja en Authorization, no en cookie. Sin reenviarlo
+    // PrincipalGuard no ve el Bearer y cae siempre al caso sin sesión.
+    const authorization = req.headers.get("authorization");
+    if (authorization) headers.set("authorization", authorization);
     // commerce-api valida `Origin`/`Referer` contra su allowlist (CSRF) en
     // las mutaciones con cookie: sin reenviarlos ese chequeo no corre.
     const origin = req.headers.get("origin");
