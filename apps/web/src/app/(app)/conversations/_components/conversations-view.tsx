@@ -184,7 +184,13 @@ function StatsStrip({
     <div
       aria-label="Resumen de conversaciones"
       className={cn(
-        "flex shrink-0 flex-nowrap items-stretch divide-x divide-border overflow-hidden rounded-card border border-border bg-card",
+        // `min-w-0` + `overflow-x-auto` (en vez de `shrink-0` + `overflow-hidden`):
+        // con 7 chips esta tira puede no caber junto al botón "Reporte" en la
+        // misma fila. Antes ganaba shrink-0 y empujaba el botón fuera del
+        // viewport (html{overflow-x:clip} lo recortaba sin scroll posible,
+        // quedando invisible). Ahora ES ELLA la que se encoge y scrollea
+        // internamente; el botón (shrink-0) siempre queda visible.
+        "flex min-w-0 flex-nowrap items-stretch divide-x divide-border overflow-x-auto rounded-card border border-border bg-card",
         query.isError && "border-destructive-subtle-foreground/30",
       )}
     >
