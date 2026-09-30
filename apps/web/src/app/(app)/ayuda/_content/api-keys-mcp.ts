@@ -219,14 +219,17 @@ export const apiKeysMcp: HelpCategory = {
         },
         {
           type: "code",
-          text: "claude mcp add easysell --env COMMERCE_API_KEY=npk_tu_secreto_aqui -- npx easysell-mcp",
+          text: "claude mcp add easysell --env COMMERCE_API_KEY=npk_tu_secreto_aqui -- npx @cgalaviz/easysell-mcp",
         },
         {
           type: "p",
           text:
             "No necesitas entender esa línea para usarla — solo copiarla y pegarla donde el asistente te lo " +
             "pida. \"easysell\" es simplemente el nombre técnico interno del conector; no cambia el nombre de " +
-            "tu negocio ni de Easy Sell en ningún lado que vean tus clientes.",
+            "tu negocio ni de Easy Sell en ningún lado que vean tus clientes. El nombre largo " +
+            "`@cgalaviz/easysell-mcp` es el paquete en npm (bajo el scope del publicador); el comando " +
+            "funciona igual usando solo el bin (`npx easysell-mcp`) si lo tenés instalado global, pero usar " +
+            "el nombre completo evita depender de lo que tengas en el PATH local.",
         },
         {
           type: "callout",
@@ -320,6 +323,215 @@ export const apiKeysMcp: HelpCategory = {
         },
       ],
       related: ["conectar-por-mcp", "api-keys-de-empresa", "productos-y-variantes"],
+    },
+    {
+      slug: "rotar-y-revocar-api-keys",
+      title: "Rotar y revocar API keys",
+      summary:
+        "Cuándo y cómo rotar (cambiar) o revocar (dar de baja) una API key, sin dejar al asistente sin " +
+        "acceso a mitad de un trabajo.",
+      audience: "owner",
+      keywords: ["rotar", "rotación", "revocar", "vencimiento", "cambiar key", "expirar"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Una API key no es eterna. Como cualquier secreto, conviene rotarla cada cierto tiempo — " +
+            "el mismo motivo por el que cambias la contraseña de tu correo cada varios meses, o el de " +
+            "los tokens de un banco que caducan a los 5 minutos. La rotación es el momento de crear " +
+            "una key nueva, mover al agente/integración a usarla, y revocar la vieja.",
+        },
+        {
+          type: "h3",
+          text: "Cuándo rotar (no esperes a que algo se rompa)",
+        },
+        {
+          type: "list",
+          items: [
+            "Cada 90 o 180 días, como política. Aunque nada haya pasado. La rotación rutinaria reduce el " +
+              "tiempo de vida útil de cualquier secreto que se haya filtrado sin que lo sepas.",
+            "Cuando alguien del equipo que tenía acceso a la key se va de la empresa. La persona ya no " +
+              "debería usar la cuenta, pero la rotación garantiza que no queda nada suyo con permisos.",
+            "Si tu archivo `.mcp.json`, `claude_desktop_config.json`, o cualquier backup donde " +
+              "estuviera el secreto se sincronizó, respaldó o compartió (Drive, iCloud, dotfiles " +
+              "públicos en GitHub, etc.). Considerá la key expuesta y rotala.",
+            "Si un agente o integración te avisa que su secreto quedó visible en un log público " +
+              "(algunos clientes MCP registran argumentos de tools para debug — ese log podría " +
+              "haberse filtrado).",
+          ],
+        },
+        {
+          type: "h3",
+          text: "Cómo rotar sin dejar al agente sin acceso",
+        },
+        {
+          type: "p",
+          text:
+            "El error típico es revocar la key vieja antes de que el agente/integración use la nueva: " +
+            "el agente empieza a recibir 401 y, hasta que vos le pases el secreto nuevo, no puede " +
+            "hacer nada. La forma correcta es al revés.",
+        },
+        {
+          type: "steps",
+          items: [
+            "Creá la API key nueva en Admin → API keys → \"Nueva API key\", con los mismos scopes " +
+              "que la anterior (o los que necesites ajustar). Copiá el secreto.",
+            "Actualizá el secreto en el cliente MCP: en Claude Code, \"claude mcp remove easysell\" " +
+              "y luego \"claude mcp add easysell --env COMMERCE_API_KEY=nueva_key -- npx " +
+              "@cgalaviz/easysell-mcp\"; en Claude Desktop, editá el archivo de configuración y " +
+              "reemplazá el valor; en otros clientes, actualizá la variable de entorno.",
+            "Verificá que el agente pueda llamar al menos una tool (por ejemplo, que liste " +
+              "productos del catálogo) — si responde bien con la nueva, seguí.",
+            "Revocá la key vieja desde la lista de API keys. Inmediatamente deja de funcionar. " +
+              "Si el agente seguía usándola por error, va a empezar a recibir 401 — y ya tenés " +
+              "la nueva andando, así que no se interrumpe nada.",
+          ],
+        },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "Si asignaste \"Expira en (días)\" al crear la key, ese vencimiento hace el rol de la " +
+            "rotación automática: cuando vence, deja de funcionar. Pero eso NO es lo mismo que " +
+            "rotación — la rotación reemplaza el secreto, no espera a que deje de funcionar. " +
+            "Lo ideal es combinar ambas: vencimiento de 180 días + recordatorio interno de rotar " +
+            "cada 90 (el sistema te avisa por la columna \"Último uso\").",
+        },
+        {
+          type: "h3",
+          text: "Cuándo revocar (sin reemplazo)",
+        },
+        {
+          type: "list",
+          items: [
+            "Sospecha fundada de que el secreto se filtró: revoca inmediatamente. No hay período " +
+              "de gracia. Después, investigá en Catálogo/Pedidos/Clientes por si hubo acciones " +
+              "que no reconocés.",
+            "Dejaste de usar esa integración y no la vas a volver a usar. Mantener keys vivas " +
+              "sin razón es superficie de ataque innecesaria.",
+            "Una auditoría o requisito de compliance te lo pide. Algunos marcos exigen rotación " +
+              "periódica con prueba de revocación de la anterior.",
+          ],
+        },
+        {
+          type: "p",
+          text:
+            "En todos los casos, revocar es instantáneo desde Admin → API keys: seleccioná la key " +
+            "y revocá. No hace falta contactar a soporte ni esperar a que expire.",
+        },
+      ],
+      related: ["api-keys-de-empresa", "conectar-por-mcp"],
+    },
+    {
+      slug: "multi-tenant-y-keys-globales",
+      title: "Multi-tenant: keys globales y COMMERCE_TENANT_ID",
+      summary:
+        "Cuando un mismo agente debe operar varias empresas, o cuando soporte de plataforma " +
+        "necesita entrar a cualquier cuenta, se usan API keys globales y la variable de entorno " +
+        "COMMERCE_TENANT_ID.",
+      audience: "owner",
+      keywords: ["multi-tenant", "global", "COMMERCE_TENANT_ID", "soporte", "plataforma", "super-admin"],
+      body: [
+        {
+          type: "p",
+          text:
+            "Las keys de tu empresa (las que crea Admin → API keys) están atadas a UNA sola " +
+            "empresa: solo pueden leer y operar la cuenta que las emitió. Para un agente que " +
+            "trabaja con tu tienda, eso es exactamente lo que querés. Pero hay dos casos donde " +
+            "eso no alcanza.",
+        },
+        {
+          type: "h3",
+          text: "Caso 1: tu agente maneja varias empresas",
+        },
+        {
+          type: "p",
+          text:
+            "Si vos o tu equipo operan más de una tienda en Easy Sell y querés que el mismo " +
+            "asistente (Claude Code en una sola máquina, por ejemplo) atienda a varias, la " +
+            "solución es crear una API key POR EMPRESA y, en el cliente MCP, levantar una " +
+            "instancia separada del servidor por cada una, cada una con su propia key.",
+        },
+        {
+          type: "code",
+          text:
+            "# Claude Code: un servidor MCP por empresa\n" +
+            "claude mcp add easysell-tienda-a \\\n" +
+            "  --env COMMERCE_API_KEY=npk_key_de_tienda_a \\\n" +
+            "  -- npx @cgalaviz/easysell-mcp\n" +
+            "\n" +
+            "claude mcp add easysell-tienda-b \\\n" +
+            "  --env COMMERCE_API_KEY=npk_key_de_tienda_b \\\n" +
+            "  -- npx @cgalaviz/easysell-mcp",
+        },
+        {
+          type: "p",
+          text:
+            "El nombre después de \"add\" (easysell-tienda-a, easysell-tienda-b) es solo un alias " +
+            "interno de Claude Code para que el agente sepa a cuál te referís cuando hay varios. " +
+            "Cada servidor sigue siendo el mismo paquete npm.",
+        },
+        {
+          type: "h3",
+          text: "Caso 2: tu agente necesita entrar a CUALQUIER empresa (soporte de plataforma)",
+        },
+        {
+          type: "p",
+          text:
+            "Esto ya no es una key por empresa. Es una key \"global\" que existe solo para " +
+            "super-admin de plataforma. La crea un humano desde Plataforma → API keys globales, " +
+            "no vos. Siempre lleva todos los scopes (no es configurable) y le sirve a un agente " +
+            "que hace soporte sobre cualquier cuenta.",
+        },
+        {
+          type: "callout",
+          tone: "warning",
+          text:
+            "Las keys globales no las crea un agente: las emite un humano desde el panel de " +
+            "Plataforma. Y una key global no puede emitir otras keys globales por sí sola — " +
+            "es un candado deliberado para que un agente con key global no se autoperpetúe. " +
+            "Si ves que tu agente necesita algo que solo una key global da, eslaboneá a una " +
+            "persona del equipo de Tupla.",
+        },
+        {
+          type: "h3",
+          text: "Acotar una key global a UNA empresa (COMMERCE_TENANT_ID)",
+        },
+        {
+          type: "p",
+          text:
+            "Una key global puede operar sobre cualquier empresa. Si querés que solo opere " +
+            "sobre una (por ejemplo, soporte a tienda-a hoy, tienda-b mañana), exportá la " +
+            "variable de entorno COMMERCE_TENANT_ID con el id de la empresa concreta. El " +
+            "servidor MCP la manda como header X-Tenant-Id en cada request.",
+        },
+        {
+          type: "code",
+          text:
+            "claude mcp add easysell-soporte \\\n" +
+            "  --env COMMERCE_API_KEY=npk_global_xxxxxxxx \\\n" +
+            "  --env COMMERCE_TENANT_ID=uuid_de_tienda_a \\\n" +
+            "  -- npx @cgalaviz/easysell-mcp",
+        },
+        {
+          type: "p",
+          text:
+            "Sin COMMERCE_TENANT_ID, la key global ve TODO (todos los tenants). Con ella, ve " +
+            "solo ese tenant. Si más adelante el agente necesita atender tienda-b, cambiás el " +
+            "valor de la env (o creás otro servidor MCP con la misma key global y otro tenant). " +
+            "La key global no cambia — solo cambia a qué empresa apunta cada proceso.",
+        },
+        {
+          type: "callout",
+          tone: "info",
+          text:
+            "Al arrancar el MCP con una key global, el proceso avisa por stderr que está en " +
+            "modo global y que tiene las herramientas super_admin_* activas. Si no lo esperabas, " +
+            "esa línea es la señal de que la key que cargaste es más poderosa de lo que pensabas " +
+            "— revocala y usá una key de tenant normal.",
+        },
+      ],
+      related: ["api-keys-de-empresa", "conectar-por-mcp"],
     },
     {
       slug: "preguntas-api-mcp",

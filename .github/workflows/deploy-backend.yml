@@ -152,7 +152,7 @@ jobs:
       # una por su cuenta (mismo problema que ya se resolvió para los
       # vhosts en 98ec349 — aquí volvió a pasar el 2026-09-29 al separar
       # CannedResponse/CustomerNote en dos pasos propios).
-      - name: RLS tablas fuera de schema.prisma (DeliveryZone, ProductImage, CannedResponse, CustomerNote, ApiKeyUsage, DataSource, DataSourceRun)
+      - name: RLS tablas fuera de schema.prisma (DeliveryZone, ProductImage, CannedResponse, CustomerNote, ApiKeyUsage, DataSource, DataSourceRun, OutboundHook, OutboundHookDelivery)
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
@@ -167,7 +167,7 @@ jobs:
             # /repo, donde @prisma/client no existe como dependencia
             # directa — la primera versión fallaba con MODULE_NOT_FOUND).
             docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api \
-              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();const rls=async(t,force,allowNull)=>{const chk=allowNull?\"(\\\"tenantId\\\" = current_tenant_id() OR \\\"tenantId\\\" IS NULL)\":\"(\\\"tenantId\\\" = current_tenant_id())\";await p.\$executeRawUnsafe(\"ALTER TABLE \\\"\"+t+\"\\\" ENABLE ROW LEVEL SECURITY\");if(force)await p.\$executeRawUnsafe(\"ALTER TABLE \\\"\"+t+\"\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"\"+t+\"\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"\"+t+\"\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK \"+chk+\"\");console.log(\"OK RLS \"+t);};(async()=>{await rls(\"DeliveryZone\",false);await rls(\"ProductImage\",true);await rls(\"CannedResponse\",true);await rls(\"CustomerNote\",false);await rls(\"ApiKeyUsage\",true,true);await rls(\"DataSource\",true);await rls(\"DataSourceRun\",true);await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
+              sh -c "cd apps/commerce-api && node -e 'const {PrismaClient}=require(\"@prisma/client\");const p=new PrismaClient();const rls=async(t,force,allowNull)=>{const chk=allowNull?\"(\\\"tenantId\\\" = current_tenant_id() OR \\\"tenantId\\\" IS NULL)\":\"(\\\"tenantId\\\" = current_tenant_id())\";await p.\$executeRawUnsafe(\"ALTER TABLE \\\"\"+t+\"\\\" ENABLE ROW LEVEL SECURITY\");if(force)await p.\$executeRawUnsafe(\"ALTER TABLE \\\"\"+t+\"\\\" FORCE ROW LEVEL SECURITY\");await p.\$executeRawUnsafe(\"DROP POLICY IF EXISTS tenant_isolation ON \\\"\"+t+\"\\\"\");await p.\$executeRawUnsafe(\"CREATE POLICY tenant_isolation ON \\\"\"+t+\"\\\" USING (\\\"tenantId\\\" = current_tenant_id()) WITH CHECK \"+chk+\"\");console.log(\"OK RLS \"+t);};(async()=>{await rls(\"DeliveryZone\",false);await rls(\"ProductImage\",true);await rls(\"CannedResponse\",true);await rls(\"CustomerNote\",false);await rls(\"ApiKeyUsage\",true,true);await rls(\"DataSource\",true);await rls(\"DataSourceRun\",true);await rls(\"OutboundHook\",true);await rls(\"OutboundHookDelivery\",true);await p.\$disconnect();})().catch(e=>{console.error(\"FAIL RLS:\",e.message);process.exit(1);})'"
 
 
       # El API público (api-easysell.tupla.dev) y el chat de IMSS-Bienestar

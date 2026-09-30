@@ -1,0 +1,39 @@
+# Easy Sell (Tupla)
+
+> Plataforma de commerce + agente de WhatsApp para tiendas: catálogo, cotizaciones, pedidos, pagos, envíos y atención al cliente, todo bajo una misma API y un servidor MCP para que cualquier agente de IA opere tu tienda con una API key.
+
+Easy Sell expone sus funciones a través del Model Context Protocol (MCP). Un agente conectado puede leer el catálogo, crear cotizaciones, abrir pedidos con link de pago, responder mensajes de WhatsApp y más — todo autenticado por API key, con principio de menor privilegio y trazabilidad completa.
+
+## MCP (Model Context Protocol)
+
+- [Qué cubre el MCP de Easy Sell](https://easysell.tupla.dev/ayuda/conectar-por-mcp): cómo funciona, qué herramientas descubre el agente, qué NO puede hacer.
+- [Editar el catálogo con un asistente](https://easysell.tupla.dev/ayuda/mcp-catalogo): casos de uso reales del agente conectado, qué le puedes pedir.
+- [Rotar y revocar API keys](https://easysell.tupla.dev/ayuda/rotar-y-revocar-api-keys): cuándo y cómo rotar claves sin cortar el acceso al agente.
+- [Multi-tenant y keys globales](https://easysell.tupla.dev/ayuda/multi-tenant-y-keys-globales): un agente atendiendo varias tiendas, soporte de plataforma, variable `COMMERCE_TENANT_ID`.
+- [Preguntas frecuentes API y MCP](https://easysell.tupla.dev/ayuda/preguntas-api-mcp): errores 401/403, key perdida, agente sin permisos.
+
+## Centro de ayuda
+
+- [Primeros pasos](https://easysell.tupla.dev/ayuda/primeros-pasos): onboarding del producto.
+- [Catálogo](https://easysell.tupla.dev/ayuda/catalogo): productos, variantes, importación.
+- [Clientes](https://easysell.tupla.dev/ayuda/clientes): ficha 360°, direcciones, consentimientos.
+- [Cotizaciones y pedidos](https://easysell.tupla.dev/ayuda/cotizaciones-pedidos): emisión, aceptación, checkout, facturación.
+- [Pagos](https://easysell.tupla.dev/ayuda/pagos): sesiones, reembolsos, ledger.
+- [Envíos](https://easysell.tupla.dev/ayuda/envios): zonas de entrega, lookup por CP/ciudad/polígono.
+- [WhatsApp](https://easysell.tupla.dev/ayuda/whatsapp): conexiones, bandeja, handoff humano-bot.
+- [Agente](https://easysell.tupla.dev/ayuda/agente): el agente de chat que opera la tienda.
+- [Notificaciones](https://easysell.tupla.dev/ayuda/notificaciones): plantillas, programación, cohortes.
+- [Empresa y seguridad](https://easysell.tupla.dev/ayuda/empresa-seguridad): branding, parámetros, equipo.
+- [Reportes y uso](https://easysell.tupla.dev/ayuda/reportes-uso): dashboard, atención, costos.
+- [Glosario](https://easysell.tupla.dev/ayuda/glosario): términos técnicos del producto.
+- [Plataforma](https://easysell.tupla.dev/ayuda/plataforma): super-admin, tenants, API keys globales.
+
+## Para desarrolladores / integradores
+
+- [Paquete npm `@cgalaviz/easysell-mcp`](https://www.npmjs.com/package/@cgalaviz/easysell-mcp): servidor MCP sobre la API. Bin: `easysell-mcp`.
+- [Documentación técnica del MCP](https://github.com/cgalaviz/apps-mcp-server/blob/main/README.md): instalación, autenticación, variables de entorno, seguridad, anotaciones de tools, qué cubre cada dominio.
+
+## Optional
+
+- [Página principal](https://easysell.tupla.dev): descripción comercial del producto.
+- [Login](https://easysell.tupla.dev/login): acceso al panel.

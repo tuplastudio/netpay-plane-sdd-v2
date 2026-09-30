@@ -81,6 +81,8 @@ model Tenant {
   cannedResponses CannedResponse[]
   customerNotes CustomerNote[]
   dataSources  DataSource[]
+  outboundHooks OutboundHook[]
+  outboundHookDeliveries OutboundHookDelivery[]
 }
 
 enum TenantStatus {
@@ -1439,4 +1441,111 @@ model DataSourceRun {
 
   @@index([tenantId, dataSourceId, startedAt])
   @@index([dataSourceId, status])
+}
+
+// === Hooks salientes ===
+// Webhooks (REST) o herramientas MCP que la plataforma dispara hacia sistemas
+// del tenant cuando termina una acción de negocio (order.created, quote.issued,
+// payment.succeeded, ...). El emisor (`DomainEventBus`) crea una entrega por
+// hook activo suscrito; el despachador (`OutboundDispatcherService`) las
+// envía con reintentos y backoff exponencial. Ver
+// docs/integrations/outbound-hooks.md.
+
+enum OutboundHookKind {
+  REST
+  MCP
+}
+
+enum OutboundHookAuthType {
+  NONE
+  BEARER
+  API_KEY_HEADER
+  BASIC
+  HMAC
+}
+
+enum OutboundHookStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum OutboundHookDeliveryStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  DEAD
+}
+
+model OutboundHook {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  name           String
+  description    String?
+  kind           OutboundHookKind @default(REST)
+  /// Endpoint REST (POST JSON) o URL del servidor MCP (Streamable HTTP).
+  targetUrl      String
+  authType       OutboundHookAuthType @default(NONE)
+  /// Credencial cifrada con `secret-cipher` (AES-256-GCM, TOKEN_ENCRYPTION_KEY_REF):
+  /// token Bearer, valor del header de API key o `usuario:contraseña` (BASIC).
+  /// NULL con NONE y HMAC.
+  credential     String?
+  /// Header donde va la API key (`API_KEY_HEADER`); por defecto `X-API-Key`.
+  authHeaderName String?
+  /// Secreto de firma HMAC-SHA256, cifrado. Toda entrega va firmada
+  /// (`X-EasySell-Signature: t=<ts>,v1=<hex>`), sea cual sea `authType`.
+  signingSecret  String
+  /// Eventos suscritos (`order.created`, `quote.issued`, ...). Ver el catálogo
+  /// en `src/hooks/event-catalog.ts`.
+  events         String[] @default([])
+  status         OutboundHookStatus @default(ACTIVE)
+  /// Headers extra `{ "X-Custom": "valor" }` que se agregan a cada envío.
+  headers        Json?
+  /// MCP: herramienta a invocar (`tools/call`) y plantilla de argumentos con
+  /// placeholders `{{event.data.orderId}}`. Sin plantilla se manda `{ event }`.
+  toolName       String?
+  argsTemplate   Json?
+  /// `{ "maxAttempts": 5, "backoffSeconds": 30 }` (exponencial, tope 1 h).
+  retryPolicy    Json?
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deliveries OutboundHookDelivery[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+}
+
+model OutboundHookDelivery {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  hookId         String   @db.Uuid
+  eventName      String
+  /// Id del evento de dominio: el mismo para todos los hooks que lo reciben,
+  /// para que el receptor pueda deduplicar.
+  eventId        String   @db.Uuid
+  /// Sobre completo `{ id, event, occurredAt, tenantId, data, version }`.
+  payload        Json
+  attempt        Int      @default(0)
+  status         OutboundHookDeliveryStatus @default(PENDING)
+  responseStatus Int?
+  /// Primeros 2 KB de la respuesta (o del error JSON-RPC).
+  responseBody   String?
+  error          String?
+  durationMs     Int?
+  /// Cuándo toca el siguiente intento. El despachador toma
+  /// `status IN (PENDING, FAILED) AND nextAttemptAt <= now()`.
+  nextAttemptAt  DateTime @default(now()) @db.Timestamptz
+  /// Lease optimista: la fila la tiene un despachador desde esta hora. Un
+  /// lease vencido (> 60 s) se considera huérfano y se vuelve a tomar.
+  lockedAt       DateTime? @db.Timestamptz
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  deliveredAt    DateTime? @db.Timestamptz
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hook   OutboundHook @relation(fields: [hookId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([hookId, createdAt])
+  @@index([tenantId, createdAt])
 }

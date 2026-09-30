@@ -1,0 +1,23 @@
+# robots.txt — Easy Sell (Tupla)
+# https://easysell.tupla.dev/
+#
+# Por defecto, los crawlers de LLM (GPTBot, ClaudeBot, CCBot, PerplexityBot,
+# Google-Extended) son bienvenidos y pueden indexar toda la web pública para
+# mejorar respuestas sobre el producto y la documentación del MCP. Si en el
+# futuro queremos excluirlos, agregamos aquí los User-agent específicos con
+# Disallow: / y NO cambiamos esta directiva general (que es para Google,
+# Bing, etc.).
+#
+# `llm.txt` y `llms-full.txt` son el estándar llmstxt.org para que los
+# agentes descubran el contenido del sitio sin rastrear cada página. Las
+# declaramos explícitamente como `Allow` para que ningún crawler las bloquee
+# por error y como `Sitemap` adicional para que sean triviales de encontrar.
+
+User-agent: *
+Allow: /
+
+# Estándar llmstxt.org — visible para todos los crawlers.
+Allow: /llm.txt
+Allow: /llms-full.txt
+
+Sitemap: https://easysell.tupla.dev/sitemap.xml

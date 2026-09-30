@@ -1,0 +1,581 @@
+# Easy Sell (Tupla)
+
+> Plataforma de commerce + agente de WhatsApp para tiendas: catálogo, cotizaciones, pedidos, pagos, envíos y atención al cliente, todo bajo una misma API y un servidor MCP para que cualquier agente de IA opere tu tienda con una API key.
+
+Este archivo (`llms-full.txt`) contiene la documentación completa sobre el MCP de Easy Sell: instalación, autenticación, configuración en Claude Code / Claude Desktop, scopes de API key, qué puede hacer el agente, rotación, multi-tenant y preguntas frecuentes.
+
+<metadata>
+- Versión del servidor MCP: 0.4.0
+- Nombre en npm: @cgalaviz/easysell-mcp
+- Bin: easysell-mcp
+- Runtime: Node.js >= 18
+- Runtime deps: @modelcontextprotocol/sdk, zod
+- Documento generado: README del paquete + centro de ayuda en /ayuda/api-keys-mcp
+</metadata>
+
+---
+
+# Servidor MCP de Easy Sell (`@cgalaviz/easysell-mcp`)
+
+
+Servidor [MCP](https://modelcontextprotocol.io) que expone la API de Easy Sell
+(commerce-api: catálogo, clientes, cotizaciones, pedidos, pagos, envíos,
+reportes, notificaciones, integraciones, uso, conversaciones de WhatsApp,
+auditoría y, con una key global, administración de plataforma) como
+herramientas para Claude o cualquier agente compatible con MCP.
+
+Corre por **stdio** — el cliente (Claude Desktop, Claude Code, cualquier host
+MCP) lo lanza como proceso local. No expone ningún puerto ni requiere
+desplegarlo aparte. Publicado en npm como `@cgalaviz/easysell-mcp` (el bin se
+llama `easysell-mcp`).
+
+## Instalar y correr
+
+```bash
+npx @cgalaviz/easysell-mcp
+```
+
+(o instalado globalmente: `npm install -g @cgalaviz/easysell-mcp` y luego
+`easysell-mcp`). Necesita `COMMERCE_API_KEY` en el entorno — ver **Autenticación**
+abajo. Sin ella, el proceso falla al arrancar con un mensaje explicando qué
+falta, no con un error de red genérico en la primera tool que se intente usar.
+
+## Autenticación
+
+Todo pasa por una **API key** (`Authorization: Bearer npk_...`), nunca una
+sesión de usuario. Hay dos tipos:
+
+- **Key de tenant** (la normal): se crea desde el panel en **Empresa → API
+  keys**, con los scopes que elijas. Solo puede operar la empresa que la
+  emitió.
+- **Key global** (T-IAM-09b, solo super-admin): se crea en **Plataforma →
+  API keys globales**. Sin tenant fijo — cada llamada decide sobre cuál
+  operar con `COMMERCE_TENANT_ID` (ver abajo). Siempre lleva TODOS los
+  scopes; no es configurable. Al arrancar, el servidor detecta si la key es
+  global y lo avisa por stderr (`⚠️ ... esta API key es GLOBAL ...`), para
+  que nunca sea una sorpresa a media sesión.
+
+En ambos casos, el MCP solo puede hacer lo que la key tenga permitido — todo
+lo demás lo rechaza commerce-api con 403 (o 404 "Sin tenant" si falta
+`X-Tenant-Id` con una key global). El servidor MCP no añade ni quita permisos
+por su cuenta.
+
+**Principio de menor privilegio:** usa una key de tenant con solo los scopes
+que de verdad necesites, salvo que el caso de uso genuinamente cruce varias
+empresas (soporte de plataforma, automatización cross-tenant) — ahí sí toca
+key global, y con eso asumes que cualquier prompt que ese agente procese
+puede, en teoría, terminar tocando cualquier empresa.
+
+## Variables de entorno
+
+| Variable | Requerida | Default | Descripción |
+|---|---|---|---|
+| `COMMERCE_API_KEY` | Sí | — | La API key (`npk_...`). |
+| `COMMERCE_API_BASE_URL` | No | `https://api-easysell.tupla.dev/api/v1` | Base de la API. Cambiar para apuntar a local/staging. |
+| `COMMERCE_TENANT_ID` | No | — | Solo tiene efecto con una key global: manda `X-Tenant-Id` en cada request para acotarla a una empresa. Con una key de tenant normal se ignora. |
+| `COMMERCE_TIMEOUT_MS` | No | `30000` | Tope por request antes de abortar. Una conexión colgada no debe dejar la sesión MCP entera esperando para siempre. |
+
+## Seguridad
+
+- **`Authorization`/`X-Tenant-Id` nunca vienen del modelo**: cada tool los
+  arma el propio servidor desde variables de entorno fijas al arrancar
+  (`src/client.ts`); nada que el agente escriba en los argumentos de una
+  tool puede cambiar quién llama ni sobre qué tenant, más allá de lo que la
+  tool declara legítimamente (p. ej. un `id` de pedido).
+- **Anotaciones de tool** (`readOnlyHint`/`destructiveHint`/`idempotentHint`/
+  `openWorldHint`, spec de MCP): cada tool las declara — `GET` es
+  `readOnlyHint`, `DELETE` y las mutaciones con efecto real difícil de
+  deshacer (reembolsos, cancelaciones, desactivar una integración/empresa,
+  mandar un mensaje de WhatsApp real) llevan `destructiveHint: true`. Un
+  cliente MCP que las respeta (Claude Desktop, Claude Code) puede pedir
+  confirmación antes de ejecutarlas. Son solo señales — commerce-api sigue
+  siendo el único candado real vía scopes.
+- **Timeout por request**: ver `COMMERCE_TIMEOUT_MS` arriba.
+- **Nunca guardes la key en texto plano compartido**: el secreto (`npk_...`)
+  se muestra una sola vez al crearlo. Si tu `.mcp.json` o
+  `claude_desktop_config.json` se sincroniza, se respalda o se comparte,
+  considera la key expuesta — revócala y crea una nueva si eso pasa. Preferir
+  un gestor de secretos del sistema operativo cuando el cliente MCP lo
+  soporte, en vez de dejar la key en el JSON de config.
+- **Menor privilegio**: ver arriba. Una key con solo `catalog.read` no puede
+  hacer nada si el proceso o el prompt se ven comprometidos, más allá de leer
+  catálogo.
+- El código es 100% código abierto en este repo (`apps/mcp-server/src`):
+  audítalo — no hay llamadas de red a nada más que
+  `COMMERCE_API_BASE_URL`, ni telemetría, ni logging del contenido de la key.
+
+## Build (para desarrollo local del propio servidor)
+
+```bash
+pnpm --filter @cgalaviz/easysell-mcp build
+```
+
+Genera `apps/mcp-server/dist/main.js`.
+
+## Configurar en Claude Code
+
+```bash
+claude mcp add easysell \
+  --env COMMERCE_API_KEY=npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+  -- npx @cgalaviz/easysell-mcp
+```
+
+O agregando a mano en `.mcp.json` (raíz del proyecto o `~/.claude.json`):
+
+```json
+{
+  "mcpServers": {
+    "easysell": {
+      "command": "npx",
+      "args": ["@cgalaviz/easysell-mcp"],
+      "env": {
+        "COMMERCE_API_KEY": "npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+## Configurar en Claude Desktop
+
+En `claude_desktop_config.json` (menú Claude → Settings → Developer → Edit
+Config):
+
+```json
+{
+  "mcpServers": {
+    "easysell": {
+      "command": "npx",
+      "args": ["@cgalaviz/easysell-mcp"],
+      "env": {
+        "COMMERCE_API_KEY": "npk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
+```
+
+## Cualquier otro agente / cliente MCP
+
+Cualquier host que hable el protocolo MCP por stdio sirve: lanzar
+`npx @cgalaviz/easysell-mcp` (o `node apps/mcp-server/dist/main.js` desde el
+repo) con `COMMERCE_API_KEY` en el entorno del proceso. No hay nada específico
+de Claude en el servidor — es un `McpServer` estándar del SDK oficial
+(`@modelcontextprotocol/sdk`).
+
+## Qué cubre
+
+Una tool por endpoint de negocio: catálogo, clientes, cotizaciones, pedidos,
+pagos, envío, pricing, reportes, notificaciones, integraciones, uso,
+conversaciones/WhatsApp y auditoría — más, si la key es global, administración
+de plataforma (`super_admin_*`: empresas, membresías, invitaciones, keys de
+tenant y keys globales). Ver `src/registry/` — un archivo por dominio, cada
+uno una lista declarativa de rutas (`RouteDef`, ver `src/registry/types.ts`)
+que `src/tools.ts` convierte en tools MCP genéricamente. Las pocas rutas que
+no son JSON puro (fotos de catálogo, PDF de cotización) están registradas a
+mano en `src/registry/catalog-images.ts` y `src/registry/binary-downloads.ts`.
+
+Quedan fuera a propósito: endpoints `public/*` (usan token de link
+compartido, no API key), onboarding/QR de Evolution y rotación de webhook
+secret (operativos, de una sola vez, mejor desde el panel), e impersonar
+(mecanismo de cookie de sesión de navegador — una key global +
+`COMMERCE_TENANT_ID` logra lo mismo sin necesitarlo).
+
+## Desarrollo
+
+```bash
+pnpm --filter @cgalaviz/easysell-mcp dev     # tsx, sin build previo
+pnpm --filter @cgalaviz/easysell-mcp typecheck
+pnpm --filter @cgalaviz/easysell-mcp lint
+```
+
+Para probar interactivamente sin un cliente MCP completo, usa el
+[MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector):
+
+```bash
+npx @modelcontextprotocol/inspector node apps/mcp-server/dist/main.js
+```
+
+## API keys — guía completa
+
+Hay dos tipos y son cosas distintas.
+
+### Key de tenant (la que vas a usar el 99% del tiempo)
+
+1. **Panel** → **Empresa → API keys** → **"Crear API key"**.
+2. Nombre: algo descriptivo (ej. `"MCP Claude Code local"`, `"Agente chat producción"`).
+3. Scopes: **mínimo privilegio**. Para un agente de chat que cotiza, cobra y
+   lee catálogo: `catalog.read`, `customers.read`, `quotes.write`, `orders.write`,
+   `chat.read`, `chat.write`. Para reporting/auditoría sumá `payments.read`,
+   `audit.read`. **Nunca** pongas `tenant.admin` o `apikeys.manage` salvo que la
+   tool específica lo pida.
+4. Sin expiración, o 90/180 días si querés rotación automática. Una key eterna
+   es una fuga permanente si se filtra.
+5. **La key completa (`npk_...`) se muestra UNA sola vez** al crearla. Copiala
+   a un gestor de secretos del sistema (1Password CLI, macOS Keychain,
+   `gpg`-encrypted file) ANTES de cerrar el modal.
+6. La key queda asociada a UN tenant — si el agente debe operar varias
+   empresas, necesitás una key por tenant, o una key global.
+
+### Key global (T-IAM-09b — solo super-admin de plataforma)
+
+Cubre TODOS los tenants sin que la API key quede atada a uno. Pensada para
+soporte de plataforma y automatizaciones cross-tenant.
+
+1. **Panel** → **Plataforma → API keys globales** → **"Crear API key global"**.
+2. No hay scopes que elegir — siempre lleva todos.
+3. La key se crea en la cuenta de un humano (sesión de panel); una key global
+   **no puede emitir más keys globales** por sí sola (esto es por diseño).
+4. Para acotar a un tenant puntual sin perder los permisos, export
+   `COMMERCE_TENANT_ID=<uuid>` y el header `X-Tenant-Id` se manda solo. Sin
+   esa env, la key opera sobre cualquier empresa.
+
+### Convención operativa
+
+- **Una key por cliente MCP / por despliegue**: Claude Desktop en la laptop
+  del dueño, Claude Code en CI, el agente de chat en el contenedor del
+  cliente — cada uno su propia key. Si una se filtra, revocas esa y las
+  demás siguen.
+- **Rotación**: cuando un empleado del cliente que tenía acceso a la key se
+  va, o cada 90-180 días como política, revocá la key en el panel y emití
+  una nueva. El equipo de Tupla no necesita intervenir.
+- **Logs**: si tu `.mcp.json` o `claude_desktop_config.json` se sincroniza
+  (iCloud, backup, dotfiles repo), se respalda o se comparte, considerá la
+  key expuesta — revocala y emití una nueva.
+- **Menos es más**: si la tool que vas a usar no necesita `tenant.admin` para
+  funcionar (ver el README de cada tool), no le des ese scope a la key.
+
+## Publicar una versión nueva en npm
+
+El paquete está bajo el scope personal `@cgalaviz/` (la cuenta npm del autor).
+Como ya publicaste `atiendeya-mcp` antes, la cuenta tiene historial y no
+requiere pasos previos.
+
+```bash
+cd apps/mcp-server
+npm login                 # user + 2FA OTP
+pnpm --filter @cgalaviz/easysell-mcp build
+npm version patch          # o minor/major
+npm publish               # corre typecheck+lint+test+build (prepublishOnly)
+```
+
+`npm publish` exige **2FA en el momento del publish** (no un token con
+bypass-2FA — npm los está restringiendo para publish directo).
+
+### Verificar después de publicar
+
+```bash
+npm view @cgalaviz/easysell-mcp version bin engines
+npx @cgalaviz/easysell-mcp < /dev/null   # arranca: "140 tools registradas"
+```
+
+Si el publish falla con `404 Not Found - PUT`, lo más probable es que la
+sesión de npm haya expirado o que el usuario autenticado no sea `cgalaviz` —
+verificá con `npm whoami` y `npm login` de nuevo si hace falta.
+
+
+---
+
+# Centro de ayuda — Artículos del MCP
+
+> Estos artículos vienen del centro de ayuda de Easy Sell (`/ayuda/api-keys-mcp`). Cubren el ciclo de vida completo de una API key en contexto MCP.
+
+## API keys de tu empresa
+
+Credenciales para que un sistema externo, un script o un agente de inteligencia artificial hable con 
+
+Normalmente entras a Easy Sell con tu correo y tu contraseña. Eso crea una sesión: el sistema sabe 
+
+Una API key (también le puedes decir "llave de API" o "credencial de API") es un código secreto 
+
+Ejemplo: imagina que tienes una tienda de pinturas y usas un programa aparte para llevar tu 
+
+Cada API key se crea con permisos (en inglés se les llama scopes) que tú eliges al momento de 
+
+- Catálogo: ver o modificar tus productos y precios.
+- Clientes: ver o modificar los datos de tus clientes.
+- Cotizaciones: ver o crear cotizaciones.
+- Pedidos: ver, crear pedidos, o cancelar pedidos (los propios, o cualquiera).
+- Pagos: ver pagos, hacer reembolsos, o exportar reportes de pagos — son permisos distintos entre sí.
+- Conversaciones (chat): leer o responder los mensajes de WhatsApp que llegan al agente.
+- Notificaciones e integraciones: ver o configurar avisos y conexiones con otros sistemas.
+- Auditoría: ver la bitácora de cambios de la cuenta.
+- Administración: invitar usuarios, gestionar membresías, o crear y revocar otras API keys — estos 
+- son los permisos más delicados, porque le dan a la key control sobre la cuenta misma, no solo 
+- sobre el catálogo o las ventas.
+
+> **[INFO]**
+>
+> Si no sabes qué permisos darle a algo, dale los mínimos que necesita para funcionar y nada más. 
+>
+
+### Cómo crear una API key
+
+1. Ve a Admin → API keys, dentro de la administración de tu empresa.
+2. Haz clic en el botón "Nueva API key".
+3. Se abre un panel llamado "Nueva API key" con tres campos que llenar.
+4. En "Nombre" escribe algo que te ayude a identificarla después (por ejemplo "Integración con mi 
+5. sistema de inventario" o "Bot de WhatsApp"). Tiene un límite de 100 caracteres.
+6. En "Permisos" marca solamente las casillas de lo que esa key va a necesitar hacer, agrupadas por 
+7. área (catálogo, clientes, pedidos, pagos, etc.).
+8. En "Expira en (días)" decide su vigencia: déjalo vacío si quieres que nunca expire, o escribe un 
+9. número de días (por ejemplo 90) si quieres que deje de funcionar sola después de ese tiempo.
+10. Haz clic en "Crear API key".
+
+> **[WARNING] El secreto se muestra una sola vez**
+>
+> Justo después de crearla aparece un aviso que dice "Copia esta key ahora: no se muestra de 
+>
+
+> **[WARNING]**
+>
+> Si pierdes el secreto, no hay forma de recuperarlo: por seguridad, Easy Sell nunca guarda el 
+>
+
+Después de creada, la key ya no aparece en la lista con su secreto completo — solo con su prefijo 
+
+| Columna | Qué significa |
+|---|---|
+| Nombre | El nombre que le pusiste al crearla. |
+| Prefijo | La parte visible del secreto (npk_...); nunca el secreto completo. |
+| Permisos | Qué puede hacer esa key. |
+| Creada | Cuándo se generó. |
+| Expira | La fecha en que deja de funcionar, o "Sin vencimiento" si nunca expira. |
+| Último uso | La última vez que se usó para llamar a la API, o "Nunca" si no se ha usado. |
+
+Para revocar una key (dejarla inválida de inmediato, por ejemplo porque ya no la usas o crees que 
+
+> **[INFO]**
+>
+> Ejemplo de un permiso mal calculado: si le das a una key solo permiso de leer el catálogo, y el 
+>
+
+
+---
+
+## Conectar por MCP (Claude u otro agente)
+
+Un botón crea la API key recomendada y te da el comando de instalación con el secreto ya puesto, para 
+
+Un agente de inteligencia artificial es un programa que, además de responder texto, puede hacer 
+
+Para que un agente pueda usar tu cuenta de Easy Sell necesita dos cosas: una forma de "hablar" 
+
+Ejemplo: en vez de entrar tú mismo al panel a revisar cuántos pedidos llevas esta semana, le puedes 
+
+### Conectar en un solo paso (recomendado)
+
+1. Ve a Admin → API keys, y busca la sección "Conectar por MCP".
+2. Haz clic en el botón "Generar API key y conectar".
+3. El sistema crea automáticamente una API key nueva llamada "MCP", con un conjunto de permisos ya 
+4. pensado para este uso: leer el catálogo; leer y modificar clientes, cotizaciones y pedidos 
+5. (incluyendo cancelar los pedidos que el propio agente creó); solo leer pagos; leer y responder 
+6. conversaciones; y leer notificaciones. No incluye reembolsos, exportar pagos, ni nada de 
+7. administración (invitar gente, gestionar otras API keys, etc.) — eso es intencional, para que un 
+8. agente conectado así no pueda hacer nada delicado por error.
+9. Aparece un aviso igual de importante que el de las keys normales: "Copia el secreto de aquí 
+10. abajo: no se vuelve a mostrar". El secreto ya viene insertado en el comando que necesitas, así 
+11. que no tienes que copiarlo aparte.
+12. Elige la pestaña según qué agente vas a usar: "Claude Code" (una herramienta de línea de 
+13. comandos), "Claude Desktop" (la aplicación de escritorio de Claude), u "Otro agente" 
+14. (cualquier otro programa compatible con MCP).
+15. Copia el comando o bloque que aparece — ya trae tu secreto insertado, no tienes que editarlo.
+16. Pégalo donde corresponda: en Claude Code, en una terminal; en Claude Desktop, en su archivo de 
+17. configuración; en otro agente, donde ese programa te pida sus variables de entorno.
+18. Haz clic en "Ya la instalé" para cerrar el aviso.
+
+Un ejemplo de cómo se ve el comando para Claude Code, solo para que sepas qué esperar (el tuyo 
+
+```
+claude mcp add easysell --env COMMERCE_API_KEY=npk_tu_secreto_aqui -- npx @cgalaviz/easysell-mcp
+```
+
+No necesitas entender esa línea para usarla — solo copiarla y pegarla donde el asistente te lo 
+
+> **[INFO]**
+>
+> ¿Necesitas que tu agente también cree o edite productos, haga reembolsos, exporte pagos o 
+>
+
+> **[WARNING]**
+>
+> Si copias el comando pero se te olvida pegarlo antes de cerrar la ventana, no pasa nada grave: la 
+>
+
+
+---
+
+## Editar tu catálogo con un asistente (MCP)
+
+Crear, editar y dar de baja productos, variantes y precios pidiéndoselo en lenguaje normal a Claude u otro asistente conectado por MCP.
+
+Con una conexión por MCP puedes pedirle a un asistente cosas como "crea el producto Playera 
+
+> **[WARNING] La key del botón "Generar API key y conectar" solo lee el catálogo**
+>
+> Esa key rápida trae permiso para ver el catálogo, no para cambiarlo. Para crear, editar o 
+>
+
+### Preparar la conexión con permiso de catálogo
+
+1. Ve a Admin → API keys y da clic en "Nueva API key".
+2. Nombre: por ejemplo "Asistente - catálogo".
+3. En Permisos, marca ver catálogo y modificar catálogo. Agrega otros solo si los necesitas.
+4. Da clic en "Crear API key" y copia el secreto (empieza con npk_). Solo se muestra una vez.
+5. Usa el mismo comando de instalación de "Conectar por MCP", cambiando el secreto por el de 
+6. esta key nueva.
+
+### Qué le puedes pedir
+
+| Acción | Ejemplo de lo que le pides | Qué hace |
+|---|---|---|
+| Ver productos | "¿Qué pinturas tengo y a qué precio?" | Lista y busca por nombre, SKU o sinónimo. |
+| Crear un producto | "Crea Playera básica, SKU PLAY-BAS, con variantes S, M y L a 199.00" | Crea el producto con al menos una variante. Queda en borrador hasta que lo actives. |
+| Editar un producto | "Cambia la descripción de la Playera básica" | Cambia título, descripción, sinónimos, estado, etc. |
+| Agregar una variante | "Agrega la talla XL a 219.00" | Suma una variante al producto. |
+| Editar una variante | "Pon la existencia de la talla M en 25" | Cambia precio, existencia, claves SAT o estado de esa variante. |
+| Dar de baja | "Archiva la Playera básica" | Archiva el producto: deja de venderse, pero no se borra. |
+| Borrar una foto | "Quita la segunda foto de la talla S" | Elimina esa foto. |
+| Importar muchos | "Importa estas 200 filas" | Primero hace la vista previa (sin guardar) y luego, si confirmas, guarda. |
+
+> **[INFO] "Eliminar" significa archivar**
+>
+> Por seguridad, ningún producto se borra para siempre, ni desde el panel ni desde un asistente. 
+>
+
+> **[INFO]**
+>
+> Las mismas reglas del panel aplican: precios con dos decimales (149.00), SKU único, clave SAT de 
+>
+
+
+---
+
+## Rotar y revocar API keys
+
+Cuándo y cómo rotar (cambiar) o revocar (dar de baja) una API key, sin dejar al asistente sin 
+
+Una API key no es eterna. Como cualquier secreto, conviene rotarla cada cierto tiempo — 
+
+### Cuándo rotar (no esperes a que algo se rompa)
+
+- Cada 90 o 180 días, como política. Aunque nada haya pasado. La rotación rutinaria reduce el 
+- tiempo de vida útil de cualquier secreto que se haya filtrado sin que lo sepas.
+- Cuando alguien del equipo que tenía acceso a la key se va de la empresa. La persona ya no 
+- debería usar la cuenta, pero la rotación garantiza que no queda nada suyo con permisos.
+- Si tu archivo `.mcp.json`, `claude_desktop_config.json`, o cualquier backup donde 
+- estuviera el secreto se sincronizó, respaldó o compartió (Drive, iCloud, dotfiles 
+- públicos en GitHub, etc.). Considerá la key expuesta y rotala.
+- Si un agente o integración te avisa que su secreto quedó visible en un log público 
+- (algunos clientes MCP registran argumentos de tools para debug — ese log podría 
+- haberse filtrado).
+
+### Cómo rotar sin dejar al agente sin acceso
+
+El error típico es revocar la key vieja antes de que el agente/integración use la nueva: 
+
+1. Creá la API key nueva en Admin → API keys → "Nueva API key", con los mismos scopes 
+2. que la anterior (o los que necesites ajustar). Copiá el secreto.
+3. Actualizá el secreto en el cliente MCP: en Claude Code, "claude mcp remove easysell" 
+4. y luego "claude mcp add easysell --env COMMERCE_API_KEY=nueva_key -- npx 
+5. @cgalaviz/easysell-mcp"; en Claude Desktop, editá el archivo de configuración y 
+6. reemplazá el valor; en otros clientes, actualizá la variable de entorno.
+7. Verificá que el agente pueda llamar al menos una tool (por ejemplo, que liste 
+8. productos del catálogo) — si responde bien con la nueva, seguí.
+9. Revocá la key vieja desde la lista de API keys. Inmediatamente deja de funcionar. 
+10. Si el agente seguía usándola por error, va a empezar a recibir 401 — y ya tenés 
+11. la nueva andando, así que no se interrumpe nada.
+
+> **[INFO]**
+>
+> Si asignaste "Expira en (días)" al crear la key, ese vencimiento hace el rol de la 
+>
+
+### Cuándo revocar (sin reemplazo)
+
+- Sospecha fundada de que el secreto se filtró: revoca inmediatamente. No hay período 
+- de gracia. Después, investigá en Catálogo/Pedidos/Clientes por si hubo acciones 
+- que no reconocés.
+- Dejaste de usar esa integración y no la vas a volver a usar. Mantener keys vivas 
+- sin razón es superficie de ataque innecesaria.
+- Una auditoría o requisito de compliance te lo pide. Algunos marcos exigen rotación 
+- periódica con prueba de revocación de la anterior.
+
+En todos los casos, revocar es instantáneo desde Admin → API keys: seleccioná la key 
+
+
+---
+
+## Multi-tenant: keys globales y COMMERCE_TENANT_ID
+
+Cuando un mismo agente debe operar varias empresas, o cuando soporte de plataforma 
+
+Las keys de tu empresa (las que crea Admin → API keys) están atadas a UNA sola 
+
+### Caso 1: tu agente maneja varias empresas
+
+Si vos o tu equipo operan más de una tienda en Easy Sell y querés que el mismo 
+
+```
+# Claude Code: un servidor MCP por empresan
+```
+
+El nombre después de "add" (easysell-tienda-a, easysell-tienda-b) es solo un alias 
+
+### Caso 2: tu agente necesita entrar a CUALQUIER empresa (soporte de plataforma)
+
+Esto ya no es una key por empresa. Es una key "global" que existe solo para 
+
+> **[WARNING]**
+>
+> Las keys globales no las crea un agente: las emite un humano desde el panel de 
+>
+
+### Acotar una key global a UNA empresa (COMMERCE_TENANT_ID)
+
+Una key global puede operar sobre cualquier empresa. Si querés que solo opere 
+
+```
+claude mcp add easysell-soporte \n
+```
+
+Sin COMMERCE_TENANT_ID, la key global ve TODO (todos los tenants). Con ella, ve 
+
+> **[INFO]**
+>
+> Al arrancar el MCP con una key global, el proceso avisa por stderr que está en 
+>
+
+
+---
+
+## Preguntas frecuentes: API keys y MCP
+
+Dudas comunes al crear llaves de integración y conectar asistentes.
+
+**P: Perdí el secreto de una API key.**
+
+R: No se puede recuperar. Revoca esa key y crea una nueva. Actualiza el programa o asistente 
+
+**P: El asistente dice que no tiene permiso para algo.**
+
+R: La key no incluye ese permiso. Crea una key nueva con el permiso que falta (las keys no se 
+
+**P: Una key dejó de funcionar de repente.**
+
+R: Revisa en Admin → API keys si venció (columna Expira) o si alguien la revocó. En ambos casos, 
+
+**P: ¿Una key ve los datos de otras empresas?**
+
+R: No. Cada key solo funciona con la empresa en la que se creó.
+
+**P: Creo que alguien más tiene mi key.**
+
+R: Revócala de inmediato en Admin → API keys. Deja de funcionar al instante. Después revisa 
+
+**P: ¿Quién puede crear API keys?**
+
+R: Las personas con permiso de administrar API keys; por defecto, Propietario y Administrador.
+
+
+---

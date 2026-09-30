@@ -12,6 +12,8 @@ import { PrismaService } from "../prisma/prisma.service.js";
 import { buildPageInfo } from "../common/pagination.js";
 import { validateProductImage } from "./product-image-validation.js";
 import { deleteObject, publicUrlForKey, writeObject } from "../tenants/logo-storage.js";
+import { domainEvents } from "../hooks/domain-event-bus.js";
+import { productEventData, variantEventData } from "../hooks/event-data.js";
 
 export interface ListProductsInput {
   q?: string;
@@ -216,7 +218,7 @@ export class CatalogService {
         message: "Versión esperada no coincide",
       });
     }
-    return this.prisma.product.update({
+    const updated = await this.prisma.product.update({
       where: { id },
       data: {
         title: input.title,
@@ -228,6 +230,8 @@ export class CatalogService {
       },
       include: { variants: true },
     });
+    await domainEvents.emit(tenantId, "product.updated", productEventData(updated));
+    return updated;
   }
 
   async addVariant(
@@ -296,7 +300,7 @@ export class CatalogService {
         message: "Versión esperada no coincide",
       });
     }
-    return this.prisma.productVariant.update({
+    const updated = await this.prisma.productVariant.update({
       where: { id },
       data: {
         title: input.title,
@@ -310,6 +314,8 @@ export class CatalogService {
         version: { increment: 1 },
       },
     });
+    await domainEvents.emit(tenantId, "product.updated", variantEventData(updated));
+    return updated;
   }
 
   async archiveProduct(tenantId: string, id: string): Promise<void> {

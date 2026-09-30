@@ -20,6 +20,20 @@ import { apiKeysQueryKey } from "./api-keys-section";
  * riesgo (reembolsos, exportar pagos, integraciones, auditoría, o cualquier
  * cosa de administración de la empresa). Quien necesite más lo ajusta a mano
  * en "API keys" (abajo) — esto es el default seguro, no el único posible.
+ *
+ * Lo que este set NO incluye y por qué:
+ * - payments.refund / payments.write: reembolsos son irreversibles; el agente
+ *   puede leer pagos para contexto pero no debería cobrarse/devolver solo.
+ * - integrations.write: publica eventos firmados a endpoints externos con un
+ *   secreto en el body. Una key filtrada podría drenar datos.
+ * - apikeys.manage / users.invite / users.manage / tenant.admin: control
+ *   sobre la cuenta misma (crear/revocar keys, invitar gente, cambiar
+ *   parámetros del tenant). El botón rápido no la entrega.
+ * - audit.read: el log de auditoría suele tener info sensible y no aporta
+ *   nada al flujo del agente.
+ *
+ * Quien SABE que necesita alguno de estos lo pide creando una key aparte
+ * desde "API keys" abajo — pero el camino por defecto es seguro.
  */
 const RECOMMENDED_SCOPES = [
   "catalog.read",
@@ -36,7 +50,15 @@ const RECOMMENDED_SCOPES = [
   "notifications.read",
 ];
 
-const PACKAGE_NAME = "easysell-mcp";
+/**
+ * Nombre del paquete en npm. El paquete está bajo el scope del publicador
+ * (`@cgalaviz/easysell-mcp`); el bin name (`easysell-mcp`) es lo que
+ * `npx` resuelve al instalar, pero `npx <bin>` no es portable — siempre
+ * usamos el nombre completo del paquete para que el comando funcione igual
+ * en cualquier máquina, incluso si alguien tiene un bin local con el mismo
+ * nombre en su PATH.
+ */
+const PACKAGE_NAME = "@cgalaviz/easysell-mcp";
 
 async function copy(text: string, label: string) {
   try {
@@ -188,8 +210,23 @@ export function McpOnboardingSection() {
           <p className="text-sm text-muted-foreground">
             <Terminal aria-hidden className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
             Al conectarse, tu agente va a poder ver y usar el catálogo, clientes, cotizaciones, pedidos,
-            pagos (solo lectura) y conversaciones de esta empresa.
+            pagos (solo lectura) y conversaciones de esta empresa. Son ~140 herramientas listadas bajo
+            el servidor MCP, y el agente las descubre por sí solo: no tenés que memorizar ninguna.
           </p>
+          <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+            <p>
+              <span className="font-medium text-foreground">Qué hace el agente con esta key:</span> leer
+              tu catálogo y buscar por nombre/SKU, crear y editar productos y variantes, gestionar
+              clientes (crear, archivar, agregar direcciones), cotizar y emitir cotizaciones, abrir
+              pedidos y cobrar con link de pago, responder WhatsApp en nombre de tu tienda.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Qué NO puede hacer (a propósito):</span>
+              reembolsos, publicar eventos a integraciones externas, invitar usuarios, cambiar
+              parámetros de la empresa, crear o revocar otras API keys. Para cualquiera de esas cosas,
+              creá una key dedicada desde &ldquo;API keys&rdquo; abajo.
+            </p>
+          </div>
 
           <Button variant="outline" size="sm" onClick={() => setSecret(null)}>
             Ya la instalé

@@ -19,6 +19,19 @@ export const metadata: Metadata = {
   title: "Easy Sell",
   description: "Catálogo, cotizaciones y pedidos",
   manifest: "/manifest.webmanifest",
+  // Para LLM crawlers y agentes de IA: el estándar llmstxt.org propone
+  // exponer dos archivos en la raíz del sitio — un índice navegable
+  // (`llm.txt`) y el contenido completo en un solo markdown
+  // (`llms-full.txt`). Así, un crawler que sigue un `<link rel="alternate">`
+  // los descubre sin tener que rastrear el sitio entero.
+  alternates: {
+    types: {
+      "text/plain": [
+        { url: "/llm.txt", title: "Easy Sell MCP — índice navegable" },
+        { url: "/llms-full.txt", title: "Easy Sell MCP — documentación completa" },
+      ],
+    },
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

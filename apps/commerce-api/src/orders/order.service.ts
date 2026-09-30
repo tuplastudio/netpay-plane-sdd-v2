@@ -26,6 +26,8 @@ import { writeObject } from "../tenants/logo-storage.js";
 import { publicUrlForKey } from "../tenants/logo-storage.js";
 import { RFC_RE, POSTAL_CODE_RE, REGIMEN_FISCAL_RE, CFDI_USE_RE } from "./order.dto.js";
 import type { Paging } from "../common/pagination.js";
+import { domainEvents } from "../hooks/domain-event-bus.js";
+import { orderEventData, quoteEventData } from "../hooks/event-data.js";
 
 const MAX_CONSTANCIA_BYTES = 8 * 1024 * 1024; // 8 MB, de sobra para un PDF de 1-2 páginas.
 
@@ -441,6 +443,7 @@ export class OrderService {
       include: { revisions: true },
     });
     await this.notifyOrderReceived(order);
+    await domainEvents.emit(tenantId, "order.created", orderEventData(order));
     return order;
   }
 
@@ -538,7 +541,7 @@ export class OrderService {
     const expiresAt = new Date(Date.now() + tenant.checkoutReservationMinutes * 60 * 1000);
 
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const order = await this.prisma.$transaction(async (tx) => {
         const created = await tx.order.create({
           data: {
             tenantId,
@@ -576,6 +579,8 @@ export class OrderService {
           include: { revisions: true },
         });
       });
+      await domainEvents.emit(tenantId, "order.created", orderEventData(order));
+      return order;
     } catch (err) {
       // Perdedor de la carrera: el índice único ya garantizó que solo se creó
       // un pedido; queda devolver el del ganador en vez de un 500 con el error
@@ -625,6 +630,8 @@ export class OrderService {
     // ISSUED), y `Order.quoteId` es único: dos aceptaciones simultáneas
     // dejan un solo pedido y la perdedora relee al ganador.
     let order: Awaited<ReturnType<typeof this.prisma.order.create>>;
+    // true si ESTA llamada movió la cotización a ACCEPTED (para el hook).
+    let accepted = false;
     try {
       order = await this.prisma.$transaction(async (tx) => {
         if (q.status === "ISSUED") {
@@ -632,6 +639,7 @@ export class OrderService {
             where: { id: q.id, tenantId, status: "ISSUED" },
             data: { status: "ACCEPTED", acceptedAt: new Date(), version: { increment: 1 } },
           });
+          accepted = moved.count > 0;
           if (moved.count === 0) {
             // Otra transacción la movió mientras tanto. Si la aceptó (dos
             // aceptaciones a la vez), se sigue al insert y el índice único
@@ -685,6 +693,14 @@ export class OrderService {
     if (opts.notify !== false) {
       await this.notifyOrderReceived(order);
     }
+    if (accepted) {
+      await domainEvents.emit(
+        tenantId,
+        "quote.accepted",
+        quoteEventData({ ...q, status: "ACCEPTED", acceptedAt: new Date() }),
+      );
+    }
+    await domainEvents.emit(tenantId, "order.created", orderEventData(order));
     return order;
   }
 
