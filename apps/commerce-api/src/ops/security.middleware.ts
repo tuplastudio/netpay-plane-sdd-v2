@@ -44,10 +44,25 @@ export class RateLimitMiddleware implements NestMiddleware {
   private buckets = new Map<string, Bucket>();
   private readonly WINDOW_MS = 60_000;
   private readonly MAX = 120;
+  private lastSweepAt = 0;
+
+  /**
+   * Los buckets son por `ip|path` y antes nunca se borraban: cada URL
+   * distinta (ids de pedidos, tokens públicos, escaneos) dejaba una entrada
+   * viva para siempre. Se barre lo vencido una vez por ventana.
+   */
+  private sweep(now: number): void {
+    if (now - this.lastSweepAt < this.WINDOW_MS) return;
+    this.lastSweepAt = now;
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.resetAt <= now) this.buckets.delete(key);
+    }
+  }
 
   use = (req: Request, res: Response, next: NextFunction): void => {
     const key = `${req.ip}|${req.path}`;
     const now = Date.now();
+    this.sweep(now);
     const b = this.buckets.get(key);
     if (!b || b.resetAt <= now) {
       this.buckets.set(key, { count: 1, resetAt: now + this.WINDOW_MS });

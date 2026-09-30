@@ -51,6 +51,67 @@ export async function auditImpersonationMiddleware(
   return next(params);
 }
 
+/** Acciones de Prisma que mutan filas (las que interesan a las cachés). */
+const WRITE_ACTIONS: ReadonlySet<string> = new Set([
+  "create",
+  "createMany",
+  "update",
+  "updateMany",
+  "upsert",
+  "delete",
+  "deleteMany",
+]);
+
+export function isWriteAction(action: string): boolean {
+  return WRITE_ACTIONS.has(action);
+}
+
+export interface PrismaWriteEvent {
+  model: string;
+  action: string;
+  /** `args` tal cual llegaron al cliente (`where`, `data`, ...). */
+  args: Record<string, unknown> | undefined;
+}
+
+export type PrismaWriteListener = (event: PrismaWriteEvent) => void;
+
+interface WriteSubscription {
+  models: ReadonlySet<string>;
+  listener: PrismaWriteListener;
+}
+
+/**
+ * Avisa a las cachés en memoria (sesión, API key, tenant...) cuando se
+ * escribe en los modelos que les interesan, sin importar desde qué servicio
+ * ni si fue dentro de `$transaction`: el middleware del cliente es el único
+ * punto por el que pasan todas las escrituras. Se notifica DESPUÉS de que la
+ * operación terminó bien; un listener que truene no afecta la petición.
+ */
+export function writeNotifierMiddleware(subscriptions: () => Iterable<WriteSubscription>) {
+  return async (
+    params: Prisma.MiddlewareParams,
+    next: (p: Prisma.MiddlewareParams) => Promise<unknown>,
+  ): Promise<unknown> => {
+    const result = await next(params);
+    if (params.model && isWriteAction(params.action)) {
+      const event: PrismaWriteEvent = {
+        model: params.model,
+        action: params.action,
+        args: (params.args ?? undefined) as Record<string, unknown> | undefined,
+      };
+      for (const sub of subscriptions()) {
+        if (!sub.models.has(event.model)) continue;
+        try {
+          sub.listener(event);
+        } catch {
+          // Una caché que falle al invalidar no puede tumbar la escritura.
+        }
+      }
+    }
+    return result;
+  };
+}
+
 /**
  * Setear el contexto RLS vía middleware Prisma es complicado porque Prisma
  * `MiddlewareParams` no expone `$executeRaw`. La alternativa oficial es
@@ -67,12 +128,26 @@ export async function auditImpersonationMiddleware(
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
+  private readonly writeSubscriptions = new Set<WriteSubscription>();
 
   constructor() {
     super({
       log: ["error", "warn"],
     });
     this.$use(auditImpersonationMiddleware);
+    this.$use(writeNotifierMiddleware(() => this.writeSubscriptions));
+  }
+
+  /**
+   * Suscribe un listener a las escrituras de `models`. Devuelve la función
+   * para desuscribirse. Lo usan las cachés con TTL para invalidarse.
+   */
+  onWrite(models: readonly string[], listener: PrismaWriteListener): () => void {
+    const sub: WriteSubscription = { models: new Set(models), listener };
+    this.writeSubscriptions.add(sub);
+    return () => {
+      this.writeSubscriptions.delete(sub);
+    };
   }
 
   async onModuleInit(): Promise<void> {

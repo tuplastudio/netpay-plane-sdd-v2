@@ -232,6 +232,26 @@ function isUnanswered(latest: LatestMessageRow[]): boolean {
   return latest[0]?.direction === "INBOUND";
 }
 
+/** Fila cruda del `$queryRaw` de `conversationStats` (COUNT → bigint en Postgres). */
+export type ConversationStatsRawRow = {
+  [K in keyof ConversationStats]: number | bigint | null;
+};
+
+/** Normaliza los COUNT (bigint/null) a `number`. Pura, para probarla sin base. */
+export function mapConversationStatsRow(row: ConversationStatsRawRow | undefined): ConversationStats {
+  const n = (v: number | bigint | null | undefined) => Number(v ?? 0);
+  return {
+    open: n(row?.open),
+    handedOff: n(row?.handedOff),
+    unanswered: n(row?.unanswered),
+    today: n(row?.today),
+    queue: n(row?.queue),
+    assigned: n(row?.assigned),
+    pending: n(row?.pending),
+    resolvedToday: n(row?.resolvedToday),
+  };
+}
+
 const MEDIA_PREVIEW_LABEL: Record<string, string> = {
   IMAGE: "📷 Imagen",
   AUDIO: "🎤 Nota de voz",
@@ -2069,49 +2089,43 @@ export class WhatsAppService {
    * consulta con el último mensaje por hilo; el resto es conteo en memoria.
    */
   async conversationStats(tenantId: string, now = new Date()): Promise<ConversationStats> {
-    const rows = await this.prisma.whatsAppConversation.findMany({
-      where: { tenantId },
-      select: {
-        status: true,
-        handoffToHuman: true,
-        handoffUserId: true,
-        lastMessageAt: true,
-        pendingAt: true,
-        closedAt: true,
-        messages: LATEST_MESSAGE,
-      },
-    });
     const startOfToday = new Date(now);
     startOfToday.setHours(0, 0, 0, 0);
 
-    const stats: ConversationStats = {
-      open: 0,
-      handedOff: 0,
-      unanswered: 0,
-      today: 0,
-      queue: 0,
-      assigned: 0,
-      pending: 0,
-      resolvedToday: 0,
-    };
-    for (const c of rows) {
-      if (c.status !== "CLOSED" && c.pendingAt) stats.pending += 1;
-      if (c.status === "CLOSED" && c.closedAt && c.closedAt >= startOfToday) {
-        stats.resolvedToday += 1;
-      }
-      if (c.status === "OPEN") stats.open += 1;
-      if (c.handoffToHuman) stats.handedOff += 1;
-      // Los contadores de las pestañas salen de este mismo barrido: la
-      // "Cola" y "Por agente" son vistas guardadas de la bandeja, no otra
-      // consulta.
-      if (c.handoffToHuman && !c.handoffUserId) stats.queue += 1;
-      if (c.handoffToHuman && c.handoffUserId) stats.assigned += 1;
-      // Un hilo cerrado con último mensaje del cliente no es un pendiente;
-      // uno marcado "pendiente" (espera al cliente) tampoco cuenta como sin responder.
-      if (c.status !== "CLOSED" && !c.pendingAt && isUnanswered(c.messages)) stats.unanswered += 1;
-      if (c.lastMessageAt && c.lastMessageAt >= startOfToday) stats.today += 1;
-    }
-    return stats;
+    // Antes: `findMany` de TODOS los hilos del tenant con su último mensaje
+    // (una subconsulta por hilo) y conteo en JS, cada 10 s por bandeja
+    // abierta. Ahora los ocho contadores salen de UNA consulta agregada;
+    // el único que necesita el último mensaje ("sin responder") lo resuelve
+    // un LATERAL acotado a los hilos abiertos y no pendientes, con el índice
+    // (conversationId, createdAt).
+    const rows = await this.prisma.$queryRaw<ConversationStatsRawRow[]>(Prisma.sql`
+      SELECT
+        COUNT(*) FILTER (WHERE c."status" = 'OPEN')                                        AS "open",
+        COUNT(*) FILTER (WHERE c."handoffToHuman")                                          AS "handedOff",
+        COUNT(*) FILTER (WHERE c."lastMessageAt" >= ${startOfToday})                        AS "today",
+        COUNT(*) FILTER (WHERE c."handoffToHuman" AND c."handoffUserId" IS NULL)            AS "queue",
+        COUNT(*) FILTER (WHERE c."handoffToHuman" AND c."handoffUserId" IS NOT NULL)        AS "assigned",
+        COUNT(*) FILTER (WHERE c."status" <> 'CLOSED' AND c."pendingAt" IS NOT NULL)        AS "pending",
+        COUNT(*) FILTER (WHERE c."status" = 'CLOSED' AND c."closedAt" >= ${startOfToday})   AS "resolvedToday",
+        (
+          SELECT COUNT(*)
+            FROM "WhatsAppConversation" o
+            LEFT JOIN LATERAL (
+              SELECT m."direction"
+                FROM "WhatsAppMessage" m
+               WHERE m."conversationId" = o."id"
+               ORDER BY m."createdAt" DESC
+               LIMIT 1
+            ) lm ON TRUE
+           WHERE o."tenantId" = ${tenantId}::uuid
+             AND o."status" <> 'CLOSED'
+             AND o."pendingAt" IS NULL
+             AND lm."direction" = 'INBOUND'
+        )                                                                                   AS "unanswered"
+      FROM "WhatsAppConversation" c
+      WHERE c."tenantId" = ${tenantId}::uuid
+    `);
+    return mapConversationStatsRow(rows[0]);
   }
 
   /**

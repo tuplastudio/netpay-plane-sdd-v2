@@ -12,9 +12,29 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import argon2 from "argon2";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ALL_SCOPES } from "./policies.js";
+import { TtlCache } from "../common/ttl-cache.js";
+
+/**
+ * Memo de verificaciones Argon2 acertadas: `sha256(token) → secretHash`.
+ *
+ * Verificar argon2id (19 MB, t=2) cuesta ~20–40 ms de CPU por petición; el
+ * agente y el MCP mandan cientos con la misma key. Se recuerda que ESE token
+ * ya casó con ESE hash; la fila de la key se sigue leyendo en cada petición,
+ * así que revocación, expiración y scopes se ven al instante y no hace falta
+ * invalidar nada: si el hash de la fila cambiara, el memo deja de coincidir.
+ * El token nunca se guarda en claro.
+ */
+export const API_KEY_VERIFY_TTL_MS = 10 * 60_000;
+
+/** `lastUsedAt` se persiste como mucho una vez por minuto por key. */
+export const API_KEY_TOUCH_INTERVAL_MS = 60_000;
+
+function memoKeyOf(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
 
 export interface ApiKeyPrincipal {
   apiKeyId: string;
@@ -27,6 +47,15 @@ export interface ApiKeyPrincipal {
 
 @Injectable()
 export class ApiKeyService {
+  private readonly verified = new TtlCache<string, string>({
+    ttlMs: API_KEY_VERIFY_TTL_MS,
+    maxEntries: 2_000,
+  });
+  private readonly touched = new TtlCache<string, true>({
+    ttlMs: API_KEY_TOUCH_INTERVAL_MS,
+    maxEntries: 5_000,
+  });
+
   constructor(private readonly prisma: PrismaService) {}
 
   async list(tenantId: string) {
@@ -148,15 +177,25 @@ export class ApiKeyService {
     const prefix = parts.slice(0, 2).join("_");
     const apiKey = await this.prisma.apiKey.findFirst({
       where: { prefix, revokedAt: null },
+      select: { id: true, tenantId: true, scopes: true, secretHash: true, expiresAt: true },
     });
     if (!apiKey) return null;
     if (apiKey.expiresAt && apiKey.expiresAt.getTime() <= Date.now()) return null;
-    const ok = await argon2.verify(apiKey.secretHash, token);
-    if (!ok) return null;
-    await this.prisma.apiKey.update({
-      where: { id: apiKey.id },
-      data: { lastUsedAt: new Date() },
-    });
+    // Argon2 solo cuando este token no se ha verificado ya contra este hash
+    // (ver `API_KEY_VERIFY_TTL_MS`).
+    const memoKey = memoKeyOf(token);
+    if (this.verified.get(memoKey) !== apiKey.secretHash) {
+      const ok = await argon2.verify(apiKey.secretHash, token);
+      if (!ok) return null;
+      this.verified.set(memoKey, apiKey.secretHash);
+    }
+    if (!this.touched.get(apiKey.id)) {
+      this.touched.set(apiKey.id, true);
+      await this.prisma.apiKey.update({
+        where: { id: apiKey.id },
+        data: { lastUsedAt: new Date() },
+      });
+    }
     return {
       apiKeyId: apiKey.id,
       tenantId: apiKey.tenantId,

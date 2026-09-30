@@ -30,7 +30,13 @@ export class QuoteService {
     const [items, total] = await Promise.all([
       this.prisma.quote.findMany({
         where,
-        include: { customer: true, lines: true },
+        // Cliente acotado a lo que muestra el listado (la ficha completa trae
+        // datos fiscales y notas que aquí no se usan); las líneas se quedan:
+        // son pocas por cotización y el agente las lee del listado.
+        include: {
+          customer: { select: { id: true, fullName: true, email: true, phone: true } },
+          lines: true,
+        },
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: paging.limit,
         skip: paging.offset,

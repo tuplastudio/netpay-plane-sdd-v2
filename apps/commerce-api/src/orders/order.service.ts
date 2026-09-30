@@ -132,7 +132,11 @@ export class OrderService {
     const [items, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
-        include: { customer: true, revisions: true, payments: true },
+        // Solo lo que pinta el listado. Antes venían TODAS las revisiones y
+        // sesiones de pago de cada pedido (y la ficha completa del cliente):
+        // varias filas extra por pedido que ningún consumidor del listado
+        // usaba; el detalle (`get`) sigue trayéndolas.
+        include: { customer: { select: { id: true, fullName: true, email: true, phone: true } } },
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: paging.limit,
         skip: paging.offset,
