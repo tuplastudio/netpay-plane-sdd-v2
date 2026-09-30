@@ -232,7 +232,7 @@ function validate(draft: AgentSettings): Partial<Record<keyof AgentSettings, str
   if (draft.auto_close_enabled) {
     const seconds = durationSeconds(draft.auto_close_after);
     if (!draft.auto_close_after.trim()) {
-      errors.auto_close_after = "Indica cuánto tiempo sin mensajes debe pasar. Ej.: 30m, 2h, 1d.";
+      errors.auto_close_after = "Indica cuánto tiempo sin mensajes debe pasar. Ej. 30m, 2h, 1d.";
     } else if (!seconds) {
       errors.auto_close_after = "Formato no válido. Usa un número y una unidad: 30s, 15m, 2h, 1d.";
     } else if (seconds < AUTO_CLOSE_MIN_SECONDS) {
@@ -588,7 +588,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                 value={draft.agent_name}
                 maxLength={STR_LIMITS.agent_name}
                 onChange={(e) => set("agent_name", e.target.value)}
-                placeholder={d.agent_name || "Ej.: Sofía"}
+                placeholder={d.agent_name || "Ej. Sofía"}
               />
             )}
           </Field>
@@ -608,7 +608,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                 value={draft.business_name}
                 maxLength={STR_LIMITS.business_name}
                 onChange={(e) => set("business_name", e.target.value)}
-                placeholder={d.business_name || "Nombre de tu negocio"}
+                placeholder={d.business_name || "Ej. Papelería El Punto"}
               />
             )}
           </Field>
@@ -617,7 +617,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
             id="tone"
             label="Tono"
             tip="Se inyecta tal cual en el prompt como «Tono: …». Define cómo suena el agente, no qué puede hacer."
-            hint={emptyHint(d.tone, "Ej.: cercano, breve, sin tecnicismos.")}
+            hint={emptyHint(d.tone, "Ej. cercano, breve, sin tecnicismos.")}
             defaultLabel={d.tone || undefined}
             overridden={draft.tone !== ""}
             onReset={() => set("tone", "")}
@@ -629,7 +629,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                 value={draft.tone}
                 maxLength={STR_LIMITS.tone}
                 onChange={(e) => set("tone", e.target.value)}
-                placeholder={d.tone || "Cercano y directo, tutea al cliente"}
+                placeholder={d.tone || "Ej. Cercano y directo, tutea al cliente"}
               />
             )}
           </Field>
@@ -649,7 +649,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                 value={draft.greeting}
                 maxLength={STR_LIMITS.greeting}
                 onChange={(e) => set("greeting", e.target.value)}
-                placeholder={d.greeting || "¡Hola! Soy Sofía, ¿qué estás buscando hoy?"}
+                placeholder={d.greeting || "Ej. ¡Hola! Soy Sofía, ¿qué estás buscando hoy?"}
               />
             )}
           </Field>
@@ -920,7 +920,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                   onChange={(e) => set("quote_only_closing_message", e.target.value)}
                   placeholder={
                     d.quote_only_closing_message ||
-                    "Ej.: Un asesor te contacta hoy para confirmar y acordar el pago por transferencia."
+                    "Ej. Un asesor te contacta hoy para confirmar y acordar el pago por transferencia."
                   }
                 />
               )}
@@ -952,7 +952,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                 maxLength={STR_LIMITS.extra_rules}
                 onChange={(e) => set("extra_rules", e.target.value)}
                 placeholder={
-                  "Ej.: Nunca ofrezcas envío gratis.\nSi piden factura, pide RFC antes de cotizar.\nNo prometas fechas de entrega exactas."
+                  "Ej. Nunca ofrezcas envío gratis.\nSi piden factura, pide RFC antes de cotizar.\nNo prometas fechas de entrega exactas."
                 }
               />
             )}
@@ -973,7 +973,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                 value={draft.forbidden_topics}
                 maxLength={STR_LIMITS.forbidden_topics}
                 onChange={(e) => set("forbidden_topics", e.target.value)}
-                placeholder="Ej.: precios de la competencia, política, temas de salud"
+                placeholder="Ej. precios de la competencia, política, temas de salud"
               />
             )}
           </Field>
@@ -998,7 +998,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                   set("handoff_keywords", parseHandoffKeywords(e.target.value));
                 }}
                 onBlur={() => setHandoffText(draft.handoff_keywords.join(", "))}
-                placeholder="humano, asesor, persona"
+                placeholder="Ej. humano, asesor, persona"
               />
             )}
           </Field>
@@ -1334,7 +1334,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
               hint={
                 durationLabel(draft.auto_close_after)
                   ? `Se cerrará tras ${durationLabel(draft.auto_close_after)} sin mensajes.`
-                  : "Ej.: 30s, 15m, 2h, 1d."
+                  : "Ej. 30s, 15m, 2h, 1d."
               }
               defaultLabel="sin plazo"
               overridden={draft.auto_close_after !== FACTORY.auto_close_after}
@@ -1353,7 +1353,7 @@ export function AgentSettingsForm({ tenantIdOverride }: { tenantIdOverride?: str
                   onChange={(e) =>
                     set("auto_close_after", e.target.value.trim().toLowerCase())
                   }
-                  placeholder="Ej.: 30m, 2h, 1d"
+                  placeholder="Ej. 30m, 2h, 1d"
                 />
               )}
             </Field>
@@ -1455,7 +1455,7 @@ function DefaultMeta({
   if (!defaultLabel) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span className="text-[11px] text-muted-foreground">
+      <span className="text-caption text-muted-foreground">
         Predeterminado:{" "}
         <span className="break-all font-mono text-code-sm text-foreground">{defaultLabel}</span>
       </span>
@@ -1464,7 +1464,7 @@ function DefaultMeta({
           type="button"
           onClick={onReset}
           aria-label={resetLabel}
-          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="inline-flex items-center gap-1 text-caption text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           <Undo2 aria-hidden className="h-3 w-3" />
           Usar predeterminado

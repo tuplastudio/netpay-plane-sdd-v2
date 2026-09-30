@@ -103,7 +103,7 @@ export function ProductDetailSheet({
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{v.title}</p>
-                        <p className="font-mono text-[10px] uppercase text-muted-foreground">
+                        <p className="font-mono text-micro uppercase text-muted-foreground">
                           {v.sku}
                         </p>
                         <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">

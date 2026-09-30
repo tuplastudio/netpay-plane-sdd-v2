@@ -141,14 +141,16 @@ export function UserMenu() {
             aria-hidden
             // Iniciales: texto real sobre el acento, así que nivel TEXTO
             // (primary-strong, 5.20:1) y no el ornamento (primary, 3.52:1).
-            className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-strong text-xs font-semibold text-primary-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-strong text-micro font-semibold text-primary-foreground"
           >
             {initials || "NP"}
           </span>
+          {/* Nombre en body-sm (como la nav y el resto del chrome) y el rol
+              en caption: dos peldaños contiguos de la escala, no dos "xs". */}
           <span className="hidden max-w-[12rem] flex-col items-start leading-tight lg:flex">
-            <span className="truncate text-xs font-medium">{user.fullName || user.email}</span>
+            <span className="truncate text-body-sm font-medium">{user.fullName || user.email}</span>
             {subtitle ? (
-              <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
+              <span className="truncate text-caption text-muted-foreground">{subtitle}</span>
             ) : null}
           </span>
           <ChevronsUpDown aria-hidden className="hidden h-3.5 w-3.5 text-muted-foreground lg:inline-block" />
@@ -157,8 +159,8 @@ export function UserMenu() {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col">
-            <span className="text-sm font-medium">{user.fullName || "Sin nombre"}</span>
-            <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+            <span className="text-body-sm font-medium">{user.fullName || "Sin nombre"}</span>
+            <span className="truncate text-caption text-muted-foreground">{user.email}</span>
             {user.isSuperAdmin ? (
               <span className="mt-1.5">
                 <Badge variant="info" size="sm">

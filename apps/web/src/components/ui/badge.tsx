@@ -16,9 +16,10 @@ const badgeVariants = cva(
     variants: {
       // Idénticos a `statusBadgeVariants` para que un chip y una insignia de
       // estado en la misma fila queden a la misma altura.
+      // default = caption (13px) · sm = micro (12px, el mínimo de la escala).
       size: {
         sm: "px-2 py-0 text-micro",
-        default: "px-2.5 py-0.5 text-xs",
+        default: "px-2.5 py-0.5 text-caption",
       },
       variant: {
         default: "border-transparent bg-secondary text-foreground",

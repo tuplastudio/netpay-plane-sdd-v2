@@ -330,7 +330,7 @@ function DescribeStep({
           rows={10}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          placeholder="Vendemos pinturas y recubrimientos en CDMX y zona metropolitana. Atendemos de lunes a viernes de 9 a 18…"
+          placeholder="Ej. Vendemos artículos de papelería y regalos en Monterrey, con envío a domicilio. Atendemos de lunes a sábado de 9 a 19…"
           disabled={isPending}
           maxLength={4000}
           aria-describedby="bot-description-hint"

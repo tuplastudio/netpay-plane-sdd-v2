@@ -230,7 +230,7 @@ function MessageNotesInline({ messageId, outbound }: { messageId: string; outbou
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-center gap-1 rounded p-0.5 text-[11px] text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "inline-flex items-center gap-1 rounded p-0.5 text-micro text-muted-foreground transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           // En escritorio solo aparece al pasar por el mensaje (menos ruido);
           // en táctil siempre está visible.
           !open && count === 0 && "sm:opacity-0 sm:group-hover:opacity-100",
@@ -253,18 +253,18 @@ function MessageNotesPanel({ messageId }: { messageId: string }) {
   return (
     <div className="mt-1.5 w-72 max-w-full space-y-1.5 rounded-card border border-border bg-card p-2">
       {notes.isError ? (
-        <p className="text-[11px] text-destructive">
+        <p className="text-micro text-destructive">
           No se pudieron cargar las notas.{" "}
           <button type="button" className="underline" onClick={() => void notes.refetch()}>
             Reintentar
           </button>
         </p>
       ) : notes.isLoading ? (
-        <p className="text-[11px] text-muted-foreground">Cargando…</p>
+        <p className="text-micro text-muted-foreground">Cargando…</p>
       ) : notes.data && notes.data.length > 0 ? (
         <ul className="space-y-1">
           {notes.data.map((n) => (
-            <li key={n.id} className="text-[11px]">
+            <li key={n.id} className="text-micro">
               <p className="whitespace-pre-wrap break-words text-foreground">{n.body}</p>
               <p className="text-muted-foreground">
                 {n.author?.fullName ?? "Sin autor"} · <DateTime value={n.createdAt} />
@@ -273,13 +273,13 @@ function MessageNotesPanel({ messageId }: { messageId: string }) {
           ))}
         </ul>
       ) : (
-        <p className="text-[11px] text-muted-foreground">Sin notas en este mensaje.</p>
+        <p className="text-micro text-muted-foreground">Sin notas en este mensaje.</p>
       )}
       <div className="flex gap-1.5">
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Nota interna…"
+          placeholder="Ej. Pidió factura; confirmar RFC antes de cotizar"
           className="h-7 text-xs"
           aria-label="Nueva nota sobre este mensaje"
           onKeyDown={(e) => {
@@ -504,7 +504,7 @@ const MessageBubble = memo(function MessageBubble({
         {groupStart ? (
           <div
             className={cn(
-              "flex items-center gap-1 px-1 pb-0.5 text-[11px] text-muted-foreground",
+              "flex items-center gap-1 px-1 pb-0.5 text-micro text-muted-foreground",
               outbound ? "justify-end" : "justify-start",
             )}
           >
@@ -577,7 +577,7 @@ const MessageBubble = memo(function MessageBubble({
           ) : null}
           <span
             className={cn(
-              "float-right ml-2 mt-0.5 inline-flex translate-y-0.5 items-center gap-1 text-[11px] leading-none",
+              "float-right ml-2 mt-0.5 inline-flex translate-y-0.5 items-center gap-1 text-micro leading-none",
             )}
           >
             <time dateTime={message.createdAt} title={formatFull(message.createdAt)}>
@@ -589,7 +589,7 @@ const MessageBubble = memo(function MessageBubble({
         {failed ? (
           <p
             role="alert"
-            className="mt-0.5 flex items-center gap-1 px-1 text-[11px] font-medium text-destructive"
+            className="mt-0.5 flex items-center gap-1 px-1 text-micro font-medium text-destructive"
           >
             <AlertCircle aria-hidden className="h-3 w-3 shrink-0" />
             No se entregó{message.errorMessage ? `: ${message.errorMessage}` : "."}
@@ -622,7 +622,7 @@ function DaySeparator({ iso }: { iso: string }) {
       aria-label={`Día: ${label}`}
       className="sticky top-0 z-[1] my-3 flex justify-center"
     >
-      <span className="rounded-pill bg-card px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm ring-1 ring-border">
+      <span className="rounded-pill bg-card px-2.5 py-0.5 text-micro font-medium text-muted-foreground shadow-sm ring-1 ring-border">
         {label}
       </span>
     </li>
@@ -853,12 +853,12 @@ function MessagesPane({
                     Cargar anteriores
                   </Button>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground">Inicio de la conversación</p>
+                  <p className="text-micro text-muted-foreground">Inicio de la conversación</p>
                 )}
               </div>
             ) : null}
             {messages.isFetchNextPageError ? (
-              <p role="alert" className="mt-1 text-center text-[11px] text-destructive">
+              <p role="alert" className="mt-1 text-center text-micro text-destructive">
                 No se pudieron cargar los mensajes anteriores.
               </p>
             ) : null}
@@ -883,7 +883,7 @@ function MessagesPane({
       {messages.isError && messages.data ? (
         <div
           role="status"
-          className="absolute left-1/2 top-2 z-10 inline-flex -translate-x-1/2 items-center gap-2 rounded-pill bg-destructive-subtle px-3 py-1 text-[11px] text-destructive-subtle-foreground shadow-sm"
+          className="absolute left-1/2 top-2 z-10 inline-flex -translate-x-1/2 items-center gap-2 rounded-pill bg-destructive-subtle px-3 py-1 text-micro text-destructive-subtle-foreground shadow-sm"
         >
           <AlertCircle aria-hidden className="h-3 w-3" />
           Sin conexión; reintentando…
@@ -1285,7 +1285,7 @@ function Composer({
           id={`composer-count-${conversationId}`}
           aria-live="polite"
           className={cn(
-            "-mt-1 text-right text-[11px] tabular-nums",
+            "-mt-1 text-right text-micro tabular-nums",
             overLimit ? "font-medium text-destructive" : "text-muted-foreground",
           )}
         >
@@ -1469,7 +1469,7 @@ function NotesPane({ conversationId }: { conversationId: string }) {
       <div className="shrink-0 space-y-2 border-t border-border p-3">
         <Textarea
           aria-label="Nueva nota interna"
-          placeholder="Nota interna (no se envía al cliente)"
+          placeholder="Nota interna, no se envía al cliente. Ej. Pidió factura"
           rows={3}
           className="resize-none"
           value={draft}
@@ -1545,16 +1545,16 @@ function TagsEditor({
               setAdding(false);
             }
           }}
-          placeholder="etiqueta…"
+          placeholder="Ej. mayoreo"
           maxLength={30}
-          className="h-6 w-24 shrink-0 px-1.5 text-[11px]"
+          className="h-6 w-24 shrink-0 px-1.5 text-micro"
         />
       ) : (
         <button
           type="button"
           onClick={() => setAdding(true)}
           aria-label="Agregar etiqueta a la conversación"
-          className="inline-flex shrink-0 items-center gap-0.5 rounded-pill border border-dashed border-border px-1.5 py-0.5 text-[11px] text-muted-foreground hover:border-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          className="inline-flex shrink-0 items-center gap-0.5 rounded-pill border border-dashed border-border px-1.5 py-0.5 text-micro text-muted-foreground hover:border-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           <Tag aria-hidden className="h-3 w-3" />
           <Plus aria-hidden className="h-2.5 w-2.5" />

@@ -125,7 +125,7 @@ function CreateCustomerCard({ conversation }: { conversation: Conversation }) {
               id="new-customer-name"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="Nombre del cliente"
+              placeholder="Ej. Ana Torres"
               autoFocus
             />
           </div>
@@ -323,7 +323,7 @@ function NotesCard({ notes }: { notes: ConversationContext["notes"] }) {
           </li>
         ))}
         {notes.length > 3 ? (
-          <li className="text-[11px] text-muted-foreground">
+          <li className="text-micro text-muted-foreground">
             +{notes.length - 3} más en la pestaña «Notas del hilo».
           </li>
         ) : null}
@@ -444,7 +444,7 @@ function PaymentsPane({
               <span className="flex shrink-0 flex-col items-end">
                 <Money value={p.amount} currency={p.currency} className="font-medium" />
                 {refunded ? (
-                  <span className="text-[10px] text-warning-foreground">
+                  <span className="text-micro text-warning-foreground">
                     −{formatMoney(p.refundedTotal, p.currency)} reembolsado
                   </span>
                 ) : null}

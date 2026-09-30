@@ -112,7 +112,10 @@ export function PageHeader({
             </Link>
           ) : null}
           <div className="min-w-0 space-y-1">
-            <h1 className="font-display text-display-md">{title}</h1>
+            {/* h1 = 24px móvil / 28px escritorio: el portal operativo no usa
+                los display (36px+), reservados a páginas públicas. La
+                descripción es el único texto de 16px de la pantalla. */}
+            <h1 className="text-h1">{title}</h1>
             {description ? (
               <p className="text-body text-muted-foreground">{description}</p>
             ) : null}
@@ -122,7 +125,7 @@ export function PageHeader({
       </div>
 
       {meta ? (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">{meta}</div>
+        <div className="flex flex-wrap items-center gap-2 text-body-sm text-muted-foreground">{meta}</div>
       ) : null}
     </header>
   );

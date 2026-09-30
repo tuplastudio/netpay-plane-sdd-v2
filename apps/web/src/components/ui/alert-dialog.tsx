@@ -100,7 +100,7 @@ const AlertDialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn("text-lg font-semibold text-foreground", className)}
+    className={cn("text-h2 text-foreground", className)}
     {...props}
   />
 ));
@@ -121,7 +121,7 @@ const AlertDialogDescription = React.forwardRef<
     // asChild + <div>: Radix's Description defaults to <p>, which breaks as
     // soon as callers need block content (forms, lists) in the description.
     <DialogPrimitive.Description asChild {...props}>
-      <div ref={ref} className={cn("text-sm text-muted-foreground", className)}>
+      <div ref={ref} className={cn("text-body-sm text-muted-foreground", className)}>
         {children}
       </div>
     </DialogPrimitive.Description>

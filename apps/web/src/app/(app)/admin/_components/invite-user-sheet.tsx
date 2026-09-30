@@ -140,7 +140,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
           <Label htmlFor="invite-name">Nombre</Label>
           <Input
             id="invite-name"
-            placeholder="Nombre completo"
+            placeholder="Ej. Ana Torres Ruiz"
             autoComplete="off"
             aria-invalid={!!errors.fullName}
             aria-describedby={errors.fullName ? "invite-name-error" : undefined}
@@ -159,7 +159,7 @@ function InviteForm({ onDone }: { onDone: () => void }) {
             id="invite-email"
             type="email"
             inputMode="email"
-            placeholder="[email protected]"
+            placeholder="Ej. ana@empresa.com"
             autoComplete="off"
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? "invite-email-error" : undefined}

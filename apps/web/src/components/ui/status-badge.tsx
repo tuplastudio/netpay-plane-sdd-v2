@@ -400,7 +400,7 @@ export function statusLabel(status: string, domain: StatusDomain = "generic"): s
 // ---------------------------------------------------------------------------
 
 export const statusBadgeVariants = cva(
-  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline bg-neutral-subtle px-2.5 py-0.5 text-xs font-semibold leading-tight",
+  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-hairline bg-neutral-subtle px-2.5 py-0.5 text-caption font-semibold leading-tight",
   {
     variants: {
       tone: {
@@ -415,9 +415,10 @@ export const statusBadgeVariants = cva(
         destructive: "text-destructive-subtle-foreground",
       },
       size: {
-        // Mínimo legible 12px: nada de 11px en insignias.
+        // default = caption (13px) · sm = micro (12px). Mínimo legible 12px:
+        // nada de 11px en insignias. Mismas medidas que `Badge`.
         sm: "px-2 py-0 text-micro",
-        default: "px-2.5 py-0.5 text-xs",
+        default: "px-2.5 py-0.5 text-caption",
       },
     },
     defaultVariants: { tone: "neutral", size: "default" },

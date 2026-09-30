@@ -1,13 +1,14 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { fieldClassName } from "./input";
 
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {}
 
 /**
  * `<select>` nativo estilizado. Sin Radix a propósito: el select del sistema
  * ya es accesible, teclable y en móvil abre la rueda nativa.
- * Mismas medidas (44px móvil / 40px desde `sm`), fondo, borde, radio y foco
- * que `Input`.
+ * Mismas medidas (44px móvil / 40px desde `sm`), fondo, borde, radio, foco,
+ * error y deshabilitado que `Input` (`fieldClassName`).
  *
  * Necesita nombre accesible: envuélvelo en `<Label htmlFor>` o pásale
  * `aria-label`.
@@ -25,10 +26,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       <select
         ref={ref}
         className={cn(
-          "flex h-11 w-full appearance-none rounded-md border border-input bg-background py-2 pl-3.5 pr-9 text-base text-foreground sm:h-10 sm:text-sm",
-          "transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          "aria-invalid:border-destructive aria-invalid:focus-visible:border-destructive aria-invalid:focus-visible:ring-destructive",
-          "disabled:cursor-not-allowed disabled:opacity-50",
+          fieldClassName,
+          "flex h-11 appearance-none py-2 pl-3.5 pr-9 sm:h-10",
           className,
         )}
         {...props}

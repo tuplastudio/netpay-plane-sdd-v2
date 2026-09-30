@@ -316,7 +316,7 @@ export default function ThanksPage() {
           <strong>no es un CFDI</strong>.
         </p>
 
-        <p className="text-center text-[10px] text-muted-foreground">
+        <p className="text-center text-caption text-muted-foreground">
           Si tu navegador no redirige solo, puedes cerrar esta ventana.
         </p>
       </div>

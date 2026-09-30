@@ -268,7 +268,7 @@ export function CustomerAddresses({
               <Field id="addr-label" label="Nombre" error={errors.label?.message}>
                 <Input
                   id="addr-label"
-                  placeholder="Casa, Oficina, Bodega…"
+                  placeholder="Ej. Oficina"
                   aria-invalid={!!errors.label}
                   aria-describedby={errors.label ? "addr-label-error" : undefined}
                   {...register("label")}
@@ -277,7 +277,7 @@ export function CustomerAddresses({
               <Field id="addr-line1" label="Calle y número" error={errors.line1?.message}>
                 <Input
                   id="addr-line1"
-                  placeholder="Av. Reforma 123"
+                  placeholder="Ej. Av. Central 123, int. 4"
                   aria-invalid={!!errors.line1}
                   aria-describedby={errors.line1 ? "addr-line1-error" : undefined}
                   {...register("line1")}
@@ -286,7 +286,7 @@ export function CustomerAddresses({
               <Field id="addr-line2" label="Colonia / referencias" error={errors.line2?.message}>
                 <Input
                   id="addr-line2"
-                  placeholder="Col. Centro, entre X y Y"
+                  placeholder="Ej. Col. Centro, entre Juárez y 5 de Mayo"
                   aria-invalid={!!errors.line2}
                   {...register("line2")}
                 />
@@ -297,7 +297,7 @@ export function CustomerAddresses({
                     id="addr-postalCode"
                     inputMode="numeric"
                     maxLength={5}
-                    placeholder="06600"
+                    placeholder="Ej. 06600"
                     aria-invalid={!!errors.postalCode}
                     aria-describedby={errors.postalCode ? "addr-postalCode-error" : undefined}
                     {...register("postalCode")}
@@ -306,6 +306,7 @@ export function CustomerAddresses({
                 <Field id="addr-city" label="Ciudad" error={errors.city?.message}>
                   <Input
                     id="addr-city"
+                    placeholder="Ej. Guadalajara"
                     aria-invalid={!!errors.city}
                     aria-describedby={errors.city ? "addr-city-error" : undefined}
                     {...register("city")}
@@ -314,13 +315,14 @@ export function CustomerAddresses({
                 <Field id="addr-state" label="Estado" error={errors.state?.message}>
                   <Input
                     id="addr-state"
+                    placeholder="Ej. Jalisco"
                     aria-invalid={!!errors.state}
                     aria-describedby={errors.state ? "addr-state-error" : undefined}
                     {...register("state")}
                   />
                 </Field>
                 <Field id="addr-country" label="País" error={errors.country?.message}>
-                  <Input id="addr-country" placeholder="MX" aria-invalid={!!errors.country} {...register("country")} />
+                  <Input id="addr-country" placeholder="Ej. MX" aria-invalid={!!errors.country} {...register("country")} />
                 </Field>
               </div>
               <div className="flex items-center gap-2">

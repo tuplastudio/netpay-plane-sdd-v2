@@ -176,7 +176,7 @@ export function TenantSwitcher() {
     return (
       <span
         title="Solo perteneces a esta empresa"
-        className="hidden h-9 max-w-[14rem] items-center gap-1.5 rounded-md border border-border px-2.5 text-sm font-medium text-muted-foreground sm:inline-flex sm:max-w-[18rem]"
+        className="hidden h-9 max-w-[14rem] items-center gap-1.5 rounded-md border border-border px-2.5 text-body-sm font-medium text-muted-foreground sm:inline-flex sm:max-w-[18rem]"
       >
         <Building2 aria-hidden className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{activeName}</span>
@@ -231,8 +231,8 @@ export function TenantSwitcher() {
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-medium">Cambiar de empresa</span>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-body-sm font-medium">Cambiar de empresa</span>
+            <span className="text-caption text-muted-foreground">
               {impersonating
                 ? `Ahora ves ${impersonating.name} como super-admin.`
                 : activeName
@@ -292,8 +292,9 @@ export function TenantSwitcher() {
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar empresa…"
-                  className="h-8 pl-7 text-sm"
+                  placeholder="Buscar por nombre o slug…"
+                  // Búsqueda dentro de un menú: única excepción al alto de 40.
+                  className="h-9 pl-7 text-body-sm sm:h-9"
                   autoComplete="off"
                 />
               </div>
@@ -301,12 +302,12 @@ export function TenantSwitcher() {
 
             <div aria-label="Empresas de la plataforma" className="max-h-56 overflow-y-auto py-1">
               {tenants.isLoading ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2 px-3 py-2 text-body-sm text-muted-foreground">
                   <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
                   Cargando empresas…
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-muted-foreground">
+                <div className="px-3 py-2 text-body-sm text-muted-foreground">
                   {search ? "Sin coincidencias." : "No hay empresas activas."}
                 </div>
               ) : (
@@ -325,7 +326,7 @@ export function TenantSwitcher() {
                       <span className="flex w-full items-center gap-2">
                         <span className="truncate font-medium">{t.name}</span>
                         {isCurrent ? (
-                          <span className="ml-auto text-xs font-medium text-warning-foreground">Activa</span>
+                          <span className="ml-auto text-caption font-medium text-warning-foreground">Activa</span>
                         ) : null}
                       </span>
                       <span className="font-mono text-micro uppercase text-muted-foreground">

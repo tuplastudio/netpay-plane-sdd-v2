@@ -15,9 +15,11 @@ SE CONSERVAN para no tocar 600+ usos. Cambian los VALORES y se agregan pocos tok
 - `body { font-size: 16px; line-height: 1.5; letter-spacing: 0 }` (antes 15/1.3/-0.01em).
 - Display: pesos 600, tracking negativo suave (-0.02em … -0.03em), NO -0.05em ni interlínea <1.05.
   - display-xxl 44→72px/1.05 · display-xl 36→56px/1.10 · display-lg 32→48px/1.10 · display-md 26→36px/1.20
+  - Portal operativo (2026-09-29): h1 24→28px/1.2/600/-0.015em · h2 18/1.4/600/-0.01em · h3 16/1.5/600
   - headline 22px/1.30/600 · subhead 18px/1.5/400 · body-lg 18/1.5 · body 16/1.5 · body-sm 14/1.5/400
   - body-sm-medium 14/1.5/500 · caption 13/1.4 · micro 12/1.4/500 · micro-uppercase 11/1.4/600/+0.5px
   - code-md 14/1.5 mono · code-sm 13/1.4 mono
+  - Alias de Tailwind remapeados: `text-xs` = caption 13 · `text-sm` = body-sm 14 · `text-base` = body 16 · `text-lg` = 18/1.4
 - Móvil (<480): display-xxl 36px, display-xl 32px, etc. Tocar `clamp()`.
 
 ## Paleta — MODO CLARO (`.light`)

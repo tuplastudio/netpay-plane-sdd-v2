@@ -104,14 +104,15 @@ export const Section = React.forwardRef<HTMLElement, SectionProps>(
                       </span>
                     ) : null}
                     {title ? (
-                      <Heading className="font-display text-[1.0625rem] font-semibold leading-none tracking-[-0.01em]">
-                        {title}
-                      </Heading>
+                      // h2 (18px/600): un peldaño bajo el h1 de `PageHeader`.
+                      <Heading className="text-h2 leading-tight">{title}</Heading>
                     ) : null}
                   </div>
                 ) : null}
                 {description ? (
-                  <p className="text-body text-muted-foreground">{description}</p>
+                  // body-sm: la descripción de una sección acompaña a
+                  // tablas y formularios de 14px, no debe superarlos.
+                  <p className="text-body-sm text-muted-foreground">{description}</p>
                 ) : null}
               </div>
               {actions ? (

@@ -638,7 +638,7 @@ function ZoneForm({
               required
               value={draft.name}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-              placeholder="Centro, Zona metropolitana, Foráneo…"
+              placeholder="Ej. Zona metropolitana"
             />
           </div>
           <div className="space-y-1.5">
@@ -647,6 +647,7 @@ function ZoneForm({
               id="zone-price"
               type="number"
               inputMode="decimal"
+              placeholder="Ej. 120"
               min={0}
               step="0.5"
               value={draft.price}
@@ -793,7 +794,7 @@ function ZoneForm({
               id="zone-cps"
               value={draft.postalCodes}
               onChange={(e) => setDraft({ ...draft, postalCodes: e.target.value })}
-              placeholder="06000, 06010, 06020"
+              placeholder="Ej. 06000, 06010, 06020"
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -805,7 +806,7 @@ function ZoneForm({
                 id="zone-city"
                 value={draft.cityPattern}
                 onChange={(e) => setDraft({ ...draft, cityPattern: e.target.value })}
-                placeholder="Guadalajara, Zapopan…"
+                placeholder="Ej. Guadalajara, Zapopan"
               />
             </div>
             <div className="space-y-1.5">
@@ -814,7 +815,7 @@ function ZoneForm({
                 id="zone-state"
                 value={draft.state}
                 onChange={(e) => setDraft({ ...draft, state: e.target.value })}
-                placeholder="JAL, CDMX, NL…"
+                placeholder="Ej. JAL, CDMX, NL"
               />
             </div>
           </div>
@@ -830,6 +831,7 @@ function ZoneForm({
               id="zone-order"
               type="number"
               inputMode="numeric"
+              placeholder="Ej. 1"
               min={0}
               step={1}
               value={draft.sortOrder}
@@ -854,7 +856,7 @@ function ZoneForm({
               rows={2}
               value={draft.notes}
               onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-              placeholder="Notas para el equipo…"
+              placeholder="Ej. Solo entregas de lunes a viernes"
             />
           </div>
         </div>
@@ -940,7 +942,7 @@ function PlaceSearch({
               void search();
             }
           }}
-          placeholder="Colonia, ciudad o dirección"
+          placeholder="Ej. Col. Roma Norte, Ciudad de México"
         />
       </div>
       <Button type="button" variant="outline" onClick={() => void search()} loading={busy} disabled={!q.trim()}>
@@ -1070,17 +1072,17 @@ function ZoneTester({
               inputMode="numeric"
               value={postalCode}
               onChange={(e) => setPostalCode(e.target.value)}
-              placeholder="06000"
+              placeholder="Ej. 06000"
             />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1.5">
               <Label htmlFor="tester-city">Ciudad</Label>
-              <Input id="tester-city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="CDMX" />
+              <Input id="tester-city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Ej. Ciudad de México" />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="tester-state">Estado</Label>
-              <Input id="tester-state" value={state} onChange={(e) => setState(e.target.value)} placeholder="CDMX" />
+              <Input id="tester-state" value={state} onChange={(e) => setState(e.target.value)} placeholder="Ej. CDMX" />
             </div>
           </div>
           <PlaceSearch

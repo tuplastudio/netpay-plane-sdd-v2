@@ -277,7 +277,7 @@ export function QuickQuoteSheet({
                           placeholder="1"
                           value={l.quantity}
                           aria-label={`Cantidad de ${l.title}`}
-                          className="h-6 w-12 px-1 text-center text-[11px]"
+                          className="h-6 w-12 px-1 text-center text-micro"
                           onChange={(e) => setQuantity(l.variantId, Number(e.target.value))}
                         />
                         <Tip label={`Agregar una unidad de ${l.title}`}>

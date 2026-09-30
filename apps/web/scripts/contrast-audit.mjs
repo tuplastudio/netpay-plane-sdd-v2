@@ -125,6 +125,11 @@ pairs.push({ fg: "on-hero-foreground", bg: "on-hero", type: "text" });
 pairs.push({ fg: "popover-foreground", bg: "popover", type: "text" });
 pairs.push({ fg: "muted-foreground", bg: "popover", type: "text" });
 pairs.push({ fg: "muted-foreground", bg: "muted", type: "text" });
+// Placeholder de los campos (`placeholder:text-muted-foreground` sobre el
+// lienzo, ver `fieldClassName` en ui/input.tsx) y campo deshabilitado
+// (texto muted sobre relleno `muted`). Un placeholder es texto: ≥4.5:1.
+pairs.push({ fg: "muted-foreground", bg: "background", type: "text", label: "placeholder de campo" });
+pairs.push({ fg: "muted-foreground", bg: "muted", type: "text", label: "campo deshabilitado" });
 // UI: borde de control y anillo de foco. Los checks, radios y puntos activos
 // usan `primary` (menta profunda), no `brand`: la menta de relleno #00d4a4 es
 // fondo de píldora (su texto ink da 9.8:1) y nunca un objeto gráfico suelto

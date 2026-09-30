@@ -283,7 +283,7 @@ export function ConversationsFilters({
                 id="conversations-tag"
                 list="conversations-tag-options"
                 value={tagDraft}
-                placeholder="p. ej. mayoreo"
+                placeholder="Ej. mayoreo"
                 autoComplete="off"
                 onChange={(e) => setTagDraft(e.target.value)}
                 onBlur={commitTag}
