@@ -460,6 +460,15 @@ sobre el ciclo de vida y le avisa al agente en cada transición
 | Autocierre por inactividad | `close?delete=true` por hilo (`closeMany`, lotes de 4) | Ídem, best-effort después del `updateMany`. |
 | Cliente escribe a un hilo `CLOSED` (se reabre) | `release` (sin esperar) | Suelta cualquier handoff viejo. |
 | Puente recibe `{reply:"", handoff:true, intent:"HUMAN_ACTIVE"}` con la base en "bot atiende" | `release` + reintento único de `/chat` (mismo `messageId`) | Red de seguridad si algún aviso anterior falló. |
+| Chat web: "Nueva conversación" (`apps/web/src/app/(app)/chat`) | `DELETE /conversations/{id}` (vía el proxy de commerce-api, permitido con `chat.write`) | Se borra checkpoint + caché de idempotencia; el siguiente mensaje llega con un `conversationId` nuevo generado por el navegador. |
+
+Identidad del hilo (`pipeline/turn.py::fresh_conversation_id`): si el canal
+manda `conversationId`, ese es el hilo. Si no, con `customerPhone` se
+reengancha siempre `{tenant}:{teléfono}`; sin teléfono el hilo es NUEVO cada
+turno (uuid). Antes caía en `{tenant}:anon`, un solo hilo compartido por todo
+el negocio, y el chat web recargado o "reiniciado" retomaba el carrito y la
+cotización de la conversación anterior. Por eso el chat web genera su id y lo
+guarda en `sessionStorage` por comercio.
 
 El job de autocierre entero se puede apagar con `WHATSAPP_AUTO_CLOSE_JOB=false`
 en commerce-api (`conversation-auto-close.service.ts`), sin tocar el ajuste

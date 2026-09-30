@@ -34,6 +34,7 @@ import binascii
 import contextlib
 import logging
 import re
+import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -101,6 +102,25 @@ def business_name(tenant_id: str) -> str:
 
 def _urls_in(text: str) -> set[str]:
     return {m.group(0).rstrip(".,;:") for m in _URL_IN_TEXT.finditer(text or "")}
+
+
+def fresh_conversation_id(req: ChatRequest) -> str:
+    """Id del hilo cuando el canal NO manda `conversationId`.
+
+    * Con identidad estable (teléfono) se reengancha siempre el mismo hilo:
+      es lo que espera un puente que no lleva id propio.
+    * Sin identidad (chat web anónimo) el hilo es NUEVO cada vez. Antes caía
+      en ``{tenant}:anon``: un único hilo compartido por todo el negocio, así
+      que recargar o "reiniciar" el chat web volvía a la misma conversación
+      —con su carrito y cotización viejos— y dos personas del mismo tenant se
+      pisaban el hilo. El cliente debe conservar el `conversationId` que
+      devuelve la respuesta para continuar el hilo (el chat web lo genera él
+      mismo y lo manda en cada turno).
+    """
+    phone = (req.customerPhone or "").strip()
+    if phone:
+        return f"{req.tenantId}:{phone}"
+    return uuid.uuid4().hex
 
 
 @dataclass
@@ -398,7 +418,7 @@ class TurnPipeline:
         if ctx.rt.agent is None:
             raise TurnRejected(503, "El agente todavía no está listo")
 
-        ctx.conversation_id = req.conversationId or f"{req.tenantId}:{req.customerPhone or 'anon'}"
+        ctx.conversation_id = req.conversationId or fresh_conversation_id(req)
         # thread_id = conversación: aquí es donde LangGraph recupera el hilo previo.
         ctx.thread_id = f"{req.tenantId}:{ctx.conversation_id}"
         ctx.config = {
