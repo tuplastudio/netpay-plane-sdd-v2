@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Archive } from "lucide-react";
+import { Archive, Copy, Images, Info, ToggleLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,10 +13,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { DateTime } from "@/components/app/date-time";
-import { Section } from "@/components/app/section";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { InfoTip } from "@/components/app/info-tip";
 import { ImageGallery } from "./_components/image-gallery";
+import { FormSection } from "./_components/form-section";
 import {
   CATALOG_FIELD_HELP,
   CATALOG_STATUS_OPTIONS,
@@ -25,7 +25,6 @@ import {
   addVariantSchema,
   apiErrorMessage,
   editProductSchema,
-  resolveOriginSystem,
   type AddVariantValues,
   type EditProductValues,
   type Product,
@@ -34,6 +33,7 @@ import {
 } from "./catalog-shared";
 import { SHEET_FRAME_CLASS, SheetBody, SheetFooterBar, SheetFrameHeader } from "./_components/sheet-frame";
 import { VariantsSection } from "./_components/variants-editor";
+import { toAddVariantPayload, toUpdateProductPayload, toUpdateVariantPayload } from "./_components/product-form";
 
 function isConflict(error: unknown): boolean {
   return (error as { response?: { status?: number } })?.response?.status === 409;
@@ -43,10 +43,13 @@ export function EditProductSheet({
   product,
   onClose,
   onChanged,
+  onDuplicate,
 }: {
   product: Product | null;
   onClose: () => void;
   onChanged: () => Promise<unknown> | void;
+  /** Si viene, muestra "Duplicar" en el pie (la lista es dueña de la mutación). */
+  onDuplicate?: (product: Product) => void;
 }) {
   const formId = useId();
   const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
@@ -70,14 +73,7 @@ export function EditProductSheet({
   const updateProduct = useMutation({
     mutationFn: async (v: EditProductValues) => {
       if (!product) return;
-      const res = await api.patch(`/catalog/products/${product.id}`, {
-        expectedVersion: product.version,
-        title: v.title,
-        description: v.description || undefined,
-        tags: v.tags,
-        synonyms: v.synonyms,
-        status: v.status,
-      });
+      const res = await api.patch(`/catalog/products/${product.id}`, toUpdateProductPayload(v, product.version));
       return res.data.data as Product;
     },
     onSuccess: async () => {
@@ -108,20 +104,10 @@ export function EditProductSheet({
 
   const updateVariant = useMutation({
     mutationFn: async (input: { variant: Variant; values: VariantValues }) => {
-      const res = await api.patch(`/catalog/variants/${input.variant.id}`, {
-        expectedVersion: input.variant.version,
-        title: input.values.title,
-        price: input.values.price,
-        // El formulario siempre trae un valor resuelto (nunca "sin tocar"):
-        // vacío = quita el control de inventario o el vínculo con el
-        // sistema externo, así que se manda `null` explícito, no se omite.
-        stock: input.values.stock.trim() || null,
-        satProductCode: input.values.satProductCode || undefined,
-        satUnitCode: input.values.satUnitCode || undefined,
-        status: input.values.status,
-        originSystem: resolveOriginSystem(input.values) || null,
-        originExternalId: input.values.originExternalId?.trim() || null,
-      });
+      const res = await api.patch(
+        `/catalog/variants/${input.variant.id}`,
+        toUpdateVariantPayload(input.values, input.variant.version),
+      );
       return res.data.data;
     },
     onSuccess: async () => {
@@ -156,16 +142,7 @@ export function EditProductSheet({
   const addVariant = useMutation({
     mutationFn: async (v: AddVariantValues) => {
       if (!product) return;
-      const res = await api.post(`/catalog/products/${product.id}/variants`, {
-        sku: v.sku,
-        title: v.title,
-        price: v.price,
-        stock: v.stock.trim() || undefined,
-        satProductCode: v.satProductCode || undefined,
-        satUnitCode: v.satUnitCode || undefined,
-        originSystem: resolveOriginSystem(v) || undefined,
-        originExternalId: v.originExternalId?.trim() || undefined,
-      });
+      const res = await api.post(`/catalog/products/${product.id}/variants`, toAddVariantPayload(v));
       return res.data.data;
     },
     onSuccess: async () => {
@@ -215,108 +192,134 @@ export function EditProductSheet({
               </SheetFrameHeader>
 
               <SheetBody className="space-y-6">
-                <form id={formId} onSubmit={onEditSubmit} noValidate className="space-y-4">
-                  <Field label="Título" error={editErrors.title?.message}>
-                    {(p) => <Input placeholder="ej. Pintura vinílica mate" {...p} {...editForm.register("title")} />}
-                  </Field>
-                  <Field label="Descripción" error={editErrors.description?.message}>
-                    {(p) => (
-                      <Textarea
-                        rows={3}
-                        placeholder="Detalle visible para el agente y en la ficha del producto."
-                        {...p}
-                        {...editForm.register("description")}
-                      />
-                    )}
-                  </Field>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field
-                      label="Tags"
-                      hint="Categorización, visible en filtros. Enter o coma para agregar."
-                      error={editErrors.tags?.message}
-                    >
-                      {(p) => (
-                        <TagsInput
-                          {...p}
-                          value={editForm.watch("tags")}
-                          onChange={(next) => editForm.setValue("tags", next, { shouldDirty: true })}
-                          placeholder="ej. pintura mate"
-                        />
-                      )}
-                    </Field>
-                    <Field
-                      label="Sinónimos"
-                      hint="Términos que el agente debe reconocer; el cliente no los ve."
-                      error={editErrors.synonyms?.message}
-                    >
-                      {(p) => (
-                        <TagsInput
-                          {...p}
-                          value={editForm.watch("synonyms")}
-                          onChange={(next) =>
-                            editForm.setValue("synonyms", next, { shouldDirty: true })
-                          }
-                          placeholder="ej. cubeta grande"
-                        />
-                      )}
-                    </Field>
-                  </div>
-                  <Field
-                    label="Estado"
-                    labelExtra={<InfoTip label="Estado" text={CATALOG_FIELD_HELP.status} />}
-                    hint="Solo los productos activos se ofrecen al cliente."
-                    error={editErrors.status?.message}
+                <form id={formId} onSubmit={onEditSubmit} noValidate className="space-y-6">
+                  <FormSection
+                    icon={<Info className="h-4 w-4" />}
+                    title="Básicos"
+                    description="El SKU del producto no se cambia; identifica al producto en importaciones y sincronizaciones."
                   >
-                    {(p) => (
-                      <Select {...p} {...editForm.register("status")}>
-                        {CATALOG_STATUS_OPTIONS.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </Select>
-                    )}
-                  </Field>
+                    <Field label="Título" error={editErrors.title?.message}>
+                      {(p) => <Input placeholder="ej. Pintura vinílica mate" {...p} {...editForm.register("title")} />}
+                    </Field>
+                    <Field
+                      label="Descripción"
+                      hint="Opcional. El agente la usa para responder dudas del cliente."
+                      error={editErrors.description?.message}
+                    >
+                      {(p) => (
+                        <Textarea
+                          rows={3}
+                          placeholder="Material, usos, presentación, qué incluye…"
+                          {...p}
+                          {...editForm.register("description")}
+                        />
+                      )}
+                    </Field>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <Field
+                        label="Tags"
+                        hint="Categorización, visible en filtros. Enter o coma para agregar."
+                        error={editErrors.tags?.message}
+                      >
+                        {(p) => (
+                          <TagsInput
+                            {...p}
+                            value={editForm.watch("tags")}
+                            onChange={(next) => editForm.setValue("tags", next, { shouldDirty: true })}
+                            placeholder="ej. pintura, interiores"
+                          />
+                        )}
+                      </Field>
+                      <Field
+                        label="Sinónimos"
+                        hint="Términos que el agente debe reconocer; el cliente no los ve."
+                        error={editErrors.synonyms?.message}
+                      >
+                        {(p) => (
+                          <TagsInput
+                            {...p}
+                            value={editForm.watch("synonyms")}
+                            onChange={(next) => editForm.setValue("synonyms", next, { shouldDirty: true })}
+                            placeholder="ej. cubeta grande"
+                          />
+                        )}
+                      </Field>
+                    </div>
+                  </FormSection>
+
+                  <FormSection
+                    icon={<ToggleLeft className="h-4 w-4" />}
+                    title="Estado"
+                    description="Solo los productos activos se ofrecen al cliente."
+                  >
+                    <Field
+                      label="Estado"
+                      labelExtra={<InfoTip label="Estado" text={CATALOG_FIELD_HELP.status} />}
+                      error={editErrors.status?.message}
+                    >
+                      {(p) => (
+                        <Select {...p} {...editForm.register("status")}>
+                          {CATALOG_STATUS_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
+                    </Field>
+                  </FormSection>
                 </form>
 
-                <Section
-                  as="h3"
-                  density="compact"
+                <FormSection
+                  icon={<Images className="h-4 w-4" />}
                   title="Fotos"
-                  description="Galería general del producto. La primera es la portada en listados y en el chat."
+                  description="Galería general del producto. La portada aparece en listados y en el chat; arrastra o usa las flechas para ordenar."
                 >
                   <ImageGallery
                     images={product.images}
+                    productId={product.id}
+                    altFallback={product.title}
                     uploadUrl={`/catalog/products/${product.id}/images`}
                     onChanged={invalidate}
                   />
-                </Section>
+                </FormSection>
 
-                <VariantsSection
-                  variants={product.variants}
-                  onSaveVariant={(variant, values) => updateVariant.mutate({ variant, values })}
-                  savingVariantId={
-                    updateVariant.isPending ? updateVariant.variables?.variant.id : undefined
-                  }
-                  addForm={addVariantForm}
-                  onAddSubmit={onAddVariantSubmit}
-                  adding={addVariant.isPending}
-                  onImagesChanged={invalidate}
-                />
+                <div className="border-t pt-4">
+                  <VariantsSection
+                    productId={product.id}
+                    variants={product.variants}
+                    onSaveVariant={(variant, values) => updateVariant.mutate({ variant, values })}
+                    savingVariantId={
+                      updateVariant.isPending ? updateVariant.variables?.variant.id : undefined
+                    }
+                    addForm={addVariantForm}
+                    onAddSubmit={onAddVariantSubmit}
+                    adding={addVariant.isPending}
+                    onImagesChanged={invalidate}
+                  />
+                </div>
               </SheetBody>
 
               <SheetFooterBar
                 start={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
-                    disabled={archiveProduct.isPending || product.status === "ARCHIVED"}
-                    onClick={() => setArchiveConfirmOpen(true)}
-                  >
-                    <Archive aria-hidden className="h-4 w-4" />
-                    Archivar
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      disabled={archiveProduct.isPending || product.status === "ARCHIVED"}
+                      onClick={() => setArchiveConfirmOpen(true)}
+                    >
+                      <Archive aria-hidden className="h-4 w-4" />
+                      Archivar
+                    </Button>
+                    {onDuplicate ? (
+                      <Button type="button" variant="ghost" onClick={() => onDuplicate(product)}>
+                        <Copy aria-hidden className="h-4 w-4" />
+                        Duplicar
+                      </Button>
+                    ) : null}
+                  </div>
                 }
               >
                 <Button type="button" variant="outline" onClick={requestClose}>

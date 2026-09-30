@@ -23,6 +23,8 @@ import {
   AddVariantDto,
   CreateProductDto,
   DryRunImportDto,
+  ReorderImagesDto,
+  UpdateImageDto,
   UpdateProductDto,
   UpdateVariantDto,
 } from "./catalog.dto.js";
@@ -141,6 +143,45 @@ export class CatalogController {
   async removeImage(@Param("id") id: string) {
     const tenantId = this.requireTenant();
     await this.catalog.deleteImage(tenantId, id, RequestContext.userId ?? null);
+  }
+
+  /** Metadatos de una foto (texto alternativo). El archivo no se reemplaza. */
+  @Patch("images/:id")
+  @RequireScopes("catalog.write")
+  async updateImage(@Param("id") id: string, @Body() body: UpdateImageDto) {
+    const tenantId = this.requireTenant();
+    const image = await this.catalog.updateImage(tenantId, id, RequestContext.userId ?? null, body);
+    return { data: image, requestId: RequestContext.requestId };
+  }
+
+  /** Convierte la foto en portada de su galería. Devuelve la galería reordenada. */
+  @Post("images/:id/primary")
+  @RequireScopes("catalog.write")
+  async setPrimaryImage(@Param("id") id: string) {
+    const tenantId = this.requireTenant();
+    const images = await this.catalog.setPrimaryImage(tenantId, id, RequestContext.userId ?? null);
+    return { data: images, requestId: RequestContext.requestId };
+  }
+
+  /**
+   * Orden nuevo completo de una galería del producto (general o de una
+   * variante; se infiere por las fotos). Devuelve la galería reordenada.
+   */
+  @Post("products/:id/images/reorder")
+  @RequireScopes("catalog.write")
+  async reorderImages(@Param("id") id: string, @Body() body: ReorderImagesDto) {
+    const tenantId = this.requireTenant();
+    const images = await this.catalog.reorderImages(tenantId, id, body.imageIds);
+    return { data: images, requestId: RequestContext.requestId };
+  }
+
+  /** Copia el producto y sus variantes como borrador nuevo (sin fotos). */
+  @Post("products/:id/duplicate")
+  @RequireScopes("catalog.write")
+  async duplicate(@Param("id") id: string) {
+    const tenantId = this.requireTenant();
+    const product = await this.catalog.duplicateProduct(tenantId, RequestContext.userId ?? null, id);
+    return { data: product, requestId: RequestContext.requestId };
   }
 
   @Post("imports/dry-run")

@@ -7,9 +7,14 @@ import {
   AlertCircle,
   Archive,
   CheckCircle2,
-  ChevronRight,
+  Copy,
+  Eye,
   FilePen,
+  ImageIcon,
+  Images,
+  LayoutGrid,
   Layers,
+  List,
   MoreHorizontal,
   PackageOpen,
   PackageX,
@@ -37,7 +42,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { InfoTip, Tip } from "@/components/app/info-tip";
+import { DataTable, type DataTableColumn } from "@/components/app/data-table";
+import { DateTime } from "@/components/app/date-time";
 import { PageHeader } from "@/components/app/page-header";
+import { ProductDetailSheet } from "@/components/app/product-detail-sheet";
 import { Section } from "@/components/app/section";
 import { TablePager } from "@/components/app/table-pager";
 import { usePagedQuery } from "@/components/app/use-paged-query";
@@ -53,14 +61,28 @@ import {
 } from "./catalog-shared";
 import { CreateProductSheet } from "./create-product-sheet";
 import { EditProductSheet } from "./edit-product-sheet";
-import { catalogStats, priceRange, isOutOfStock } from "./_components/product-helpers";
+import {
+  EMPTY_LOCAL_FILTERS,
+  applyLocalFilters,
+  catalogStats,
+  collectTags,
+  countLocalFilters,
+  hasLocalFilters,
+  isOutOfStock,
+  priceRange,
+  totalStock,
+  type LocalFilters,
+  type SortKey,
+  type StockFilter,
+} from "./_components/product-helpers";
+import { imageAlt, primaryImage } from "./_components/image-helpers";
+import { PriceSummary } from "./_components/price-summary";
 import { useDebounced } from "./_components/use-debounced";
 import { usePermissions } from "@/components/app/use-permissions";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
-type StockFilter = "" | "in" | "out" | "external";
-type SortKey = "updated" | "title" | "price-asc" | "price-desc" | "stock";
+type ViewMode = "grid" | "list";
 
 /**
  * KPIs en una sola línea de píldoras para vivir junto al título sin comerse
@@ -136,65 +158,39 @@ function CatalogStatsStrip({
   );
 }
 
-function minPrice(p: Product): number {
-  return priceRange(p) ? Number.parseFloat(priceRange(p)!.min) : Number.POSITIVE_INFINITY;
-}
-
-function totalStock(p: Product): number {
-  let total = 0;
-  for (const v of p.variants) {
-    if (v.stock === null) continue;
-    const n = Number.parseFloat(v.stock);
-    if (Number.isFinite(n)) total += n;
+/** Miniatura de la portada con marcador cuando el producto no tiene fotos. */
+function ProductThumb({
+  product,
+  className,
+  iconClassName = "h-4 w-4",
+}: {
+  product: Product;
+  className?: string;
+  iconClassName?: string;
+}) {
+  const cover = primaryImage(product.images);
+  if (!cover) {
+    return (
+      <div
+        aria-hidden
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground",
+          className,
+        )}
+      >
+        <ImageIcon className={iconClassName} />
+      </div>
+    );
   }
-  return total;
-}
-
-/**
- * Filtros locales sobre la página cargada. Devuelve `undefined` mientras no
- * hay datos para que el render siga distinguiendo "cargando" de "vacío".
- */
-function applyLocalFilters(
-  products: Product[] | undefined,
-  f: { stock: StockFilter; tag: string; priceMin: string; priceMax: string; sort: SortKey },
-): Product[] | undefined {
-  if (!products) return undefined;
-  const min = f.priceMin.trim() === "" ? null : Number.parseFloat(f.priceMin);
-  const max = f.priceMax.trim() === "" ? null : Number.parseFloat(f.priceMax);
-  const out = products.filter((p) => {
-    if (f.tag && !p.tags.includes(f.tag)) return false;
-    if (f.stock === "out" && !p.variants.some(isOutOfStock)) return false;
-    if (f.stock === "in" && !p.variants.some((v) => v.stock !== null && !isOutOfStock(v))) return false;
-    if (f.stock === "external" && !p.variants.some((v) => v.stock === null)) return false;
-    const range = priceRange(p);
-    if ((min !== null && Number.isFinite(min)) || (max !== null && Number.isFinite(max))) {
-      if (!range) return false;
-      const lo = Number.parseFloat(range.min);
-      const hi = Number.parseFloat(range.max);
-      // Coincide si alguna variante cae dentro del rango pedido.
-      if (min !== null && Number.isFinite(min) && hi < min) return false;
-      if (max !== null && Number.isFinite(max) && lo > max) return false;
-    }
-    return true;
-  });
-  const sorted = [...out];
-  switch (f.sort) {
-    case "title":
-      sorted.sort((a, b) => a.title.localeCompare(b.title, "es"));
-      break;
-    case "price-asc":
-      sorted.sort((a, b) => minPrice(a) - minPrice(b));
-      break;
-    case "price-desc":
-      sorted.sort((a, b) => minPrice(b) - minPrice(a));
-      break;
-    case "stock":
-      sorted.sort((a, b) => totalStock(a) - totalStock(b));
-      break;
-    default:
-      sorted.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }
-  return sorted;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- foto de catálogo servida por el API
+    <img
+      src={cover.url}
+      alt={imageAlt(cover, product.title)}
+      loading="lazy"
+      className={cn("shrink-0 rounded-md border object-cover", className)}
+    />
+  );
 }
 
 export default function CatalogPage() {
@@ -203,9 +199,9 @@ export default function CatalogPage() {
   const qc = useQueryClient();
 
   // El filtro de la URL tiene prioridad sobre el estado local: entrar a
-  // `/catalog?q=AGL-…` debe abrir la página ya filtrada. La URL se
-  // mantiene en sync para que pegar el link funcione y para que el
-  // navegador "atrás/adelante" conserve el filtro.
+  // `/catalog?q=…` debe abrir la página ya filtrada. La URL se mantiene en
+  // sync para que pegar el link funcione y para que el navegador
+  // "atrás/adelante" conserve el filtro.
   const urlQ = searchParams.get("q") ?? "";
   const [search, setSearch] = useState(urlQ);
   useEffect(() => {
@@ -222,20 +218,28 @@ export default function CatalogPage() {
     });
   }, [q, router, searchParams, urlQ]);
 
+  // Rejilla o lista, también en la URL (`?view=list`) para que se conserve al
+  // volver y al compartir el link.
+  const view: ViewMode = searchParams.get("view") === "list" ? "list" : "grid";
+  const setView = (next: ViewMode) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "list") params.set("view", "list");
+    else params.delete("view");
+    router.replace(`/catalog${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
+  };
+
   const [status, setStatus] = useState<CatalogStatus | "">("");
   // Filtros finos sobre la página ya cargada: el API solo entiende `q` y
   // `status`; existencias, tag, rango de precio y orden se resuelven aquí.
-  const [stockFilter, setStockFilter] = useState<StockFilter>("");
-  const [tag, setTag] = useState("");
-  const [priceMin, setPriceMin] = useState("");
-  const [priceMax, setPriceMax] = useState("");
-  const [sort, setSort] = useState<SortKey>("updated");
+  const [local, setLocal] = useState<LocalFilters>(EMPTY_LOCAL_FILTERS);
+  const patchLocal = (patch: Partial<LocalFilters>) => setLocal((prev) => ({ ...prev, ...patch }));
   const [moreOpen, setMoreOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   // Solo lectura para quien no tiene `catalog.write` (VENDOR, FINANCE,
   // SUPPORT, VIEWER): se ve el catálogo, sin botones que acabarían en 403.
   const canWrite = usePermissions().can("catalog.write");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Product | null>(null);
 
   // Paginado en el servidor (`limit`/`offset`): antes solo se veían los primeros
@@ -247,46 +251,25 @@ export default function CatalogPage() {
   });
 
   const editing = list.rows?.find((p) => p.id === editingId) ?? null;
+  const detail = list.rows?.find((p) => p.id === detailId) ?? null;
   const invalidate = useCallback(
     () => qc.invalidateQueries({ queryKey: ["products"] }),
     [qc],
   );
 
-  const localFiltered =
-    stockFilter !== "" || tag !== "" || priceMin.trim() !== "" || priceMax.trim() !== "";
+  const localFiltered = hasLocalFilters(local);
   const isFiltered = q.length > 0 || status !== "" || localFiltered;
   const clearFilters = () => {
     setSearch("");
     setStatus("");
-    setStockFilter("");
-    setTag("");
-    setPriceMin("");
-    setPriceMax("");
-    setSort("updated");
+    setLocal(EMPTY_LOCAL_FILTERS);
   };
 
-  const availableTags = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of list.rows ?? []) for (const t of p.tags) set.add(t);
-    return [...set].sort((a, b) => a.localeCompare(b, "es"));
-  }, [list.rows]);
-
-  const visible = useMemo(
-    () =>
-      applyLocalFilters(list.rows, {
-        stock: stockFilter,
-        tag,
-        priceMin,
-        priceMax,
-        sort,
-      }),
-    [list.rows, stockFilter, tag, priceMin, priceMax, sort],
-  );
-
+  const availableTags = useMemo(() => collectTags(list.rows), [list.rows]);
+  const visible = useMemo(() => applyLocalFilters(list.rows, local), [list.rows, local]);
   const stats = useMemo(() => catalogStats(visible), [visible]);
 
-  // Resalta el fragmento de la búsqueda en el título del producto. Útil
-  // cuando el catálogo tiene SKUs largos como "AGL-CARBONATO-CALCIO-OMYA-1".
+  // Resalta el fragmento de la búsqueda en el título y el SKU del producto.
   const highlight = useCallback(
     (text: string) => {
       if (!q) return text;
@@ -342,13 +325,129 @@ export default function CatalogPage() {
     onError: (error) => toast.error(apiErrorMessage(error, "No se pudo archivar")),
   });
 
+  const duplicateProduct = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.post(`/catalog/products/${id}/duplicate`);
+      return res.data.data as Product;
+    },
+    onSuccess: async (copy) => {
+      toast.success(`Copia creada como borrador: ${copy.sku}`, {
+        description: "Las fotos no se copian; súbelas desde Editar.",
+      });
+      // La copia es la más reciente: tras recargar queda en la primera página
+      // y se abre a editar para renombrarla.
+      setEditingId(null);
+      setDetailId(null);
+      await invalidate();
+      setEditingId(copy.id);
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo duplicar el producto")),
+  });
+
   const listCount = visible?.length;
+
+  const actionsFor = (p: Product) => ({
+    onView: () => setDetailId(p.id),
+    onEdit: () => setEditingId(p.id),
+    onActivate: () => setProductStatus.mutate({ product: p, status: "ACTIVE" }),
+    onDraft: () => setProductStatus.mutate({ product: p, status: "DRAFT" }),
+    onDuplicate: () => duplicateProduct.mutate(p.id),
+    onArchive: () => setArchiveTarget(p),
+    busy: setProductStatus.isPending || duplicateProduct.isPending,
+    canEdit: canWrite,
+  });
+
+  const columns: Array<DataTableColumn<Product>> = [
+    {
+      key: "photo",
+      header: <span className="sr-only">Foto</span>,
+      width: "3.5rem",
+      cell: (p) => <ProductThumb product={p} className="h-10 w-10" />,
+    },
+    {
+      key: "product",
+      header: "Producto",
+      cell: (p) => (
+        <div className="min-w-0">
+          <p className="line-clamp-1 text-sm font-medium">{highlight(p.title)}</p>
+          <p className="truncate font-mono text-[10px] uppercase text-muted-foreground">{highlight(p.sku)}</p>
+        </div>
+      ),
+    },
+    {
+      key: "status",
+      header: "Estado",
+      width: "8rem",
+      cell: (p) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge status={p.status} domain="catalog" size="sm" />
+          {p.status === "ACTIVE" && p.variants.some(isOutOfStock) ? (
+            <span className="inline-flex items-center gap-1 text-xs text-destructive">
+              <PackageX aria-hidden className="h-3.5 w-3.5" />
+              Sin stock
+            </span>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      key: "price",
+      header: "Precio",
+      numeric: true,
+      width: "9rem",
+      cell: (p) => <PriceSummary product={p} />,
+    },
+    {
+      key: "variants",
+      header: "Variantes",
+      numeric: true,
+      width: "6rem",
+      cell: (p) => p.variants.length,
+    },
+    {
+      key: "stock",
+      header: "Existencias",
+      numeric: true,
+      width: "7rem",
+      cell: (p) =>
+        p.variants.every((v) => v.stock === null) ? (
+          <span className="text-muted-foreground">Sin control</span>
+        ) : (
+          totalStock(p).toFixed(2)
+        ),
+    },
+    {
+      key: "photos",
+      header: "Fotos",
+      numeric: true,
+      width: "5rem",
+      cell: (p) => (
+        <span className="inline-flex items-center gap-1 tabular-nums">
+          <Images aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+          {p.images.length}
+        </span>
+      ),
+    },
+    {
+      key: "updated",
+      header: "Actualizado",
+      width: "10rem",
+      cell: (p) => <DateTime value={p.updatedAt} className="text-muted-foreground" />,
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Acciones</span>,
+      width: "3rem",
+      className: "text-right",
+      cell: (p) => <ProductActionsMenu product={p} {...actionsFor(p)} />,
+    },
+  ];
 
   return (
     <div>
       <PageHeader
         title="Catálogo"
-        description="Productos, variantes, precios y claves SAT que el agente puede cotizar."
+        description="Productos, variantes, precios, fotos y claves SAT que el agente puede cotizar."
         actions={
           canWrite ? (
             <Button onClick={() => setCreateOpen(true)}>
@@ -360,15 +459,7 @@ export default function CatalogPage() {
       />
 
       <div className="space-y-3">
-        {/* Fila de KPIs: una sola línea de píldoras junto al título.
-            El catálogo quiere rejilla de productos, no mosaicos: los cuatro
-            números juntos ocupan lo mismo que un renglón y dejan respirar al
-            grid de productos. */}
-        <CatalogStatsStrip
-          stats={stats}
-          loading={list.isLoading}
-          isError={list.isError}
-        />
+        <CatalogStatsStrip stats={stats} loading={list.isLoading} isError={list.isError} />
 
         <Section>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -430,17 +521,12 @@ export default function CatalogPage() {
               Más filtros
               {localFiltered ? (
                 <span className="ml-1 rounded-pill bg-primary-strong px-1.5 text-[10px] font-semibold text-primary-foreground">
-                  {[stockFilter, tag, priceMin.trim(), priceMax.trim()].filter(Boolean).length}
+                  {countLocalFilters(local)}
                 </span>
               ) : null}
             </Button>
             {isFiltered ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={clearFilters}
-                className="sm:shrink-0"
-              >
+              <Button type="button" variant="ghost" onClick={clearFilters} className="sm:shrink-0">
                 <X aria-hidden className="h-4 w-4" />
                 Limpiar filtros
               </Button>
@@ -462,8 +548,8 @@ export default function CatalogPage() {
                 </div>
                 <Select
                   id="catalog-stock"
-                  value={stockFilter}
-                  onChange={(e) => setStockFilter(e.target.value as StockFilter)}
+                  value={local.stock}
+                  onChange={(e) => patchLocal({ stock: e.target.value as StockFilter })}
                 >
                   <option value="">Todas</option>
                   <option value="in">Con existencias</option>
@@ -475,8 +561,8 @@ export default function CatalogPage() {
                 <Label htmlFor="catalog-tag">Tag</Label>
                 <Select
                   id="catalog-tag"
-                  value={tag}
-                  onChange={(e) => setTag(e.target.value)}
+                  value={local.tag}
+                  onChange={(e) => patchLocal({ tag: e.target.value })}
                   disabled={availableTags.length === 0}
                 >
                   <option value="">
@@ -495,8 +581,8 @@ export default function CatalogPage() {
                   id="catalog-price-min"
                   inputMode="decimal"
                   placeholder="0.00"
-                  value={priceMin}
-                  onChange={(e) => setPriceMin(e.target.value)}
+                  value={local.priceMin}
+                  onChange={(e) => patchLocal({ priceMin: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
@@ -505,16 +591,16 @@ export default function CatalogPage() {
                   id="catalog-price-max"
                   inputMode="decimal"
                   placeholder="Sin límite"
-                  value={priceMax}
-                  onChange={(e) => setPriceMax(e.target.value)}
+                  value={local.priceMax}
+                  onChange={(e) => patchLocal({ priceMax: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="catalog-sort">Ordenar por</Label>
                 <Select
                   id="catalog-sort"
-                  value={sort}
-                  onChange={(e) => setSort(e.target.value as SortKey)}
+                  value={local.sort}
+                  onChange={(e) => patchLocal({ sort: e.target.value as SortKey })}
                 >
                   <option value="updated">Última actualización</option>
                   <option value="title">Nombre (A–Z)</option>
@@ -536,81 +622,140 @@ export default function CatalogPage() {
           description={
             listCount !== undefined
               ? listCount > 0
-                ? `${listCount} ${listCount === 1 ? "producto" : "productos"} ${isFiltered ? "coinciden" : "en el catálogo"}.`
+                ? `${listCount} ${listCount === 1 ? "producto" : "productos"} ${isFiltered ? "coinciden" : "en esta página"}.`
                 : isFiltered
                   ? "Ningún producto coincide con los filtros."
                   : "Aún no hay productos."
               : "Cargando…"
           }
+          actions={
+            <div
+              role="group"
+              aria-label="Vista"
+              className="inline-flex rounded-pill border bg-card p-0.5"
+            >
+              <Tip label="Rejilla">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-8 w-8 sm:h-8 sm:w-8", view === "grid" && "bg-secondary")}
+                  aria-label="Ver como rejilla"
+                  aria-pressed={view === "grid"}
+                  onClick={() => setView("grid")}
+                >
+                  <LayoutGrid aria-hidden className="h-4 w-4" />
+                </Button>
+              </Tip>
+              <Tip label="Lista">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className={cn("h-8 w-8 sm:h-8 sm:w-8", view === "list" && "bg-secondary")}
+                  aria-label="Ver como lista"
+                  aria-pressed={view === "list"}
+                  onClick={() => setView("list")}
+                >
+                  <List aria-hidden className="h-4 w-4" />
+                </Button>
+              </Tip>
+            </div>
+          }
           padded={false}
         >
-          <div className="p-4 sm:p-6">
-            {list.isLoading ? (
-              <SkeletonRegion label="Cargando catálogo…">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <Skeleton key={i} className="h-40 rounded-lg" />
-                  ))}
-                </div>
-              </SkeletonRegion>
-            ) : list.isError ? (
-              <Alert variant="destructive">
-                <AlertCircle />
-                <AlertTitle>No se pudo cargar el catálogo</AlertTitle>
-                <AlertDescription>
-                  <p>{apiErrorMessage(list.error, "Revisa tu conexión.")}</p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-3"
-                    onClick={() => void list.refetch()}
-                  >
-                    Reintentar
+          {view === "list" ? (
+            <DataTable
+              columns={columns}
+              rows={visible}
+              isLoading={list.isLoading}
+              isError={list.isError}
+              error={list.error}
+              onRetry={() => void list.refetch()}
+              onRowClick={(p) => setDetailId(p.id)}
+              getRowActionLabel={(p) => `Ver ${p.title}`}
+              caption="Productos del catálogo"
+              skeletonRows={8}
+              empty={{
+                icon: isFiltered ? <SearchX className="h-6 w-6" /> : <PackageOpen className="h-6 w-6" />,
+                title: isFiltered ? "Sin coincidencias" : "Aún no hay productos",
+                description: isFiltered
+                  ? "Ningún producto coincide con los filtros activos."
+                  : canWrite
+                    ? "Crea el primero con su variante y precio para que el agente pueda cotizarlo."
+                    : "Cuando alguien con permiso de catálogo los dé de alta, aparecerán aquí.",
+                action: isFiltered ? (
+                  <Button variant="outline" size="sm" onClick={clearFilters}>
+                    <X aria-hidden className="h-3.5 w-3.5" />
+                    Limpiar filtros
                   </Button>
-                </AlertDescription>
-              </Alert>
-            ) : !visible || visible.length === 0 ? (
-              <EmptyCatalog
-                isFiltered={isFiltered}
-                onCreate={canWrite ? () => setCreateOpen(true) : undefined}
-                onClear={clearFilters}
-                searchTerm={q}
-              />
-            ) : (
-              <>
-              {localFiltered ? (
-                <p className="mb-3 text-xs text-muted-foreground">
-                  Existencias, etiqueta, precio y orden filtran dentro de la página actual; la
-                  búsqueda y el estado sí recorren todo el catálogo.
-                </p>
-              ) : null}
-              <ul
-                className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
-                aria-label="Productos del catálogo"
-              >
-                {visible.map((p) => (
-                  <li key={p.id}>
-                    <ProductCard
-                      product={p}
-                      highlight={highlight}
-                      onEdit={() => setEditingId(p.id)}
-                      onActivate={() =>
-                        setProductStatus.mutate({ product: p, status: "ACTIVE" })
-                      }
-                      onDraft={() =>
-                        setProductStatus.mutate({ product: p, status: "DRAFT" })
-                      }
-                      onArchive={() => setArchiveTarget(p)}
-                      activating={setProductStatus.isPending}
-                      canEdit={canWrite}
-                    />
-                  </li>
-                ))}
-              </ul>
-              </>
-            )}
-          </div>
-          {list.paged ? <TablePager {...list.pagerProps} /> : null}
+                ) : canWrite ? (
+                  <Button size="sm" onClick={() => setCreateOpen(true)}>
+                    <Plus aria-hidden className="h-3.5 w-3.5" />
+                    Crear producto
+                  </Button>
+                ) : undefined,
+              }}
+              pagination={list.paged ? <TablePager {...list.pagerProps} /> : undefined}
+            />
+          ) : (
+            <>
+              <div className="p-4 sm:p-6">
+                {list.isLoading ? (
+                  <SkeletonRegion label="Cargando catálogo…">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <div key={i} className="space-y-2 rounded-lg border bg-card p-3">
+                          <Skeleton className="aspect-[4/3] w-full rounded-md" />
+                          <Skeleton className="h-4 w-3/4" />
+                          <Skeleton className="h-3 w-1/3" />
+                          <Skeleton className="h-3 w-1/2" />
+                        </div>
+                      ))}
+                    </div>
+                  </SkeletonRegion>
+                ) : list.isError ? (
+                  <Alert variant="destructive">
+                    <AlertCircle />
+                    <AlertTitle>No se pudo cargar el catálogo</AlertTitle>
+                    <AlertDescription>
+                      <p>{apiErrorMessage(list.error, "Revisa tu conexión.")}</p>
+                      <Button size="sm" variant="outline" className="mt-3" onClick={() => void list.refetch()}>
+                        Reintentar
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                ) : !visible || visible.length === 0 ? (
+                  <EmptyCatalog
+                    isFiltered={isFiltered}
+                    onCreate={canWrite ? () => setCreateOpen(true) : undefined}
+                    onClear={clearFilters}
+                    searchTerm={q}
+                  />
+                ) : (
+                  <>
+                    {localFiltered ? (
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Existencias, etiqueta, precio y orden filtran dentro de la página actual; la
+                        búsqueda y el estado sí recorren todo el catálogo.
+                      </p>
+                    ) : null}
+                    <ul
+                      className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                      aria-label="Productos del catálogo"
+                    >
+                      {visible.map((p) => (
+                        <li key={p.id}>
+                          <ProductCard product={p} highlight={highlight} {...actionsFor(p)} />
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+              {list.paged ? <TablePager {...list.pagerProps} /> : null}
+            </>
+          )}
         </Section>
       </div>
 
@@ -620,6 +765,35 @@ export default function CatalogPage() {
         product={editing}
         onClose={() => setEditingId(null)}
         onChanged={invalidate}
+        onDuplicate={canWrite ? (p) => duplicateProduct.mutate(p.id) : undefined}
+      />
+
+      <ProductDetailSheet
+        product={detail}
+        open={detail !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailId(null);
+        }}
+        footer={
+          detail ? (
+            <>
+              <StatusBadge status={detail.status} domain="catalog" withDot />
+              <span className="hidden flex-1 sm:block" />
+              {canWrite ? (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setDetailId(null);
+                    setEditingId(detail.id);
+                  }}
+                >
+                  <Pencil aria-hidden className="h-4 w-4" />
+                  Editar
+                </Button>
+              ) : null}
+            </>
+          ) : undefined
+        }
       />
 
       <ConfirmDialog
@@ -683,7 +857,7 @@ function EmptyCatalog({
       title="Aún no hay productos"
       description={
         onCreate
-          ? "Crea el primero con su variante y precio para que el agente pueda cotizarlo."
+          ? "Crea el primero con su variante, precio y fotos para que el agente pueda cotizarlo."
           : "Cuando alguien con permiso de catálogo los dé de alta, aparecerán aquí."
       }
       action={
@@ -698,86 +872,70 @@ function EmptyCatalog({
   );
 }
 
-function ProductCard({
-  product,
-  highlight,
-  onEdit,
-  onActivate,
-  onDraft,
-  onArchive,
-  activating,
-  canEdit,
-}: {
-  product: Product;
-  highlight: (text: string) => React.ReactNode;
+interface ProductActions {
+  onView: () => void;
   onEdit: () => void;
   onActivate: () => void;
   onDraft: () => void;
+  onDuplicate: () => void;
   onArchive: () => void;
-  activating: boolean;
+  busy: boolean;
   canEdit: boolean;
-}) {
-  const range = priceRange(product);
-  const outOfStock = product.variants.some(isOutOfStock);
-  const totalStock = product.variants.reduce((acc, v) => {
-    if (v.stock === null) return acc;
-    return acc + Number.parseFloat(v.stock);
-  }, 0);
+}
 
+/** Menú de acciones rápidas, compartido por la tarjeta y la fila de la lista. */
+function ProductActionsMenu({
+  product,
+  onView,
+  onEdit,
+  onActivate,
+  onDraft,
+  onDuplicate,
+  onArchive,
+  busy,
+  canEdit,
+}: ProductActions & { product: Product }) {
   return (
-    <article
-      className="group flex h-full flex-col gap-2 rounded-lg border bg-card p-3 transition-colors hover:border-foreground/40 focus-within:border-foreground/60"
-    >
-      <header className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2">
-          {product.images[0] ? (
-            // eslint-disable-next-line @next/next/no-img-element -- foto de catálogo servida por el API
-            <img
-              src={product.images[0].url}
-              alt=""
-              className="h-10 w-10 shrink-0 rounded-md border object-cover"
-            />
-          ) : null}
-          <div className="min-w-0">
-            <h3 className="line-clamp-2 text-sm font-medium leading-tight">
-              {highlight(product.title)}
-            </h3>
-            <p className="mt-0.5 truncate font-mono text-[10px] uppercase text-muted-foreground">
-              {highlight(product.sku)}
-            </p>
-          </div>
-        </div>
+    <DropdownMenu>
+      <Tip label="Más acciones">
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Acciones de ${product.title}`}
+            className="h-11 w-11 shrink-0 sm:h-8 sm:w-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+      </Tip>
+      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuItem onSelect={onView}>
+          <Eye aria-hidden className="h-4 w-4" />
+          Ver detalle
+        </DropdownMenuItem>
         {canEdit ? (
-        <DropdownMenu>
-          <Tip label="Más acciones">
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Acciones de ${product.title}`}
-                className="h-11 w-11 shrink-0 sm:h-8 sm:w-8"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-          </Tip>
-          <DropdownMenuContent align="end">
+          <>
             <DropdownMenuItem onSelect={onEdit}>
               <Pencil aria-hidden className="h-4 w-4" />
               Editar
             </DropdownMenuItem>
             {product.status !== "ACTIVE" ? (
-              <DropdownMenuItem onSelect={onActivate} disabled={activating}>
+              <DropdownMenuItem onSelect={onActivate} disabled={busy}>
                 <CheckCircle2 aria-hidden className="h-4 w-4" />
                 Activar
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem onSelect={onDraft} disabled={activating}>
+              <DropdownMenuItem onSelect={onDraft} disabled={busy}>
                 <FilePen aria-hidden className="h-4 w-4" />
                 Pasar a borrador
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem onSelect={onDuplicate} disabled={busy}>
+              <Copy aria-hidden className="h-4 w-4" />
+              Duplicar
+            </DropdownMenuItem>
             {product.status !== "ARCHIVED" ? (
               <>
                 <DropdownMenuSeparator />
@@ -790,9 +948,53 @@ function ProductCard({
                 </DropdownMenuItem>
               </>
             ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </>
         ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ProductCard({
+  product,
+  highlight,
+  ...actions
+}: ProductActions & {
+  product: Product;
+  highlight: (text: string) => React.ReactNode;
+}) {
+  const range = priceRange(product);
+  const outOfStock = product.variants.some(isOutOfStock);
+  const stock = totalStock(product);
+  const controlsStock = product.variants.some((v) => v.stock !== null);
+
+  return (
+    <article className="group flex h-full flex-col gap-2 rounded-lg border bg-card p-3 transition-colors hover:border-foreground/40 focus-within:border-foreground/60">
+      <button
+        type="button"
+        onClick={actions.onView}
+        aria-label={`Ver ${product.title}`}
+        className="relative block w-full overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ProductThumb product={product} className="aspect-[4/3] w-full" iconClassName="h-6 w-6" />
+        {product.images.length > 1 ? (
+          <span className="absolute bottom-1 right-1 inline-flex items-center gap-1 rounded-pill bg-background/90 px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+            <Images aria-hidden className="h-3 w-3" />
+            {product.images.length}
+          </span>
+        ) : null}
+      </button>
+
+      <header className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="line-clamp-2 text-sm font-medium leading-tight">
+            {highlight(product.title)}
+          </h3>
+          <p className="mt-0.5 truncate font-mono text-[10px] uppercase text-muted-foreground">
+            {highlight(product.sku)}
+          </p>
+        </div>
+        <ProductActionsMenu product={product} {...actions} />
       </header>
 
       <div className="flex items-center gap-2">
@@ -826,27 +1028,32 @@ function ProductCard({
           <dt className="text-muted-foreground">Variantes</dt>
           <dd className="tabular-nums">{product.variants.length}</dd>
         </div>
-        {Number.isFinite(totalStock) ? (
-          <div className="flex items-center justify-between">
-            <dt className="text-muted-foreground">Stock total</dt>
-            <dd className="tabular-nums">{totalStock.toFixed(2)}</dd>
-          </div>
-        ) : null}
+        <div className="flex items-center justify-between">
+          <dt className="text-muted-foreground">Existencias</dt>
+          <dd className="tabular-nums">
+            {controlsStock ? stock.toFixed(2) : <span className="text-muted-foreground">Sin control</span>}
+          </dd>
+        </div>
       </dl>
 
-      {canEdit ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="-mx-1 mt-1 justify-between"
-          onClick={onEdit}
-          aria-label={`Editar ${product.title}`}
-        >
-          Editar
-          <ChevronRight aria-hidden className="h-3.5 w-3.5" />
+      <div className="-mx-1 mt-1 flex items-center justify-between gap-1">
+        <Button type="button" variant="ghost" size="sm" onClick={actions.onView}>
+          <Eye aria-hidden className="h-3.5 w-3.5" />
+          Ver
         </Button>
-      ) : null}
+        {actions.canEdit ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={actions.onEdit}
+            aria-label={`Editar ${product.title}`}
+          >
+            <Pencil aria-hidden className="h-3.5 w-3.5" />
+            Editar
+          </Button>
+        ) : null}
+      </div>
     </article>
   );
 }
