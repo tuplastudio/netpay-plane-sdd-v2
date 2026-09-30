@@ -18,7 +18,7 @@ de venir. Nunca borra.
 | `DataSourceRun` | Una fila por sincronización: `stats` y `errorSample`. |
 
 Ambas tienen `tenantId` y RLS (`tenant_isolation`). Migración documental:
-`apps/commerce-api/prisma/migrations/0027_data_sources.sql`.
+`apps/commerce-api/prisma/migrations/0030_data_sources.sql`.
 
 La credencial se guarda en `credentialEnc` cifrada con `secret-cipher`
 (AES-256-GCM, clave derivada de `TOKEN_ENCRYPTION_KEY_REF`, la misma que usan
