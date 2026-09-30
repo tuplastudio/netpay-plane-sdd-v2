@@ -105,9 +105,11 @@ export class AccessTokenService {
       jti,
     };
 
+    // `jti` ya va en `claims`: pasarlo también como opción `jwtid` hace que
+    // `jsonwebtoken` tire "Bad options.jwtid option. The payload already has
+    // an jti property." (falla SIEMPRE, en cada login exitoso).
     const tokenStr = await this.nestJwt.signAsync(claims, {
       algorithm: "HS256",
-      jwtid: jti,
     });
 
     this.logger.debug?.(
