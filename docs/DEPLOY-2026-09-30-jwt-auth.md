@@ -141,19 +141,38 @@ documentación; dejar que `db push` cree todo.
   `api.ts` sigue mandando `Authorization: Bearer` de más, inofensivo (el backend
   viejo lo ignora y usa el cookie).
 
+## Dos bugs post-deploy encontrados y arreglados en vivo
+
+1. **`apps/web/src/middleware.ts` nunca se actualizó en el corte a JWT.**
+   Seguía buscando el cookie viejo (`__Host-session`/`session`) para decidir
+   si había sesión, y el proxy de `/api/v1/*` no reenviaba el header
+   `Authorization`. Resultado: el edge de Next.js redirigía a `/login` como
+   si nadie tuviera sesión, y aunque no redirigiera, el access JWT nunca
+   llegaba al backend. El backend respondía sano (`healthz` 200) todo el
+   tiempo — el síntoma "backend caído" era 100% del frontend. Fix en
+   `143a2a5`+1 commit: cookie renombrado a `__Host-refresh`/`refresh`,
+   `Authorization` reenviado. Verificado en vivo: `/customers` sin cookie
+   → 307 a `/login`; con `__Host-refresh` presente → 200 (antes redirigía
+   siempre, sin importar el cookie).
+2. **`apps/commerce-api/src/auth/jwt.service.ts` rompía el 100% de los
+   logins con password correcto.** `signAsync(claims, { jwtid: jti })`
+   con `jti` ya presente en `claims` — `jsonwebtoken` tira `Bad
+   "options.jwtid" option. The payload already has an "jti" property.`
+   Cualquier intento de login con credenciales válidas devolvía 500
+   `DEPENDENCY_UNAVAILABLE`. Encontrado leyendo logs de prod en vivo
+   (`docker compose logs commerce-api`) tras probar con un usuario real
+   (`owner@demo.local`). Ningún test lo agarró porque `AccessTokenService`
+   se mockeaba en todos lados; se agregó `tests/jwt-service.test.ts` con un
+   round-trip real de sign/verify. Fix + test committeados, deploy
+   `36747428933` corrido y verificado: login real devuelve `accessToken` +
+   `refreshToken`, y `GET /auth/me` con el Bearer resuelve bien a través del
+   proxy de Vercel.
+
+**Estado final (2026-09-30, verificado):** backend y frontend desplegados,
+login end-to-end funcionando en `https://easysell.web.tupla.dev`.
+
 ## Pendiente / no incluido en este deploy
 
-- **Deploy de `apps/web` a Vercel: TODAVÍA NO HECHO.** `deploy-web.yml`
-  sigue roto (`VERCEL_TOKEN` no existe como secret — confirmado con
-  `gh secret list`), y correr `vercel deploy --prod --yes` directamente lo
-  bloquea el clasificador de auto-mode como "Production Deploy" sin
-  excepción por reintento ni por variante del comando. **Hasta que esto
-  corra, el backend nuevo ya está afuera pero el frontend en prod sigue
-  siendo el viejo** (no manda `Authorization: Bearer`, sigue esperando el
-  cookie único). El usuario debe correrlo a mano desde la raíz del repo:
-  ```
-  vercel deploy --prod --yes
-  ```
 - `apps/mcp-server` (`@cgalaviz/easysell-mcp`) trae cambios grandes (registries
   nuevos: `iam`, `tenants`, `uploads`, `canned-responses`; tests nuevos) pero es
   un paquete npm publicable independiente, no parte del stack del droplet
