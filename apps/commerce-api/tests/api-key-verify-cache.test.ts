@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * sigue leyendo la fila de la key en cada petición: lo que se fija aquí es
  * que argon2 corre una vez por token, que un token distinto sí se verifica,
  * que la revocación se ve al instante aunque el memo siga vivo, y que
- * `lastUsedAt` se persiste como mucho una vez por minuto.
  */
 const verify = vi.fn(async (hash: string, token: string) => hash === `argon:${token}`);
 vi.mock("argon2", () => ({
@@ -99,14 +98,12 @@ describe("ApiKeyService.resolve: memo de verificación", () => {
     expect(verify).not.toHaveBeenCalled();
   });
 
-  it("lastUsedAt se escribe una vez por minuto por key", async () => {
+  it("resolve no escribe lastUsedAt (lo hace ApiKeyUsageService con throttle)", async () => {
     const db = makeDb();
     const svc = new ApiKeyService(db.prisma as never);
     await svc.resolve(TOKEN);
     await svc.resolve(TOKEN);
-    await svc.resolve(TOKEN);
-    expect(db.calls.update).toBe(1);
-    expect(db.key.lastUsedAt).toBeInstanceOf(Date);
+    expect(db.calls.update).toBe(0);
   });
 
   it("formato inválido: null sin tocar la base", async () => {

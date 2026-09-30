@@ -26,6 +26,7 @@ import { CommonModule } from "./common/common.module.js";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter.js";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware.js";
 import { RateLimitMiddleware, SecurityHeadersMiddleware } from "./ops/security.middleware.js";
+import { ApiKeyUsageMiddleware } from "./auth/usage/api-key-usage.middleware.js";
 
 @Module({
   imports: [
@@ -69,7 +70,9 @@ import { RateLimitMiddleware, SecurityHeadersMiddleware } from "./ops/security.m
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
-      .apply(RequestIdMiddleware, SecurityHeadersMiddleware, RateLimitMiddleware)
+      // ApiKeyUsageMiddleware va después de RequestIdMiddleware: necesita el
+      // contexto de petición para leer el principal al terminar la respuesta.
+      .apply(RequestIdMiddleware, SecurityHeadersMiddleware, RateLimitMiddleware, ApiKeyUsageMiddleware)
       .forRoutes("*");
   }
 }

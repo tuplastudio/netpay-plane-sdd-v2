@@ -56,6 +56,7 @@ model Tenant {
   memberships  Membership[]
   sessions     Session[]
   apiKeys      ApiKey[]
+  apiKeyUsage  ApiKeyUsage[]
   invitations  Invitation[]
   auditLog     AuditLog[]
   products     Product[]
@@ -212,11 +213,46 @@ model ApiKey {
   expiresAt   DateTime? @db.Timestamptz
   revokedAt   DateTime?
   lastUsedAt  DateTime?
+  // Rotación (ver ApiKeyService.rotate): la key vieja queda marcada con la
+  // fecha de rotación y el id de su sucesora; su `expiresAt` se recorta al
+  // periodo de gracia. NULL = nunca se rotó.
+  rotatedAt   DateTime? @db.Timestamptz
+  rotatedToId String?   @db.Uuid
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  usage  ApiKeyUsage[]
 
   @@index([tenantId])
   @@index([prefix])
+}
+
+/// Bitácora de uso de API keys: una fila por petición autenticada con una key
+/// (ver ApiKeyUsageMiddleware). Se escribe en lote y se purga por retención
+/// (ApiKeyUsageService.purgeOlderThan). `tenantId` NULL = petición de una key
+/// global sin X-Tenant-Id (acción de plataforma, sin tenant).
+model ApiKeyUsage {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String?  @db.Uuid
+  apiKeyId   String   @db.Uuid
+  occurredAt DateTime @default(now()) @db.Timestamptz
+  method     String
+  /// Ruta normalizada sin ids: `/api/v1/products/:id`.
+  path       String
+  statusCode Int
+  durationMs Int
+  ip         String?
+  /// Recortado a 256 caracteres.
+  userAgent  String?
+  /// Scope exigido por la ruta (`@RequireScopes`), si lo hubo.
+  scopeUsed  String?
+  /// Código de error del sobre estándar (`VALIDATION_FAILED`, `FORBIDDEN`…); NULL en 2xx/3xx.
+  errorCode  String?
+
+  apiKey ApiKey  @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([apiKeyId, occurredAt])
+  @@index([tenantId, occurredAt])
 }
 
 // ============================================================

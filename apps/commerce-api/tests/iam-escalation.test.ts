@@ -59,14 +59,18 @@ function makeController() {
   };
   const prisma = {
     tenant: { findUnique: async () => ({ id: TENANT, name: "Acme", slug: "acme" }) },
+    // Crear/rotar/revocar dejan AuditLog; aquí no se afirma sobre él.
+    auditLog: { create: async ({ data }: { data: unknown }) => data },
   };
   const mailer = { sendBestEffort: async () => undefined };
+  const usage = { list: async () => ({ items: [], pageInfo: { nextCursor: null, size: 0 } }) };
 
   const controller = new ApiKeyController(
     apiKeys as never,
     invite as never,
     prisma as never,
     mailer as never,
+    usage as never,
   );
   return { controller, keys, invites };
 }
