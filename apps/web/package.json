@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "audit:contrast": "node scripts/contrast-audit.mjs",
-    "test": "echo 'web tests: ok'"
+    "test": "vitest run"
   },
   "dependencies": {
     "@hookform/resolvers": "3.9.1",
@@ -51,6 +51,7 @@
     "eslint-config-next": "15.5.25",
     "postcss": "8.4.49",
     "tailwindcss": "3.4.17",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
   }
 }

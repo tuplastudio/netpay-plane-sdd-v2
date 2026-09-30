@@ -50,3 +50,109 @@ export function catalogStats(products: Product[] | undefined): CatalogStats {
 export function variantsLabel(count: number): string {
   return count === 1 ? "1 variante" : `${count} variantes`;
 }
+
+/** Suma de existencias de las variantes con control de inventario. */
+export function totalStock(product: Pick<Product, "variants">): number {
+  let total = 0;
+  for (const v of product.variants) {
+    if (v.stock === null) continue;
+    const n = Number.parseFloat(v.stock);
+    if (Number.isFinite(n)) total += n;
+  }
+  return total;
+}
+
+/** Precio mínimo numérico, solo para ordenar; +∞ si no hay variantes. */
+export function minPrice(product: Product): number {
+  const range = priceRange(product);
+  return range ? Number.parseFloat(range.min) : Number.POSITIVE_INFINITY;
+}
+
+export type StockFilter = "" | "in" | "out" | "external";
+export type SortKey = "updated" | "title" | "price-asc" | "price-desc" | "stock";
+
+export interface LocalFilters {
+  stock: StockFilter;
+  tag: string;
+  priceMin: string;
+  priceMax: string;
+  sort: SortKey;
+}
+
+export const EMPTY_LOCAL_FILTERS: LocalFilters = {
+  stock: "",
+  tag: "",
+  priceMin: "",
+  priceMax: "",
+  sort: "updated",
+};
+
+/** True si algún filtro fino (no el orden) está activo. */
+export function hasLocalFilters(f: LocalFilters): boolean {
+  return f.stock !== "" || f.tag !== "" || f.priceMin.trim() !== "" || f.priceMax.trim() !== "";
+}
+
+/** Cuántos filtros finos están activos (para la píldora del botón "Más filtros"). */
+export function countLocalFilters(f: LocalFilters): number {
+  return [f.stock, f.tag, f.priceMin.trim(), f.priceMax.trim()].filter(Boolean).length;
+}
+
+function parseBound(raw: string): number | null {
+  if (raw.trim() === "") return null;
+  const n = Number.parseFloat(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Filtros locales sobre la página cargada (el API solo entiende `q` y
+ * `status`). Devuelve `undefined` mientras no hay datos para que el render
+ * siga distinguiendo "cargando" de "vacío". No muta la lista original.
+ */
+export function applyLocalFilters(
+  products: Product[] | undefined,
+  f: LocalFilters,
+): Product[] | undefined {
+  if (!products) return undefined;
+  const min = parseBound(f.priceMin);
+  const max = parseBound(f.priceMax);
+  const out = products.filter((p) => {
+    if (f.tag && !p.tags.includes(f.tag)) return false;
+    if (f.stock === "out" && !p.variants.some(isOutOfStock)) return false;
+    if (f.stock === "in" && !p.variants.some((v) => v.stock !== null && !isOutOfStock(v))) return false;
+    if (f.stock === "external" && !p.variants.some((v) => v.stock === null)) return false;
+    if (min !== null || max !== null) {
+      const range = priceRange(p);
+      if (!range) return false;
+      const lo = Number.parseFloat(range.min);
+      const hi = Number.parseFloat(range.max);
+      // Coincide si alguna variante cae dentro del rango pedido.
+      if (min !== null && hi < min) return false;
+      if (max !== null && lo > max) return false;
+    }
+    return true;
+  });
+  switch (f.sort) {
+    case "title":
+      out.sort((a, b) => a.title.localeCompare(b.title, "es"));
+      break;
+    case "price-asc":
+      out.sort((a, b) => minPrice(a) - minPrice(b));
+      break;
+    case "price-desc":
+      out.sort((a, b) => minPrice(b) - minPrice(a));
+      break;
+    case "stock":
+      out.sort((a, b) => totalStock(a) - totalStock(b));
+      break;
+    default:
+      out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  return out;
+}
+
+/** Tags distintos de la página, ordenados para el selector de filtro. */
+export function collectTags(products: Product[] | undefined): string[] {
+  const set = new Set<string>();
+  for (const p of products ?? []) for (const t of p.tags) set.add(t);
+  return [...set].sort((a, b) => a.localeCompare(b, "es"));
+}

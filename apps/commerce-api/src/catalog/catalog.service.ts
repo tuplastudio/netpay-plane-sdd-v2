@@ -33,6 +33,28 @@ const IMAGE_PURPOSE = "product.media";
 
 const IMAGES_ORDER = { orderBy: { position: "asc" as const } };
 
+const SKU_MAX_LENGTH = 64;
+
+/**
+ * SKU para la copia de un producto/variante: `BASE-copia`, y si ya existe
+ * (comparación sin distinguir mayúsculas) `BASE-copia-2`, `-copia-3`… La base
+ * se recorta para que el resultado quepa en los 64 caracteres del DTO.
+ */
+export function nextCopySku(base: string, taken: ReadonlySet<string>): string {
+  const isFree = (candidate: string) => !taken.has(candidate.toLowerCase());
+  const withSuffix = (suffix: string) => `${base.slice(0, SKU_MAX_LENGTH - suffix.length)}${suffix}`;
+  const first = withSuffix("-copia");
+  if (isFree(first)) return first;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = withSuffix(`-copia-${n}`);
+    if (isFree(candidate)) return candidate;
+  }
+  throw new ConflictException({
+    code: "CONFLICT",
+    message: "No se encontró un SKU libre para la copia.",
+  });
+}
+
 @Injectable()
 export class CatalogService {
   private readonly logger = new Logger(CatalogService.name);
@@ -295,6 +317,74 @@ export class CatalogService {
       where: { id, tenantId },
       data: { status: "ARCHIVED", version: { increment: 1 } },
     });
+  }
+
+  /**
+   * Copia un producto con sus variantes como BORRADOR nuevo: mismos datos,
+   * SKUs con sufijo `-copia` (o `-copia-2`, `-copia-3`… si ya existen) y
+   * título "(copia)". Las fotos no se copian: son archivos en storage y el
+   * usuario normalmente quiere otras para la nueva presentación. Tampoco se
+   * copia el vínculo con el sistema de origen (el duplicado es nativo).
+   */
+  async duplicateProduct(tenantId: string, actorId: string | null, productId: string) {
+    const source = await this.prisma.product.findFirst({
+      where: { id: productId, tenantId },
+      include: { variants: { orderBy: { createdAt: "asc" } } },
+    });
+    if (!source) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Producto no accesible" });
+    }
+    const [productSkus, variantSkus] = await Promise.all([
+      this.prisma.product.findMany({ where: { tenantId }, select: { sku: true } }),
+      this.prisma.productVariant.findMany({ where: { tenantId }, select: { sku: true } }),
+    ]);
+    const taken = new Set<string>([...productSkus, ...variantSkus].map((r) => r.sku.toLowerCase()));
+    const claim = (base: string): string => {
+      const sku = nextCopySku(base, taken);
+      taken.add(sku.toLowerCase());
+      return sku;
+    };
+    const sku = claim(source.sku);
+    const title = `${source.title} (copia)`.slice(0, 200);
+
+    const created = await this.prisma.product.create({
+      data: {
+        tenantId,
+        sku,
+        title,
+        description: source.description,
+        tags: source.tags,
+        synonyms: source.synonyms,
+        status: "DRAFT",
+        createdById: actorId,
+        variants: {
+          create: source.variants.map((v) => ({
+            tenantId,
+            sku: claim(v.sku),
+            title: v.title,
+            price: v.price,
+            currency: v.currency,
+            stock: v.stock,
+            satProductCode: v.satProductCode,
+            satUnitCode: v.satUnitCode,
+            status: "DRAFT",
+          })),
+        },
+      },
+      include: { variants: true, images: IMAGES_ORDER },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId,
+        action: "catalog.product_duplicated",
+        targetType: "Product",
+        targetId: created.id,
+        metadata: { sourceProductId: source.id, sku },
+      },
+    });
+    return created;
   }
 
   /**
@@ -601,6 +691,125 @@ export class CatalogService {
     });
 
     return image;
+  }
+
+  /** Metadatos de una foto (hoy solo `altText`); el archivo no cambia. */
+  async updateImage(
+    tenantId: string,
+    imageId: string,
+    actorId: string | null,
+    input: { altText?: string | null },
+  ) {
+    const image = await this.prisma.productImage.findFirst({ where: { id: imageId, tenantId } });
+    if (!image) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Imagen no accesible" });
+    }
+    if (input.altText === undefined) return image;
+    const altText = input.altText === null ? null : input.altText.trim() || null;
+    const updated = await this.prisma.productImage.update({
+      where: { id: imageId },
+      data: { altText },
+    });
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId,
+        action: "catalog.image_updated",
+        targetType: "Product",
+        targetId: image.productId,
+        metadata: { imageId, altText },
+      },
+    });
+    return updated;
+  }
+
+  /**
+   * Orden nuevo completo de UNA galería del producto: la general
+   * (`variantId` null) o la de una variante. Se infiere la galería por la
+   * primera foto y se exige que la lista traiga exactamente las mismas fotos
+   * que hay en esa galería — así ningún cliente puede dejar una foto con
+   * posición repetida o "perdida" al final. Devuelve la galería reordenada.
+   */
+  async reorderImages(tenantId: string, productId: string, imageIds: string[]) {
+    const product = await this.prisma.product.findFirst({
+      where: { id: productId, tenantId },
+      select: { id: true },
+    });
+    if (!product) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Producto no accesible" });
+    }
+    const ids = [...new Set(imageIds)];
+    const requested = await this.prisma.productImage.findMany({
+      where: { tenantId, productId, id: { in: ids } },
+      select: { id: true, variantId: true },
+    });
+    if (requested.length !== ids.length) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "Alguna de las fotos no pertenece a este producto.",
+      });
+    }
+    const variantId = requested[0]!.variantId;
+    if (requested.some((img) => img.variantId !== variantId)) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "No se puede mezclar la galería del producto con la de una variante.",
+      });
+    }
+    const galleryCount = await this.prisma.productImage.count({
+      where: { tenantId, productId, variantId },
+    });
+    if (galleryCount !== ids.length) {
+      throw new BadRequestException({
+        code: "VALIDATION_FAILED",
+        message: "El orden debe incluir todas las fotos de la galería.",
+      });
+    }
+    await this.prisma.$transaction(
+      ids.map((id, position) =>
+        this.prisma.productImage.update({ where: { id }, data: { position } }),
+      ),
+    );
+    return this.prisma.productImage.findMany({
+      where: { tenantId, productId, variantId },
+      ...IMAGES_ORDER,
+    });
+  }
+
+  /**
+   * Convierte una foto en la portada de su galería (position 0) corriendo
+   * las demás una posición. Devuelve la galería ya reordenada.
+   */
+  async setPrimaryImage(tenantId: string, imageId: string, actorId: string | null) {
+    const image = await this.prisma.productImage.findFirst({ where: { id: imageId, tenantId } });
+    if (!image) {
+      throw new NotFoundException({ code: "NOT_FOUND", message: "Imagen no accesible" });
+    }
+    const gallery = await this.prisma.productImage.findMany({
+      where: { tenantId, productId: image.productId, variantId: image.variantId },
+      select: { id: true },
+      ...IMAGES_ORDER,
+    });
+    const ordered = [imageId, ...gallery.map((g) => g.id).filter((id) => id !== imageId)];
+    await this.prisma.$transaction(
+      ordered.map((id, position) =>
+        this.prisma.productImage.update({ where: { id }, data: { position } }),
+      ),
+    );
+    await this.prisma.auditLog.create({
+      data: {
+        tenantId,
+        actorId,
+        action: image.variantId ? "catalog.variant_image_primary" : "catalog.product_image_primary",
+        targetType: image.variantId ? "ProductVariant" : "Product",
+        targetId: image.variantId ?? image.productId,
+        metadata: { imageId },
+      },
+    });
+    return this.prisma.productImage.findMany({
+      where: { tenantId, productId: image.productId, variantId: image.variantId },
+      ...IMAGES_ORDER,
+    });
   }
 
   async deleteImage(tenantId: string, imageId: string, actorId: string | null): Promise<void> {

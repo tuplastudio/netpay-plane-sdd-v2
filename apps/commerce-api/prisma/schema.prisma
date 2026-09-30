@@ -320,6 +320,7 @@ model ProductImage {
   position   Int      @default(0)
   width      Int?
   height     Int?
+  altText    String?  // texto alternativo opcional (accesibilidad y contexto para el agente)
   createdAt  DateTime @default(now()) @db.Timestamptz
 
   tenant  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)

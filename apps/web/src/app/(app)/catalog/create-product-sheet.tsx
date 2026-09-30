@@ -1,10 +1,10 @@
 "use client";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Boxes, Images, Info, Layers, Plug } from "lucide-react";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,12 +22,37 @@ import {
   TagsInput,
   apiErrorMessage,
   createSchema,
-  resolveOriginSystem,
   type CreateValues,
   type Product,
 } from "./catalog-shared";
 import { SHEET_FRAME_CLASS, SheetBody, SheetFooterBar, SheetFrameHeader } from "./_components/sheet-frame";
+import { FormSection } from "./_components/form-section";
+import { ImageDropzone, UploadQueueList, useImageUploadQueue } from "./_components/image-upload";
+import { suggestVariantSku, toCreateProductPayload } from "./_components/product-form";
 
+const EMPTY_VALUES: CreateValues = {
+  sku: "",
+  title: "",
+  description: "",
+  tags: [],
+  synonyms: [],
+  variantSku: "",
+  variantTitle: "",
+  price: "",
+  stock: "",
+  satProductCode: "",
+  satUnitCode: "",
+  originSystem: "",
+  originSystemOther: "",
+  originExternalId: "",
+};
+
+/**
+ * Alta de producto en un solo panel: básicos, precio e inventario, variante
+ * inicial, origen y fotos. Las fotos se eligen aquí pero se suben justo
+ * después de crear el producto (necesitan su id); si alguna falla, el
+ * producto ya existe y se puede completar desde "Editar".
+ */
 export function CreateProductSheet({
   open,
   onOpenChange,
@@ -35,72 +60,70 @@ export function CreateProductSheet({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: () => Promise<unknown> | void;
+  /** Recibe el producto creado (para abrirlo a editar, p. ej.). */
+  onCreated: (product: Product) => Promise<unknown> | void;
 }) {
   const formId = useId();
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "creating" | "uploading">("idle");
 
   const form = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: {
-      sku: "",
-      title: "",
-      description: "",
-      tags: [],
-      synonyms: [],
-      variantSku: "",
-      variantTitle: "",
-      price: "",
-      stock: "",
-      satProductCode: "",
-      satUnitCode: "",
-      originSystem: "",
-      originSystemOther: "",
-      originExternalId: "",
-    },
+    defaultValues: EMPTY_VALUES,
   });
+  const queue = useImageUploadQueue();
+
+  // Sugerencia de SKU de variante mientras el usuario no escriba uno propio.
+  const sku = form.watch("sku");
+  useEffect(() => {
+    if (form.getFieldState("variantSku").isDirty) return;
+    form.setValue("variantSku", suggestVariantSku(sku), { shouldDirty: false });
+  }, [sku, form]);
 
   const createProduct = useMutation({
     mutationFn: async (v: CreateValues) => {
-      const res = await api.post("/catalog/products", {
-        sku: v.sku,
-        title: v.title,
-        description: v.description || undefined,
-        tags: v.tags,
-        synonyms: v.synonyms,
-        variants: [
-          {
-            sku: v.variantSku,
-            title: v.variantTitle,
-            price: v.price,
-            stock: v.stock.trim() || undefined,
-            satProductCode: v.satProductCode || undefined,
-            satUnitCode: v.satUnitCode || undefined,
-            originSystem: resolveOriginSystem(v) || undefined,
-            originExternalId: v.originExternalId?.trim() || undefined,
-          },
-        ],
-      });
+      setPhase("creating");
+      const res = await api.post("/catalog/products", toCreateProductPayload(v));
       return res.data.data as Product;
     },
-    onSuccess: async () => {
-      toast.success("Producto creado");
-      form.reset();
+    onSuccess: async (product) => {
+      let uploads = { done: 0, failed: 0 };
+      if (queue.queuedCount > 0) {
+        setPhase("uploading");
+        uploads = await queue.uploadAll(`/catalog/products/${product.id}/images`);
+      }
+      setPhase("idle");
+      if (uploads.failed > 0) {
+        toast.warning(
+          `Producto creado; ${uploads.failed} ${uploads.failed === 1 ? "foto no se pudo subir" : "fotos no se pudieron subir"}. Puedes reintentarlo desde Editar.`,
+        );
+      } else if (uploads.done > 0) {
+        toast.success(`Producto creado con ${uploads.done} ${uploads.done === 1 ? "foto" : "fotos"}`);
+      } else {
+        toast.success("Producto creado");
+      }
+      form.reset(EMPTY_VALUES);
+      queue.reset();
       onOpenChange(false);
-      await onCreated();
+      await onCreated(product);
     },
-    onError: (error) => toast.error(apiErrorMessage(error, "No se pudo crear el producto")),
+    onError: (error) => {
+      setPhase("idle");
+      toast.error(apiErrorMessage(error, "No se pudo crear el producto"));
+    },
   });
 
   const errors = form.formState.errors;
   // formState es un Proxy: hay que leer `isDirty` durante el render para que
   // RHF se suscriba; leerlo solo dentro del handler lo dejaría desactualizado.
-  const isDirty = form.formState.isDirty;
+  const isDirty = form.formState.isDirty || queue.items.length > 0;
   const onSubmit = form.handleSubmit((v) => createProduct.mutate(v));
+  const pending = phase !== "idle";
 
   // Cerrar con cambios sin guardar pide confirmación: Escape, clic fuera y
-  // "Cancelar" pasan todos por aquí.
+  // "Cancelar" pasan todos por aquí. Mientras se crea/sube no se cierra.
   const requestClose = () => {
+    if (pending) return;
     if (isDirty) {
       setDiscardOpen(true);
       return;
@@ -108,11 +131,14 @@ export function CreateProductSheet({
     onOpenChange(false);
   };
   const discard = () => {
-    form.reset();
+    form.reset(EMPTY_VALUES);
+    queue.reset();
     createProduct.reset();
     setDiscardOpen(false);
     onOpenChange(false);
   };
+
+  const originSystem = form.watch("originSystem");
 
   return (
     <>
@@ -137,83 +163,132 @@ export function CreateProductSheet({
                 </Alert>
               ) : null}
 
-              <fieldset className="min-w-0">
-                <legend className="text-sm font-semibold">Producto</legend>
-                <div className="mt-3 space-y-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field
-                      label="SKU"
-                      labelExtra={<InfoTip label="SKU" text={CATALOG_FIELD_HELP.sku} />}
-                      error={errors.sku?.message}
-                    >
-                      {(p) => (
-                        <Input
-                          autoFocus
-                          className="font-mono"
-                          placeholder="ej. PINT-MATE-1L"
-                          {...p}
-                          {...form.register("sku")}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Título" error={errors.title?.message}>
-                      {(p) => <Input placeholder="ej. Pintura vinílica mate" {...p} {...form.register("title")} />}
-                    </Field>
-                  </div>
-                  <Field label="Descripción" error={errors.description?.message}>
+              <FormSection
+                icon={<Info className="h-4 w-4" />}
+                title="Básicos"
+                description="Cómo se identifica y cómo lo encuentra el agente."
+              >
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field
+                    label="SKU"
+                    labelExtra={<InfoTip label="SKU" text={CATALOG_FIELD_HELP.sku} />}
+                    error={errors.sku?.message}
+                  >
                     {(p) => (
-                      <Textarea
-                        rows={3}
-                        placeholder="Detalle visible para el agente y en la ficha del producto."
+                      <Input
+                        autoFocus
+                        className="font-mono"
+                        placeholder="ej. PINT-MATE-1L"
+                        autoComplete="off"
                         {...p}
-                        {...form.register("description")}
+                        {...form.register("sku")}
                       />
                     )}
                   </Field>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Field
-                      label="Tags"
-                      hint="Categorización, visible en filtros. Enter o coma para agregar."
-                      error={errors.tags?.message}
-                    >
-                      {(p) => (
-                        <TagsInput
-                          {...p}
-                          value={form.watch("tags")}
-                          onChange={(next) => form.setValue("tags", next, { shouldDirty: true })}
-                          placeholder="ej. pintura mate"
-                        />
-                      )}
-                    </Field>
-                    <Field
-                      label="Sinónimos"
-                      hint="Términos que el agente debe reconocer; el cliente no los ve."
-                      error={errors.synonyms?.message}
-                    >
-                      {(p) => (
-                        <TagsInput
-                          {...p}
-                          value={form.watch("synonyms")}
-                          onChange={(next) => form.setValue("synonyms", next, { shouldDirty: true })}
-                          placeholder="ej. cubeta grande"
-                        />
-                      )}
-                    </Field>
-                  </div>
+                  <Field label="Título" error={errors.title?.message}>
+                    {(p) => <Input placeholder="ej. Pintura vinílica mate" {...p} {...form.register("title")} />}
+                  </Field>
                 </div>
-              </fieldset>
+                <Field
+                  label="Descripción"
+                  hint="Opcional. El agente la usa para responder dudas del cliente."
+                  error={errors.description?.message}
+                >
+                  {(p) => (
+                    <Textarea
+                      rows={3}
+                      placeholder="Material, usos, presentación, qué incluye…"
+                      {...p}
+                      {...form.register("description")}
+                    />
+                  )}
+                </Field>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field
+                    label="Tags"
+                    hint="Categorización, visible en filtros. Enter o coma para agregar."
+                    error={errors.tags?.message}
+                  >
+                    {(p) => (
+                      <TagsInput
+                        {...p}
+                        value={form.watch("tags")}
+                        onChange={(next) => form.setValue("tags", next, { shouldDirty: true })}
+                        placeholder="ej. pintura, interiores"
+                      />
+                    )}
+                  </Field>
+                  <Field
+                    label="Sinónimos"
+                    hint="Términos que el agente debe reconocer; el cliente no los ve."
+                    error={errors.synonyms?.message}
+                  >
+                    {(p) => (
+                      <TagsInput
+                        {...p}
+                        value={form.watch("synonyms")}
+                        onChange={(next) => form.setValue("synonyms", next, { shouldDirty: true })}
+                        placeholder="ej. cubeta grande"
+                      />
+                    )}
+                  </Field>
+                </div>
+              </FormSection>
 
-              <fieldset className="min-w-0">
-                <legend className="text-sm font-semibold">Variante inicial</legend>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  La presentación que se venderá. Podrás agregar más después.
-                </p>
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Field label="SKU de la variante" error={errors.variantSku?.message}>
+              <FormSection
+                icon={<Boxes className="h-4 w-4" />}
+                title="Precio e inventario"
+                description="De la variante inicial. Cada variante tiene el suyo."
+              >
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Precio" hint="Formato 99.00, en MXN." error={errors.price?.message}>
+                    {(p) => <Input inputMode="decimal" placeholder="99.00" {...p} {...form.register("price")} />}
+                  </Field>
+                  <Field
+                    label="Existencias"
+                    labelExtra={<InfoTip label="Existencias" text={CATALOG_FIELD_HELP.stock} />}
+                    hint="Vacío = sin control de inventario. Formato 25 o 25.500."
+                    error={errors.stock?.message}
+                  >
+                    {(p) => <Input inputMode="decimal" placeholder="Sin control" {...p} {...form.register("stock")} />}
+                  </Field>
+                  <Field
+                    label="Clave SAT de producto"
+                    labelExtra={<InfoTip label="Clave SAT de producto" text={CATALOG_FIELD_HELP.satProductCode} />}
+                    hint="Opcional; si se omite se usa 01010101."
+                    error={errors.satProductCode?.message}
+                  >
+                    {(p) => (
+                      <Input inputMode="numeric" placeholder="01010101" {...p} {...form.register("satProductCode")} />
+                    )}
+                  </Field>
+                  <Field
+                    label="Clave SAT de unidad"
+                    labelExtra={<InfoTip label="Clave SAT de unidad" text={CATALOG_FIELD_HELP.satUnitCode} />}
+                    hint="Opcional; si se omite se usa H87 (pieza)."
+                    error={errors.satUnitCode?.message}
+                  >
+                    {(p) => <Input placeholder="H87" {...p} {...form.register("satUnitCode")} />}
+                  </Field>
+                </div>
+              </FormSection>
+
+              <FormSection
+                icon={<Layers className="h-4 w-4" />}
+                title="Variante inicial"
+                description="La presentación que se venderá. Podrás agregar más después."
+              >
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field
+                    label="SKU de la variante"
+                    hint="Se sugiere a partir del SKU del producto; puedes cambiarlo."
+                    error={errors.variantSku?.message}
+                  >
                     {(p) => (
                       <Input
                         className="font-mono"
                         placeholder="ej. PINT-MATE-1L-BLA"
+                        autoComplete="off"
                         {...p}
                         {...form.register("variantSku")}
                       />
@@ -222,46 +297,21 @@ export function CreateProductSheet({
                   <Field label="Título de la variante" error={errors.variantTitle?.message}>
                     {(p) => <Input placeholder="ej. Blanco, 1 L" {...p} {...form.register("variantTitle")} />}
                   </Field>
-                  <Field label="Precio" hint="Formato 99.00" error={errors.price?.message}>
-                    {(p) => (
-                      <Input inputMode="decimal" placeholder="99.00" {...p} {...form.register("price")} />
-                    )}
-                  </Field>
-                  <Field
-                    label="Clave SAT de producto"
-                    labelExtra={<InfoTip label="Clave SAT de producto" text={CATALOG_FIELD_HELP.satProductCode} />}
-                    error={errors.satProductCode?.message}
-                  >
-                    {(p) => (
-                      <Input
-                        inputMode="numeric"
-                        placeholder="01010101"
-                        {...p}
-                        {...form.register("satProductCode")}
-                      />
-                    )}
-                  </Field>
-                  <Field
-                    label="Clave SAT de unidad"
-                    labelExtra={<InfoTip label="Clave SAT de unidad" text={CATALOG_FIELD_HELP.satUnitCode} />}
-                    error={errors.satUnitCode?.message}
-                  >
-                    {(p) => <Input placeholder="H87" {...p} {...form.register("satUnitCode")} />}
-                  </Field>
-                  <Field
-                    label="Existencias"
-                    labelExtra={<InfoTip label="Existencias" text={CATALOG_FIELD_HELP.stock} />}
-                    hint="Vacío = sin control de inventario. Formato 25 o 25.500."
-                    error={errors.stock?.message}
-                  >
-                    {(p) => (
-                      <Input inputMode="decimal" placeholder="Sin control" {...p} {...form.register("stock")} />
-                    )}
-                  </Field>
+                </div>
+              </FormSection>
+
+              <FormSection
+                icon={<Plug className="h-4 w-4" />}
+                title="Origen"
+                description="Solo si el producto viene de una tienda o ERP externo."
+                collapsible
+                defaultOpen={false}
+                hasError={!!(errors.originSystem || errors.originSystemOther || errors.originExternalId)}
+              >
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field
                     label="Sistema de origen"
                     labelExtra={<InfoTip label="Sistema de origen" text={CATALOG_FIELD_HELP.originSystem} />}
-                    hint="Si este producto viene de una tienda o ERP externo."
                     error={errors.originSystem?.message}
                   >
                     {(p) => (
@@ -276,14 +326,10 @@ export function CreateProductSheet({
                       </Select>
                     )}
                   </Field>
-                  {form.watch("originSystem") === ORIGIN_SYSTEM_OTHER_VALUE ? (
+                  {originSystem === ORIGIN_SYSTEM_OTHER_VALUE ? (
                     <Field label="Nombre del sistema" error={errors.originSystemOther?.message}>
                       {(p) => (
-                        <Input
-                          placeholder="Nombre de tu tienda o ERP"
-                          {...p}
-                          {...form.register("originSystemOther")}
-                        />
+                        <Input placeholder="Nombre de tu tienda o ERP" {...p} {...form.register("originSystemOther")} />
                       )}
                     </Field>
                   ) : null}
@@ -295,16 +341,29 @@ export function CreateProductSheet({
                     {(p) => <Input placeholder="12345" {...p} {...form.register("originExternalId")} />}
                   </Field>
                 </div>
-              </fieldset>
+              </FormSection>
+
+              <FormSection
+                icon={<Images className="h-4 w-4" />}
+                title="Fotos"
+                description="Se suben al crear el producto. La primera de la lista será la portada."
+              >
+                <ImageDropzone onFiles={queue.addFiles} disabled={pending} />
+                <UploadQueueList queue={queue} />
+              </FormSection>
             </form>
           </SheetBody>
 
           <SheetFooterBar>
-            <Button type="button" variant="outline" onClick={requestClose}>
+            <Button type="button" variant="outline" onClick={requestClose} disabled={pending}>
               Cancelar
             </Button>
-            <Button type="submit" form={formId} loading={createProduct.isPending}>
-              Crear producto
+            <Button type="submit" form={formId} loading={pending}>
+              {phase === "uploading"
+                ? "Subiendo fotos…"
+                : queue.queuedCount > 0
+                  ? `Crear producto y subir ${queue.queuedCount} ${queue.queuedCount === 1 ? "foto" : "fotos"}`
+                  : "Crear producto"}
             </Button>
           </SheetFooterBar>
         </SheetContent>
@@ -314,7 +373,7 @@ export function CreateProductSheet({
         open={discardOpen}
         onOpenChange={setDiscardOpen}
         title="¿Descartar el producto?"
-        description="Perderás lo que capturaste en este formulario."
+        description="Perderás lo que capturaste en este formulario, fotos incluidas."
         confirmLabel="Descartar"
         cancelLabel="Seguir editando"
         onConfirm={discard}

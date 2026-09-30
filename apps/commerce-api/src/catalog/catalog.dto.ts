@@ -2,12 +2,14 @@ import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  ArrayUnique,
   IsArray,
   IsIn,
   IsInt,
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   Min,
@@ -211,6 +213,30 @@ export class UpdateVariantDto {
   @IsString()
   @MaxLength(120)
   originExternalId?: string | null;
+}
+
+/** Body de PATCH /catalog/images/:id. Solo metadatos: el archivo no se reemplaza. */
+export class UpdateImageDto {
+  /** `null` o vacío = quitar el texto alternativo; ausente = no tocar. */
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @MaxLength(200, { message: "altText admite hasta 200 caracteres" })
+  altText?: string | null;
+}
+
+/**
+ * Body de POST /catalog/products/:id/images/reorder. `imageIds` es el orden
+ * nuevo completo de UNA galería (la general del producto o la de una
+ * variante); el servicio rechaza mezclar galerías o dejar fotos fuera.
+ */
+export class ReorderImagesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ArrayUnique()
+  @IsUUID("all", { each: true, message: "cada imageId debe ser un UUID" })
+  imageIds!: string[];
 }
 
 /**

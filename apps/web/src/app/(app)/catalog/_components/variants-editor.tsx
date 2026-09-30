@@ -26,9 +26,11 @@ import {
   type VariantValues,
 } from "../catalog-shared";
 import { isOutOfStock } from "./product-helpers";
+import { primaryImage } from "./image-helpers";
 import { ImageGallery } from "./image-gallery";
 
 export function VariantsSection({
+  productId,
   variants,
   onSaveVariant,
   savingVariantId,
@@ -37,6 +39,7 @@ export function VariantsSection({
   adding,
   onImagesChanged,
 }: {
+  productId: string;
   variants: Variant[];
   onSaveVariant: (variant: Variant, values: VariantValues) => void;
   savingVariantId: string | undefined;
@@ -178,6 +181,7 @@ export function VariantsSection({
           {variants.map((variant) => (
             <li key={variant.id}>
               <VariantRow
+                productId={productId}
                 variant={variant}
                 saving={savingVariantId === variant.id}
                 onSave={(values) => onSaveVariant(variant, values)}
@@ -192,11 +196,13 @@ export function VariantsSection({
 }
 
 function VariantRow({
+  productId,
   variant,
   onSave,
   saving,
   onImagesChanged,
 }: {
+  productId: string;
   variant: Variant;
   onSave: (values: VariantValues) => void;
   saving: boolean;
@@ -222,10 +228,10 @@ function VariantRow({
     return (
       <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-center gap-3">
-          {variant.images[0] ? (
+          {primaryImage(variant.images) ? (
             // eslint-disable-next-line @next/next/no-img-element -- foto de catálogo servida por el API
             <img
-              src={variant.images[0].url}
+              src={primaryImage(variant.images)!.url}
               alt=""
               className="h-10 w-10 shrink-0 rounded-md border object-cover"
             />
@@ -298,6 +304,8 @@ function VariantRow({
         <ImageGallery
           compact
           images={variant.images}
+          productId={productId}
+          altFallback={variant.title}
           uploadUrl={`/catalog/variants/${variant.id}/images`}
           onChanged={onImagesChanged}
         />
