@@ -52,9 +52,13 @@ jobs:
             $DC exec -T -w /repo/apps/commerce-api commerce-api rm -f wa-thread.js
             rm -f /tmp/wa-thread.js
 
-            echo "=== commerce-api: logs 03:55-04:05 UTC (ventana del hilo) ==="
-            ($DC logs --since 2026-10-01T03:55:00 --until 2026-10-01T04:05:00 commerce-api 2>&1 | grep -vE "^\s+at |RouterExplorer|RoutesResolver|InstanceLoader" | tail -200 | cut -c1-400) || echo "(nada)"
-            echo "=== agent-v2: logs 03:55-04:05 UTC ==="
-            ($DC logs --since 2026-10-01T03:55:00 --until 2026-10-01T04:05:00 agent-v2 2>&1 | tail -200 | cut -c1-400) || echo "(nada)"
-            echo "=== commerce-worker: logs 03:55-04:05 UTC (tool calls: orders.read etc) ==="
-            ($DC logs --since 2026-10-01T03:55:00 --until 2026-10-01T04:05:00 commerce-worker 2>&1 | tail -100 | cut -c1-400) || echo "(nada)"
+            echo "=== agent-v2: version (confirmar que trae el fix de folios) ==="
+            $DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/healthz', timeout=5).text)" 2>&1 | tail -2
+
+            echo "=== servicios ==="
+            $DC ps --format '{{.Service}} {{.State}} {{.Status}}' 2>&1 | head -20
+
+            echo "=== commerce-api: logs últimos 15 min ==="
+            ($DC logs --since 15m commerce-api 2>&1 | grep -vE "^\s+at |RouterExplorer|RoutesResolver|InstanceLoader" | tail -200 | cut -c1-400) || echo "(nada)"
+            echo "=== agent-v2: logs últimos 15 min ==="
+            ($DC logs --since 15m agent-v2 2>&1 | tail -200 | cut -c1-400) || echo "(nada)"
