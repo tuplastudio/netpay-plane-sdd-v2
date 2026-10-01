@@ -60,9 +60,33 @@ jobs:
                 if (cred && typeof cred === "object") { delete cred.apiKey; delete cred.apiKeyEnc; }
                 console.log(JSON.stringify({ ...c, webhookUrl: wh, credentials: cred }));
               }
-              const since = new Date(Date.now() - 3 * 864e5);
+              const since = new Date(Date.now() - 7 * 864e5);
               const conv = await p.whatsAppConversation.count({ where: { updatedAt: { gte: since } } }).catch(e => "ERR " + e.message);
-              console.log("CONVERSACIONES actualizadas 72h:", conv);
+              console.log("CONVERSACIONES actualizadas 7d:", conv);
+              const convs = await p.whatsAppConversation.findMany({
+                where: { updatedAt: { gte: since } },
+                select: { id: true, status: true, lastMessageAt: true, updatedAt: true, externalPhone: true, handoffToHuman: true },
+                orderBy: { updatedAt: "desc" },
+                take: 10,
+              }).catch(e => "ERR " + e.message);
+              for (const c of (Array.isArray(convs) ? convs : [])) {
+                console.log("CONV", JSON.stringify({ ...c, externalPhone: c.externalPhone ? c.externalPhone.replace(/\d(?=\d{3})/g, "*") : null }));
+              }
+              const msgsByDir = await p.whatsAppMessage.groupBy({
+                by: ["direction"],
+                where: { createdAt: { gte: since } },
+                _count: { _all: true },
+              }).catch(e => "ERR " + e.message);
+              console.log("MENSAJES por direccion 7d:", JSON.stringify(msgsByDir));
+              const lastMsgs = await p.whatsAppMessage.findMany({
+                where: { createdAt: { gte: since } },
+                select: { id: true, direction: true, messageType: true, createdAt: true, conversationId: true, status: true, errorMessage: true },
+                orderBy: { createdAt: "desc" },
+                take: 15,
+              }).catch(e => "ERR " + e.message);
+              for (const m of (Array.isArray(lastMsgs) ? lastMsgs : [])) {
+                console.log("MSG", JSON.stringify(m));
+              }
               if (base) {
                 // Sin slice(): la vez pasada se truncó a 600 chars y se perdieron
                 // instancias del array. Imprimir solo name/connectionStatus/ownerJid/id.
@@ -86,8 +110,8 @@ jobs:
             $DC exec -T -w /repo/apps/commerce-api commerce-api rm -f wa-check.js
             rm -f /tmp/wa-check.js
 
-            echo "=== commerce-api: logs whatsapp/evolution/agent 48h ==="
-            ($DC logs --since 48h commerce-api 2>&1 | grep -iE "whatsapp|evolution|webhook|agent|sendText" | grep -vE "^\s+at " | tail -80 | cut -c1-350) || echo "(nada)"
+            echo "=== commerce-api: logs whatsapp/evolution/agent 7d ==="
+            ($DC logs --since 168h commerce-api 2>&1 | grep -iE "whatsapp|evolution|webhook|agent|sendText|rechazado|inbound" | grep -vE "^\s+at |RouterExplorer|RoutesResolver|InstanceLoader" | tail -150 | cut -c1-350) || echo "(nada)"
             echo "=== commerce-api: errores 48h ==="
             ($DC logs --since 48h commerce-api 2>&1 | grep -iE "error|-> 5[0-9]{2}" | grep -vE "^\s+at " | tail -40 | cut -c1-350) || echo "(nada)"
             echo "=== agent-v2 health + errores 48h ==="
