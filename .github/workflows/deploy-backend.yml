@@ -110,7 +110,15 @@ jobs:
             echo "--- Construyendo imágenes ---"
             docker compose -f compose.prod.yaml --env-file .env.prod build
             echo "--- Subiendo servicios ---"
-            docker compose -f compose.prod.yaml --env-file .env.prod up -d --remove-orphans
+            # 2026-10-01: entre `build` y `up` desapareció la imagen recién
+            # construida (`No such image: infra-commerce-api:latest`) y el
+            # `up` murió con commerce-api ya detenido: API caída. Si el `up`
+            # falla, reconstruir y reintentar una vez antes de rendirse.
+            docker compose -f compose.prod.yaml --env-file .env.prod up -d --remove-orphans || {
+              echo "--- up falló; reconstruyendo y reintentando ---"
+              docker compose -f compose.prod.yaml --env-file .env.prod build
+              docker compose -f compose.prod.yaml --env-file .env.prod up -d --remove-orphans
+            }
 
       - name: Prisma migrate deploy
         uses: appleboy/ssh-action@v1
