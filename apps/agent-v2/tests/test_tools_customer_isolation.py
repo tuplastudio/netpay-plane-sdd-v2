@@ -41,14 +41,14 @@ class FakeCommerce:
         self.invoice_calls: list[dict[str, Any]] = []
         self.invoice_response: dict[str, Any] = {}
         self.quotes = {
-            "Q-MINE": {"id": "Q-MINE", "customerId": "c-me", "customer": ME, "status": "ISSUED",
+            "00000000-0000-4000-8000-00000000a001": {"id": "00000000-0000-4000-8000-00000000a001", "customerId": "c-me", "customer": ME, "status": "ISSUED",
                        "total": "10.00", "expiresAt": "x", "lines": []},
-            "Q-OTHER": {"id": "Q-OTHER", "customerId": "c-other", "customer": OTHER, "status": "ISSUED",
+            "00000000-0000-4000-8000-00000000a002": {"id": "00000000-0000-4000-8000-00000000a002", "customerId": "c-other", "customer": OTHER, "status": "ISSUED",
                         "total": "99.00", "expiresAt": "x", "lines": []},
         }
         self.orders = {
-            "O-MINE": {"id": "O-MINE", "customerId": "c-me", "customer": ME, "status": "PAID", "total": "10.00"},
-            "O-OTHER": {"id": "O-OTHER", "customerId": "c-other", "customer": OTHER, "status": "PAID",
+            "00000000-0000-4000-8000-00000000b001": {"id": "00000000-0000-4000-8000-00000000b001", "customerId": "c-me", "customer": ME, "status": "PAID", "total": "10.00"},
+            "00000000-0000-4000-8000-00000000b002": {"id": "00000000-0000-4000-8000-00000000b002", "customerId": "c-other", "customer": OTHER, "status": "PAID",
                         "total": "99.00"},
         }
 
@@ -215,32 +215,60 @@ async def test_emitir_cotizacion_web_chat_second_quote_keeps_own_contact(fake: F
 
 @pytest.mark.asyncio
 async def test_detalle_de_cotizacion_scoped_to_conversation(fake: FakeCommerce) -> None:
-    out = await tools.detalle_de_cotizacion.coroutine(quoteId="Q-OTHER", runtime=_runtime())
+    out = await tools.detalle_de_cotizacion.coroutine(quoteId="00000000-0000-4000-8000-00000000a002", runtime=_runtime())
     assert out == "No encontré esa cotización en esta conversación."
-    out = await tools.detalle_de_cotizacion.coroutine(quoteId="Q-MINE", runtime=_runtime())
-    assert "Cotización Q-MINE" in out
+    out = await tools.detalle_de_cotizacion.coroutine(quoteId="00000000-0000-4000-8000-00000000a001", runtime=_runtime())
+    assert "Cotización 00000000-0000-4000-8000-00000000a001" in out
     # Chat web: solo lo que está en los carritos de este hilo.
-    out = await tools.detalle_de_cotizacion.coroutine(quoteId="Q-MINE", runtime=_runtime(phone=None))
+    out = await tools.detalle_de_cotizacion.coroutine(quoteId="00000000-0000-4000-8000-00000000a001", runtime=_runtime(phone=None))
     assert out.startswith("No encontré")
-    state = {"carts": {"1": {"quoteId": "Q-OTHER"}}, "customer": {}}
-    out = await tools.detalle_de_cotizacion.coroutine(quoteId="Q-OTHER", runtime=_runtime(state, phone=None))
-    assert "Cotización Q-OTHER" in out
+    state = {"carts": {"1": {"quoteId": "00000000-0000-4000-8000-00000000a002"}}, "customer": {}}
+    out = await tools.detalle_de_cotizacion.coroutine(quoteId="00000000-0000-4000-8000-00000000a002", runtime=_runtime(state, phone=None))
+    assert "Cotización 00000000-0000-4000-8000-00000000a002" in out
     out = await tools.detalle_de_cotizacion.coroutine(quoteId="Q-NOPE", runtime=_runtime())
     assert out == "No encontré esa cotización en esta conversación."
 
 
 @pytest.mark.asyncio
 async def test_estado_del_pedido_scoped_to_conversation(fake: FakeCommerce) -> None:
-    out = await tools.estado_del_pedido.coroutine(runtime=_runtime(), orderId="O-OTHER")
+    out = await tools.estado_del_pedido.coroutine(runtime=_runtime(), orderId="00000000-0000-4000-8000-00000000b002")
     assert out == "No encontré ese pedido en esta conversación."
-    out = await tools.estado_del_pedido.coroutine(runtime=_runtime(), orderId="O-MINE")
-    assert "Pedido O-MINE" in out
+    out = await tools.estado_del_pedido.coroutine(runtime=_runtime(), orderId="00000000-0000-4000-8000-00000000b001")
+    assert "Pedido 00000000-0000-4000-8000-00000000b001" in out
+
+
+@pytest.mark.asyncio
+async def test_estado_del_pedido_resolves_short_folio_shown_earlier(fake: FakeCommerce) -> None:
+    """Prod 2026-09-29/2026-10-01: el cliente repite el folio tal como el
+    propio agente lo mostró, recortado a 8 chars (`historial_del_cliente`,
+    los mensajes de `convertir_en_pedido`). Antes del fix eso llegaba crudo
+    a `GET /orders/:id` (columna `@db.Uuid`), Postgres lo rechazaba con un
+    error de formato (no un 404) y el cliente recibía una disculpa genérica
+    en vez de su pedido."""
+    state = {"carts": {"1": {"orderId": "00000000-0000-4000-8000-00000000b001"}}, "customer": {}}
+    out = await tools.estado_del_pedido.coroutine(runtime=_runtime(state), orderId="00000000")
+    assert "Pedido 00000000-0000-4000-8000-00000000b001" in out
+
+    # Folio corto que no calza con nada de esta conversación: respuesta
+    # limpia, nunca le pega al backend con un id mal formado.
+    out = await tools.estado_del_pedido.coroutine(runtime=_runtime(state), orderId="deadbeef")
+    assert out == "No encontré ese pedido en esta conversación."
+
+
+@pytest.mark.asyncio
+async def test_detalle_de_cotizacion_resolves_short_folio_shown_earlier(fake: FakeCommerce) -> None:
+    state = {"carts": {"1": {"quoteId": "00000000-0000-4000-8000-00000000a001"}}, "customer": {}}
+    out = await tools.detalle_de_cotizacion.coroutine(quoteId="00000000", runtime=_runtime(state))
+    assert "Cotización 00000000-0000-4000-8000-00000000a001" in out
+
+    out = await tools.detalle_de_cotizacion.coroutine(quoteId="deadbeef", runtime=_runtime(state))
+    assert out == "No encontré esa cotización en esta conversación."
 
 
 @pytest.mark.asyncio
 async def test_solicitar_factura_refuses_foreign_order(fake: FakeCommerce) -> None:
     out = await tools.solicitar_factura.coroutine(
-        orderId="O-OTHER", rfc="AAAA800101AB1", razonSocial="X", codigoPostal="01000", usoCfdi="G03",
+        orderId="00000000-0000-4000-8000-00000000b002", rfc="AAAA800101AB1", razonSocial="X", codigoPostal="01000", usoCfdi="G03",
         runtime=_runtime(),
     )
     assert out == "No encontré ese pedido en esta conversación."
@@ -251,7 +279,7 @@ async def test_solicitar_factura_refuses_foreign_order(fake: FakeCommerce) -> No
 async def test_solicitar_factura_needs_constancia_or_full_manual_data(fake: FakeCommerce) -> None:
     """Sin constancia, no basta con dictar solo parte de los datos."""
     out = await tools.solicitar_factura.coroutine(
-        orderId="O-MINE", rfc="AAAA800101AB1", usoCfdi="G03", runtime=_runtime(),
+        orderId="00000000-0000-4000-8000-00000000b001", rfc="AAAA800101AB1", usoCfdi="G03", runtime=_runtime(),
     )
     assert "Faltan datos fiscales" in out
     assert fake.invoices == []
@@ -268,12 +296,12 @@ async def test_solicitar_factura_constancia_only_is_enough(fake: FakeCommerce) -
         "invoiceConstanciaUrl": "https://example.com/constancia.pdf",
     }
     out = await tools.solicitar_factura.coroutine(
-        orderId="O-MINE",
+        orderId="00000000-0000-4000-8000-00000000b001",
         usoCfdi="G03",
         constanciaUrl="https://example.com/constancia.pdf",
         runtime=_runtime(),
     )
-    assert fake.invoices == ["O-MINE"]
+    assert fake.invoices == ["00000000-0000-4000-8000-00000000b001"]
     call = fake.invoice_calls[-1]
     assert call["rfc"] is None and call["legal_name"] is None and call["postal_code"] is None
     assert call["constancia_url"] == "https://example.com/constancia.pdf"

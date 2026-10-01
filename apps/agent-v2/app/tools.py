@@ -141,6 +141,29 @@ async def _safe(coro):
 _NOT_IN_CONVERSATION_QUOTE = "No encontré esa cotización en esta conversación."
 _NOT_IN_CONVERSATION_ORDER = "No encontré ese pedido en esta conversación."
 
+# `historial_del_cliente`, `convertir_en_pedido`, etc. le muestran al cliente
+# el folio recortado a 8 caracteres (`str(id)[:8]`) para que sea legible en
+# WhatsApp. Si el cliente lo repite tal cual ("mi pedido 2C50DA27"), ese
+# recorte ya no es el UUID completo que espera el backend: Postgres rechaza
+# un UUID mal formado con un 500 genérico (no un 404), así que sin esta
+# normalización el cliente recibía una disculpa técnica en vez de una
+# respuesta útil (visto en prod 2026-09-29 y 2026-10-01).
+_FULL_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def _resolve_short_id(value: str, candidates: list[str]) -> str | None:
+    """Si `value` no es un UUID completo, busca el folio completo cuyo
+    prefijo coincida (p. ej. el recorte a 8 chars que el agente mismo mostró).
+    Solo resuelve si hay exactamente una coincidencia; con 0 o varias, nadie
+    adivina y el llamador decide qué hacer."""
+    if not value or _FULL_UUID_RE.match(value):
+        return None
+    needle = value.lower()
+    matches = {c for c in candidates if c and c.lower().startswith(needle)}
+    return next(iter(matches)) if len(matches) == 1 else None
+
 
 def normalize_phone(value: Any) -> str:
     """Solo dígitos, con el prefijo móvil mexicano viejo plegado.
@@ -1247,8 +1270,17 @@ async def detalle_de_cotizacion(quoteId: str, runtime: ToolRuntime) -> str:
     """
     if denied := _require_scope(runtime, "detalle_de_cotizacion"):
         return _fail(denied)
+    clean = clamp_text(quoteId, 100, collapse_newlines=True)
+    carts: dict[str, CartRecord] = runtime.state.get("carts") or {}
+    known_ids = [rec.get("quoteId") for rec in carts.values() if rec.get("quoteId")]
+    clean = _resolve_short_id(clean, known_ids) or clean
+    if not _FULL_UUID_RE.match(clean):
+        # Folio recortado (p. ej. el que mostramos a 8 chars) que no resolvió
+        # a ninguno de esta conversación: el backend lo rechazaría con un
+        # error de formato, no un 404 limpio.
+        return _NOT_IN_CONVERSATION_QUOTE
     client = _client(runtime)
-    quote, error = await _safe(client.get_quote(clamp_text(quoteId, 100, collapse_newlines=True)))
+    quote, error = await _safe(client.get_quote(clean))
     if _is_not_found(error):
         return _NOT_IN_CONVERSATION_QUOTE
     if error:
@@ -1281,6 +1313,16 @@ def _resolve_order_id(runtime: ToolRuntime, order_id: str, cart_id: str) -> tupl
     if clean:
         carts: dict[str, CartRecord] = runtime.state.get("carts") or {}
         owner = next((cid for cid, rec in carts.items() if rec.get("orderId") == clean), cart_id)
+        if owner == cart_id and not any(rec.get("orderId") == clean for rec in carts.values()):
+            # No calzó tal cual: puede ser el folio recortado a 8 chars que
+            # el agente mismo mostró. Si resuelve a uno solo de esta
+            # conversación, usa el completo; si no, se manda tal cual y que
+            # decida el llamador (not-found limpio, no 500 del backend).
+            known_ids = [rec.get("orderId") for rec in carts.values() if rec.get("orderId")]
+            resolved = _resolve_short_id(clean, known_ids)
+            if resolved:
+                owner = next((cid for cid, rec in carts.items() if rec.get("orderId") == resolved), cart_id)
+                return resolved, owner
         return clean, owner
     record = _cart_record(runtime, cart_id)
     return str(record.get("orderId") or ""), cart_id
@@ -1389,6 +1431,11 @@ async def estado_del_pedido(runtime: ToolRuntime, orderId: str = "", carritoId: 
     target, _owner = _resolve_order_id(runtime, orderId, cart_id)
     if not target:
         return _fail("No tengo número de pedido; pídeselo al cliente o dime a cuál pedido te refieres.")
+    if orderId.strip() and not _FULL_UUID_RE.match(target):
+        # Folio que el cliente/modelo pasó explícito (no el que ya traía el
+        # carrito) y no resolvió a ninguno de esta conversación: el backend
+        # lo rechazaría con un error de formato, no un 404 limpio.
+        return _NOT_IN_CONVERSATION_ORDER
     client = _client(runtime)
     order, error = await _safe(client.get_order(target))
     if _is_not_found(error):
@@ -1568,6 +1615,10 @@ async def solicitar_factura(
     order_id, _owner = _resolve_order_id(runtime, orderId, cart_id)
     if not order_id:
         return _fail("No tengo número de pedido; pídeselo al cliente o usa historial_del_cliente.")
+    if not _FULL_UUID_RE.match(order_id):
+        # Folio recortado que no resolvió a ninguno de esta conversación: el
+        # backend lo rechazaría con un error de formato, no un 404 limpio.
+        return _NOT_IN_CONVERSATION_ORDER
 
     cfdi_clean = clamp_text(usoCfdi, 10, collapse_newlines=True).upper().strip()
     if not re.fullmatch(r"[A-Z]\d{2}", cfdi_clean):
