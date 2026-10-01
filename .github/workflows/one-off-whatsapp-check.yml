@@ -34,33 +34,45 @@ jobs:
             const p = new PrismaClient();
             const base = (process.env.EVOLUTION_BASE_URL || "").replace(/\/$/, "");
             const key = process.env.EVOLUTION_API_KEY_REF || "";
+            function mask(s) {
+              return s
+                .replace(/"token":"[^"]+"/g, '"token":"***"')
+                .replace(/"apikey":"[^"]+"/g, '"apikey":"***"')
+                .replace(/"hash":"[^"]+"/g, '"hash":"***"');
+            }
             async function evo(path) {
               try {
                 const r = await fetch(base + path, { headers: { apikey: key } });
                 const t = await r.text();
-                return r.status + " " + t.slice(0, 600);
+                return r.status + " " + mask(t);
               } catch (e) { return "ERR " + e.message; }
             }
             (async () => {
               const conns = await p.whatsAppConnection.findMany({
                 select: { id: true, tenantId: true, provider: true, phoneNumber: true, status: true,
-                          webhookUrl: true, metadata: true, connectedAt: true, lastError: true, updatedAt: true,
+                          webhookUrl: true, credentials: true, connectedAt: true, lastError: true, updatedAt: true,
                           tenant: { select: { slug: true } } },
               });
               console.log("CONEXIONES", conns.length);
               for (const c of conns) {
                 const wh = (c.webhookUrl || "").replace(/secret=[^&]+/, "secret=***");
-                console.log(JSON.stringify({ ...c, webhookUrl: wh }));
+                const cred = c.credentials && typeof c.credentials === "object" ? { ...c.credentials } : c.credentials;
+                if (cred && typeof cred === "object") { delete cred.apiKey; delete cred.apiKeyEnc; }
+                console.log(JSON.stringify({ ...c, webhookUrl: wh, credentials: cred }));
               }
               const since = new Date(Date.now() - 3 * 864e5);
               const conv = await p.whatsAppConversation.count({ where: { updatedAt: { gte: since } } }).catch(e => "ERR " + e.message);
               console.log("CONVERSACIONES actualizadas 72h:", conv);
               if (base) {
-                const inst = await evo("/instance/fetchInstances");
-                console.log("EVO fetchInstances:", inst.replace(/"token":"[^"]+"/g, '"token":"***"').replace(/"apikey":"[^"]+"/g, '"apikey":"***"'));
+                // Sin slice(): la vez pasada se truncó a 600 chars y se perdieron
+                // instancias del array. Imprimir solo name/connectionStatus/ownerJid/id.
+                const instRaw = await evo("/instance/fetchInstances");
+                console.log("EVO fetchInstances (status+body completo, enmascarado):");
+                console.log(instRaw);
                 for (const c of conns.filter(c => c.provider === "EVOLUTION")) {
-                  const name = (c.metadata && c.metadata.instance) || null;
-                  if (!name) { console.log("conexión", c.id, "sin metadata.instance"); continue; }
+                  const cred = c.credentials && typeof c.credentials === "object" ? c.credentials : {};
+                  const name = cred.instance || null;
+                  if (!name) { console.log("conexión", c.id, "sin credentials.instance"); continue; }
                   console.log("EVO state", name, await evo("/instance/connectionState/" + name));
                   const w = await evo("/webhook/find/" + name);
                   console.log("EVO webhook", name, w.replace(/secret=[^"&]+/g, "secret=***"));
