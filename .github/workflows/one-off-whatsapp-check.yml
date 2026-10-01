@@ -8,7 +8,7 @@ on:
 
 jobs:
   check:
-    name: Conexiones, estado en Evolution, webhooks y logs
+    name: Hilo reciente que pidió estatus de pedido y se quedó sin respuesta
     runs-on: ubuntu-latest
     steps:
       - name: check
@@ -23,97 +23,38 @@ jobs:
             cd /opt/netpay-build/infra
             DC="docker compose -f compose.prod.yaml --env-file .env.prod"
 
-            echo "=== servicios ==="
-            $DC ps --format '{{.Service}} {{.State}} {{.Status}}' 2>&1 | head -20
-
-            echo "=== env de commerce-api (solo presencia/hosts, sin secretos) ==="
-            $DC exec -T commerce-api sh -c 'for v in EVOLUTION_BASE_URL API_PUBLIC_URL PUBLIC_BASE_URL AGENT_INTERNAL_URL WHATSAPP_AUTO_CLOSE_JOB; do eval "x=\${$v:-}"; echo "$v=$x"; done; [ -n "${EVOLUTION_API_KEY_REF:-}" ] && echo "EVOLUTION_API_KEY_REF=set(len ${#EVOLUTION_API_KEY_REF})" || echo "EVOLUTION_API_KEY_REF=EMPTY"'
-
-            cat <<'NODE_EOF' > /tmp/wa-check.js
+            cat <<'NODE_EOF' > /tmp/wa-thread.js
             const { PrismaClient } = require("@prisma/client");
             const p = new PrismaClient();
-            const base = (process.env.EVOLUTION_BASE_URL || "").replace(/\/$/, "");
-            const key = process.env.EVOLUTION_API_KEY_REF || "";
-            function mask(s) {
-              return s
-                .replace(/"token":"[^"]+"/g, '"token":"***"')
-                .replace(/"apikey":"[^"]+"/g, '"apikey":"***"')
-                .replace(/"hash":"[^"]+"/g, '"hash":"***"');
-            }
-            async function evo(path) {
-              try {
-                const r = await fetch(base + path, { headers: { apikey: key } });
-                const t = await r.text();
-                return r.status + " " + mask(t);
-              } catch (e) { return "ERR " + e.message; }
-            }
             (async () => {
-              const conns = await p.whatsAppConnection.findMany({
-                select: { id: true, tenantId: true, provider: true, phoneNumber: true, status: true,
-                          webhookUrl: true, credentials: true, connectedAt: true, lastError: true, updatedAt: true,
-                          tenant: { select: { slug: true } } },
+              const conv = await p.whatsAppConversation.findUnique({
+                where: { id: "3422e0ea-9751-4da7-b8b5-a4d0d01c5081" },
               });
-              console.log("CONEXIONES", conns.length);
-              for (const c of conns) {
-                const wh = (c.webhookUrl || "").replace(/secret=[^&]+/, "secret=***");
-                const cred = c.credentials && typeof c.credentials === "object" ? { ...c.credentials } : c.credentials;
-                if (cred && typeof cred === "object") { delete cred.apiKey; delete cred.apiKeyEnc; }
-                console.log(JSON.stringify({ ...c, webhookUrl: wh, credentials: cred }));
-              }
-              const since = new Date(Date.now() - 7 * 864e5);
-              const conv = await p.whatsAppConversation.count({ where: { updatedAt: { gte: since } } }).catch(e => "ERR " + e.message);
-              console.log("CONVERSACIONES actualizadas 7d:", conv);
-              const convs = await p.whatsAppConversation.findMany({
-                where: { updatedAt: { gte: since } },
-                select: { id: true, status: true, lastMessageAt: true, updatedAt: true, externalPhone: true, handoffToHuman: true },
-                orderBy: { updatedAt: "desc" },
-                take: 10,
-              }).catch(e => "ERR " + e.message);
-              for (const c of (Array.isArray(convs) ? convs : [])) {
-                console.log("CONV", JSON.stringify({ ...c, externalPhone: c.externalPhone ? c.externalPhone.replace(/\d(?=\d{3})/g, "*") : null }));
-              }
-              const msgsByDir = await p.whatsAppMessage.groupBy({
-                by: ["direction"],
-                where: { createdAt: { gte: since } },
-                _count: { _all: true },
-              }).catch(e => "ERR " + e.message);
-              console.log("MENSAJES por direccion 7d:", JSON.stringify(msgsByDir));
-              const lastMsgs = await p.whatsAppMessage.findMany({
-                where: { createdAt: { gte: since } },
-                select: { id: true, direction: true, messageType: true, createdAt: true, conversationId: true, status: true, errorMessage: true },
-                orderBy: { createdAt: "desc" },
-                take: 15,
-              }).catch(e => "ERR " + e.message);
-              for (const m of (Array.isArray(lastMsgs) ? lastMsgs : [])) {
-                console.log("MSG", JSON.stringify(m));
-              }
-              if (base) {
-                // Sin slice(): la vez pasada se truncó a 600 chars y se perdieron
-                // instancias del array. Imprimir solo name/connectionStatus/ownerJid/id.
-                const instRaw = await evo("/instance/fetchInstances");
-                console.log("EVO fetchInstances (status+body completo, enmascarado):");
-                console.log(instRaw);
-                for (const c of conns.filter(c => c.provider === "EVOLUTION")) {
-                  const cred = c.credentials && typeof c.credentials === "object" ? c.credentials : {};
-                  const name = cred.instance || null;
-                  if (!name) { console.log("conexión", c.id, "sin credentials.instance"); continue; }
-                  console.log("EVO state", name, await evo("/instance/connectionState/" + name));
-                  const w = await evo("/webhook/find/" + name);
-                  console.log("EVO webhook", name, w.replace(/secret=[^"&]+/g, "secret=***"));
-                }
+              console.log("CONVERSACION", JSON.stringify({
+                ...conv,
+                externalPhone: conv.externalPhone ? conv.externalPhone.replace(/\d(?=\d{3})/g, "*") : null,
+              }));
+              const msgs = await p.whatsAppMessage.findMany({
+                where: { conversationId: "3422e0ea-9751-4da7-b8b5-a4d0d01c5081" },
+                orderBy: { createdAt: "asc" },
+              });
+              for (const m of msgs) {
+                console.log("THREAD", JSON.stringify({
+                  createdAt: m.createdAt, direction: m.direction, messageType: m.messageType,
+                  status: m.status, errorMessage: m.errorMessage, body: (m.body || "").slice(0, 300),
+                }));
               }
               await p.$disconnect();
             })().catch((e) => { console.error("FAIL", e.message); process.exit(1); });
             NODE_EOF
-            $DC cp /tmp/wa-check.js commerce-api:/repo/apps/commerce-api/wa-check.js
-            $DC exec -T -w /repo/apps/commerce-api commerce-api node ./wa-check.js
-            $DC exec -T -w /repo/apps/commerce-api commerce-api rm -f wa-check.js
-            rm -f /tmp/wa-check.js
+            $DC cp /tmp/wa-thread.js commerce-api:/repo/apps/commerce-api/wa-thread.js
+            $DC exec -T -w /repo/apps/commerce-api commerce-api node ./wa-thread.js
+            $DC exec -T -w /repo/apps/commerce-api commerce-api rm -f wa-thread.js
+            rm -f /tmp/wa-thread.js
 
-            echo "=== commerce-api: logs whatsapp/evolution/agent 7d ==="
-            ($DC logs --since 168h commerce-api 2>&1 | grep -iE "whatsapp|evolution|webhook|agent|sendText|rechazado|inbound" | grep -vE "^\s+at |RouterExplorer|RoutesResolver|InstanceLoader" | tail -150 | cut -c1-350) || echo "(nada)"
-            echo "=== commerce-api: errores 48h ==="
-            ($DC logs --since 48h commerce-api 2>&1 | grep -iE "error|-> 5[0-9]{2}" | grep -vE "^\s+at " | tail -40 | cut -c1-350) || echo "(nada)"
-            echo "=== agent-v2 health + errores 48h ==="
-            $DC exec -T agent-v2 python -c "import httpx; print(httpx.get('http://localhost:8010/healthz', timeout=5).text)" 2>&1 | tail -2
-            ($DC logs --since 48h agent-v2 2>&1 | grep -iE "error|traceback|exception" | tail -30 | cut -c1-300) || echo "(nada)"
+            echo "=== commerce-api: logs 03:55-04:05 UTC (ventana del hilo) ==="
+            ($DC logs --since 2026-10-01T03:55:00 --until 2026-10-01T04:05:00 commerce-api 2>&1 | grep -vE "^\s+at |RouterExplorer|RoutesResolver|InstanceLoader" | tail -200 | cut -c1-400) || echo "(nada)"
+            echo "=== agent-v2: logs 03:55-04:05 UTC ==="
+            ($DC logs --since 2026-10-01T03:55:00 --until 2026-10-01T04:05:00 agent-v2 2>&1 | tail -200 | cut -c1-400) || echo "(nada)"
+            echo "=== commerce-worker: logs 03:55-04:05 UTC (tool calls: orders.read etc) ==="
+            ($DC logs --since 2026-10-01T03:55:00 --until 2026-10-01T04:05:00 commerce-worker 2>&1 | tail -100 | cut -c1-400) || echo "(nada)"
