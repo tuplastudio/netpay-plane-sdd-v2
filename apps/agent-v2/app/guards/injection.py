@@ -287,12 +287,21 @@ _COMMERCE_VOCAB_RE = re.compile(
     r"agrega|agr[eé]game|quita|qu[ií]tame|cambia|c[aá]mbiame|confirmo|confirmar|listo|dale|va)\b",
     _FLAGS,
 )
+_GREETING_WORD = (
+    r"(hola|buenas|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|gracias|muchas\s+gracias|"
+    r"ok|okay|va|vale|s[ií]|no|claro|perfecto|listo|dale|adi[oó]s|hasta\s+luego|bye|nel|sale)"
+)
+# Una o varias fórmulas seguidas ("ok gracias", "sí, perfecto, gracias").
 _GREETING_RE = re.compile(
-    r"^(hola|buenas|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|gracias|ok|okay|va|vale|"
-    r"s[ií]|no|claro|perfecto|listo|dale|adi[oó]s|hasta\s+luego|bye|nel|sale)[\s!.,]*$",
+    rf"^{_GREETING_WORD}([\s!.,]+{_GREETING_WORD})*[\s!.,]*$",
     _FLAGS,
 )
-_NUMERIC_RE = re.compile(r"^[\d\s.,$xX×+\-/()#°º%]+$")
+# Cantidades con unidad opcional ("2", "5 x 20 L", "$150", "3 kg").
+_UNIT = r"(l|lt|lts|ml|kg|kgs|g|gr|m|mt|mts|cm|mm|pz|pzs|pza|pzas)"
+_NUMERIC_RE = re.compile(
+    rf"^(?=.*\d)([\d\s.,$xX×+\-/()#°º%]|(?<![a-z]){_UNIT}(?![a-z]))+$",
+    _FLAGS,
+)
 
 
 def obviously_on_topic(text: str, *, mid_sale: bool = False) -> bool:
