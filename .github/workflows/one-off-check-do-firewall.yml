@@ -1,0 +1,34 @@
+name: One-off - firewall DigitalOcean (API, solo lectura)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-check-do-firewall.yml"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    name: solo lectura via API DO
+    runs-on: ubuntu-latest
+    steps:
+      - name: consultar droplet y firewalls
+        env:
+          DO_API_TOKEN: ${{ secrets.DO_API_TOKEN }}
+        run: |
+          set -uo pipefail
+          echo "--- droplet con IP 165.227.200.148 ---"
+          DROPLET_JSON=$(curl -s -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/droplets?per_page=200")
+          echo "$DROPLET_JSON" | jq -r '.droplets[] | select(.networks.v4[]?.ip_address=="165.227.200.148") | "id=\(.id) name=\(.name) status=\(.status)"'
+          DROPLET_ID=$(echo "$DROPLET_JSON" | jq -r '.droplets[] | select(.networks.v4[]?.ip_address=="165.227.200.148") | .id' | head -1)
+          echo "DROPLET_ID=$DROPLET_ID"
+
+          echo "--- firewalls de la cuenta ---"
+          FW_JSON=$(curl -s -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/firewalls?per_page=200")
+          echo "$FW_JSON" | jq -r '.firewalls[] | "name=\(.name) id=\(.id) status=\(.status) droplet_ids=\(.droplet_ids)"'
+
+          echo "--- firewall(s) que incluyen este droplet ---"
+          echo "$FW_JSON" | jq --argjson did "$DROPLET_ID" '.firewalls[] | select(.droplet_ids[]? == $did)'
+
+          echo "--- rate limit / permisos del token ---"
+          curl -s -o /dev/null -w 'HTTP %{http_code}\n' -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/account"
