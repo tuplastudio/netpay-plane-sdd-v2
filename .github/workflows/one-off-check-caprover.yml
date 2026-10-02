@@ -1,4 +1,4 @@
-name: One-off - inspeccionar mounts de logs captain-nginx
+name: One-off - configurar rate-limit + fail2ban en captain-nginx
 
 on:
   push:
@@ -8,33 +8,98 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  check:
-    name: solo lectura
+  apply:
+    name: cambios controlados con validacion nginx -t
     runs-on: ubuntu-latest
     steps:
-      - name: diagnostico
+      - name: aplicar
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.APP_HOST }}
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 2m
+          command_timeout: 5m
           script: |
             set -uo pipefail
             NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
-            echo "--- mounts de $NGX ---"
-            docker inspect "$NGX" --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}' 2>&1
+            if [ -z "$NGX" ]; then echo "captain-nginx no encontrado"; exit 1; fi
+            CONFD=/captain/generated/nginx/conf.d
 
-            echo "--- fail2ban instalado? ---"
-            command -v fail2ban-client >/dev/null 2>&1 && echo "si, binario en $(command -v fail2ban-client)" || echo "no instalado"
-            command -v fail2ban-server >/dev/null 2>&1 && dpkg -l fail2ban 2>&1 | tail -3
+            echo "--- 1/5: zona de rate-limit (archivo nuevo, carga antes de los vhosts por orden alfabetico) ---"
+            sudo tee "$CONFD/00-ratelimit-zone.conf" >/dev/null <<'NGINX'
+            limit_req_zone $binary_remote_addr zone=perip:10m rate=20r/s;
+            limit_req_status 429;
+            NGINX
 
-            echo "--- logrotate existente para nginx/docker ---"
-            ls /etc/logrotate.d/ 2>&1 | grep -iE "docker|nginx" || echo "sin logrotate especifico"
+            echo "--- 2/5: agregar access_log a shared-logs + limit_req en vhosts manuales (si no estan ya) ---"
+            for DOMAIN_FILE in api-easysell.conf imssbienestar.conf; do
+              F="$CONFD/$DOMAIN_FILE"
+              [ -f "$F" ] || { echo "$F no existe, se omite"; continue; }
+              if sudo grep -q "nginx-shared" "$F"; then
+                echo "$DOMAIN_FILE: access_log ya presente"
+              else
+                sudo sed -i '/client_max_body_size/a\    access_log /var/log/nginx-shared/'"${DOMAIN_FILE%.conf}"'.access.log combined;' "$F"
+                echo "$DOMAIN_FILE: access_log agregado"
+              fi
+              if sudo grep -q "limit_req zone=perip" "$F"; then
+                echo "$DOMAIN_FILE: limit_req ya presente"
+              else
+                sudo sed -i '/proxy_pass \$upstream;/a\        limit_req zone=perip burst=40 nodelay;' "$F"
+                echo "$DOMAIN_FILE: limit_req agregado"
+              fi
+            done
 
-            echo "--- contenido /captain/data/shared-logs ---"
-            sudo ls -la /captain/data/shared-logs/ 2>&1
-            echo "--- muestra de un log (si existe) ---"
-            sudo find /captain/data/shared-logs -maxdepth 2 -iname "*.log" 2>&1 | head -5
-            F=$(sudo find /captain/data/shared-logs -maxdepth 2 -iname "*.log" 2>&1 | head -1)
-            [ -n "$F" ] && sudo tail -5 "$F" 2>&1
+            echo "--- 3/5: validar y recargar nginx (rollback si falla) ---"
+            cp "$CONFD/00-ratelimit-zone.conf" /tmp/00-ratelimit-zone.conf.bak 2>/dev/null || true
+            if docker exec "$NGX" nginx -t 2>&1; then
+              docker kill -s HUP "$NGX" && echo "nginx recargado OK"
+            else
+              echo "nginx -t fallo, revirtiendo cambios"
+              sudo rm -f "$CONFD/00-ratelimit-zone.conf"
+              for DOMAIN_FILE in api-easysell.conf imssbienestar.conf; do
+                sudo sed -i '/access_log \/var\/log\/nginx-shared/d; /limit_req zone=perip/d' "$CONFD/$DOMAIN_FILE" 2>/dev/null || true
+              done
+              docker exec "$NGX" nginx -t 2>&1 && docker kill -s HUP "$NGX"
+              exit 1
+            fi
+
+            echo "--- 4/5: logrotate para los logs nuevos ---"
+            sudo tee /etc/logrotate.d/captain-nginx-shared >/dev/null <<'ROT'
+            /captain/data/shared-logs/*.log {
+                daily
+                rotate 14
+                compress
+                delaycompress
+                missingok
+                notifempty
+                copytruncate
+            }
+            ROT
+
+            echo "--- 5/5: fail2ban - filtro + jail para escaneos comunes ---"
+            sudo tee /etc/fail2ban/filter.d/captain-nginx-botsearch.conf >/dev/null <<'FILTER'
+            [Definition]
+            failregex = ^<HOST> .* "(GET|POST|HEAD) /(wp-login\.php|wp-admin|wp-content|wp-includes|xmlrpc\.php|\.env|\.git/|phpmyadmin|admin\.php|config\.php|\.well-known/.*\.\./).*" (404|403|400)
+            ignoreregex =
+            FILTER
+
+            sudo tee /etc/fail2ban/jail.d/captain-nginx-botsearch.conf >/dev/null <<'JAIL'
+            [captain-nginx-botsearch]
+            enabled = true
+            filter = captain-nginx-botsearch
+            logpath = /captain/data/shared-logs/*.access.log
+            maxretry = 5
+            findtime = 300
+            bantime = 86400
+            action = iptables-allports[name=captain-nginx-botsearch]
+            JAIL
+
+            sudo systemctl enable fail2ban 2>&1
+            sudo systemctl restart fail2ban 2>&1
+            sleep 3
+            echo "--- estado final fail2ban ---"
+            sudo fail2ban-client status 2>&1
+            sudo fail2ban-client status captain-nginx-botsearch 2>&1
+
+            echo "--- healthz final ---"
+            curl -sk -o /dev/null -w 'HTTP %{http_code}\n' https://api-easysell.tupla.dev/api/v1/healthz --max-time 10
