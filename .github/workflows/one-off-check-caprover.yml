@@ -1,4 +1,4 @@
-name: One-off - diagnostico CapRover / captain-nginx (reset externo)
+name: One-off - diagnostico firewall/fail2ban (reset externo)
 
 on:
   push:
@@ -21,32 +21,35 @@ jobs:
           command_timeout: 3m
           script: |
             set -uo pipefail
-            echo "--- uptime / oom ---"
-            uptime
-            sudo dmesg -T 2>&1 | grep -iE 'out of memory|oom|killed process' | tail -20 || echo "sin OOM en dmesg"
-
-            echo "--- docker ps (captain + commerce) ---"
-            docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}' | grep -E 'captain|commerce-api' || echo "sin contenedores"
-
-            echo "--- docker service ls ---"
-            docker service ls 2>&1
-
-            echo "--- ufw status ---"
-            sudo ufw status 2>&1 | head -30
-
-            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
-            echo "--- captain-nginx: ${NGX:-NO ENCONTRADO} ---"
-            if [ -n "$NGX" ]; then
-              echo "--- nginx -t ---"
-              docker exec "$NGX" nginx -t 2>&1
-              echo "--- logs captain-nginx (tail 80) ---"
-              docker logs "$NGX" --tail 80 2>&1
-              echo "--- procesos nginx dentro contenedor ---"
-              docker top "$NGX" 2>&1
+            echo "--- fail2ban ---"
+            if command -v fail2ban-client >/dev/null 2>&1; then
+              sudo fail2ban-client status 2>&1
+              for j in $(sudo fail2ban-client status 2>&1 | grep 'Jail list' | sed 's/.*://;s/,//g'); do
+                echo "-- jail $j --"
+                sudo fail2ban-client status "$j" 2>&1
+              done
+            else
+              echo "fail2ban no instalado"
             fi
 
-            echo "--- curl local al dominio desde dentro del droplet ---"
-            curl -skv https://captain.cx.tupla.dev/ --max-time 10 2>&1 | tail -40
+            echo "--- iptables INPUT (resumen) ---"
+            sudo iptables -L INPUT -n -v --line-numbers 2>&1 | head -60
 
-            echo "--- memoria actual ---"
-            free -h
+            echo "--- iptables DOCKER-USER (caprover a veces mete reglas aqui) ---"
+            sudo iptables -L DOCKER-USER -n -v --line-numbers 2>&1 | head -60
+
+            echo "--- conexiones activas puerto 443 ---"
+            sudo ss -tn state established '( dport = :443 or sport = :443 )' 2>&1 | head -30
+            echo "total conexiones 443:"
+            sudo ss -tn '( dport = :443 or sport = :443 )' 2>&1 | wc -l
+
+            echo "--- doctl disponible? (cloud firewall de DO) ---"
+            if command -v doctl >/dev/null 2>&1; then
+              doctl compute firewall list 2>&1 | head -20
+            else
+              echo "doctl no instalado en el droplet"
+            fi
+
+            echo "--- caddy (netpay) activo? ---"
+            sudo systemctl status caddy --no-pager 2>&1 | head -15 || echo "sin systemd caddy"
+            sudo ss -tlnp 2>&1 | grep -E ':443|:80|:8443|:8080' || echo "sin listeners relevantes via ss"
