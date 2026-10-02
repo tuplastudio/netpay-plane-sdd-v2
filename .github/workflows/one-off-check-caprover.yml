@@ -1,4 +1,4 @@
-name: One-off - carga, conntrack y exec lento
+name: One-off - inspeccionar mounts de logs captain-nginx
 
 on:
   push:
@@ -21,22 +21,13 @@ jobs:
           command_timeout: 2m
           script: |
             set -uo pipefail
-            echo "--- uptime / load ---"
-            uptime
+            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
+            echo "--- mounts de $NGX ---"
+            docker inspect "$NGX" --format '{{range .Mounts}}{{.Source}} -> {{.Destination}} ({{.Type}}){{"\n"}}{{end}}' 2>&1
 
-            echo "--- memoria detallada ---"
-            free -h
-            cat /proc/meminfo | grep -iE "^MemAvailable|^MemFree|^SwapTotal|^Dirty"
+            echo "--- fail2ban instalado? ---"
+            command -v fail2ban-client >/dev/null 2>&1 && echo "si, binario en $(command -v fail2ban-client)" || echo "no instalado"
+            command -v fail2ban-server >/dev/null 2>&1 && dpkg -l fail2ban 2>&1 | tail -3
 
-            echo "--- conntrack (tabla NAT/firewall) ---"
-            cat /proc/sys/net/netfilter/nf_conntrack_max 2>&1 || echo "sin nf_conntrack_max"
-            cat /proc/sys/net/netfilter/nf_conntrack_count 2>&1 || echo "sin nf_conntrack_count"
-
-            echo "--- docker info rapido (sin exec) ---"
-            timeout 10 docker ps --format '{{.Names}} {{.Status}}' | grep -E 'captain|commerce'
-
-            echo "--- top procesos por memoria ---"
-            ps aux --sort=-%mem 2>&1 | head -12
-
-            echo "--- dmesg reciente (oom/throttle/conntrack full) ---"
-            sudo dmesg -T 2>&1 | tail -40
+            echo "--- logrotate existente para nginx/docker ---"
+            ls /etc/logrotate.d/ 2>&1 | grep -iE "docker|nginx" || echo "sin logrotate especifico"
