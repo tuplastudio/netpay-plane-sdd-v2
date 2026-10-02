@@ -1,4 +1,4 @@
-name: One-off - diagnostico firewall/fail2ban (reset externo)
+name: One-off - diagnostico firewall/fail2ban (reset externo, verificacion 2)
 
 on:
   push:
