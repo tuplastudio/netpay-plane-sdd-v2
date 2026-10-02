@@ -31,3 +31,10 @@ jobs:
 
             echo "--- logrotate existente para nginx/docker ---"
             ls /etc/logrotate.d/ 2>&1 | grep -iE "docker|nginx" || echo "sin logrotate especifico"
+
+            echo "--- contenido /captain/data/shared-logs ---"
+            sudo ls -la /captain/data/shared-logs/ 2>&1
+            echo "--- muestra de un log (si existe) ---"
+            sudo find /captain/data/shared-logs -maxdepth 2 -iname "*.log" 2>&1 | head -5
+            F=$(sudo find /captain/data/shared-logs -maxdepth 2 -iname "*.log" 2>&1 | head -1)
+            [ -n "$F" ] && sudo tail -5 "$F" 2>&1
