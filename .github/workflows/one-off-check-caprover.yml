@@ -57,3 +57,18 @@ jobs:
             echo "--- disco y memoria ---"
             df -h / 2>&1 | tail -1
             free -h 2>&1 | head -2
+
+            echo "--- asegurar replicas captain arriba ---"
+            for SVC in captain-captain captain-nginx captain-certbot; do
+              REPLICAS=$(docker service ls --filter name="$SVC" --format '{{.Replicas}}' 2>&1)
+              echo "$SVC: $REPLICAS"
+              if ! echo "$REPLICAS" | grep -qE '^([1-9][0-9]*)/\1$'; then
+                echo "$SVC no esta al 100%, forzando restart"
+                docker service update --force "$SVC" >/dev/null 2>&1 && echo "$SVC: restart disparado" || echo "$SVC: fallo restart"
+              fi
+            done
+
+            echo "--- estado final (tras posible restart) ---"
+            sleep 5
+            docker service ls 2>&1 | grep -i captain
+            curl -sk -o /dev/null -w 'healthz final: HTTP %{http_code}\n' https://api-easysell.tupla.dev/api/v1/healthz --max-time 10 2>&1 || echo "fallo curl final"
