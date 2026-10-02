@@ -1,4 +1,4 @@
-name: One-off - buscar reglas deny/geo-block especificas
+name: One-off - nginx error log y config TLS
 
 on:
   push:
@@ -21,21 +21,18 @@ jobs:
           command_timeout: 3m
           script: |
             set -uo pipefail
-            echo "--- ufw status numbered COMPLETO ---"
-            sudo ufw status numbered 2>&1
+            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
+            echo "--- nginx error.log (tail 100) ---"
+            docker exec "$NGX" sh -c 'find /var/log/nginx -iname "error*" -exec tail -n 100 {} \;' 2>&1
 
-            echo "--- reglas ufw crudas (user.rules) ---"
-            sudo grep -n "DROP\|REJECT\|DENY" /etc/ufw/user.rules 2>&1 | head -40
-            sudo grep -n "DROP\|REJECT\|DENY" /etc/ufw/user6.rules 2>&1 | head -40
+            echo "--- ssl_protocols / ssl_ciphers efectivos ---"
+            docker exec "$NGX" sh -c 'grep -rniE "ssl_protocol|ssl_ciphers|ssl_prefer" /etc/nginx/' 2>&1
 
-            echo "--- iptables -S completo (todas las cadenas) ---"
-            sudo iptables -S 2>&1 | grep -iE "DROP|REJECT" | head -40
+            echo "--- test handshake TLS1.3 explicito desde el droplet ---"
+            curl -skv --tlsv1.3 -o /dev/null https://api-easysell.tupla.dev/api/v1/healthz --max-time 10 2>&1 | grep -iE "SSL|TLS|HTTP|error|alert" | head -30
 
-            echo "--- geo/deny en configs nginx (captain.conf + manuales) ---"
-            sudo grep -rniE "deny |geo |geoip|limit_req|allow " /captain/generated/nginx/conf.d/ 2>&1 | head -40
+            echo "--- test con http2 explicito ---"
+            curl -skv --http2 -o /dev/null https://api-easysell.tupla.dev/api/v1/healthz --max-time 10 2>&1 | grep -iE "SSL|TLS|HTTP|error|alert|ALPN" | head -30
 
-            echo "--- ipset (listas de bloqueo) ---"
-            sudo ipset list -n 2>&1 || echo "sin ipset"
-
-            echo "--- crowdsec / otros WAF ---"
-            command -v cscli >/dev/null 2>&1 && sudo cscli decisions list 2>&1 | head -30 || echo "sin crowdsec"
+            echo "--- openssl s_client directo (ver cert chain / alertas) ---"
+            echo -e "GET / HTTP/1.1\r\nHost: captain.cx.tupla.dev\r\nConnection: close\r\n\r\n" | timeout 8 openssl s_client -connect 127.0.0.1:443 -servername captain.cx.tupla.dev 2>&1 | head -40
