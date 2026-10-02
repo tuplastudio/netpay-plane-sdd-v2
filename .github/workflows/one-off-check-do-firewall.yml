@@ -32,3 +32,18 @@ jobs:
 
           echo "--- rate limit / permisos del token ---"
           curl -s -o /dev/null -w 'HTTP %{http_code}\n' -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/account"
+
+          echo "--- estado de la cuenta (locked/warning/active) ---"
+          curl -s -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/account" | jq '.account | {status, email_verified, droplet_limit}'
+
+          echo "--- detalle droplet (locked, features, vpc) ---"
+          curl -s -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/droplets/$DROPLET_ID" | jq '.droplet | {id, name, status, locked, features, vpc_uuid}'
+
+          echo "--- load balancers de la cuenta ---"
+          curl -s -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/load_balancers" | jq -r '.load_balancers[]? | "name=\(.name) id=\(.id) status=\(.status) droplet_ids=\(.droplet_ids)"'
+
+          echo "--- ips flotantes/reservadas ---"
+          curl -s -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/reserved_ips" | jq -r '.reserved_ips[]? | "ip=\(.ip) droplet_id=\(.droplet.id // "sin asignar")"'
+
+          echo "--- eventos/acciones recientes del droplet ---"
+          curl -s -H "Authorization: Bearer $DO_API_TOKEN" "https://api.digitalocean.com/v2/droplets/$DROPLET_ID/actions?per_page=10" | jq -r '.actions[]? | "\(.started_at) \(.type) status=\(.status)"'
