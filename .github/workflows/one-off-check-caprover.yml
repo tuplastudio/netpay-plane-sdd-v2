@@ -1,4 +1,4 @@
-name: One-off - nginx error log y config TLS
+name: One-off - carga, conntrack y exec lento
 
 on:
   push:
@@ -18,21 +18,25 @@ jobs:
           host: ${{ secrets.APP_HOST }}
           username: ${{ secrets.APP_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 3m
+          command_timeout: 2m
           script: |
             set -uo pipefail
-            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
-            echo "--- nginx error.log (tail 100) ---"
-            docker exec "$NGX" sh -c 'find /var/log/nginx -iname "error*" -exec tail -n 100 {} \;' 2>&1
+            echo "--- uptime / load ---"
+            uptime
 
-            echo "--- ssl_protocols / ssl_ciphers efectivos ---"
-            docker exec "$NGX" sh -c 'grep -rniE "ssl_protocol|ssl_ciphers|ssl_prefer" /etc/nginx/' 2>&1
+            echo "--- memoria detallada ---"
+            free -h
+            cat /proc/meminfo | grep -iE "^MemAvailable|^MemFree|^SwapTotal|^Dirty"
 
-            echo "--- test handshake TLS1.3 explicito desde el droplet ---"
-            curl -skv --tlsv1.3 -o /dev/null https://api-easysell.tupla.dev/api/v1/healthz --max-time 10 2>&1 | grep -iE "SSL|TLS|HTTP|error|alert" | head -30
+            echo "--- conntrack (tabla NAT/firewall) ---"
+            cat /proc/sys/net/netfilter/nf_conntrack_max 2>&1 || echo "sin nf_conntrack_max"
+            cat /proc/sys/net/netfilter/nf_conntrack_count 2>&1 || echo "sin nf_conntrack_count"
 
-            echo "--- test con http2 explicito ---"
-            curl -skv --http2 -o /dev/null https://api-easysell.tupla.dev/api/v1/healthz --max-time 10 2>&1 | grep -iE "SSL|TLS|HTTP|error|alert|ALPN" | head -30
+            echo "--- docker info rapido (sin exec) ---"
+            timeout 10 docker ps --format '{{.Names}} {{.Status}}' | grep -E 'captain|commerce'
 
-            echo "--- openssl s_client directo (ver cert chain / alertas) ---"
-            echo -e "GET / HTTP/1.1\r\nHost: captain.cx.tupla.dev\r\nConnection: close\r\n\r\n" | timeout 8 openssl s_client -connect 127.0.0.1:443 -servername captain.cx.tupla.dev 2>&1 | head -40
+            echo "--- top procesos por memoria ---"
+            ps aux --sort=-%mem 2>&1 | head -12
+
+            echo "--- dmesg reciente (oom/throttle/conntrack full) ---"
+            sudo dmesg -T 2>&1 | tail -40
