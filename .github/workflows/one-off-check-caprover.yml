@@ -1,0 +1,52 @@
+name: One-off - diagnostico CapRover / captain-nginx (reset externo)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-off-check-caprover.yml"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    name: solo lectura
+    runs-on: ubuntu-latest
+    steps:
+      - name: diagnostico
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.APP_HOST }}
+          username: ${{ secrets.APP_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 3m
+          script: |
+            set -uo pipefail
+            echo "--- uptime / oom ---"
+            uptime
+            sudo dmesg -T 2>&1 | grep -iE 'out of memory|oom|killed process' | tail -20 || echo "sin OOM en dmesg"
+
+            echo "--- docker ps (captain + commerce) ---"
+            docker ps -a --format '{{.Names}}\t{{.Status}}\t{{.Image}}' | grep -E 'captain|commerce-api' || echo "sin contenedores"
+
+            echo "--- docker service ls ---"
+            docker service ls 2>&1
+
+            echo "--- ufw status ---"
+            sudo ufw status 2>&1 | head -30
+
+            NGX=$(docker ps --format '{{.Names}}' | grep captain-nginx | head -1)
+            echo "--- captain-nginx: ${NGX:-NO ENCONTRADO} ---"
+            if [ -n "$NGX" ]; then
+              echo "--- nginx -t ---"
+              docker exec "$NGX" nginx -t 2>&1
+              echo "--- logs captain-nginx (tail 80) ---"
+              docker logs "$NGX" --tail 80 2>&1
+              echo "--- procesos nginx dentro contenedor ---"
+              docker top "$NGX" 2>&1
+            fi
+
+            echo "--- curl local al dominio desde dentro del droplet ---"
+            curl -skv https://captain.cx.tupla.dev/ --max-time 10 2>&1 | tail -40
+
+            echo "--- memoria actual ---"
+            free -h
