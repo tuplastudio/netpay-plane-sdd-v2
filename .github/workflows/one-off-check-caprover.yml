@@ -48,10 +48,11 @@ jobs:
             sudo ls -la /captain/data/letencrypt/etc/live/ 2>&1
 
             echo "--- curl local a commerce-api (dentro de la red docker) ---"
-            cd /opt/netpay-build/infra 2>/dev/null && docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api wget -qO- --timeout=5 http://localhost:4000/health 2>&1 || echo "fallo curl interno"
+            cd /opt/netpay-build/infra 2>/dev/null && docker compose -f compose.prod.yaml --env-file .env.prod exec -T commerce-api node -e "fetch('http://localhost:4000/api/v1/healthz').then(r=>r.text().then(t=>console.log(r.status,t)))" 2>&1 || echo "fallo curl interno"
 
             echo "--- curl externo via dominio (desde el propio droplet) ---"
-            curl -sk -o /dev/null -w 'HTTP %{http_code} (%{time_total}s)\n' https://api-easysell.tupla.dev/health --max-time 10 2>&1 || echo "fallo curl externo"
+            curl -sk -o /dev/null -w 'HTTP %{http_code} (%{time_total}s)\n' https://api-easysell.tupla.dev/api/v1/healthz --max-time 10 2>&1 || echo "fallo curl externo"
+            curl -sk -o /dev/null -w 'captain dashboard: HTTP %{http_code} (%{time_total}s)\n' https://captain.cx.tupla.dev --max-time 10 2>&1 || echo "fallo curl dashboard"
 
             echo "--- disco y memoria ---"
             df -h / 2>&1 | tail -1
