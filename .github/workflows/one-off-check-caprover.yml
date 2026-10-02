@@ -1,4 +1,4 @@
-name: One-off - diagnostico firewall/fail2ban (reset externo, verificacion 2)
+name: One-off - buscar reglas deny/geo-block especificas
 
 on:
   push:
@@ -21,35 +21,21 @@ jobs:
           command_timeout: 3m
           script: |
             set -uo pipefail
-            echo "--- fail2ban ---"
-            if command -v fail2ban-client >/dev/null 2>&1; then
-              sudo fail2ban-client status 2>&1
-              for j in $(sudo fail2ban-client status 2>&1 | grep 'Jail list' | sed 's/.*://;s/,//g'); do
-                echo "-- jail $j --"
-                sudo fail2ban-client status "$j" 2>&1
-              done
-            else
-              echo "fail2ban no instalado"
-            fi
+            echo "--- ufw status numbered COMPLETO ---"
+            sudo ufw status numbered 2>&1
 
-            echo "--- iptables INPUT (resumen) ---"
-            sudo iptables -L INPUT -n -v --line-numbers 2>&1 | head -60
+            echo "--- reglas ufw crudas (user.rules) ---"
+            sudo grep -n "DROP\|REJECT\|DENY" /etc/ufw/user.rules 2>&1 | head -40
+            sudo grep -n "DROP\|REJECT\|DENY" /etc/ufw/user6.rules 2>&1 | head -40
 
-            echo "--- iptables DOCKER-USER (caprover a veces mete reglas aqui) ---"
-            sudo iptables -L DOCKER-USER -n -v --line-numbers 2>&1 | head -60
+            echo "--- iptables -S completo (todas las cadenas) ---"
+            sudo iptables -S 2>&1 | grep -iE "DROP|REJECT" | head -40
 
-            echo "--- conexiones activas puerto 443 ---"
-            sudo ss -tn state established '( dport = :443 or sport = :443 )' 2>&1 | head -30
-            echo "total conexiones 443:"
-            sudo ss -tn '( dport = :443 or sport = :443 )' 2>&1 | wc -l
+            echo "--- geo/deny en configs nginx (captain.conf + manuales) ---"
+            sudo grep -rniE "deny |geo |geoip|limit_req|allow " /captain/generated/nginx/conf.d/ 2>&1 | head -40
 
-            echo "--- doctl disponible? (cloud firewall de DO) ---"
-            if command -v doctl >/dev/null 2>&1; then
-              doctl compute firewall list 2>&1 | head -20
-            else
-              echo "doctl no instalado en el droplet"
-            fi
+            echo "--- ipset (listas de bloqueo) ---"
+            sudo ipset list -n 2>&1 || echo "sin ipset"
 
-            echo "--- caddy (netpay) activo? ---"
-            sudo systemctl status caddy --no-pager 2>&1 | head -15 || echo "sin systemd caddy"
-            sudo ss -tlnp 2>&1 | grep -E ':443|:80|:8443|:8080' || echo "sin listeners relevantes via ss"
+            echo "--- crowdsec / otros WAF ---"
+            command -v cscli >/dev/null 2>&1 && sudo cscli decisions list 2>&1 | head -30 || echo "sin crowdsec"
